@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// کتاب مکالمه — Backend proxy
+// کتاب مکالمه — Backend proxy (deploy this folder to Render)
 // ---------------------------------------------------------------------------
 import express from "express";
 import cors from "cors";
@@ -64,9 +64,9 @@ async function callOpenAI(prompt, maxTokens) {
     }),
   });
   const data = await r.json();
-  if (!r.ok) throw new Error(data?.error?.message || HTTP ${r.status});
+  if (!r.ok) throw new Error(data?.error?.message || OpenAI HTTP ${r.status});
   const text = data.choices?.[0]?.message?.content || "";
-  if (!text) throw new Error("Empty response");
+  if (!text) throw new Error("OpenAI returned empty response");
   return text;
 }
 
@@ -84,9 +84,9 @@ async function callDeepSeek(prompt, maxTokens) {
     }),
   });
   const data = await r.json();
-  if (!r.ok) throw new Error(data?.error?.message || HTTP ${r.status});
+  if (!r.ok) throw new Error(data?.error?.message || DeepSeek HTTP ${r.status});
   const text = data.choices?.[0]?.message?.content || "";
-  if (!text) throw new Error("Empty response");
+  if (!text) throw new Error("DeepSeek returned empty response");
   return text;
 }
 
