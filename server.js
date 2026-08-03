@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// کتاب مکالمه — Backend proxy (deploy this folder to Render)
+// کتاب مکالمه — Backend proxy
 // ---------------------------------------------------------------------------
 import express from "express";
 import cors from "cors";
@@ -16,11 +16,11 @@ const AI_PROVIDER_CHAIN = (process.env.AI_PROVIDER || "deepseek,openai")
   .filter((p) => ["deepseek", "openai"].includes(p));
 
 if (AI_PROVIDER_CHAIN.length === 0) {
-  console.warn("⚠️ No valid AI provider, defaulting to deepseek");
+  console.warn("No valid AI provider, defaulting to deepseek");
   AI_PROVIDER_CHAIN.push("deepseek");
 }
 
-app.get("/", (req, res) => res.send("🚀 Phrasebook backend is running"));
+app.get("/", (req, res) => res.send("Phrasebook backend is running"));
 app.get("/health", (req, res) => res.json({ ok: true, providers: AI_PROVIDER_CHAIN }));
 
 app.post("/api/generate", async (req, res) => {
@@ -33,13 +33,13 @@ app.post("/api/generate", async (req, res) => {
   const errors = [];
   for (const provider of AI_PROVIDER_CHAIN) {
     try {
-      console.log(🔄 Trying ${provider}...);
+      console.log(`Trying ${provider}...`);
       const text = await callProvider(provider, prompt, capped);
-      console.log(✅ ${provider} succeeded);
+      console.log(`${provider} succeeded`);
       return res.json({ text, provider });
     } catch (e) {
-      console.error(❌ ${provider} failed:, e.message);
-      errors.push(${provider}: ${e.message});
+      console.error(`${provider} failed:`, e.message);
+      errors.push(`${provider}: ${e.message}`);
     }
   }
   res.status(502).json({ error: errors.join(" | ") });
@@ -48,7 +48,7 @@ app.post("/api/generate", async (req, res) => {
 async function callProvider(provider, prompt, maxTokens) {
   if (provider === "openai") return callOpenAI(prompt, maxTokens);
   if (provider === "deepseek") return callDeepSeek(prompt, maxTokens);
-  throw new Error(Unknown provider "${provider}");
+  throw new Error(`Unknown provider "${provider}"`);
 }
 
 async function callOpenAI(prompt, maxTokens) {
@@ -56,7 +56,7 @@ async function callOpenAI(prompt, maxTokens) {
   if (!key) throw new Error("OPENAI_API_KEY not set");
   const r = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: Bearer ${key} },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
@@ -64,7 +64,7 @@ async function callOpenAI(prompt, maxTokens) {
     }),
   });
   const data = await r.json();
-  if (!r.ok) throw new Error(data?.error?.message || OpenAI HTTP ${r.status});
+  if (!r.ok) throw new Error(data?.error?.message || `OpenAI HTTP ${r.status}`);
   const text = data.choices?.[0]?.message?.content || "";
   if (!text) throw new Error("OpenAI returned empty response");
   return text;
@@ -74,9 +74,9 @@ async function callDeepSeek(prompt, maxTokens) {
   const key = process.env.DEEPSEEK_API_KEY;
   if (!key) throw new Error("DEEPSEEK_API_KEY not set");
   const baseUrl = process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com";
-  const r = await fetch(${baseUrl}/chat/completions, {
+  const r = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: Bearer ${key} },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
       model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       messages: [{ role: "user", content: prompt }],
@@ -84,12 +84,12 @@ async function callDeepSeek(prompt, maxTokens) {
     }),
   });
   const data = await r.json();
-  if (!r.ok) throw new Error(data?.error?.message || DeepSeek HTTP ${r.status});
+  if (!r.ok) throw new Error(data?.error?.message || `DeepSeek HTTP ${r.status}`);
   const text = data.choices?.[0]?.message?.content || "";
   if (!text) throw new Error("DeepSeek returned empty response");
   return text;
 }
 
 app.listen(PORT, () =>
-  console.log(🚀 Backend running on :${PORT} (providers: ${AI_PROVIDER_CHAIN.join(" → ")}))
+  console.log(`Backend running on :${PORT} (providers: ${AI_PROVIDER_CHAIN.join(" -> ")})`)
 );
