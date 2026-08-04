@@ -13,6 +13,27 @@ import { Star, MessageCircle, RotateCcw, Send, Check, X, BookOpen, Heart, Search
 // re-colors everything at once, no per-component edits needed.
 // ---------------------------------------------------------------------------
 // ============================================================
+// تابع ترجمه با Google Translate (رایگان، بدون نیاز به کلید API)
+// ============================================================
+async function translateWithGoogle(text, targetLang) {
+  if (!text || !targetLang) return text;
+  
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+  
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+    // استخراج متن ترجمه‌شده از پاسخ JSON
+    if (data && data[0]) {
+      return data[0].map(item => item[0]).join("");
+    }
+    return text;
+  } catch (error) {
+    console.error("خطا در ترجمه با گوگل:", error);
+    return text; // در صورت خطا، متن اصلی برگردانده می‌شود
+  }
+}
+// ============================================================
 // سرویس‌های ترجمه‌ی رایگان (با fallback خودکار)
 // ============================================================
 
@@ -151,6 +172,18 @@ const APP_FONT_SIZES = {
 
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
+
+const colors = {
+  paper: "var(--c-paper)",
+  paperDark: "var(--c-paperDark)",
+  ink: "var(--c-ink)",
+  inkSoft: "var(--c-inkSoft)",
+  gold: "var(--c-gold)",
+  goldSoft: "var(--c-goldSoft)",
+  teal: "var(--c-teal)",
+  rose: "var(--c-rose)",
+  cardBorder: "var(--c-cardBorder)",
+};
 
 const STORAGE_KEY = "phrasebook-state-v1";
 
