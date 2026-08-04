@@ -1,0 +1,16 @@
+name = "phrasebook-server"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# Non-secret config (visible in the dashboard, fine to keep here).
+# Which provider(s) to use, in order — same behavior as the old
+# server/.env.example. AvalAI is the default since it covers DeepSeek/OpenAI
+# behind one key.
+[vars]
+AI_PROVIDER = "avalai"
+AVALAI_MODEL = "deepseek-chat"
+# DEEPSEEK_MODEL = "deepseek-chat"
+# OPENAI_MODEL = "gpt-4o-mini"
+
+# API keys are NOT set here — set them as secrets instead (see README.md),
+# so they never end up in git or the dashboard's plain-text vars.

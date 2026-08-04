@@ -417,7 +417,7 @@ const speechController = (() => {
 // wired through `aiSettings.backendUrl`) but defaults to DEFAULT_BACKEND_URL
 // below — replace that with your own Render URL once it's deployed.
 // ---------------------------------------------------------------------------
-const DEFAULT_BACKEND_URL = "https://hope-5hqx.onrender.com";
+const DEFAULT_BACKEND_URL = "https://phrasebook-api.maryam-s-sharifiyan.workers.dev";
 
 async function callAI({ prompt, maxTokens, retries = 2, aiSettings }) {
   const base = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || DEFAULT_BACKEND_URL;
@@ -3288,6 +3288,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
           value={aiSettings.backendUrl}
           onChange={(e) => aiSettings.setBackendUrl(e.target.value)}
           placeholder="(تو نسخه‌ی تست غیرفعاله)"
+          disabled
           style={{
             width: "100%",
             border: `1px solid ${colors.cardBorder}`,
@@ -3296,7 +3297,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
             fontSize: 12,
             outline: "none",
             marginBottom: 6,
-            opacity: 1,
+            opacity: 0.6,
           }}
         />
         <p style={{ fontSize: 11, color: colors.inkSoft, lineHeight: 1.7 }}>
