@@ -3410,7 +3410,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       const lengthCfg = STORY_LENGTHS.find((l) => l.key === storyLength) || STORY_LENGTHS[1];
       const prompt = `Write ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}. The story MUST use each of these words naturally, about ${repeatCount} times each, spread across different sentences, grammatical forms, and (where the word allows it) different meanings/contexts: ${selectedWords.join(", ")}. Keep the story coherent and appropriately sized for that many repetitions. Organize the story into ${lengthCfg.paragraphs} paragraphs, ${lengthCfg.sentencesHint}.${translationInstruction} After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [${schemaSentence}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
 
-      const tokenBudget = Math.min(lengthCfg.tokens + langsForPrompt.length * 900, 8000);
+      const tokenBudget = Math.min(lengthCfg.tokens + langsForPrompt.length * 900, 16000);
       const res = await callAI({ prompt, maxTokens: tokenBudget, aiSettings });
       const cleaned = res.replace(/```json|```/g, "").trim();
       let parsed;
