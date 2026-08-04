@@ -13,6 +13,7 @@ import { Star, MessageCircle, RotateCcw, Send, Check, X, BookOpen, Heart, Search
 // re-colors everything at once, no per-component edits needed.
 // ---------------------------------------------------------------------------
 // ============================================================
+// ============================================================
 // تابع ترجمه با Google Translate (رایگان، بدون نیاز به کلید API)
 // ============================================================
 async function translateWithGoogle(text, targetLang) {
@@ -33,6 +34,75 @@ async function translateWithGoogle(text, targetLang) {
     return text; // در صورت خطا، متن اصلی برگردانده می‌شود
   }
 }
+
+// ============================================================
+// 👇 اینجا توابع جدید را اضافه کنید
+// ============================================================
+// ترجمه با LibreTranslate (رایگان، بدون محدودیت)
+async function translateWithLibreTranslate(text, targetLang) {
+  if (!text || !targetLang) return text;
+  
+  // لیست سرورهای عمومی LibreTranslate
+  const servers = [
+    'https://libretranslate.com',
+    'https://translate.argosopentech.com',
+    'https://translate.terraprint.co'
+  ];
+  
+  for (const server of servers) {
+    try {
+      const url = `${server}/translate`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          q: text,
+          source: 'auto',
+          target: targetLang,
+          format: 'text'
+        })
+      });
+      
+      if (!response.ok) continue;
+      
+      const data = await response.json();
+      if (data && data.translatedText) {
+        return data.translatedText;
+      }
+    } catch (error) {
+      console.log(`خطا در سرور ${server}:`, error);
+      continue;
+    }
+  }
+  
+  return null; // در صورت خطا در همه سرورها
+}
+
+// تابع ترکیبی - اول LibreTranslate، در صورت خطا Google Translate
+async function translateText(text, targetLang) {
+  if (!text || !targetLang) return text;
+  
+  // اول سعی با LibreTranslate
+  try {
+    const result = await translateWithLibreTranslate(text, targetLang);
+    if (result) return result;
+  } catch (e) {
+    console.log('خطا در LibreTranslate، استفاده از Google Translate:', e);
+  }
+  
+  // در صورت خطا، برگشت به Google Translate
+  try {
+    return await translateWithGoogle(text, targetLang);
+  } catch (e) {
+    console.error('خطا در هر دو سرویس ترجمه:', e);
+    return text;
+  }
+}
+// ============================================================
+
 const colors = {
   paper: "var(--c-paper)",
   paperDark: "var(--c-paperDark)",
@@ -3607,66 +3677,76 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       const storyParagraphs = parsed.paragraphs || [];
       
       // ============================================================
-      // 🔥 ترجمه با Google Translate (جدا از هوش مصنوعی)
-      // ============================================================
-      if (translationLangs.length > 0 && storyParagraphs.length > 0) {
-        const translatedParagraphs = await Promise.all(
-          storyParagraphs.map(async (paragraph) => {
-            const sentences = paragraph.sentences || [];
-            const translatedSentences = await Promise.all(
-              sentences.map(async (sentence) => {
-                const text = sentence.text || "";
-                const translations = {};
-                
-                for (const langCode of translationLangs) {
-                  try {
-                    translations[langCode] = await translateWithGoogle(text, langCode);
-                  } catch (e) {
-                    translations[langCode] = text;
-                  }
-                }
-                
-                return {
-                  ...sentence,
-                  t: translations
-                };
-              })
-            );
-            
-            return {
-              ...paragraph,
-              sentences: translatedSentences
-            };
-          })
-        );
-        
-        setParagraphs(translatedParagraphs);
-      } else {
-        setParagraphs(storyParagraphs);
-      }
+// 🔥 ترجمه با LibreTranslate (اولویت اول) + Google Translate (پشتیبان)
+// ============================================================
+if (translationLangs.length > 0 && storyParagraphs.length > 0) {
+  // به کاربر نشان بده که ترجمه در حال انجام است
+  setError('در حال ترجمه داستان به زبان‌های انتخاب شده...');
+  
+  const translatedParagraphs = await Promise.all(
+    storyParagraphs.map(async (paragraph) => {
+      const sentences = paragraph.sentences || [];
       
-      setQuestions(Array.isArray(parsed.questions) ? parsed.questions : []);
+      // استفاده از Promise.allSettled برای جلوگیری از توقف کل ترجمه در صورت خطای یک جمله
+      const translatedResults = await Promise.allSettled(
+        sentences.map(async (sentence) => {
+          const text = sentence.text || "";
+          const translations = {};
+          
+          // ترجمه به هر زبان انتخاب شده
+          for (const langCode of translationLangs) {
+            try {
+              // استفاده از تابع ترکیبی (اول LibreTranslate، سپس Google)
+              translations[langCode] = await translateText(text, langCode);
+            } catch (e) {
+              // در صورت خطا، متن اصلی برگردانده شود
+              translations[langCode] = text;
+            }
+          }
+          
+          return {
+            ...sentence,
+            t: translations
+          };
+        })
+      );
       
-      if (savedStoryWords.length) {
-        try {
-          const remaining = loadSavedStoryWords().filter((e) => e.langCode !== storyLang);
-          window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(remaining));
-          window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
-        } catch {}
-      }
-    } catch (e) {
-      const msg = String(e?.message || "");
-      if (msg.startsWith("ai-backend-error:")) {
-        setError(`خطای سرور: ${msg.replace("ai-backend-error: ", "")}`);
-      } else if (msg.startsWith("parse-error:")) {
-        setError(msg.replace("parse-error: ", ""));
-      } else {
-        setError(`خطای اتصال: ${msg || "دلیل نامشخص"}`);
-      }
-    } finally {
-      setGenerating(false);
-    }
-  };
+      // تبدیل نتایج Promise.allSettled به فرمت مناسب
+      const translatedSentences = translatedResults.map((result, index) => {
+        if (result.status === 'fulfilled') {
+          return result.value; // ترجمه موفق
+        } else {
+          // در صورت خطا، جمله اصلی را با ترجمه‌های خالی برگردان
+          const originalSentence = sentences[index];
+          return {
+            ...originalSentence,
+            t: {}
+          };
+        }
+      });
+      
+      return {
+        ...paragraph,
+        sentences: translatedSentences
+      };
+    })
+  );
+  
+  setParagraphs(translatedParagraphs);
+  setError(''); // پاک کردن پیام
+} else {
+  setParagraphs(storyParagraphs);
+}
+
+setQuestions(Array.isArray(parsed.questions) ? parsed.questions : []);
+
+if (savedStoryWords.length) {
+  try {
+    const remaining = loadSavedStoryWords().filter((e) => e.langCode !== storyLang);
+    window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(remaining));
+    window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
+  } catch {}
+}
   const saveCurrentStory = () => {
     if (!paragraphs.length) return;
     const entry = {
