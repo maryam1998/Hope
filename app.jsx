@@ -2911,7 +2911,10 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
 }
 
 function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo }) {
-  const storyLangOptions = LANGUAGES.filter((l) => l.code !== nativeLang).map((l) => l.code);
+  // Story language & translation languages are driven by whatever the user
+  // already picked at the top of the app (native language + target
+  // languages) — no separate picker duplicated here.
+  const storyLangOptions = (targetOrder && targetOrder.length ? targetOrder : LANGUAGES.filter((l) => l.code !== nativeLang).map((l) => l.code));
   // Default to whatever language the user is already studying in the main
   // Phrasebook tab (targetOrder[0]) instead of always defaulting to English —
   // the pill selector below still lets them switch to any language freely.
@@ -2941,7 +2944,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [vocabQuery, setVocabQuery] = useState("");
   const [paragraphs, setParagraphs] = useState([]); // [{ sentences: [{text, t:{lang:text}}] }]
   const [translationLangs, setTranslationLangs] = useState(
-    [nativeLang].filter((c) => c !== defaultStoryLang)
+    Array.from(new Set([nativeLang, ...(targetOrder || [])])).filter((c) => c !== defaultStoryLang)
   );
   const [granularity, setGranularity] = useState("sentence"); // "sentence" | "paragraph" | "none"
   const [questions, setQuestions] = useState([]);
@@ -3082,7 +3085,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
 
   // any language in the app can be a translation target — the story is
   // always AI-generated fresh, so it isn't limited to the static phrase data
-  const translationLangOptions = LANGUAGES.map((l) => l.code).filter((c) => c !== storyLang);
+  const translationLangOptions = Array.from(new Set([nativeLang, ...(targetOrder || [])])).filter((c) => c !== storyLang);
 
   const toggleTranslationLang = (code) => {
     setTranslationLangs((prev) =>
@@ -3325,59 +3328,38 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       ) : (
         <>
       <div
-        style={{ backgroundColor: colors.paper, border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 14 }}
-      >
-        <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>موتور هوش مصنوعی</p>
-        <p style={{ fontSize: 12, color: colors.inkSoft, lineHeight: 1.7, marginBottom: 8 }}>
-          نسخه‌ی تستِ این آرتیفکت مستقیم به API آنتروپیک وصل می‌شه (چون محیط چت فقط همین آدرس رو
-          اجازه می‌ده). نسخه‌ی واقعی پروژه (فایل zip) به بک‌اند خودت وصل می‌شه که از DeepSeek و
-          ChatGPT (OpenAI) استفاده می‌کنه — این فیلد فقط اونجا کاربرد داره.
-        </p>
-        <input
-          value={aiSettings.backendUrl}
-          onChange={(e) => aiSettings.setBackendUrl(e.target.value)}
-          placeholder="(تو نسخه‌ی تست غیرفعاله)"
-          disabled
-          style={{
-            width: "100%",
-            border: `1px solid ${colors.cardBorder}`,
-            borderRadius: 10,
-            padding: "8px 10px",
-            fontSize: 12,
-            outline: "none",
-            marginBottom: 6,
-            opacity: 0.6,
-          }}
-        />
-        <p style={{ fontSize: 11, color: colors.inkSoft, lineHeight: 1.7 }}>
-          به‌صورت پیش‌فرض به سرور خودمون وصل می‌شه. این کادر فقط برای وقتیه که بک‌اند خودتو جای دیگه دیپلوی کردی.
-        </p>
-      </div>
-
-      <div
         style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }}
       >
         <p style={{ fontWeight: 700, marginBottom: 10 }}>۱. زبان و سطح داستان</p>
-        <div
-          style={{
-            backgroundColor: colors.ink,
-            borderRadius: 14,
-            padding: 12,
-            marginBottom: 12,
-          }}
-        >
-          <p style={{ fontSize: 12, color: colors.paperDark, marginBottom: 8 }}>زبان داستان</p>
-          <div className="flex flex-wrap gap-2">
-            {storyLangOptions.map((code) => (
-              <LangStamp
-                key={code}
-                lang={LANGUAGES.find((l) => l.code === code)}
-                active={storyLang === code}
-                onClick={() => setStoryLang(code)}
-              />
-            ))}
-          </div>
-        </div>
+        {storyLangOptions.length > 1 ? (
+          <>
+            <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>
+              زبان داستان (از بین زبان‌های مقصدی که بالای صفحه انتخاب کردی)
+            </p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {storyLangOptions.map((code) => (
+                <button
+                  key={code}
+                  onClick={() => setStoryLang(code)}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 20,
+                    fontSize: 13,
+                    border: `1px solid ${storyLang === code ? colors.gold : colors.cardBorder}`,
+                    backgroundColor: storyLang === code ? colors.goldSoft : "white",
+                    color: colors.ink,
+                  }}
+                >
+                  {LANGUAGES.find((l) => l.code === code)?.label}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 10 }}>
+            زبان داستان: {storyLangLabel} (طبق زبان مقصدی که بالای صفحه انتخاب کردی)
+          </p>
+        )}
         <p style={{ fontSize: 12, color: colors.inkSoft, margin: "0 0 6px" }}>سطح داستان</p>
         <div className="flex flex-wrap gap-2 mb-1">
           {LEVELS.map((lv) => (
