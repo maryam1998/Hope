@@ -1,27 +1,107 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
-import { Star, MessageCircle, RotateCcw, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2 } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // DESIGN TOKENS — deliberately not Tailwind's default palette / fonts.
 // Inspired by old travel phrasebooks & passport stamps: ink on aged paper,
 // with a muted gold "stamp" accent for the active target language.
+//
+// Values are CSS custom-property references (not raw hex) so the whole app
+// can be re-themed live: every `colors.xxx` usage below still works exactly
+// as before (React accepts "var(--c-xxx)" as a normal color string), but
+// changing the variables on the root element (see ThemeStyle/APP_THEMES)
+// re-colors everything at once, no per-component edits needed.
 // ---------------------------------------------------------------------------
 const colors = {
-  paper: "#F1E8D6",
-  paperDark: "#E4D8BE",
-  ink: "#1C2541",
-  inkSoft: "#3A4566",
-  gold: "#B8862B",
-  goldSoft: "#DDBB77",
-  teal: "#2F6F62",
-  rose: "#9E3B3B",
-  cardBorder: "#C9BB98",
+  paper: "var(--c-paper)",
+  paperDark: "var(--c-paperDark)",
+  ink: "var(--c-ink)",
+  inkSoft: "var(--c-inkSoft)",
+  gold: "var(--c-gold)",
+  goldSoft: "var(--c-goldSoft)",
+  teal: "var(--c-teal)",
+  rose: "var(--c-rose)",
+  cardBorder: "var(--c-cardBorder)",
 };
 
-const fontFa = "'Vazirmatn', sans-serif";
-const fontLatin = "'Lora', serif";
+// Theme presets — each is a full set of the 9 tokens above. "vintage" is the
+// original look; the rest are alternate moods, all still checked for
+// readable contrast (dark ink/text tokens on light paper tokens, or the
+// reverse for "midnight").
+const APP_THEMES = {
+  vintage: {
+    label: "کلاسیک (پیش‌فرض)",
+    swatch: "#B8862B",
+    values: { paper: "#F1E8D6", paperDark: "#E4D8BE", ink: "#1C2541", inkSoft: "#3A4566", gold: "#B8862B", goldSoft: "#DDBB77", teal: "#2F6F62", rose: "#9E3B3B", cardBorder: "#C9BB98" },
+  },
+  ocean: {
+    label: "اقیانوسی",
+    swatch: "#1C7C93",
+    values: { paper: "#EAF4F4", paperDark: "#D7E9EA", ink: "#0F2A38", inkSoft: "#2A4E5C", gold: "#1C7C93", goldSoft: "#8FCBD8", teal: "#1C7C93", rose: "#B4533F", cardBorder: "#BBD6D8" },
+  },
+  forest: {
+    label: "جنگلی",
+    swatch: "#5C7A3A",
+    values: { paper: "#F1F0E4", paperDark: "#E2E0CC", ink: "#26321D", inkSoft: "#41522C", gold: "#8A6D2F", goldSoft: "#C9B77E", teal: "#5C7A3A", rose: "#9C4A3A", cardBorder: "#CBCBA8" },
+  },
+  rosewine: {
+    label: "گلبهی",
+    swatch: "#A34960",
+    values: { paper: "#F7EAEA", paperDark: "#EBD6D8", ink: "#3A1F26", inkSoft: "#5C3540", gold: "#A34960", goldSoft: "#E3AFBC", teal: "#6E5A78", rose: "#A34960", cardBorder: "#DDBFC4" },
+  },
+  midnight: {
+    label: "تیره (شب)",
+    swatch: "#D9A441",
+    values: { paper: "#1B1F2A", paperDark: "#262C3B", ink: "#F1E8D6", inkSoft: "#C9C2AE", gold: "#D9A441", goldSoft: "#8A6A2C", teal: "#5FA997", rose: "#D9776A", cardBorder: "#3A4258" },
+  },
+};
+
+// Font-family presets. Loaded in index.html via Google Fonts <link>.
+const APP_FONTS = {
+  default: { label: "پیش‌فرض", fa: "'Vazirmatn', sans-serif", latin: "'Lora', serif" },
+  modern: { label: "مدرن", fa: "'Vazirmatn', sans-serif", latin: "'Inter', sans-serif" },
+  classic: { label: "کلاسیک", fa: "'Noto Naskh Arabic', serif", latin: "'Merriweather', serif" },
+};
+
+// Font-size presets — applied as a CSS `zoom` on the app's root wrapper
+// (simplest way to scale an app that's built with fixed px sizes
+// throughout, without rewriting every fontSize to rem). Supported in
+// Chrome/Edge/Safari and current Firefox; on the rare browser without
+// `zoom` support the app still works, just always at 100% size.
+const APP_FONT_SIZES = {
+  small: { label: "کوچک", zoom: 0.9 },
+  medium: { label: "متوسط (پیش‌فرض)", zoom: 1 },
+  large: { label: "بزرگ", zoom: 1.15 },
+  xlarge: { label: "خیلی بزرگ", zoom: 1.3 },
+};
+
+const fontFa = "var(--font-fa)";
+const fontLatin = "var(--font-latin)";
 
 const STORAGE_KEY = "phrasebook-state-v1";
+
+// Appearance preferences (theme / font family / font size) — separate from
+// the per-account STORAGE_KEY above since these are device-level, not tied
+// to any one user, and should already apply on the login screen before
+// anyone's signed in.
+const APP_PREFS_KEY = "phrasebook-app-prefs";
+function loadAppPrefs() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(APP_PREFS_KEY) || "{}");
+    return {
+      theme: APP_THEMES[parsed.theme] ? parsed.theme : "vintage",
+      font: APP_FONTS[parsed.font] ? parsed.font : "default",
+      fontSize: APP_FONT_SIZES[parsed.fontSize] ? parsed.fontSize : "medium",
+    };
+  } catch (e) {
+    return { theme: "vintage", font: "default", fontSize: "medium" };
+  }
+}
+function saveAppPrefs(prefs) {
+  try {
+    localStorage.setItem(APP_PREFS_KEY, JSON.stringify(prefs));
+  } catch (e) {}
+}
 
 // Plain localStorage wrapper — works in any real browser (deployed site, PWA
 // on a phone, etc). `window.storage` from the Claude preview environment
@@ -2082,10 +2162,11 @@ const VOCAB = [
 // ---------------------------------------------------------------------------
 // UI helpers
 // ---------------------------------------------------------------------------
-function LangStamp({ lang, active, onClick }) {
+function LangStamp({ lang, active, onClick, disabled }) {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       style={{
         fontFamily: fontFa,
         width: 52,
@@ -2100,14 +2181,161 @@ function LangStamp({ lang, active, onClick }) {
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.3 : 1,
         transition: "background-color 0.15s, border-color 0.15s",
       }}
       aria-pressed={active}
-      title={lang.label}
+      title={disabled ? `${lang.label} (زبان مادری‌ته، نمی‌تونه هم‌زمان مقصد باشه)` : lang.label}
     >
       {lang.abbr}
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hamburger settings menu — theme color, font family, font size. Appears as
+// a dropdown panel from the header. Appearance prefs are device-level
+// (appPrefs/setAppPrefs, persisted via APP_PREFS_KEY) so they apply
+// immediately across the whole app, including the login screen.
+// ---------------------------------------------------------------------------
+function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const panelRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e) {
+      if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  const update = (key, value) => setAppPrefs((prev) => ({ ...prev, [key]: value }));
+
+  return (
+    <div style={{ position: "relative" }} ref={panelRef}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-label="تنظیمات"
+        title="تنظیمات"
+        style={{ color: colors.goldSoft, display: "flex" }}
+      >
+        <Menu size={20} />
+      </button>
+
+      {open && (
+        <div
+          dir="rtl"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 10px)",
+            left: 0,
+            width: 280,
+            maxHeight: "70vh",
+            overflowY: "auto",
+            backgroundColor: colors.paper,
+            color: colors.ink,
+            border: `1px solid ${colors.cardBorder}`,
+            borderRadius: 16,
+            padding: 16,
+            boxShadow: "0 12px 30px rgba(0,0,0,0.25)",
+            zIndex: 50,
+          }}
+        >
+          {/* Account */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>حساب کاربری</p>
+          <div className="flex items-center gap-2" style={{ marginBottom: 14 }}>
+            {user?.picture ? (
+              <img src={user.picture} alt="" style={{ width: 30, height: 30, borderRadius: "50%" }} />
+            ) : (
+              <div style={{ width: 30, height: 30, borderRadius: "50%", background: colors.gold, color: colors.paper, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, flexShrink: 0 }}>
+                {(user?.name || user?.email || "?").trim().charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div style={{ minWidth: 0 }}>
+              <p style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user?.name || "کاربر"}</p>
+              <p style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user?.email}</p>
+            </div>
+          </div>
+          <button
+            onClick={onLogout}
+            className="flex items-center gap-2"
+            style={{ fontSize: 12, color: colors.rose, marginBottom: 16 }}
+          >
+            <LogOut size={14} /> خروج از حساب
+          </button>
+
+          {/* Theme */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            <Palette size={14} /> رنگ و تم
+          </p>
+          <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
+            {Object.entries(APP_THEMES).map(([key, t]) => (
+              <button
+                key={key}
+                onClick={() => update("theme", key)}
+                title={t.label}
+                aria-pressed={appPrefs.theme === key}
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: "50%",
+                  backgroundColor: t.swatch,
+                  border: appPrefs.theme === key ? `3px solid ${colors.ink}` : `1px solid ${colors.cardBorder}`,
+                  flexShrink: 0,
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Font family */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            <Type size={14} /> نوع فونت
+          </p>
+          <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
+            {Object.entries(APP_FONTS).map(([key, f]) => (
+              <button
+                key={key}
+                onClick={() => update("font", key)}
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 20,
+                  fontSize: 12,
+                  border: `1px solid ${appPrefs.font === key ? colors.gold : colors.cardBorder}`,
+                  backgroundColor: appPrefs.font === key ? colors.goldSoft : "white",
+                  color: colors.ink,
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Font size */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>اندازه‌ی فونت</p>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(APP_FONT_SIZES).map(([key, s]) => (
+              <button
+                key={key}
+                onClick={() => update("fontSize", key)}
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 20,
+                  fontSize: 12,
+                  border: `1px solid ${appPrefs.fontSize === key ? colors.gold : colors.cardBorder}`,
+                  backgroundColor: appPrefs.fontSize === key ? colors.goldSoft : "white",
+                  color: colors.ink,
+                }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -4200,7 +4428,7 @@ function SavedWordsPanel({ onJumpToStory }) {
 // ---------------------------------------------------------------------------
 // Main App
 // ---------------------------------------------------------------------------
-function PhrasebookMain({ user, onLogout }) {
+function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [nativeLang, setNativeLang] = useState("fa");
   const [targetOrder, setTargetOrder] = useState(["en"]);
   const [favorites, setFavorites] = useState(new Set());
@@ -4373,9 +4601,7 @@ function PhrasebookMain({ user, onLogout }) {
                 {(user?.name || user?.email || "?").trim().charAt(0).toUpperCase()}
               </div>
             )}
-            <button onClick={onLogout} aria-label="خروج از حساب" style={{ color: colors.goldSoft, display: "flex" }}>
-              <LogOut size={18} />
-            </button>
+            <SettingsMenu appPrefs={appPrefs} setAppPrefs={setAppPrefs} user={user} onLogout={onLogout} />
           </div>
         </div>
         <p style={{ color: colors.goldSoft, fontSize: 13 }}>
@@ -4401,11 +4627,12 @@ function PhrasebookMain({ user, onLogout }) {
             زبان‌های مقصد (چند تا رو می‌تونی هم‌زمان انتخاب کنی)
           </p>
           <div className="flex gap-2 overflow-x-auto pb-1">
-            {PHRASEBOOK_LANGUAGES.filter((l) => l.code !== nativeLang).map((l) => (
+            {PHRASEBOOK_LANGUAGES.map((l) => (
               <LangStamp
                 key={l.code}
                 lang={l}
                 active={targetOrder.includes(l.code)}
+                disabled={l.code === nativeLang}
                 onClick={() => toggleTargetLang(l.code)}
               />
             ))}
@@ -5412,21 +5639,51 @@ function LoginScreen({ onAuthenticated }) {
 // -----------------------------------------------------------------------------
 export default function App() {
   const [user, setUser] = useState(() => readSession());
+  const [appPrefs, setAppPrefs] = useState(loadAppPrefs);
 
-  if (!user) {
-    return <LoginScreen onAuthenticated={setUser} />;
-  }
+  useEffect(() => saveAppPrefs(appPrefs), [appPrefs]);
+
+  const theme = APP_THEMES[appPrefs.theme].values;
+  const font = APP_FONTS[appPrefs.font];
+  const fontSize = APP_FONT_SIZES[appPrefs.fontSize];
+
+  // Sets the CSS custom properties every `colors.xxx` / fontFa / fontLatin
+  // reference resolves to, plus a `zoom` for the font-size preference — one
+  // wrapper, whole app re-themed, login screen included.
+  const rootStyle = {
+    "--c-paper": theme.paper,
+    "--c-paperDark": theme.paperDark,
+    "--c-ink": theme.ink,
+    "--c-inkSoft": theme.inkSoft,
+    "--c-gold": theme.gold,
+    "--c-goldSoft": theme.goldSoft,
+    "--c-teal": theme.teal,
+    "--c-rose": theme.rose,
+    "--c-cardBorder": theme.cardBorder,
+    "--font-fa": font.fa,
+    "--font-latin": font.latin,
+    zoom: fontSize.zoom,
+    minHeight: "100vh",
+  };
 
   return (
-    <PhrasebookMain
-      key={user.email}
-      user={user}
-      onLogout={() => {
-        clearSession();
-        if (user.provider === "google" && FIREBASE_ENABLED) firebaseSignOut();
-        setUser(null);
-      }}
-    />
+    <div style={rootStyle}>
+      {!user ? (
+        <LoginScreen onAuthenticated={setUser} />
+      ) : (
+        <PhrasebookMain
+          key={user.email}
+          user={user}
+          appPrefs={appPrefs}
+          setAppPrefs={setAppPrefs}
+          onLogout={() => {
+            clearSession();
+            if (user.provider === "google" && FIREBASE_ENABLED) firebaseSignOut();
+            setUser(null);
+          }}
+        />
+      )}
+    </div>
   );
 }
 
