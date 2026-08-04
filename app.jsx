@@ -33,91 +33,17 @@ async function translateWithGoogle(text, targetLang) {
     return text; // در صورت خطا، متن اصلی برگردانده می‌شود
   }
 }
-// ============================================================
-// سرویس‌های ترجمه‌ی رایگان (با fallback خودکار)
-// ============================================================
-
-// ۱. Google Translate (اولویت اول)
-async function translateWithGoogle(text, targetLang) {
-  if (!text || !targetLang) return null;
-  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
-    const data = await response.json();
-    if (data && data[0]) {
-      return data[0].map(item => item[0]).join("");
-    }
-    return null;
-  } catch (e) {
-    return null;
-  }
-}
-
-// ۲. LibreTranslate (اولویت دوم)
-async function translateWithLibre(text, targetLang) {
-  if (!text || !targetLang) return null;
-  const url = "https://libretranslate.com/translate";
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        q: text,
-        source: "auto",
-        target: targetLang,
-        format: "text"
-      }),
-      signal: AbortSignal.timeout(5000)
-    });
-    const data = await response.json();
-    return data.translatedText || null;
-  } catch (e) {
-    return null;
-  }
-}
-
-// ۳. MyMemory Translate (اولویت سوم)
-async function translateWithMyMemory(text, targetLang) {
-  if (!text || !targetLang) return null;
-  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=auto|${targetLang}`;
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
-    const data = await response.json();
-    if (data && data.responseData && data.responseData.translatedText) {
-      return data.responseData.translatedText;
-    }
-    return null;
-  } catch (e) {
-    return null;
-  }
-}
-
-// تابع اصلی ترجمه با fallback خودکار
-async function translateText(text, targetLang) {
-  if (!text || !targetLang) return text;
-  
-  // اگر زبان مقصد با زبان مبدأ یکی است، ترجمه نکن
-  if (targetLang === "fa") {
-    // برای فارسی، از Google استفاده کن
-    const result = await translateWithGoogle(text, targetLang);
-    if (result) return result;
-  }
-  
-  // اول: Google Translate
-  let result = await translateWithGoogle(text, targetLang);
-  if (result) return result;
-  
-  // دوم: LibreTranslate
-  result = await translateWithLibre(text, targetLang);
-  if (result) return result;
-  
-  // سوم: MyMemory
-  result = await translateWithMyMemory(text, targetLang);
-  if (result) return result;
-  
-  // در صورت شکست همه، متن اصلی برگردانده می‌شود
-  return text;
-}
+const colors = {
+  paper: "var(--c-paper)",
+  paperDark: "var(--c-paperDark)",
+  ink: "var(--c-ink)",
+  inkSoft: "var(--c-inkSoft)",
+  gold: "var(--c-gold)",
+  goldSoft: "var(--c-goldSoft)",
+  teal: "var(--c-teal)",
+  rose: "var(--c-rose)",
+  cardBorder: "var(--c-cardBorder)",
+};
 
 // Theme presets — each is a full set of the 9 tokens above. "vintage" is the
 // original look; the rest are alternate moods, all still checked for
@@ -172,18 +98,6 @@ const APP_FONT_SIZES = {
 
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
-
-const colors = {
-  paper: "var(--c-paper)",
-  paperDark: "var(--c-paperDark)",
-  ink: "var(--c-ink)",
-  inkSoft: "var(--c-inkSoft)",
-  gold: "var(--c-gold)",
-  goldSoft: "var(--c-goldSoft)",
-  teal: "var(--c-teal)",
-  rose: "var(--c-rose)",
-  cardBorder: "var(--c-cardBorder)",
-};
 
 const STORAGE_KEY = "phrasebook-state-v1";
 
@@ -349,71 +263,21 @@ const POS_FA = {
 
 // Locale codes used for browser text-to-speech per language.
 const TTS_LOCALE = {
-  fa: "fa-IR",        // فارسی
-  en: "en-US",        // انگلیسی (آمریکایی)
-  de: "de-DE",        // آلمانی
-  es: "es-ES",        // اسپانیایی
-  fr: "fr-FR",        // فرانسوی
-  ar: "ar-SA",        // عربی (عربستان)
-  tr: "tr-TR",        // ترکی
-  zh: "zh-CN",        // چینی (ساده‌شده)
-  ru: "ru-RU",        // روسی
-  it: "it-IT",        // ایتالیایی
-  ko: "ko-KR",        // کره‌ای
-  ja: "ja-JP",        // ژاپنی
-  hi: "hi-IN",        // هندی
-  ga: "ga-IE",        // ایرلندی
-  uk: "uk-UA",        // اوکراینی
-  pt: "pt-PT",        // پرتغالی (اروپایی)
-  pt_BR: "pt-BR",     // پرتغالی (برزیلی)
-  nl: "nl-NL",        // هلندی
-  pl: "pl-PL",        // لهستانی
-  sv: "sv-SE",        // سوئدی
-  no: "no-NO",        // نروژی
-  da: "da-DK",        // دانمارکی
-  fi: "fi-FI",        // فنلاندی
-  el: "el-GR",        // یونانی
-  he: "he-IL",        // عبری
-  hu: "hu-HU",        // مجارستانی
-  ro: "ro-RO",        // رومانیایی
-  cs: "cs-CZ",        // چکی
-  sk: "sk-SK",        // اسلواکی
-  bg: "bg-BG",        // بلغاری
-  sr: "sr-RS",        // صربی
-  hr: "hr-HR",        // کرواتی
-  sl: "sl-SI",        // اسلوونیایی
-  et: "et-EE",        // استونیایی
-  lv: "lv-LV",        // لتونیایی
-  lt: "lt-LT",        // لیتوانیایی
-  ms: "ms-MY",        // مالایی
-  id: "id-ID",        // اندونزیایی
-  tl: "tl-PH",        // تاگالوگ (فیلیپینی)
-  th: "th-TH",        // تایلندی
-  vi: "vi-VN",        // ویتنامی
-  km: "km-KH",        // خمری (کامبوجی)
-  my: "my-MM",        // برمه‌ای
-  mn: "mn-MN",        // مغولی
-  az: "az-AZ",        // ترکی آذربایجانی
-  ka: "ka-GE",        // گرجی
-  hy: "hy-AM",        // ارمنی
-  ur: "ur-PK",        // اردو
-  bn: "bn-BD",        // بنگالی
-  ta: "ta-IN",        // تامیلی
-  te: "te-IN",        // تلوگو
-  ml: "ml-IN",        // مالایالم
-  kn: "kn-IN",        // کانارا
-  mr: "mr-IN",        // مراتی
-  ne: "ne-NP",        // نپالی
-  si: "si-LK",        // سینهالی
-  am: "am-ET",        // امهری
-  sw: "sw-KE",        // سواحیلی
-  ha: "ha-NG",        // هوسا
-  yo: "yo-NG",        // یوروبا
-  ig: "ig-NG",        // ایگبو
-  zu: "zu-ZA",        // زولو
-  af: "af-ZA",        // آفریکانس
-  eo: "eo-EO",        // اسپرانتو (در صورت وجود)
-  la: "la-VA",        // لاتین (واتیکان)
+  fa: "fa-IR",
+  en: "en-US",
+  de: "de-DE",
+  es: "es-ES",
+  fr: "fr-FR",
+  ar: "ar-SA",
+  tr: "tr-TR",
+  zh: "zh-CN",
+  ru: "ru-RU",
+  it: "it-IT",
+  ko: "ko-KR",
+  ja: "ja-JP",
+  hi: "hi-IN",
+  ga: "ga-IE",
+  uk: "uk-UA",
 };
 
 function downloadTextFile(filename, content, mime = "text/markdown;charset=utf-8") {
@@ -487,16 +351,16 @@ const FALLBACK_CHARS_PER_SEC = 13;
 
 const speechController = (() => {
   let fullText = "";
-  let words = [];
-  let key = null;
+  let words = []; // [{start, end}] char offsets into fullText
+  let key = null; // `${locale}::${text}` — identifies what's currently loaded
   let locale = "en-US";
   let status = "idle"; // "idle" | "playing" | "paused"
-  let wordIndex = 0;
-  let segmentStartOffset = 0;
-  let segmentStartTime = 0;
-  let boundaryFired = false;
-  let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1;
-  let currentUtterance = null;
+  let wordIndex = 0; // best-known current word position
+  let segmentStartOffset = 0; // char offset into fullText where the current utterance began
+  let segmentStartTime = 0; // Date.now() when the current utterance began
+  let boundaryFired = false; // whether onboundary has fired at least once for the current utterance
+  let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1; // 0.5 (slow) .. 2 (fast), 1 = normal
+  let currentUtterance = null; // برای نگهداری reference صدای فعلی
   const listeners = new Set();
 
   function notify() {
@@ -525,12 +389,12 @@ const speechController = (() => {
     return wordIndexForCharOffset(Math.min(estOffset, fullText.length - 1));
   }
 
-  // 🔥 انتخاب بهترین صدا برای هر زبان
+  // 🔥 انتخاب صدای بهتر (Google Voices در کروم/اج)
   function getBestVoice(langCode) {
     const voices = window.speechSynthesis.getVoices();
     const langPrefix = langCode.split("-")[0];
     
-    // اولویت ۱: صدای Google با کیفیت بالا
+    // اولویت ۱: صدای Google با کیفیت بالا (زنانه یا مردانه)
     let preferred = voices.find(v => 
       v.lang.startsWith(langPrefix) && 
       (v.name.includes("Google") || v.name.includes("Natural")) &&
@@ -545,11 +409,11 @@ const speechController = (() => {
       );
     }
     
-    // اولویت ۳: صدای با کیفیت بالا
+    // اولویت ۳: هر صدای با کیفیت بالا
     if (!preferred) {
       preferred = voices.find(v => 
         v.lang.startsWith(langPrefix) && 
-        (v.name.includes("Enhanced") || v.name.includes("Premium") || v.name.includes("High Quality"))
+        (v.name.includes("Enhanced") || v.name.includes("Premium"))
       );
     }
     
@@ -569,7 +433,7 @@ const speechController = (() => {
       return;
     }
 
-    // 🔥 اگر در حالت paused هستیم و forceRestart = false، از همان نقطه ادامه بده
+    // اگر در حالت paused هستیم و forceRestart = false، از همان نقطه ادامه بده
     if (status === "paused" && !forceRestart) {
       const baseOffset = words[wordIndex].start;
       segmentStartOffset = baseOffset;
@@ -664,10 +528,8 @@ const speechController = (() => {
       try {
         if (!("speechSynthesis" in window) || !text) return "unsupported";
         
-        // 🔥 تنظیم locale بر اساس کد زبان
         let newLocale = TTS_LOCALE[code] || "en-US";
-        
-        // 🔥 اگر زبان فارسی است و صدای فارسی موجود نیست، از صدای عربی استفاده کن
+        // اگر زبان فارسی است و صدای فارسی موجود نیست، از صدای عربی استفاده کن
         if (code === "fa") {
           const voices = window.speechSynthesis.getVoices();
           const hasPersianVoice = voices.some(v => v.lang.startsWith("fa"));
@@ -679,7 +541,7 @@ const speechController = (() => {
         
         const newKey = `${newLocale}::${text}`;
 
-        // 🔥 اگر همان متن در حال پخش است، توقف/ادامه
+        // اگر همان متن در حال پخش است و دکمه زده شده، توقف/ادامه
         if (key === newKey && status === "playing") {
           wordIndex = estimateWordIndex();
           try {
@@ -3680,40 +3542,28 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     setTranslateNote("");
     setWordTranslating(true);
     try {
-      // 🔥 تغییر: از سرویس‌های رایگان برای ترجمه استفاده کن (نه هوش مصنوعی)
-      // ابتدا تشخیص بده که کاربر به چه زبانی نوشته
-      // سعی کن با Google Translate تشخیص بدی
-      let translated = w;
-      let detectedLang = "auto";
-      
-      // اگر کلمه به زبان مقصد نیست، ترجمه کن
-      // برای این کار از translateText استفاده می‌کنیم
-      const translatedToStoryLang = await translateText(w, storyLang);
-      
-      // اگر ترجمه با کلمه‌ی اصلی فرق داشت، یعنی نیاز به ترجمه داشته
-      if (translatedToStoryLang && translatedToStoryLang !== w) {
-        translated = translatedToStoryLang;
-        setTranslateNote(`«${w}» → «${translated}» اضافه شد (ترجمه با سرویس رایگان)`);
-      } else {
-        // اگر ترجمه نشد، همان کلمه رو اضافه کن
-        translated = w;
-        setTranslateNote(`«${w}» اضافه شد (بدون ترجمه)`);
-      }
-      
-      // اضافه کردن کلمه به لیست انتخاب‌شده
+      // The user can type the word in ANY language (usually their native
+      // one) — the story itself is written in storyLang, so the word list
+      // fed to the story generator must be in storyLang too. Translate it
+      // (a same-language word just comes back unchanged).
+      const prompt =
+        `Translate the following word or short phrase into ${storyLangLabel} (language code "${storyLang}"). ` +
+        `If it is already written in ${storyLangLabel}, return it as-is (fixing only obvious typos). ` +
+        `Respond with ONLY the translated word/phrase, nothing else — no quotes, no explanation, no extra punctuation.\n\n` +
+        `Word/phrase: "${w}"`;
+      const res = await callAI({ prompt, maxTokens: 60, aiSettings });
+      const translated = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim() || w;
       if (!selectedWords.includes(translated)) {
         setSelectedWords((prev) => [...prev, translated]);
-      } else {
-        setTranslateNote(`«${translated}» قبلاً در لیست هست`);
       }
-      
-      setTimeout(() => setTranslateNote(""), 3000);
+      if (normalizeWord(translated) !== normalizeWord(w)) {
+        setTranslateNote(`«${w}» → «${translated}» اضافه شد`);
+        setTimeout(() => setTranslateNote(""), 3000);
+      }
     } catch (e) {
-      // در صورت خطا، کلمه را به همان شکل اضافه کن
-      if (!selectedWords.includes(w)) {
-        setSelectedWords((prev) => [...prev, w]);
-      }
-      setTranslateNote(`ترجمه ناموفق بود؛ «${w}» به‌همون شکل اضافه شد`);
+      // translation failed — fall back to the raw word rather than losing the input
+      if (!selectedWords.includes(w)) setSelectedWords((prev) => [...prev, w]);
+      setTranslateNote(`ترجمه‌ی خودکار ناموفق بود؛ «${w}» به‌همون شکل اضافه شد`);
       setTimeout(() => setTranslateNote(""), 3000);
     } finally {
       setWordTranslating(false);
@@ -3738,7 +3588,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     setAnswers({});
     setSubmitted(false);
     try {
-      // 🔥 فقط داستان به زبان اصلی ساخته می‌شه (بدون درخواست ترجمه از هوش مصنوعی)
+      // 🔥 اینجا فقط داستان به زبان اصلی ساخته می‌شه (بدون درخواست ترجمه از هوش مصنوعی)
       const genre = CONTENT_TYPES.find((c) => c.key === contentType) || CONTENT_TYPES[0];
       const lengthCfg = STORY_LENGTHS.find((l) => l.key === storyLength) || STORY_LENGTHS[1];
       
@@ -3757,10 +3607,9 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       const storyParagraphs = parsed.paragraphs || [];
       
       // ============================================================
-      // 🔥 ترجمه با سرویس‌های رایگان (Google Translate + fallback)
+      // 🔥 ترجمه با Google Translate (جدا از هوش مصنوعی)
       // ============================================================
       if (translationLangs.length > 0 && storyParagraphs.length > 0) {
-        // ترجمه هر پاراگراف و هر جمله به زبان‌های انتخاب‌شده
         const translatedParagraphs = await Promise.all(
           storyParagraphs.map(async (paragraph) => {
             const sentences = paragraph.sentences || [];
@@ -3769,20 +3618,17 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
                 const text = sentence.text || "";
                 const translations = {};
                 
-                // ترجمه به هر زبان انتخاب‌شده با سرویس‌های رایگان
                 for (const langCode of translationLangs) {
                   try {
-                    // از تابع translateText استفاده کن که fallback داره
-                    const translated = await translateText(text, langCode);
-                    translations[langCode] = translated || text;
+                    translations[langCode] = await translateWithGoogle(text, langCode);
                   } catch (e) {
-                    translations[langCode] = text; // در صورت خطا، متن اصلی
+                    translations[langCode] = text;
                   }
                 }
                 
                 return {
                   ...sentence,
-                  t: translations // ترجمه‌ها در اینجا ذخیره می‌شوند
+                  t: translations
                 };
               })
             );
@@ -3801,7 +3647,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       
       setQuestions(Array.isArray(parsed.questions) ? parsed.questions : []);
       
-      // پاک کردن لغات ذخیره‌شده بعد از استفاده
       if (savedStoryWords.length) {
         try {
           const remaining = loadSavedStoryWords().filter((e) => e.langCode !== storyLang);
@@ -4384,52 +4229,42 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       </div>
 
       {translationLangOptions.length > 0 && (
-  <div className="mb-3" style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12, backgroundColor: colors.paper }}>
-    <div className="flex items-center justify-between mb-2">
-      <p style={{ fontSize: 12, color: colors.inkSoft }}>
-        🌍 داستان به چه زبان‌هایی ترجمه بشه؟ (هر تعداد که می‌خوای انتخاب کن — محدودیتی نیست)
-      </p>
-      <div className="flex gap-2">
-        <button onClick={selectAllTranslationLangs} style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}>
-          انتخاب همه
-        </button>
-        <button onClick={clearAllTranslationLangs} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
-          پاک کردن همه
-        </button>
-      </div>
-    </div>
-    <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 6 }}>
-      ✅ هر زبونی که انتخاب کنی، ترجمه‌ش با سرویس‌های رایگان انجام میشه و دکمه‌ی صوتی مخصوص خودش رو داره.
-    </p>
-    <div className="flex flex-wrap gap-2">
-      {translationLangOptions.map((code) => {
-        const isSelected = translationLangs.includes(code);
-        return (
-          <button
-            key={code}
-            onClick={() => toggleTranslationLang(code)}
-            style={{
-              padding: "6px 14px",
-              borderRadius: 20,
-              fontSize: 13,
-              fontWeight: isSelected ? 700 : 400,
-              border: `2px solid ${isSelected ? colors.gold : colors.cardBorder}`,
-              backgroundColor: isSelected ? colors.goldSoft : "white",
-              color: colors.ink,
-              transition: "all 0.2s ease",
-              boxShadow: isSelected ? "0 2px 8px rgba(184,134,43,0.25)" : "none",
-            }}
-          >
-            {LANGUAGES.find((l) => l.code === code)?.label}
-            {isSelected && (
-              <span style={{ marginRight: 4, fontSize: 11 }}>✓</span>
-            )}
-          </button>
-        );
-      })}
-    </div>
-  </div>
-)}
+        <div className="mb-3" style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12, backgroundColor: colors.paper }}>
+          <div className="flex items-center justify-between mb-2">
+            <p style={{ fontSize: 12, color: colors.inkSoft }}>
+              داستان همزمان به چه زبان‌هایی ترجمه بشه؟ (می‌تونی چند تا انتخاب کنی)
+            </p>
+            <div className="flex gap-2">
+              <button onClick={selectAllTranslationLangs} style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}>
+                انتخاب همه
+              </button>
+              <button onClick={clearAllTranslationLangs} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
+                پاک کردن همه
+              </button>
+            </div>
+          </div>
+          <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 6 }}>
+            ⚠️ هرچی زبون بیشتری انتخاب کنی، احتمال قطع‌شدن داستان وسط کار بیشتره — بهتره ۱ تا ۳ تا باشه.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {translationLangOptions.map((code) => (
+              <button
+                key={code}
+                onClick={() => toggleTranslationLang(code)}
+                style={{
+                  padding: "3px 10px",
+                  borderRadius: 20,
+                  fontSize: 12,
+                  border: `1px solid ${translationLangs.includes(code) ? colors.gold : colors.cardBorder}`,
+                  backgroundColor: translationLangs.includes(code) ? colors.goldSoft : "white",
+                }}
+              >
+                {LANGUAGES.find((l) => l.code === code)?.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <button
         onClick={generateStory}
@@ -4553,155 +4388,93 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
             </div>
           )}
 
-         <div className="flex flex-col gap-5">
-  {paragraphs.map((p, pi) => {
-    const paragraphText = p.sentences.map((s) => s.text).join(" ");
-    const showTranslations = granularity !== "none" && translationLangs.length > 0;
-    return (
-      <div key={pi} style={{ borderBottom: pi < paragraphs.length - 1 ? `1px dashed ${colors.cardBorder}` : "none", paddingBottom: 14 }}>
-        {granularity === "sentence" ? (
-          <div className="flex flex-col gap-3">
-            {p.sentences.map((s, si) => (
-              <div key={si}>
-                {/* جمله به زبان اصلی + دکمه صوتی */}
-                <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
-                  <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} />
-                  <p style={{ 
-                    fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, 
-                    fontSize: 15, 
-                    lineHeight: 1.8, 
-                    textAlign: RTL_LANGS.includes(storyLang) ? "right" : "left" 
-                  }}>
-                    <ClickableSentence
-                      text={s.text}
-                      langCode={storyLang}
-                      nativeLang={nativeLang}
-                      nativeLabel={nativeLabel}
-                      aiSettings={aiSettings}
-                      color={colors.ink}
-                    />
-                  </p>
-                </div>
-                
-                {/* ترجمه‌ها + دکمه صوتی برای هر کدام */}
-                {showTranslations &&
-                  translationLangs.map((code) => {
-                    const translationText = s.t?.[code];
-                    if (!translationText) return null;
-                    return (
-                      <div
-                        key={code}
-                        dir={dirFor(code)}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          marginTop: 3,
-                          marginRight: RTL_LANGS.includes(code) ? 26 : 0,
-                          marginLeft: RTL_LANGS.includes(code) ? 0 : 26,
-                          textAlign: RTL_LANGS.includes(code) ? "right" : "left",
-                        }}
-                      >
-                        <span style={{ 
-                          fontSize: 10, 
-                          color: colors.gold, 
-                          fontWeight: 700,
-                          minWidth: 30,
-                          flexShrink: 0
-                        }}>
-                          [{LANGUAGES.find(l => l.code === code)?.abbr || code}]
-                        </span>
-                        <SpeakButton 
-                          text={translationText} 
-                          code={code} 
-                          color={colors.teal} 
-                        />
-                        <p style={{ 
-                          fontSize: 13, 
-                          color: colors.inkSoft,
-                          fontFamily: code === "fa" ? fontFa : fontLatin,
-                          flex: 1
-                        }}>
-                          {translationText}
+          <div className="flex flex-col gap-5">
+            {paragraphs.map((p, pi) => {
+              const paragraphText = p.sentences.map((s) => s.text).join(" ");
+              const showTranslations = granularity !== "none" && translationLangs.length > 0;
+              return (
+                <div key={pi} style={{ borderBottom: pi < paragraphs.length - 1 ? `1px dashed ${colors.cardBorder}` : "none", paddingBottom: 14 }}>
+                  {granularity === "sentence" ? (
+                    <div className="flex flex-col gap-3">
+                      {p.sentences.map((s, si) => (
+                        <div key={si}>
+                          <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
+                            <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} />
+                            <p style={{ fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, fontSize: 15, lineHeight: 1.8, textAlign: RTL_LANGS.includes(storyLang) ? "right" : "left" }}>
+                              <ClickableSentence
+                                text={s.text}
+                                langCode={storyLang}
+                                nativeLang={nativeLang}
+                                nativeLabel={nativeLabel}
+                                aiSettings={aiSettings}
+                                color={colors.ink}
+                              />
+                            </p>
+                          </div>
+                          {showTranslations &&
+                            translationLangs.map((code) => (
+                              <p
+                                key={code}
+                                dir={dirFor(code)}
+                                style={{
+                                  fontSize: 13,
+                                  color: colors.inkSoft,
+                                  marginTop: 3,
+                                  marginRight: RTL_LANGS.includes(code) ? 26 : 0,
+                                  marginLeft: RTL_LANGS.includes(code) ? 0 : 26,
+                                  textAlign: RTL_LANGS.includes(code) ? "right" : "left",
+                                  fontFamily: code === "fa" ? fontFa : fontLatin,
+                                }}
+                              >
+                                <span style={{ fontSize: 10, color: colors.gold }}>[{code}]</span>{" "}
+                                {s.t?.[code] || (
+                                  <span style={{ color: colors.rose }}>(ترجمه برنگشت — دوباره داستان بساز)</span>
+                                )}
+                              </p>
+                            ))}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
+                        <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} />
+                        <p style={{ fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, fontSize: 15, lineHeight: 1.8, textAlign: RTL_LANGS.includes(storyLang) ? "right" : "left" }}>
+                          <ClickableSentence
+                            text={paragraphText}
+                            langCode={storyLang}
+                            nativeLang={nativeLang}
+                            nativeLabel={nativeLabel}
+                            aiSettings={aiSettings}
+                            color={colors.ink}
+                          />
                         </p>
                       </div>
-                    );
-                  })}
-              </div>
-            ))}
+                      {showTranslations &&
+                        translationLangs.map((code) => (
+                          <p
+                            key={code}
+                            dir={dirFor(code)}
+                            style={{
+                              fontSize: 13,
+                              color: colors.inkSoft,
+                              marginTop: 4,
+                              marginRight: RTL_LANGS.includes(code) ? 26 : 0,
+                              marginLeft: RTL_LANGS.includes(code) ? 0 : 26,
+                              textAlign: RTL_LANGS.includes(code) ? "right" : "left",
+                              fontFamily: code === "fa" ? fontFa : fontLatin,
+                            }}
+                          >
+                            <span style={{ fontSize: 10, color: colors.gold }}>[{code}]</span>{" "}
+                            {p.sentences.map((s) => s.t?.[code]).join(" ")}
+                          </p>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        ) : (
-          <div>
-            {/* نمایش پاراگراف + دکمه صوتی */}
-            <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
-              <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} />
-              <p style={{ 
-                fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, 
-                fontSize: 15, 
-                lineHeight: 1.8, 
-                textAlign: RTL_LANGS.includes(storyLang) ? "right" : "left" 
-              }}>
-                <ClickableSentence
-                  text={paragraphText}
-                  langCode={storyLang}
-                  nativeLang={nativeLang}
-                  nativeLabel={nativeLabel}
-                  aiSettings={aiSettings}
-                  color={colors.ink}
-                />
-              </p>
-            </div>
-            
-            {/* ترجمه پاراگراف + دکمه صوتی برای هر کدام */}
-            {showTranslations &&
-              translationLangs.map((code) => {
-                const translationText = p.sentences.map((s) => s.t?.[code] || "").join(" ");
-                if (!translationText.trim()) return null;
-                return (
-                  <div
-                    key={code}
-                    dir={dirFor(code)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      marginTop: 4,
-                      marginRight: RTL_LANGS.includes(code) ? 26 : 0,
-                      marginLeft: RTL_LANGS.includes(code) ? 0 : 26,
-                      textAlign: RTL_LANGS.includes(code) ? "right" : "left",
-                    }}
-                  >
-                    <span style={{ 
-                      fontSize: 10, 
-                      color: colors.gold, 
-                      fontWeight: 700,
-                      minWidth: 30,
-                      flexShrink: 0
-                    }}>
-                      [{LANGUAGES.find(l => l.code === code)?.abbr || code}]
-                    </span>
-                    <SpeakButton 
-                      text={translationText} 
-                      code={code} 
-                      color={colors.teal} 
-                    />
-                    <p style={{ 
-                      fontSize: 13, 
-                      color: colors.inkSoft,
-                      fontFamily: code === "fa" ? fontFa : fontLatin,
-                      flex: 1
-                    }}>
-                      {translationText}
-                    </p>
-                  </div>
-                );
-              })}
-          </div>
-        )}
-      </div>
-    );
-  })}
-</div>
 
           <div className="flex flex-wrap gap-2 mt-4" style={{ borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 10 }}>
             {selectedWords.map((w) => (
