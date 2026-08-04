@@ -13,27 +13,6 @@ import { Star, MessageCircle, RotateCcw, Send, Check, X, BookOpen, Heart, Search
 // re-colors everything at once, no per-component edits needed.
 // ---------------------------------------------------------------------------
 // ============================================================
-// تابع ترجمه با Google Translate (رایگان، بدون نیاز به کلید API)
-// ============================================================
-async function translateWithGoogle(text, targetLang) {
-  if (!text || !targetLang) return text;
-  
-  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
-  
-  try {
-    const response = await fetch(url);
-    const data = await response.json();
-    // استخراج متن ترجمه‌شده از پاسخ JSON
-    if (data && data[0]) {
-      return data[0].map(item => item[0]).join("");
-    }
-    return text;
-  } catch (error) {
-    console.error("خطا در ترجمه با گوگل:", error);
-    return text; // در صورت خطا، متن اصلی برگردانده می‌شود
-  }
-}
-// ============================================================
 // سرویس‌های ترجمه‌ی رایگان (با fallback خودکار)
 // ============================================================
 
