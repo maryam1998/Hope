@@ -13,25 +13,80 @@ import { Star, MessageCircle, RotateCcw, Send, Check, X, BookOpen, Heart, Search
 // re-colors everything at once, no per-component edits needed.
 // ---------------------------------------------------------------------------
 // ============================================================
-// تابع ترجمه با Google Translate (رایگان، بدون نیاز به کلید API)
+// ترجمه رایگان با چند سرویس پشت‌سرهم (بدون نیاز به کلید API)
+// اگه سرویس اول جواب نده یا خطا بده، خودکار میره سراغ سرویس بعدی.
+// ترتیب: Google Translate (بدون‌رسمی) → MyMemory → Lingva (پروکسی گوگل) → LibreTranslate
 // ============================================================
-async function translateWithGoogle(text, targetLang) {
-  if (!text || !targetLang) return text;
-  
-  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
-  
-  try {
-    const response = await fetch(url);
-    const data = await response.json();
-    // استخراج متن ترجمه‌شده از پاسخ JSON
-    if (data && data[0]) {
-      return data[0].map(item => item[0]).join("");
-    }
-    return text;
-  } catch (error) {
-    console.error("خطا در ترجمه با گوگل:", error);
-    return text; // در صورت خطا، متن اصلی برگردانده می‌شود
+
+// ۱) Google Translate — همون endpoint قدیمی و رایگان
+async function translateViaGoogle(text, targetLang, sourceLang = "auto") {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("google-http-" + response.status);
+  const data = await response.json();
+  if (data && data[0] && data[0].length) {
+    return data[0].map((item) => item[0]).join("");
   }
+  throw new Error("google-empty-response");
+}
+
+// ۲) MyMemory — کاملاً رایگان و بدون کلید، محدودیت روزانه دارد ولی جای خوبی برای fallback است
+async function translateViaMyMemory(text, targetLang, sourceLang = "auto") {
+  // MyMemory زبان مبدا "auto" را نمی‌شناسد؛ اگر مشخص نبود انگلیسی را حدس می‌زنیم
+  const sl = sourceLang && sourceLang !== "auto" ? sourceLang : "en";
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sl}|${targetLang}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("mymemory-http-" + response.status);
+  const data = await response.json();
+  const translated = data?.responseData?.translatedText;
+  if (!translated) throw new Error("mymemory-empty-response");
+  return translated;
+}
+
+// ۳) Lingva Translate — یک پروکسی متن‌باز و رایگان جلوی Google Translate
+async function translateViaLingva(text, targetLang, sourceLang = "auto") {
+  const url = `https://lingva.ml/api/v1/${sourceLang}/${targetLang}/${encodeURIComponent(text)}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("lingva-http-" + response.status);
+  const data = await response.json();
+  if (!data?.translation) throw new Error("lingva-empty-response");
+  return data.translation;
+}
+
+// ۴) LibreTranslate — سرویس متن‌باز رایگان (نمونه‌ی عمومی)
+async function translateViaLibre(text, targetLang, sourceLang = "auto") {
+  const response = await fetch("https://libretranslate.de/translate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ q: text, source: sourceLang || "auto", target: targetLang, format: "text" }),
+  });
+  if (!response.ok) throw new Error("libre-http-" + response.status);
+  const data = await response.json();
+  if (!data?.translatedText) throw new Error("libre-empty-response");
+  return data.translatedText;
+}
+
+// تابع اصلی: هر سرویس رو به‌ترتیب امتحان می‌کنه، به محض موفقیت نتیجه رو برمی‌گردونه.
+// اگه همه شکست خوردن، متن اصلی بدون تغییر برگردونده می‌شه (تا برنامه از کار نیفته).
+async function translateFree(text, targetLang, sourceLang = "auto") {
+  if (!text || !targetLang) return text;
+  const providers = [translateViaGoogle, translateViaMyMemory, translateViaLingva, translateViaLibre];
+  for (const provider of providers) {
+    try {
+      const result = await provider(text, targetLang, sourceLang);
+      if (result && result.trim()) return result;
+    } catch (error) {
+      console.warn(`ترجمه با ${provider.name} ناموفق بود، رفتن سراغ سرویس بعدی:`, error?.message || error);
+    }
+  }
+  console.error("همه‌ی سرویس‌های ترجمه‌ی رایگان شکست خوردند؛ متن اصلی برگردانده شد.");
+  return text; // اگر هیچ سرویسی جواب نداد، متن اصلی برگردانده می‌شود
+}
+
+// نگه‌داشته شده برای سازگاری با کدهای قبلی که این نام رو صدا می‌زدن —
+// حالا خودش زنجیره‌ی کامل fallback رو صدا می‌زنه.
+async function translateWithGoogle(text, targetLang) {
+  return translateFree(text, targetLang, "auto");
 }
 const colors = {
   paper: "var(--c-paper)",
@@ -3441,10 +3496,8 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     let meaning = newWordMeaning.trim();
     try {
       if (!meaning) {
-        const prompt =
-          `Give a short Persian (Farsi) meaning/translation for the ${storyLangLabel} word or phrase "${term}". ` +
-          `Respond with ONLY the Persian meaning, nothing else — no quotes, no explanation.`;
-        const res = await callAI({ prompt, maxTokens: 60, aiSettings });
+        // ترجمه با سرویس‌های رایگان (نه هوش مصنوعی) — همون زنجیره‌ی fallback
+        const res = await translateFree(term, "fa", storyLang);
         meaning = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim();
       }
     } catch (e) {
@@ -3475,21 +3528,19 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   };
 
   // Fills in a Persian meaning for every word in the active collection that
-  // doesn't have one yet — "translate based on the user's selection" (the
-  // collection's own language, storyLang), in one batched AI call.
+  // doesn't have one yet — via the free translation-service chain (not AI),
+  // one request per word, all in parallel.
   const handleTranslateAllMissing = async () => {
     if (!activeCollection) return;
     const missing = activeCollection.words.filter((w) => !w.meaning);
     if (!missing.length) return;
     setTranslatingAll(true);
     try {
-      const prompt =
-        `Give short Persian (Farsi) meanings for each of these ${storyLangLabel} words/phrases. ` +
-        `Respond with ONLY a JSON array of strings, in the exact same order, same length as the input list — no explanation, no markdown.\n\n` +
-        JSON.stringify(missing.map((w) => w.term));
-      const res = await callAI({ prompt, maxTokens: 2000, aiSettings });
-      const cleaned = res.replace(/^```json\s*|```\s*$/g, "").trim();
-      const meanings = JSON.parse(cleaned);
+      const meanings = await Promise.all(
+        missing.map((w) =>
+          translateFree(w.term, "fa", storyLang).catch(() => "")
+        )
+      );
       const list = loadWordCollections();
       const idx = list.findIndex((c) => c.id === activeCollection.id);
       if (idx !== -1) {
@@ -3524,6 +3575,45 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     setTranslationLangs((prev) => prev.filter((c) => c !== storyLang));
   }, [storyLang]);
 
+  // 🔥 ترجمه‌ی زنده و افزایشی: هر زبانی که توی translationLangs باشه ولی
+  // هنوز برای جمله‌های داستان ترجمه نشده (چه همون اول، چه هر زبان جدیدی که
+  // کاربر بعداً — بعد از ساخته‌شدنِ داستان — اضافه کنه)، همینجا با زنجیره‌ی
+  // سرویس‌های ترجمه‌ی رایگان (translateFree) گرفته و به state اضافه می‌شه.
+  // بدون نیاز به ساختن دوباره‌ی داستان.
+  useEffect(() => {
+    if (!paragraphs.length || !translationLangs.length) return;
+    const missingLangs = translationLangs.filter((code) =>
+      paragraphs.some((p) => (p.sentences || []).some((s) => !s.t || !s.t[code]))
+    );
+    if (!missingLangs.length) return;
+    let cancelled = false;
+    (async () => {
+      const updated = await Promise.all(
+        paragraphs.map(async (p) => {
+          const sentences = await Promise.all(
+            (p.sentences || []).map(async (s) => {
+              const additions = {};
+              for (const code of missingLangs) {
+                if (s.t && s.t[code]) continue;
+                try {
+                  additions[code] = await translateFree(s.text || "", code, storyLang);
+                } catch (e) {
+                  additions[code] = s.text || "";
+                }
+              }
+              return Object.keys(additions).length ? { ...s, t: { ...(s.t || {}), ...additions } } : s;
+            })
+          );
+          return { ...p, sentences };
+        })
+      );
+      if (!cancelled) setParagraphs(updated);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [translationLangs, paragraphs, storyLang]);
+
   const filteredVocab = VOCAB.filter((v) => {
     const w = (v.t[storyLang] || v.t.en || "").toLowerCase();
     return !vocabQuery || w.includes(vocabQuery.toLowerCase()) || v.meaningFa.includes(vocabQuery);
@@ -3545,13 +3635,9 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       // The user can type the word in ANY language (usually their native
       // one) — the story itself is written in storyLang, so the word list
       // fed to the story generator must be in storyLang too. Translate it
-      // (a same-language word just comes back unchanged).
-      const prompt =
-        `Translate the following word or short phrase into ${storyLangLabel} (language code "${storyLang}"). ` +
-        `If it is already written in ${storyLangLabel}, return it as-is (fixing only obvious typos). ` +
-        `Respond with ONLY the translated word/phrase, nothing else — no quotes, no explanation, no extra punctuation.\n\n` +
-        `Word/phrase: "${w}"`;
-      const res = await callAI({ prompt, maxTokens: 60, aiSettings });
+      // via the free translation services (not the AI) — a same-language
+      // word just comes back unchanged.
+      const res = await translateFree(w, storyLang, "auto");
       const translated = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim() || w;
       if (!selectedWords.includes(translated)) {
         setSelectedWords((prev) => [...prev, translated]);
@@ -3607,43 +3693,12 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       const storyParagraphs = parsed.paragraphs || [];
       
       // ============================================================
-      // 🔥 ترجمه با Google Translate (جدا از هوش مصنوعی)
-      // ============================================================
-      if (translationLangs.length > 0 && storyParagraphs.length > 0) {
-        const translatedParagraphs = await Promise.all(
-          storyParagraphs.map(async (paragraph) => {
-            const sentences = paragraph.sentences || [];
-            const translatedSentences = await Promise.all(
-              sentences.map(async (sentence) => {
-                const text = sentence.text || "";
-                const translations = {};
-                
-                for (const langCode of translationLangs) {
-                  try {
-                    translations[langCode] = await translateWithGoogle(text, langCode);
-                  } catch (e) {
-                    translations[langCode] = text;
-                  }
-                }
-                
-                return {
-                  ...sentence,
-                  t: translations
-                };
-              })
-            );
-            
-            return {
-              ...paragraph,
-              sentences: translatedSentences
-            };
-          })
-        );
-        
-        setParagraphs(translatedParagraphs);
-      } else {
-        setParagraphs(storyParagraphs);
-      }
+      // 🔥 داستان بدون ترجمه ذخیره می‌شه — ترجمه‌ی خودش (با سرویس‌های
+      // رایگان، جدا از هوش مصنوعی) رو یه useEffect جدا انجام می‌ده که هر
+      // وقت translationLangs عوض بشه (چه همین الان، چه هر وقت کاربر بعداً
+      // یه زبان دیگه هم اضافه/کم کنه) خودش رو به‌روز می‌کنه — نیازی به
+      // ساختن دوباره‌ی کل داستان نیست.
+      setParagraphs(storyParagraphs);
       
       setQuestions(Array.isArray(parsed.questions) ? parsed.questions : []);
       
@@ -4413,24 +4468,31 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
                           </div>
                           {showTranslations &&
                             translationLangs.map((code) => (
-                              <p
+                              <div
                                 key={code}
+                                className="flex items-start gap-2"
                                 dir={dirFor(code)}
                                 style={{
-                                  fontSize: 13,
-                                  color: colors.inkSoft,
                                   marginTop: 3,
                                   marginRight: RTL_LANGS.includes(code) ? 26 : 0,
                                   marginLeft: RTL_LANGS.includes(code) ? 0 : 26,
-                                  textAlign: RTL_LANGS.includes(code) ? "right" : "left",
-                                  fontFamily: code === "fa" ? fontFa : fontLatin,
                                 }}
                               >
-                                <span style={{ fontSize: 10, color: colors.gold }}>[{code}]</span>{" "}
-                                {s.t?.[code] || (
-                                  <span style={{ color: colors.rose }}>(ترجمه برنگشت — دوباره داستان بساز)</span>
-                                )}
-                              </p>
+                                {s.t?.[code] && <SpeakButton text={s.t[code]} code={code} color={colors.teal} />}
+                                <p
+                                  style={{
+                                    fontSize: 13,
+                                    color: colors.inkSoft,
+                                    textAlign: RTL_LANGS.includes(code) ? "right" : "left",
+                                    fontFamily: code === "fa" ? fontFa : fontLatin,
+                                  }}
+                                >
+                                  <span style={{ fontSize: 10, color: colors.gold }}>[{code}]</span>{" "}
+                                  {s.t?.[code] || (
+                                    <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
+                                  )}
+                                </p>
+                              </div>
                             ))}
                         </div>
                       ))}
@@ -4466,7 +4528,11 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
                             }}
                           >
                             <span style={{ fontSize: 10, color: colors.gold }}>[{code}]</span>{" "}
-                            {p.sentences.map((s) => s.t?.[code]).join(" ")}
+                            {p.sentences.every((s) => s.t?.[code]) ? (
+                              p.sentences.map((s) => s.t[code]).join(" ")
+                            ) : (
+                              <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
+                            )}
                           </p>
                         ))}
                     </div>
