@@ -258,10 +258,11 @@ const speechController = (() => {
   let segmentStartOffset = 0; // char offset into fullText where the current utterance began
   let segmentStartTime = 0; // Date.now() when the current utterance began
   let boundaryFired = false; // whether onboundary has fired at least once for the current utterance
+  let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1; // 0.5 (slow) .. 2 (fast), 1 = normal
   const listeners = new Set();
 
   function notify() {
-    listeners.forEach((cb) => cb({ key, status, wordIndex, total: words.length }));
+    listeners.forEach((cb) => cb({ key, status, wordIndex, total: words.length, rate }));
   }
 
   function tokenize(text) {
@@ -286,7 +287,7 @@ const speechController = (() => {
   function estimateWordIndex() {
     if (boundaryFired || !words.length) return wordIndex;
     const elapsedSec = (Date.now() - segmentStartTime) / 1000;
-    const estOffset = segmentStartOffset + elapsedSec * FALLBACK_CHARS_PER_SEC;
+    const estOffset = segmentStartOffset + elapsedSec * FALLBACK_CHARS_PER_SEC * rate;
     return wordIndexForCharOffset(Math.min(estOffset, fullText.length - 1));
   }
 
@@ -309,6 +310,7 @@ const speechController = (() => {
     const segment = fullText.slice(baseOffset);
     const utter = new SpeechSynthesisUtterance(segment);
     utter.lang = locale;
+    utter.rate = rate;
     utter.onboundary = (e) => {
       // some engines also fire "sentence" boundaries — only track "word" ones
       if (e.name && e.name !== "word") return;
@@ -400,6 +402,23 @@ const speechController = (() => {
       wordIndex = 0;
       boundaryFired = false;
       notify();
+    },
+    getRate() {
+      return rate;
+    },
+    // Changes playback speed. If something is currently playing, restarts
+    // the current word at the new speed right away (speech engines don't
+    // support changing an utterance's rate mid-sentence).
+    setRate(r) {
+      rate = Math.min(Math.max(Number(r) || 1, 0.5), 2);
+      try {
+        localStorage.setItem("phrasebook-tts-rate", String(rate));
+      } catch (e) {}
+      if (status === "playing") {
+        speakFromWord(estimateWordIndex());
+      } else {
+        notify();
+      }
     },
   };
 })();
@@ -2175,6 +2194,34 @@ function SpeakButton({ text, code, color }) {
   );
 }
 
+// Playback-speed slider — global (applies to whatever's playing/next played,
+// same as the pause/resume behaviour above), so one slider anywhere in the
+// app controls speech speed everywhere.
+function SpeedControl({ color }) {
+  const [rate, setRateState] = useState(() => speechController.getRate());
+  useEffect(
+    () => speechController.subscribe((s) => setRateState(s.rate)),
+    []
+  );
+  const c = color || colors.gold;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>سرعت</span>
+      <input
+        type="range"
+        min={0.5}
+        max={2}
+        step={0.1}
+        value={rate}
+        onChange={(e) => speechController.setRate(e.target.value)}
+        style={{ width: 80, accentColor: c }}
+        aria-label="سرعت پخش صدا"
+      />
+      <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 26, textAlign: "left" }}>{rate.toFixed(1)}×</span>
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Renders a sentence as individually clickable words. Tapping a word shows
 // a small popover with its part of speech + Persian meaning, looked up first
@@ -2612,7 +2659,9 @@ const CONTENT_TYPES = [
   { key: "news", label: "خبری", prompt: "a short news-style report, written like a news article" },
   { key: "psychology", label: "روان‌شناسی", prompt: "a short piece exploring a psychology or self-understanding theme" },
   { key: "children", label: "کودکانه", prompt: "a simple, gentle children's story" },
-  { key: "teen", label: "نوجوان", prompt: "a story aimed at teenagers, with relatable teen situations" },
+  { key: "funny", label: "خنده‌دار", prompt: "a lighthearted, funny, comedic story with a humorous twist" },
+  { key: "mystery", label: "رازآلود و ترسناک", prompt: "a suspenseful, mysterious, slightly scary story with an eerie atmosphere" },
+  { key: "crime", label: "جنایی", prompt: "a crime/detective story involving an investigation or mystery to solve" },
   { key: "scientific", label: "علمی", prompt: "a short popular-science explainer written as a narrative" },
   { key: "conversational", label: "مکالمه‌ای", prompt: "a natural back-and-forth dialogue between two people" },
   { key: "philosophical", label: "فلسفی", prompt: "a short philosophical reflection or thought experiment" },
@@ -2862,7 +2911,7 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
 }
 
 function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo }) {
-  const storyLangOptions = LANGUAGES.filter((l) => l.code !== "fa").map((l) => l.code);
+  const storyLangOptions = LANGUAGES.filter((l) => l.code !== nativeLang).map((l) => l.code);
   // Default to whatever language the user is already studying in the main
   // Phrasebook tab (targetOrder[0]) instead of always defaulting to English —
   // the pill selector below still lets them switch to any language freely.
@@ -3309,24 +3358,27 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }}
       >
         <p style={{ fontWeight: 700, marginBottom: 10 }}>۱. زبان و سطح داستان</p>
-        <div className="flex flex-wrap gap-2 mb-3">
-          {storyLangOptions.map((code) => (
-            <button
-              key={code}
-              onClick={() => setStoryLang(code)}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 20,
-                fontSize: 13,
-                border: `1px solid ${storyLang === code ? colors.gold : colors.cardBorder}`,
-                backgroundColor: storyLang === code ? colors.goldSoft : "white",
-                color: colors.ink,
-              }}
-            >
-              {LANGUAGES.find((l) => l.code === code)?.label}
-            </button>
-          ))}
+        <div
+          style={{
+            backgroundColor: colors.ink,
+            borderRadius: 14,
+            padding: 12,
+            marginBottom: 12,
+          }}
+        >
+          <p style={{ fontSize: 12, color: colors.paperDark, marginBottom: 8 }}>زبان داستان</p>
+          <div className="flex flex-wrap gap-2">
+            {storyLangOptions.map((code) => (
+              <LangStamp
+                key={code}
+                lang={LANGUAGES.find((l) => l.code === code)}
+                active={storyLang === code}
+                onClick={() => setStoryLang(code)}
+              />
+            ))}
+          </div>
         </div>
+        <p style={{ fontSize: 12, color: colors.inkSoft, margin: "0 0 6px" }}>سطح داستان</p>
         <div className="flex flex-wrap gap-2 mb-1">
           {LEVELS.map((lv) => (
             <button
@@ -3745,6 +3797,44 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         )}
       </div>
 
+      {translationLangOptions.length > 0 && (
+        <div className="mb-3" style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12, backgroundColor: colors.paper }}>
+          <div className="flex items-center justify-between mb-2">
+            <p style={{ fontSize: 12, color: colors.inkSoft }}>
+              داستان همزمان به چه زبان‌هایی ترجمه بشه؟ (می‌تونی چند تا انتخاب کنی)
+            </p>
+            <div className="flex gap-2">
+              <button onClick={selectAllTranslationLangs} style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}>
+                انتخاب همه
+              </button>
+              <button onClick={clearAllTranslationLangs} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
+                پاک کردن همه
+              </button>
+            </div>
+          </div>
+          <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 6 }}>
+            ⚠️ هرچی زبون بیشتری انتخاب کنی، احتمال قطع‌شدن داستان وسط کار بیشتره — بهتره ۱ تا ۳ تا باشه.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {translationLangOptions.map((code) => (
+              <button
+                key={code}
+                onClick={() => toggleTranslationLang(code)}
+                style={{
+                  padding: "3px 10px",
+                  borderRadius: 20,
+                  fontSize: 12,
+                  border: `1px solid ${translationLangs.includes(code) ? colors.gold : colors.cardBorder}`,
+                  backgroundColor: translationLangs.includes(code) ? colors.goldSoft : "white",
+                }}
+              >
+                {LANGUAGES.find((l) => l.code === code)?.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <button
         onClick={generateStory}
         disabled={!selectedWords.length || generating}
@@ -3801,6 +3891,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
                 {justSaved ? "✓ ذخیره شد" : "ذخیره داستان"}
               </button>
               <SpeakButton text={fullStoryText} code={storyLang} color={colors.teal} />
+              <SpeedControl color={colors.teal} />
             </div>
           </div>
 
