@@ -12,6 +12,27 @@ import { Star, MessageCircle, RotateCcw, Send, Check, X, BookOpen, Heart, Search
 // changing the variables on the root element (see ThemeStyle/APP_THEMES)
 // re-colors everything at once, no per-component edits needed.
 // ---------------------------------------------------------------------------
+// ============================================================
+// تابع ترجمه با Google Translate (رایگان، بدون نیاز به کلید API)
+// ============================================================
+async function translateWithGoogle(text, targetLang) {
+  if (!text || !targetLang) return text;
+  
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+  
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+    // استخراج متن ترجمه‌شده از پاسخ JSON
+    if (data && data[0]) {
+      return data[0].map(item => item[0]).join("");
+    }
+    return text;
+  } catch (error) {
+    console.error("خطا در ترجمه با گوگل:", error);
+    return text; // در صورت خطا، متن اصلی برگردانده می‌شود
+  }
+}
 const colors = {
   paper: "var(--c-paper)",
   paperDark: "var(--c-paperDark)",
@@ -339,12 +360,262 @@ const speechController = (() => {
   let segmentStartTime = 0; // Date.now() when the current utterance began
   let boundaryFired = false; // whether onboundary has fired at least once for the current utterance
   let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1; // 0.5 (slow) .. 2 (fast), 1 = normal
+  let currentUtterance = null; // برای نگهداری reference صدای فعلی
   const listeners = new Set();
 
   function notify() {
     listeners.forEach((cb) => cb({ key, status, wordIndex, total: words.length, rate }));
   }
 
+  function tokenize(text) {
+    const arr = [];
+    const re = /\S+/g;
+    let m;
+    while ((m = re.exec(text))) arr.push({ start: m.index, end: m.index + m[0].length });
+    return arr;
+  }
+
+  function wordIndexForCharOffset(offset) {
+    for (let i = words.length - 1; i >= 0; i--) {
+      if (offset >= words[i].start) return i;
+    }
+    return 0;
+  }
+
+  function estimateWordIndex() {
+    if (boundaryFired || !words.length) return wordIndex;
+    const elapsedSec = (Date.now() - segmentStartTime) / 1000;
+    const estOffset = segmentStartOffset + elapsedSec * FALLBACK_CHARS_PER_SEC * rate;
+    return wordIndexForCharOffset(Math.min(estOffset, fullText.length - 1));
+  }
+
+  // 🔥 انتخاب صدای بهتر (Google Voices در کروم/اج)
+  function getBestVoice(langCode) {
+    const voices = window.speechSynthesis.getVoices();
+    const langPrefix = langCode.split("-")[0];
+    
+    // اولویت ۱: صدای Google با کیفیت بالا (زنانه یا مردانه)
+    let preferred = voices.find(v => 
+      v.lang.startsWith(langPrefix) && 
+      (v.name.includes("Google") || v.name.includes("Natural")) &&
+      (v.name.includes("Female") || v.name.includes("Male"))
+    );
+    
+    // اولویت ۲: هر صدای Google
+    if (!preferred) {
+      preferred = voices.find(v => 
+        v.lang.startsWith(langPrefix) && 
+        (v.name.includes("Google") || v.name.includes("Natural"))
+      );
+    }
+    
+    // اولویت ۳: هر صدای با کیفیت بالا
+    if (!preferred) {
+      preferred = voices.find(v => 
+        v.lang.startsWith(langPrefix) && 
+        (v.name.includes("Enhanced") || v.name.includes("Premium"))
+      );
+    }
+    
+    // اولویت ۴: اولین صدای موجود برای این زبان
+    if (!preferred) {
+      preferred = voices.find(v => v.lang.startsWith(langPrefix));
+    }
+    
+    return preferred || null;
+  }
+
+  function speakFromWord(i, forceRestart = false) {
+    const clamped = Math.min(Math.max(i, 0), Math.max(words.length - 1, 0));
+    if (!words.length) {
+      status = "idle";
+      notify();
+      return;
+    }
+
+    // اگر در حالت paused هستیم و forceRestart = false، از همان نقطه ادامه بده
+    if (status === "paused" && !forceRestart) {
+      const baseOffset = words[wordIndex].start;
+      segmentStartOffset = baseOffset;
+      segmentStartTime = Date.now();
+      boundaryFired = false;
+      status = "playing";
+      notify();
+      
+      const segment = fullText.slice(baseOffset);
+      const utter = new SpeechSynthesisUtterance(segment);
+      utter.lang = locale;
+      utter.rate = rate;
+      
+      const bestVoice = getBestVoice(locale);
+      if (bestVoice) utter.voice = bestVoice;
+      
+      utter.onboundary = (e) => {
+        if (e.name && e.name !== "word") return;
+        boundaryFired = true;
+        const abs = baseOffset + (e.charIndex || 0);
+        wordIndex = wordIndexForCharOffset(abs);
+        notify();
+      };
+      utter.onend = () => {
+        if (status !== "playing") return;
+        status = "idle";
+        wordIndex = 0;
+        notify();
+      };
+      utter.onerror = () => {
+        status = "idle";
+        notify();
+      };
+      
+      currentUtterance = utter;
+      window.speechSynthesis.speak(utter);
+      return;
+    }
+
+    // شروع از اول یا از کلمه‌ی مشخص
+    try {
+      window.speechSynthesis.cancel();
+    } catch (e) {}
+    
+    const baseOffset = words[clamped].start;
+    wordIndex = clamped;
+    segmentStartOffset = baseOffset;
+    segmentStartTime = Date.now();
+    boundaryFired = false;
+    status = "playing";
+    notify();
+    
+    const segment = fullText.slice(baseOffset);
+    const utter = new SpeechSynthesisUtterance(segment);
+    utter.lang = locale;
+    utter.rate = rate;
+    
+    const bestVoice = getBestVoice(locale);
+    if (bestVoice) utter.voice = bestVoice;
+    
+    utter.onboundary = (e) => {
+      if (e.name && e.name !== "word") return;
+      boundaryFired = true;
+      const abs = baseOffset + (e.charIndex || 0);
+      wordIndex = wordIndexForCharOffset(abs);
+      notify();
+    };
+    utter.onend = () => {
+      if (status !== "playing") return;
+      status = "idle";
+      wordIndex = 0;
+      notify();
+    };
+    utter.onerror = () => {
+      status = "idle";
+      notify();
+    };
+    
+    currentUtterance = utter;
+    window.speechSynthesis.speak(utter);
+  }
+
+  return {
+    subscribe(cb) {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+    getState() {
+      return { key, status, wordIndex, total: words.length };
+    },
+    toggle(text, code) {
+      try {
+        if (!("speechSynthesis" in window) || !text) return "unsupported";
+        
+        let newLocale = TTS_LOCALE[code] || "en-US";
+        // اگر زبان فارسی است و صدای فارسی موجود نیست، از صدای عربی استفاده کن
+        if (code === "fa") {
+          const voices = window.speechSynthesis.getVoices();
+          const hasPersianVoice = voices.some(v => v.lang.startsWith("fa"));
+          if (!hasPersianVoice) {
+            const arabicVoice = voices.find(v => v.lang.startsWith("ar"));
+            if (arabicVoice) newLocale = "ar-SA";
+          }
+        }
+        
+        const newKey = `${newLocale}::${text}`;
+
+        // اگر همان متن در حال پخش است و دکمه زده شده، توقف/ادامه
+        if (key === newKey && status === "playing") {
+          wordIndex = estimateWordIndex();
+          try {
+            window.speechSynthesis.cancel();
+          } catch (e) {}
+          status = "paused";
+          notify();
+          return "ok";
+        }
+        
+        if (key === newKey && status === "paused") {
+          status = "playing";
+          speakFromWord(wordIndex, false);
+          return "ok";
+        }
+
+        // متن جدید
+        const voices = window.speechSynthesis.getVoices();
+        const hasVoice = voices.some(
+          (v) => v.lang && v.lang.toLowerCase().startsWith(newLocale.split("-")[0])
+        );
+        
+        key = newKey;
+        locale = newLocale;
+        fullText = text;
+        words = tokenize(text);
+        status = "playing";
+        speakFromWord(0, true);
+        return voices.length > 0 && !hasVoice ? "no-voice" : "ok";
+      } catch (e) {
+        status = "idle";
+        notify();
+        return "error";
+      }
+    },
+    seek(delta) {
+      if (!key || !words.length) return;
+      const current = status === "playing" ? estimateWordIndex() : wordIndex;
+      const nextIndex = Math.min(Math.max(current + delta, 0), words.length - 1);
+      if (status === "playing") {
+        speakFromWord(nextIndex, true);
+      } else {
+        wordIndex = nextIndex;
+        notify();
+      }
+    },
+    stop() {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
+      key = null;
+      words = [];
+      status = "idle";
+      wordIndex = 0;
+      boundaryFired = false;
+      currentUtterance = null;
+      notify();
+    },
+    getRate() {
+      return rate;
+    },
+    setRate(r) {
+      rate = Math.min(Math.max(Number(r) || 1, 0.5), 2);
+      try {
+        localStorage.setItem("phrasebook-tts-rate", String(rate));
+      } catch (e) {}
+      if (status === "playing") {
+        speakFromWord(estimateWordIndex(), true);
+      } else {
+        notify();
+      }
+    },
+  };
+})();
   function tokenize(text) {
     const arr = [];
     const re = /\S+/g;
@@ -2362,6 +2633,7 @@ function SpeakButton({ text, code, color }) {
   const locale = TTS_LOCALE[code] || "en-US";
   const myKey = `${locale}::${text}`;
   const [state, setState] = useState(() => speechController.getState());
+  const [showSpeedControl, setShowSpeedControl] = useState(false);
 
   useEffect(() => speechController.subscribe(setState), []);
 
@@ -2370,6 +2642,139 @@ function SpeakButton({ text, code, color }) {
   const canSeek = isActive && state.total > 1;
   const c = color || colors.gold;
 
+  const handleToggle = (e) => {
+    e.stopPropagation();
+    const result = speechController.toggle(text, code);
+    if (result === "no-voice") {
+      alert(
+        "صدای این زبون رو گوشیت نصب نیست. تنظیمات گوشی → زبان و ورودی → تبدیل متن به گفتار → نصب بسته‌ی زبان مربوطه."
+      );
+    } else if (result === "unsupported") {
+      alert("این مرورگر از خوندن صوتی متن پشتیبانی نمی‌کنه.");
+    }
+  };
+
+  const handleSeek = (e, delta) => {
+    e.stopPropagation();
+    speechController.seek(delta);
+  };
+
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {canSeek && (
+        <button
+          onClick={(e) => handleSeek(e, -1)}
+          aria-label="یک کلمه عقب"
+          title="عقب"
+          style={{ 
+            flexShrink: 0, 
+            display: "flex", 
+            alignItems: "center", 
+            color: c, 
+            opacity: 0.7,
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: 2
+          }}
+        >
+          <ChevronRight size={14} />
+        </button>
+      )}
+      
+      <button
+        onClick={handleToggle}
+        aria-label={isPlaying ? "توقف موقت" : "تلفظ"}
+        title={isPlaying ? "توقف موقت" : isActive ? "ادامه" : "تلفظ"}
+        style={{ 
+          flexShrink: 0, 
+          display: "flex", 
+          alignItems: "center", 
+          color: c,
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: 2
+        }}
+      >
+        {isPlaying ? <Pause size={16} /> : <Volume2 size={16} />}
+      </button>
+      
+      {canSeek && (
+        <button
+          onClick={(e) => handleSeek(e, 1)}
+          aria-label="یک کلمه جلو"
+          title="جلو"
+          style={{ 
+            flexShrink: 0, 
+            display: "flex", 
+            alignItems: "center", 
+            color: c, 
+            opacity: 0.7,
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: 2
+          }}
+        >
+          <ChevronLeft size={14} />
+        </button>
+      )}
+      
+      {/* کنترل سرعت پخش */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowSpeedControl(!showSpeedControl);
+        }}
+        aria-label="تنظیم سرعت"
+        title="تنظیم سرعت پخش"
+        style={{ 
+          flexShrink: 0, 
+          display: "flex", 
+          alignItems: "center", 
+          color: c,
+          opacity: 0.5,
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: 2,
+          fontSize: 10
+        }}
+      >
+        {state.rate || 1}×
+      </button>
+      
+      {showSpeedControl && (
+        <span 
+          style={{ 
+            display: "inline-flex", 
+            alignItems: "center", 
+            gap: 4,
+            padding: "2px 6px",
+            backgroundColor: "rgba(0,0,0,0.05)",
+            borderRadius: 12
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="range"
+            min={0.5}
+            max={2}
+            step={0.1}
+            value={state.rate || 1}
+            onChange={(e) => speechController.setRate(Number(e.target.value))}
+            style={{ width: 60, accentColor: c }}
+            aria-label="سرعت پخش صدا"
+          />
+          <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 30 }}>
+            {(state.rate || 1).toFixed(1)}×
+          </span>
+        </span>
+      )}
+    </span>
+  );
+}
   const handleToggle = (e) => {
     e.stopPropagation();
     const result = speechController.toggle(text, code);
@@ -3391,40 +3796,65 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     setAnswers({});
     setSubmitted(false);
     try {
-      const langsForPrompt = translationLangs; // respect the user's exact selection, including zero
-      const langLabelPairs = langsForPrompt.map((c) => ({
-        code: c,
-        label: LANGUAGES.find((l) => l.code === c)?.label || c,
-      }));
-      const translationInstruction = langLabelPairs.length
-        ? ` For EVERY single sentence, you MUST include a complete, non-empty, accurate translation for EACH of these ${langLabelPairs.length} languages — do not skip or leave any of them empty: ${langLabelPairs
-            .map((p) => `"${p.code}" (${p.label})`)
-            .join(", ")}. Every sentence's "t" object must have exactly ${langLabelPairs.length} keys, all filled in.`
-        : "";
-      const schemaSentence = langLabelPairs.length
-        ? `{"text": "sentence in ${storyLang}", "t": {${langLabelPairs
-            .map((p) => `"${p.code}": "this sentence translated into ${p.label}, never empty"`)
-            .join(", ")}}}`
-        : `{"text": "sentence in ${storyLang}"}`;
+      // 🔥 اینجا فقط داستان به زبان اصلی ساخته می‌شه (بدون درخواست ترجمه از هوش مصنوعی)
       const genre = CONTENT_TYPES.find((c) => c.key === contentType) || CONTENT_TYPES[0];
       const lengthCfg = STORY_LENGTHS.find((l) => l.key === storyLength) || STORY_LENGTHS[1];
-      const prompt = `Write ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}. The story MUST use each of these words naturally, about ${repeatCount} times each, spread across different sentences, grammatical forms, and (where the word allows it) different meanings/contexts: ${selectedWords.join(", ")}. Keep the story coherent and appropriately sized for that many repetitions. Organize the story into ${lengthCfg.paragraphs} paragraphs, ${lengthCfg.sentencesHint}.${translationInstruction} After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [${schemaSentence}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
+      
+      const prompt = `Write ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}. The story MUST use each of these words naturally, about ${repeatCount} times each, spread across different sentences, grammatical forms, and (where the word allows it) different meanings/contexts: ${selectedWords.join(", ")}. Keep the story coherent and appropriately sized for that many repetitions. Organize the story into ${lengthCfg.paragraphs} paragraphs, ${lengthCfg.sentencesHint}. After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
 
-      const tokenBudget = Math.min(lengthCfg.tokens + langsForPrompt.length * 900, 16000);
+      const tokenBudget = Math.min(lengthCfg.tokens + 500, 8000);
       const res = await callAI({ prompt, maxTokens: tokenBudget, aiSettings });
       const cleaned = res.replace(/```json|```/g, "").trim();
       let parsed;
       try {
         parsed = JSON.parse(cleaned);
       } catch (parseErr) {
-        throw new Error(
-          "parse-error: پاسخ هوش مصنوعی کامل یا JSON معتبر نبود — احتمالاً به‌خاطر تعداد زیاد کلمات/زبان‌های ترجمه بوده. تعدادشون رو کم کن و دوباره امتحان کن."
-        );
+        throw new Error("parse-error: پاسخ هوش مصنوعی کامل یا JSON معتبر نبود — دوباره امتحان کن.");
       }
-      setParagraphs(Array.isArray(parsed.paragraphs) ? parsed.paragraphs : []);
+      
+      const storyParagraphs = parsed.paragraphs || [];
+      
+      // ============================================================
+      // 🔥 ترجمه با Google Translate (جدا از هوش مصنوعی)
+      // ============================================================
+      if (translationLangs.length > 0 && storyParagraphs.length > 0) {
+        const translatedParagraphs = await Promise.all(
+          storyParagraphs.map(async (paragraph) => {
+            const sentences = paragraph.sentences || [];
+            const translatedSentences = await Promise.all(
+              sentences.map(async (sentence) => {
+                const text = sentence.text || "";
+                const translations = {};
+                
+                for (const langCode of translationLangs) {
+                  try {
+                    translations[langCode] = await translateWithGoogle(text, langCode);
+                  } catch (e) {
+                    translations[langCode] = text;
+                  }
+                }
+                
+                return {
+                  ...sentence,
+                  t: translations
+                };
+              })
+            );
+            
+            return {
+              ...paragraph,
+              sentences: translatedSentences
+            };
+          })
+        );
+        
+        setParagraphs(translatedParagraphs);
+      } else {
+        setParagraphs(storyParagraphs);
+      }
+      
       setQuestions(Array.isArray(parsed.questions) ? parsed.questions : []);
-      // The bookmarked words just got used in this story — clear the queue for
-      // this language so they don't force themselves onto every future story.
+      
       if (savedStoryWords.length) {
         try {
           const remaining = loadSavedStoryWords().filter((e) => e.langCode !== storyLang);
@@ -3445,7 +3875,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       setGenerating(false);
     }
   };
-
   const saveCurrentStory = () => {
     if (!paragraphs.length) return;
     const entry = {
