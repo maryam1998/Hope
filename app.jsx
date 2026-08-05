@@ -5604,7 +5604,6 @@ function AuthField({ icon, placeholder, value, onChange, type = "text" }) {
     </div>
   );
 }
-
 function LoginScreen({ onAuthenticated }) {
   const [mode, setMode] = useState("login"); // "login" | "signup"
   const [name, setName] = useState("");
@@ -5613,9 +5612,6 @@ function LoginScreen({ onAuthenticated }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // ============================================================
-  // 🔥 ورود با گوگل از طریق Supabase (مشکلات حل شده)
-  // ============================================================
   async function handleSupabaseGoogleSignIn() {
     setError("");
     setBusy(true);
@@ -5630,19 +5626,15 @@ function LoginScreen({ onAuthenticated }) {
     }
   }
 
-  // ============================================================
-  // ورود با ایمیل و رمز (در صورت نیاز)
-  // ============================================================
-  async function handleEmailSignIn(e) {
+  function handleSubmit(e) {
     e.preventDefault();
     setError("");
     if (!email.trim() || !password.trim() || (mode === "signup" && !name.trim())) {
       setError("همه‌ی فیلدها را پر کنید.");
       return;
     }
-    // در اینجا می‌توانید کد ورود با ایمیل Supabase را اضافه کنید
-    // فعلاً فقط خطا را نشان می‌دهد تا برنامه خراب نشود
-    setError("ورود با ایمیل هنوز تنظیم نشده است. از دکمه‌ی گوگل استفاده کنید.");
+    // اینجا می‌توانید بعداً ورود با ایمیل را اضافه کنید
+    setError("ورود با ایمیل هنوز تنظیم نشده است.");
   }
 
   return (
@@ -5696,9 +5688,6 @@ function LoginScreen({ onAuthenticated }) {
           </p>
         </div>
 
-        {/* ============================================================
-            دکمه‌ی گوگل (اصلاح شده و کار می‌کند)
-            ============================================================ */}
         <div style={{ marginBottom: 16 }}>
           <button
             type="button"
@@ -5741,7 +5730,7 @@ function LoginScreen({ onAuthenticated }) {
           <div style={{ flex: 1, height: 1, background: colors.cardBorder }} />
         </div>
 
-        <form onSubmit={handleEmailSignIn} className="flex flex-col gap-3">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           {mode === "signup" && (
             <AuthField icon={<User size={16} />} placeholder="نام شما" value={name} onChange={setName} />
           )}
@@ -5799,11 +5788,7 @@ function LoginScreen({ onAuthenticated }) {
     </div>
   );
 }
-// -----------------------------------------------------------------------------
-// Top-level export: gates the whole app behind login/signup, and remounts
-// PhrasebookMain (key={user.email}) whenever the account changes so each
-// user's saved progress loads fresh from their own storage slot.
-// -----------------------------------------------------------------------------
+
 export default function App() {
   const [user, setUser] = useState(() => readSession());
   const [appPrefs, setAppPrefs] = useState(loadAppPrefs);
