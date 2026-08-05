@@ -232,16 +232,22 @@ const storage = {
 // ---------------------------------------------------------------------------
 // SUPABASE — real Google accounts + cross-device sync
 // -----------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// SUPABASE — real Google accounts + cross-device sync (CDN Version)
+// -----------------------------------------------------------------------------
 const SUPABASE_URL = "https://avfceytrbmsdkuyppspp.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2ZmNleXRyYm1zZGt1eXBwc3BwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjI4MTI4NzcsImV4cCI6MjAzODM4ODg3N30.7bV7pD7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D"; // کلید anon خود را اینجا بچسبانید
 
-let supabaseClient = null;
-
+// بارگذاری کتابخانه Supabase از CDN (بدون نیاز به npm install)
 async function ensureSupabase() {
-  if (supabaseClient) return supabaseClient;
-  const { createClient } = await import('@supabase/supabase-js');
-  supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  return supabaseClient;
+  if (window.supabase) return window.supabase;
+  
+  // اینجا کتابخانه را از اینترنت دانلود می‌کنیم
+  const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/module/index.js');
+  
+  const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  window.supabase = client; // ذخیره در حافظه برای استفاده‌های بعدی
+  return client;
 }
 
 async function supabaseSignInWithGoogle() {
@@ -250,26 +256,31 @@ async function supabaseSignInWithGoogle() {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: 'https://maryam1998.github.io/Hope/',
+      redirectTo: 'https://maryam1998.github.io/Hope/', // آدرس نهایی سایت شما
     },
   });
   if (error) throw error;
   
-  // توجه: اینجا نباید منتظر بازگشت کاربر بمانیم، چون صفحه عوض می‌شود
-  return { uid: data.user?.id, email: data.user?.email, name: data.user?.user_metadata?.full_name, picture: data.user?.user_metadata?.avatar_url, provider: 'google' };
+  // ما منتظر برنمی‌گردیم چون کاربر به صفحه گوگل رفت
+  return { 
+    uid: data.user?.id || "temp-uid", 
+    email: data.user?.email || "user@example.com", 
+    name: data.user?.user_metadata?.full_name || "کاربر", 
+    picture: data.user?.user_metadata?.avatar_url || "", 
+    provider: 'google' 
+  };
 }
 
 async function supabaseSignOut() {
-  if (!supabaseClient) return;
-  await supabaseClient.auth.signOut();
+  if (!window.supabase) return;
+  await window.supabase.auth.signOut();
 }
 
 // Loads this user's synced state from Supabase
 async function supabaseLoadState(uid) {
-  if (!uid) return null;
+  if (!uid || !window.supabase) return null;
   try {
-    const supabase = await ensureSupabase();
-    const { data, error } = await supabase
+    const { data, error } = await window.supabase
       .from('users')
       .select('*')
       .eq('id', uid)
@@ -282,15 +293,28 @@ async function supabaseLoadState(uid) {
 }
 
 async function supabaseSaveState(uid, data) {
-  if (!uid) return;
+  if (!uid || !window.supabase) return;
   try {
-    const supabase = await ensureSupabase();
-    const { error } = await supabase
+    const { error } = await window.supabase
       .from('users')
       .upsert({ id: uid, ...data, updatedAt: new Date().toISOString() });
     if (error) console.error('خطا در ذخیره در Supabase:', error);
   } catch (e) {}
 }
+
+  async function handleSupabaseGoogleSignIn() {
+    setError("");
+    setBusy(true);
+    try {
+      // این خط مستقیماً پنجره گوگل را باز می‌کند
+      await supabaseSignInWithGoogle();
+    } catch (e) {
+      // اگر خطا رخ داد، اینجا نمایش داده می‌شود
+      setError("ورود با گوگل ناموفق بود: " + (e.message || "خطای ناشناخته"));
+    } finally {
+      setBusy(false);
+    }
+  }
 
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
