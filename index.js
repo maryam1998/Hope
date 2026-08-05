@@ -46,15 +46,26 @@ var index_default = {
       } catch (e) {
         return json({ error: "request body must be valid JSON" }, 400);
       }
-      const { prompt, maxTokens } = body || {};
+      const { prompt, maxTokens, lengthType } = body || {};
       if (!prompt || typeof prompt !== "string") {
         return json({ error: "prompt (string) is required" }, 400);
       }
-      const capped = Math.min(Math.max(Number(maxTokens) || 1000, 1), 8192);
+
+      // 🔥 تنظیم تعداد توکن‌ها بر اساس طول داستان (از اینجا به بعد اضافه شده)
+      let finalMaxTokens = Math.min(Math.max(Number(maxTokens) || 1000, 1), 8192); // پیش‌فرض
+      if (lengthType === "short") {
+        finalMaxTokens = 1200;
+      } else if (lengthType === "medium") {
+        finalMaxTokens = 2500;
+      } else if (lengthType === "long") {
+        finalMaxTokens = 5000;
+      }
+
       const errors = [];
       for (const provider of getProviderChain(env)) {
         try {
-          const text = await callProvider(provider, prompt, capped, env);
+          // 🔥 ارسال با finalMaxTokens اصلاح‌شده
+          const text = await callProvider(provider, prompt, finalMaxTokens, env);
           return json({ text, provider });
         } catch (e) {
           console.error(`[${provider}] error:`, e.message);
@@ -105,6 +116,20 @@ async function callHuggingFace(prompt, maxTokens, env) {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
+      inputs: prompt,
+      parameters: { max_new_tokens: maxTokens }
+    })
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data?.error || `HuggingFace HTTP ${r.status}`);
+  const text = Array.isArray(data) ? data[0]?.generated_text : data?.generated_text;
+  return text || "";
+}
+__name(callHuggingFace, "callHuggingFace");
+
+export {
+  index_default as default
+};    body: JSON.stringify({
       inputs: prompt,
       parameters: { max_new_tokens: maxTokens }
     })
