@@ -230,78 +230,52 @@ const storage = {
 // per-device email/password + demo-Google accounts so it still works.
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// SUPABASE — real Google accounts + cross-device sync
+// SUPABASE — ورود واقعی با گوگل + همگام‌سازی بین دستگاه‌ها
 // -----------------------------------------------------------------------------
+// ⚠️ نکاتی که باید در سایت Supabase تنظیم شوند تا ورود با گوگل کار کند:
+//   1. Project Settings → API → مقدار "anon public" را کپی کن و به‌جای
+//      SUPABASE_ANON_KEY زیر بگذار (کلیدی که قبلاً اینجا بود واقعی نبود).
+//   2. Authentication → Providers → Google را فعال کن و Client ID / Secret
+//      گوگل را وارد کن.
+//   3. Authentication → URL Configuration:
+//        - Site URL = همان آدرسی که سایتت روی آن دیپلوی شده (مثلاً
+//          https://USERNAME.github.io/REPO/)
+//        - Redirect URLs = همان آدرس را اینجا هم اضافه کن.
+//      اگر این آدرس با آدرس واقعی سایت یکی نباشد، گوگل بعد از ورود کاربر را
+//      به صفحه‌ی اشتباهی برمی‌گرداند و همین باعث می‌شود دوباره به صفحه‌ی
+//      ورود پرتاب شوید.
 // ---------------------------------------------------------------------------
-// SUPABASE — real Google accounts + cross-device sync (CDN Version)
-// -----------------------------------------------------------------------------
 const SUPABASE_URL = "https://avfceytrbmsdkuyppspp.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2ZmNleXRyYm1zZGt1eXBwc3BwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjI4MTI4NzcsImV4cCI6MjAzODM4ODg3N30.7bV7pD7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D"; // کلید anon خود را اینجا بچسبانید
+const SUPABASE_ANON_KEY = "PASTE_YOUR_REAL_SUPABASE_ANON_KEY_HERE"; // از Project Settings → API
 
-// بارگذاری کتابخانه Supabase از CDN (بدون نیاز به npm install)
-async function ensureSupabase() {
-  if (window.supabase) return window.supabase;
-  
-  // اینجا کتابخانه را از اینترنت دانلود می‌کنیم
-  const { createClient } = await import('@supabase/supabase-js');
-  
-  const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  window.supabase = client; // ذخیره در حافظه برای استفاده‌های بعدی
-  return client;
-}
+// یک کلاینت واحد برای کل برنامه. ساختن چند کلاینت جدا (که قبلاً این‌جا اتفاق
+// می‌افتاد) باعث می‌شد سشنی که گوگل برمی‌گرداند توسط کلاینت درستی خوانده نشود.
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 async function supabaseSignInWithGoogle() {
-  const { createClient } = window.supabase;
-  const client = createClient(
-    "https://avfceytrbmsdkuyppspp.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2ZmNleXRyYm1zZGt1eXBwc3BwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjI4MTI4NzcsImV4cCI6MjAzODM4ODg3N30.7bV7pD7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D"
-  );
-  
-  // چک می‌کنیم آیا کاربر از قبل لاگین است یا نه
-  const { data: { user } } = await client.auth.getUser();
-  
-  if (user) {
-    // اگر لاگین است، اطلاعاتش را برگردان
-    return { 
-      uid: user.id, 
-      email: user.email, 
-      name: user.user_metadata?.full_name || user.email, 
-      picture: user.user_metadata?.avatar_url || "", 
-      provider: 'google' 
-    };
-  }
-
-  // اگر لاگین نیست، به گوگل برو
-  const { data, error } = await client.auth.signInWithOAuth({
-    provider: 'google',
+  // این تابع فقط مرورگر را به صفحه‌ی ورود گوگل می‌فرستد؛ اجرای برنامه همین‌جا
+  // متوقف می‌شود چون صفحه عوض می‌شود. برگشت از گوگل و ساخت session توسط
+  // onAuthStateChange در کامپوننت App (پایین همین فایل) مدیریت می‌شود —
+  // نه با خواندن دستیِ hash آدرس.
+  const { error } = await supabaseClient.auth.signInWithOAuth({
+    provider: "google",
     options: {
-      redirectTo: 'https://maryam1998.github.io/Hope', 
+      // آدرس واقعی همین صفحه، هرجا دیپلوی شده باشد — دیگر هاردکد نیست.
+      redirectTo: window.location.origin + window.location.pathname,
     },
   });
-  
   if (error) throw error;
-  
-  // وقتی از گوگل برمی‌گردد، دوباره چک می‌کنیم
-  const { data: { user: newUser } } = await client.auth.getUser();
-  return { 
-    uid: newUser.id, 
-    email: newUser.email, 
-    name: newUser.user_metadata?.full_name || newUser.email, 
-    picture: newUser.user_metadata?.avatar_url || "", 
-    provider: 'google' 
-  };
 }
 
 async function supabaseSignOut() {
-  if (!window.supabase) return;
-  await window.supabase.auth.signOut();
+  await supabaseClient.auth.signOut();
 }
 
 // Loads this user's synced state from Supabase
 async function supabaseLoadState(uid) {
-  if (!uid || !window.supabase) return null;
+  if (!uid) return null;
   try {
-    const { data, error } = await window.supabase
+    const { data, error } = await supabaseClient
       .from('users')
       .select('*')
       .eq('id', uid)
@@ -314,30 +288,13 @@ async function supabaseLoadState(uid) {
 }
 
 async function supabaseSaveState(uid, data) {
-  if (!uid || !window.supabase) return;
+  if (!uid) return;
   try {
-    const { error } = await window.supabase
+    const { error } = await supabaseClient
       .from('users')
       .upsert({ id: uid, ...data, updatedAt: new Date().toISOString() });
     if (error) console.error('خطا در ذخیره در Supabase:', error);
   } catch (e) {}
-}
-
-    async function handleSupabaseGoogleSignIn() {
-  setError("");
-  setBusy(true);
-  try {
-    const user = await supabaseSignInWithGoogle();
-    if (user) {
-      // این خط باعث ذخیره شدن کاربر در مرورگر می‌شود
-      localStorage.setItem('phrasebook-session-v1', JSON.stringify(user));
-      onAuthenticated(user);
-    }
-  } catch (e) {
-    setError("ورود با گوگل ناموفق بود. دوباره تلاش کنید.");
-  } finally {
-    setBusy(false);
-  }
 }
 
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
@@ -5666,13 +5623,12 @@ function LoginScreen({ onAuthenticated }) {
   setError("");
   setBusy(true);
   try {
-    const user = await supabaseSignInWithGoogle();
-    if (user) {
-      onAuthenticated(user);
-    }
+    // این تابع مرورگر را به گوگل می‌فرستد؛ اگر موفق شود دیگر کدی بعد از این
+    // اجرا نمی‌شود چون صفحه عوض شده. ورود واقعی را App با onAuthStateChange
+    // تشخیص می‌دهد، پس اینجا دیگر چیزی صدا نمی‌زنیم.
+    await supabaseSignInWithGoogle();
   } catch (e) {
     setError("ورود با گوگل ناموفق بود. دوباره تلاش کنید.");
-  } finally {
     setBusy(false);
   }
 }
@@ -5840,34 +5796,61 @@ function LoginScreen({ onAuthenticated }) {
   );
 }
 
+function supabaseUserToAppUser(u) {
+  return {
+    uid: u.id,
+    email: u.email,
+    name: u.user_metadata?.full_name || u.email,
+    picture: u.user_metadata?.avatar_url || "",
+    provider: "google",
+  };
+}
+
 export default function App() {
-  const [user, setUser] = useState(() => {
-    // چک کردن لاگین ذخیره شده
-    const saved = localStorage.getItem('phrasebook-session-v1');
-    if (saved) return JSON.parse(saved);
-    return null;
-  });
+  const [user, setUser] = useState(null);
+  // تا وقتی سشن فعلی از Supabase خوانده نشده، صفحه‌ی ورود را نشان نمی‌دهیم —
+  // وگرنه حتی وقتی کاربر واقعاً لاگین است، برای یک لحظه صفحه‌ی ورود دیده
+  // می‌شود (همان چیزی که حس می‌کرد "دوباره برمی‌گردد به صفحه ورود").
+  const [authLoading, setAuthLoading] = useState(true);
 
   const [appPrefs, setAppPrefs] = useState(loadAppPrefs);
   useEffect(() => saveAppPrefs(appPrefs), [appPrefs]);
 
-  // وقتی صفحه لود می‌شود، چک کن اگر توکن لاگین در آدرس هست، کاربر را وارد کن
+  // این افکت هم سشن فعلی را (بعد از برگشت از گوگل) می‌خواند و هم برای هر
+  // تغییر بعدی (ورود/خروج) گوش می‌دهد. supabase-js خودش توکن را از آدرس
+  // برگشتی گوگل تشخیص می‌دهد؛ دیگر لازم نیست دستی hash را بخوانیم.
   useEffect(() => {
-    const hash = window.location.hash;
-    if (hash && hash.includes('access_token')) {
-      // توکن وجود دارد! یعنی کاربر از گوگل برگشته است.
-      // ما باید توکن را بگیریم و آن را به حالت برنامه بفرستیم.
-      // اما چون برنامه با importmap کار می‌کند، ساده‌ترین کار این است که صفحه را رفرش کنیم
-      // تا برنامه دوباره لود شود و توکن را بخواند.
-      window.location.href = 'https://maryam1998.github.io/Hope';
-    }
+    let active = true;
+
+    supabaseClient.auth.getSession().then(({ data: { session } }) => {
+      if (!active) return;
+      if (session?.user) setUser(supabaseUserToAppUser(session.user));
+      setAuthLoading(false);
+    });
+
+    const { data: listener } = supabaseClient.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ? supabaseUserToAppUser(session.user) : null);
+    });
+
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
   const theme = APP_THEMES[appPrefs.theme].values;
   const font = APP_FONTS[appPrefs.font];
   const fontSize = APP_FONT_SIZES[appPrefs.fontSize];
   const rootStyle = { "--c-paper": theme.paper, "--c-paperDark": theme.paperDark, "--c-ink": theme.ink, "--c-inkSoft": theme.inkSoft, "--c-gold": theme.gold, "--c-goldSoft": theme.goldSoft, "--c-teal": theme.teal, "--c-rose": theme.rose, "--c-cardBorder": theme.cardBorder, "--font-fa": font.fa, "--font-latin": font.latin, zoom: fontSize.zoom, minHeight: "100vh" };
-  
+
+  if (authLoading) {
+    return (
+      <div style={{ ...rootStyle, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: fontFa, color: colors.ink }}>
+        در حال بررسی ورود…
+      </div>
+    );
+  }
+
   return (
     <div style={rootStyle}>
       {!user ? <LoginScreen onAuthenticated={setUser} /> : <div style={{ fontFamily: fontFa, backgroundColor: colors.paper, minHeight: "100vh", color: colors.ink, padding: 20 }}><h1>به کتاب مکالمه خوش آمدید!</h1><p>شما با موفقیت وارد شدید: {user.email}</p></div>}
