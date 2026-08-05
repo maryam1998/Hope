@@ -692,6 +692,8 @@ async function callAI({ prompt, maxTokens, retries = 2, aiSettings }) {
   const body = JSON.stringify({
     prompt,
     maxTokens: Math.min(Math.max(maxTokens || 1000, 1000), 8192),
+      lengthType: storyLength, 
+  contentType: contentType
   });
 
   for (let attempt = 0; ; attempt++) {
