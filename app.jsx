@@ -607,9 +607,9 @@ const speechController = (() => {
           return "ok";
         }
         
-        if (key === newKey && status === "paused") {
+                if (key === newKey && status === "paused") {
           status = "playing";
-          speakFromWord(wordIndex, false);
+          window.speechSynthesis.resume(); // ادامه از همان نقطه با دستور استاندارد مرورگر
           return "ok";
         }
 
