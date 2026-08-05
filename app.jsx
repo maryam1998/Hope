@@ -246,6 +246,7 @@ async function ensureSupabase() {
 
 async function supabaseSignInWithGoogle() {
   const supabase = await ensureSupabase();
+  // این خط پنجره را باز می‌کند و کاربر را به گوگل می‌برد
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
@@ -253,7 +254,8 @@ async function supabaseSignInWithGoogle() {
     },
   });
   if (error) throw error;
-  // کاربر پس از لاگین به صفحه‌ی گوگل می‌رود و برمی‌گردد
+  
+  // توجه: اینجا نباید منتظر بازگشت کاربر بمانیم، چون صفحه عوض می‌شود
   return { uid: data.user?.id, email: data.user?.email, name: data.user?.user_metadata?.full_name, picture: data.user?.user_metadata?.avatar_url, provider: 'google' };
 }
 
@@ -5612,19 +5614,19 @@ function LoginScreen({ onAuthenticated }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function handleSupabaseGoogleSignIn() {
-    setError("");
-    setBusy(true);
-    try {
-      const user = await supabaseSignInWithGoogle();
-      persistSession(user);
-      onAuthenticated(user);
-    } catch (e) {
-      setError("ورود با گوگل ناموفق بود. دوباره تلاش کنید.");
-    } finally {
-      setBusy(false);
-    }
+ async function handleSupabaseGoogleSignIn() {
+  setError("");
+  setBusy(true);
+  try {
+    // به جای await، مستقیم تابع را صدا می‌زنیم تا پنجره باز شود
+    supabaseSignInWithGoogle(); 
+    // بقیه کدها (persistSession و ...) در درون supabaseSignInWithGoogle اجرا می‌شوند
+  } catch (e) {
+    setError("ورود با گوگل ناموفق بود. دوباره تلاش کنید.");
+  } finally {
+    setBusy(false);
   }
+}
 
   function handleSubmit(e) {
     e.preventDefault();
