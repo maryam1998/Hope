@@ -263,7 +263,7 @@ async function supabaseSignInWithGoogle() {
   const { data, error } = await client.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: 'https://maryam1998.github.io/Hope/',
+      redirectTo: 'https://maryam1998.github.io/Hope',
     },
   });
   
