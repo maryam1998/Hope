@@ -57,7 +57,7 @@ var index_default = {
           const text = await callProvider(provider, prompt, capped, env);
           return json({ text, provider });
         } catch (e) {
-          console.warn(`[${provider}] error:`, e.message); // این خط تغییر کرده تا برنامه خراب نشود
+          console.error(`[${provider}] error:`, e.message);
           errors.push(`${provider}: ${e.message}`);
         }
       }
