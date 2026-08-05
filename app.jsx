@@ -3560,63 +3560,67 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     if (ranked.length) setSelectedWords(ranked);
   };
 
-  const generateStory = async () => {
-    if (!selectedWords.length || generating) return;
-    setGenerating(true);
-    setError("");
-    setParagraphs([]);
-    setQuestions([]);
-    setAnswers({});
-    setSubmitted(false);
-    try {
-      // 🔥 اینجا فقط داستان به زبان اصلی ساخته می‌شه (بدون درخواست ترجمه از هوش مصنوعی)
-      const genre = CONTENT_TYPES.find((c) => c.key === contentType) || CONTENT_TYPES[0];
-      const lengthCfg = STORY_LENGTHS.find((l) => l.key === storyLength) || STORY_LENGTHS[1];
-      
-      const prompt = `Write ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}. The story MUST use each of these words naturally, about ${repeatCount} times each, spread across different sentences, grammatical forms, and (where the word allows it) different meanings/contexts: ${selectedWords.join(", ")}. Keep the story coherent and appropriately sized for that many repetitions. Organize the story into ${lengthCfg.paragraphs} paragraphs, ${lengthCfg.sentencesHint}. After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
+ const generateStory = async () => {
+  if (!selectedWords.length || generating) return;
+  setGenerating(true);
+  setError("");
+  setParagraphs([]);
+  setQuestions([]);
+  setAnswers({});
+  setSubmitted(false);
+  try {
+    // 🔥 اینجا طول داستان رو از استیت می‌گیریم تا خطا نخوریم
+    const currentLength = storyLength;
+    const genre = CONTENT_TYPES.find((c) => c.key === contentType) || CONTENT_TYPES[0];
+    const lengthCfg = STORY_LENGTHS.find((l) => l.key === currentLength) || STORY_LENGTHS[1];
+    
+    // 🔥 ساخت پرامپت نهایی (با دستور تکرار دقیق کلمات)
+    const prompt = `Write ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}. The story MUST use each of these words EXACTLY ${repeatCount} times each, spread across different sentences, grammatical forms, and (where the word allows it) different meanings/contexts: ${selectedWords.join(", ")}. Keep the story coherent and appropriately sized for that many repetitions. Organize the story into ${lengthCfg.paragraphs} paragraphs, ${lengthCfg.sentencesHint}. After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
 
-      const tokenBudget = Math.min(lengthCfg.tokens + 500, 8000);
-      const res = await callAI({ prompt, maxTokens: tokenBudget, aiSettings });
-      const cleaned = res.replace(/```json|```/g, "").trim();
-      let parsed;
-      try {
-        parsed = JSON.parse(cleaned);
-      } catch (parseErr) {
-        throw new Error("parse-error: پاسخ هوش مصنوعی کامل یا JSON معتبر نبود — دوباره امتحان کن.");
-      }
-      
-      const storyParagraphs = parsed.paragraphs || [];
-      
-      // ============================================================
-      // 🔥 داستان بدون ترجمه ذخیره می‌شه — ترجمه‌ی خودش (با سرویس‌های
-      // رایگان، جدا از هوش مصنوعی) رو یه useEffect جدا انجام می‌ده که هر
-      // وقت translationLangs عوض بشه (چه همین الان، چه هر وقت کاربر بعداً
-      // یه زبان دیگه هم اضافه/کم کنه) خودش رو به‌روز می‌کنه — نیازی به
-      // ساختن دوباره‌ی کل داستان نیست.
-      setParagraphs(storyParagraphs);
-      
-      setQuestions(Array.isArray(parsed.questions) ? parsed.questions : []);
-      
-      if (savedStoryWords.length) {
-        try {
-          const remaining = loadSavedStoryWords().filter((e) => e.langCode !== storyLang);
-          window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(remaining));
-          window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
-        } catch {}
-      }
-    } catch (e) {
-      const msg = String(e?.message || "");
-      if (msg.startsWith("ai-backend-error:")) {
-        setError(`خطای سرور: ${msg.replace("ai-backend-error: ", "")}`);
-      } else if (msg.startsWith("parse-error:")) {
-        setError(msg.replace("parse-error: ", ""));
-      } else {
-        setError(`خطای اتصال: ${msg || "دلیل نامشخص"}`);
-      }
-    } finally {
-      setGenerating(false);
+    const tokenBudget = Math.min(lengthCfg.tokens + 500, 8000);
+    
+    // 🔥 ارسال درخواست به سرور با طول داستان و نوع محتوا
+    const res = await callAI({ 
+      prompt, 
+      maxTokens: tokenBudget, 
+      aiSettings,
+      // این دو خط اضافی، تنظیمات را به سرور می‌فرستند
+      lengthType: currentLength,
+      contentType: contentType
+    });
+    
+    const cleaned = res.replace(/```json|```/g, "").trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (parseErr) {
+      throw new Error("parse-error: پاسخ هوش مصنوعی کامل یا JSON معتبر نبود — دوباره امتحان کن.");
     }
-  };
+    
+    const storyParagraphs = parsed.paragraphs || [];
+    setParagraphs(storyParagraphs);
+    setQuestions(Array.isArray(parsed.questions) ? parsed.questions : []);
+    
+    if (savedStoryWords.length) {
+      try {
+        const remaining = loadSavedStoryWords().filter((e) => e.langCode !== storyLang);
+        window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(remaining));
+        window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
+      } catch {}
+    }
+  } catch (e) {
+    const msg = String(e?.message || "");
+    if (msg.startsWith("ai-backend-error:")) {
+      setError(`خطای سرور: ${msg.replace("ai-backend-error: ", "")}`);
+    } else if (msg.startsWith("parse-error:")) {
+      setError(msg.replace("parse-error: ", ""));
+    } else {
+      setError(`خطای اتصال: ${msg || "دلیل نامشخص"}`);
+    }
+  } finally {
+    setGenerating(false);
+  }
+};
   const saveCurrentStory = () => {
     if (!paragraphs.length) return;
     const entry = {
