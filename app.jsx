@@ -251,28 +251,43 @@ async function ensureSupabase() {
 }
 
 async function supabaseSignInWithGoogle() {
-  // از کتابخانه‌ای که قبلاً در index.html بارگذاری شده استفاده می‌کنیم
   const { createClient } = window.supabase;
-  
   const client = createClient(
     "https://avfceytrbmsdkuyppspp.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2ZmNleXRyYm1zZGt1eXBwc3BwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjI4MTI4NzcsImV4cCI6MjAzODM4ODg3N30.7bV7pD7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D"
   );
   
-  // استفاده از روش Redirect (نه Popup) برای جلوگیری از بلاک شدن
+  // چک می‌کنیم آیا کاربر از قبل لاگین است یا نه
+  const { data: { user } } = await client.auth.getUser();
+  
+  if (user) {
+    // اگر لاگین است، اطلاعاتش را برگردان
+    return { 
+      uid: user.id, 
+      email: user.email, 
+      name: user.user_metadata?.full_name || user.email, 
+      picture: user.user_metadata?.avatar_url || "", 
+      provider: 'google' 
+    };
+  }
+
+  // اگر لاگین نیست، به گوگل برو
   const { data, error } = await client.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: 'https://maryam1998.github.io/Hope',
+      redirectTo: 'https://maryam1998.github.io/Hope', 
     },
   });
   
   if (error) throw error;
+  
+  // وقتی از گوگل برمی‌گردد، دوباره چک می‌کنیم
+  const { data: { user: newUser } } = await client.auth.getUser();
   return { 
-    uid: data.user?.id, 
-    email: data.user?.email, 
-    name: data.user?.user_metadata?.full_name, 
-    picture: data.user?.user_metadata?.avatar_url, 
+    uid: newUser.id, 
+    email: newUser.email, 
+    name: newUser.user_metadata?.full_name || newUser.email, 
+    picture: newUser.user_metadata?.avatar_url || "", 
     provider: 'google' 
   };
 }
@@ -308,15 +323,20 @@ async function supabaseSaveState(uid, data) {
   } catch (e) {}
 }
 
-  async function handleSupabaseGoogleSignIn() {
+    async function handleSupabaseGoogleSignIn() {
     setError("");
     setBusy(true);
     try {
-      // این خط مستقیماً پنجره گوگل را باز می‌کند
-      await supabaseSignInWithGoogle();
+      // این خط کاربر را به گوگل می‌برد
+      const user = await supabaseSignInWithGoogle();
+      
+      // اینجا به برنامه می‌گوییم کاربر لاگین شده است
+      // (این خط در نسخه‌های قبلی وجود نداشت)
+      if (user) {
+        onAuthenticated(user);
+      }
     } catch (e) {
-      // اگر خطا رخ داد، اینجا نمایش داده می‌شود
-      setError("ورود با گوگل ناموفق بود: " + (e.message || "خطای ناشناخته"));
+      setError("ورود با گوگل ناموفق بود. دوباره تلاش کنید.");
     } finally {
       setBusy(false);
     }
