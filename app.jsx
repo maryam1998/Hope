@@ -415,8 +415,7 @@ const speechController = (() => {
   let segmentStartTime = 0; // Date.now() when the current utterance began
   let boundaryFired = false; // whether onboundary has fired at least once for the current utterance
   let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1; // 0.5 (slow) .. 2 (fast), 1 = normal
-  let pausedTime = 0; // برای ذخیره‌ی زمان توقف
-  let currentAudio = null; // 🔥 برای پخش صدای Google TTS
+  let currentUtterance = null; // برای نگهداری reference صدای فعلی
   const listeners = new Set();
 
   function notify() {
@@ -445,33 +444,42 @@ const speechController = (() => {
     return wordIndexForCharOffset(Math.min(estOffset, fullText.length - 1));
   }
 
+  // 🔥 انتخاب صدای بهتر (Google Voices در کروم/اج)
   function getBestVoice(langCode) {
     const voices = window.speechSynthesis.getVoices();
     const langPrefix = langCode.split("-")[0];
+    
+    // اولویت ۱: صدای Google با کیفیت بالا (زنانه یا مردانه)
     let preferred = voices.find(v => 
       v.lang.startsWith(langPrefix) && 
       (v.name.includes("Google") || v.name.includes("Natural")) &&
       (v.name.includes("Female") || v.name.includes("Male"))
     );
+    
+    // اولویت ۲: هر صدای Google
     if (!preferred) {
       preferred = voices.find(v => 
         v.lang.startsWith(langPrefix) && 
         (v.name.includes("Google") || v.name.includes("Natural"))
       );
     }
+    
+    // اولویت ۳: هر صدای با کیفیت بالا
     if (!preferred) {
       preferred = voices.find(v => 
         v.lang.startsWith(langPrefix) && 
         (v.name.includes("Enhanced") || v.name.includes("Premium"))
       );
     }
+    
+    // اولویت ۴: اولین صدای موجود برای این زبان
     if (!preferred) {
       preferred = voices.find(v => v.lang.startsWith(langPrefix));
     }
+    
     return preferred || null;
   }
 
-  // 🔥 تابع جدید برای پخش صدا
   function speakFromWord(i, forceRestart = false) {
     const clamped = Math.min(Math.max(i, 0), Math.max(words.length - 1, 0));
     if (!words.length) {
@@ -480,7 +488,7 @@ const speechController = (() => {
       return;
     }
 
-    // حالت مکث (ادامه از همان کلمه)
+    // اگر در حالت paused هستیم و forceRestart = false، از همان نقطه ادامه بده
     if (status === "paused" && !forceRestart) {
       const baseOffset = words[wordIndex].start;
       segmentStartOffset = baseOffset;
@@ -490,67 +498,13 @@ const speechController = (() => {
       notify();
       
       const segment = fullText.slice(baseOffset);
-      const encodedText = encodeURIComponent(segment);
-      const ttsLang = locale.split('-')[0] === 'fa' ? 'fa-IR' : locale; 
-      const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${ttsLang}&client=tw-ob&q=${encodedText}`;
-      
-      currentAudio = new Audio(audioUrl);
-      currentAudio.play().catch(() => {
-        // اگر Google کار نکرد، TTS گوشی
-        const utter = new SpeechSynthesisUtterance(segment);
-        utter.lang = locale;
-        utter.rate = rate;
-        const bestVoice = getBestVoice(locale);
-        if (bestVoice) utter.voice = bestVoice;
-        utter.onboundary = (e) => {
-          if (e.name && e.name !== "word") return;
-          boundaryFired = true;
-          const abs = baseOffset + (e.charIndex || 0);
-          wordIndex = wordIndexForCharOffset(abs);
-          notify();
-        };
-        utter.onend = () => {
-          if (status !== "playing") return;
-          status = "idle";
-          wordIndex = 0;
-          notify();
-        };
-        utter.onerror = () => {
-          status = "idle";
-          notify();
-        };
-        window.speechSynthesis.speak(utter);
-      });
-      
-      return;
-    }
-
-    // شروع از اول یا کلمه‌ی مشخص
-    try {
-      window.speechSynthesis.cancel();
-    } catch (e) {}
-    
-    const baseOffset = words[clamped].start;
-    wordIndex = clamped;
-    segmentStartOffset = baseOffset;
-    segmentStartTime = Date.now();
-    boundaryFired = false;
-    status = "playing";
-    notify();
-    
-    const segment = fullText.slice(baseOffset);
-    const encodedText = encodeURIComponent(segment);
-    const ttsLang = locale.split('-')[0] === 'fa' ? 'fa-IR' : locale; 
-    const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${ttsLang}&client=tw-ob&q=${encodedText}`;
-    
-    currentAudio = new Audio(audioUrl);
-    currentAudio.play().catch(() => {
-      // اگر Google کار نکرد، TTS گوشی
       const utter = new SpeechSynthesisUtterance(segment);
       utter.lang = locale;
       utter.rate = rate;
+      
       const bestVoice = getBestVoice(locale);
       if (bestVoice) utter.voice = bestVoice;
+      
       utter.onboundary = (e) => {
         if (e.name && e.name !== "word") return;
         boundaryFired = true;
@@ -568,8 +522,53 @@ const speechController = (() => {
         status = "idle";
         notify();
       };
+      
+      currentUtterance = utter;
       window.speechSynthesis.speak(utter);
-    });
+      return;
+    }
+
+    // شروع از اول یا از کلمه‌ی مشخص
+    try {
+      window.speechSynthesis.cancel();
+    } catch (e) {}
+    
+    const baseOffset = words[clamped].start;
+    wordIndex = clamped;
+    segmentStartOffset = baseOffset;
+    segmentStartTime = Date.now();
+    boundaryFired = false;
+    status = "playing";
+    notify();
+    
+    const segment = fullText.slice(baseOffset);
+    const utter = new SpeechSynthesisUtterance(segment);
+    utter.lang = locale;
+    utter.rate = rate;
+    
+    const bestVoice = getBestVoice(locale);
+    if (bestVoice) utter.voice = bestVoice;
+    
+    utter.onboundary = (e) => {
+      if (e.name && e.name !== "word") return;
+      boundaryFired = true;
+      const abs = baseOffset + (e.charIndex || 0);
+      wordIndex = wordIndexForCharOffset(abs);
+      notify();
+    };
+    utter.onend = () => {
+      if (status !== "playing") return;
+      status = "idle";
+      wordIndex = 0;
+      notify();
+    };
+    utter.onerror = () => {
+      status = "idle";
+      notify();
+    };
+    
+    currentUtterance = utter;
+    window.speechSynthesis.speak(utter);
   }
 
   return {
@@ -585,6 +584,7 @@ const speechController = (() => {
         if (!("speechSynthesis" in window) || !text) return "unsupported";
         
         let newLocale = TTS_LOCALE[code] || "en-US";
+        // اگر زبان فارسی است و صدای فارسی موجود نیست، از صدای عربی استفاده کن
         if (code === "fa") {
           const voices = window.speechSynthesis.getVoices();
           const hasPersianVoice = voices.some(v => v.lang.startsWith("fa"));
@@ -601,44 +601,15 @@ const speechController = (() => {
           wordIndex = estimateWordIndex();
           try {
             window.speechSynthesis.cancel();
-            if (currentAudio) {
-              currentAudio.pause();
-              currentAudio.currentTime = 0;
-              currentAudio = null;
-            }
-          } catch (e) {}
-          status = "paused";
-                  if (key === newKey && status === "playing") {
-          wordIndex = estimateWordIndex();
-          try {
-            window.speechSynthesis.cancel();
-            if (currentAudio) {
-              pausedTime = currentAudio.currentTime; // ✅ زمان توقف را ذخیره کن
-              currentAudio.pause();
-              currentAudio.currentTime = 0;
-              currentAudio = null;
-            }
           } catch (e) {}
           status = "paused";
           notify();
           return "ok";
         }
         
-        
-        // اگر در حالت مکث است و دکمه زده شده، ادامه بده
-                if (key === newKey && status === "paused") {
+        if (key === newKey && status === "paused") {
           status = "playing";
-          // اگر صدای Google از قبل وجود دارد، ادامه بده
-          if (currentAudio) {
-            currentAudio.play();
-          } else {
-            // اگر نه، یک صدای جدید از همان جمله بساز و از زمان ذخیره‌شده شروع کن
-            speakFromWord(wordIndex, false);
-            if (currentAudio) {
-              currentAudio.currentTime = pausedTime; // ✅ از زمان توقف شروع کن
-              pausedTime = 0; // زمان ذخیره‌شده را پاک کن
-            }
-          }
+          speakFromWord(wordIndex, false);
           return "ok";
         }
 
@@ -675,17 +646,13 @@ const speechController = (() => {
     stop() {
       try {
         window.speechSynthesis.cancel();
-        if (currentAudio) {
-          currentAudio.pause();
-          currentAudio.currentTime = 0;
-          currentAudio = null;
-        }
       } catch (e) {}
       key = null;
       words = [];
       status = "idle";
       wordIndex = 0;
       boundaryFired = false;
+      currentUtterance = null;
       notify();
     },
     getRate() {
@@ -704,6 +671,7 @@ const speechController = (() => {
     },
   };
 })();
+
 // ---------------------------------------------------------------------------
 // AI connection — standard architecture:
 //     User → React App (this file) → Backend Server (Render) → AI provider
@@ -2739,18 +2707,21 @@ function SpeedControl({ color }) {
 // a small popover with its part of speech + Persian meaning, looked up first
 // from the local VOCAB list, then (if not found) from the AI backend.
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Renders a sentence as individually clickable words. Tapping a word shows
-// a small popover with its part of speech + Persian meaning, looked up first
-// from the local VOCAB list, then (if not found) from the AI backend.
-// ---------------------------------------------------------------------------
 function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabelProp, aiSettings, color, fontFamily }) {
   const [openKey, setOpenKey] = useState(null); // `${startTokenIdx}-${endTokenIdx}` of the word/expression with popover open
   const [info, setInfo] = useState(null); // { pos, meaning } | "loading" | "error"
   const [anchorRect, setAnchorRect] = useState(null); // clicked word's screen position
   const [coords, setCoords] = useState(null); // { top, left } — final, clamped popup position
   const [saved, setSaved] = useState(false);
+  // The exact word/expression currently open in the popover. Looked up once
+  // at click time and reused for both the AI lookup and the Save button, so
+  // Save can never drift from what's actually on screen (this used to read a
+  // token straight from the render closure, which is how a tap could end up
+  // saving nothing at all).
   const [activeTerm, setActiveTerm] = useState("");
+  // This language's bookmarked words/expressions ("Save for next story"),
+  // kept live so previously-saved terms get a dotted underline as soon as
+  // they're saved (or lose it as soon as they're un-saved) anywhere in the app.
   const [savedTerms, setSavedTerms] = useState([]);
   const popupRef = useRef(null);
 
@@ -2766,6 +2737,9 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
   }, [langCode]);
 
+  // Keep the popup inside the visible viewport (crucial on phones, where a
+  // long explanation used to spill off the right/left edge or bottom of
+  // the screen). Recompute whenever it opens or its content/size changes.
   useLayoutEffect(() => {
     if (openKey === null || !anchorRect || !popupRef.current) return;
     const margin = 8;
@@ -2778,12 +2752,14 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     let left = anchorRect.left + anchorRect.width / 2 - w / 2;
     left = Math.max(margin, Math.min(left, vw - w - margin));
 
-    let top = anchorRect.top - h - 8;
+    let top = anchorRect.top - h - 8; // prefer showing above the word
     if (top < margin) top = Math.min(anchorRect.bottom + 8, vh - h - margin);
 
     setCoords({ top, left, width: w });
   }, [openKey, anchorRect, info]);
 
+  // Close on outside click, scroll, or resize so a stale/misplaced popup
+  // never lingers on screen.
   useEffect(() => {
     if (openKey === null) return;
     const close = () => {
@@ -2803,15 +2779,19 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
   }, [openKey]);
 
   if (!text) return null;
-  const tokens = text.split(/(\s+)/);
+  const tokens = text.split(/(\s+)/); // keep whitespace so layout/wrapping looks natural
 
+  // Merge contiguous word-tokens into a single group wherever they match a
+  // saved word/expression for this language — longest match first, so a
+  // saved multi-word expression (e.g. "give up") underlines as ONE unit
+  // instead of underlining "give" and "up" separately.
   const savedNorms = new Set(savedTerms.map((e) => normalizeWord(e.word)).filter(Boolean));
   const wordTokIdx = [];
   tokens.forEach((t, i) => {
     if (!(/^\s+$/.test(t) || t === "")) wordTokIdx.push(i);
   });
-  const groupAt = {};
-  const groupSkip = new Set();
+  const groupAt = {}; // starting token idx -> { start, end, text }
+  const groupSkip = new Set(); // token idx that belong to a group but aren't its start
   if (savedNorms.size) {
     const MAX_EXPR_WORDS = 4;
     let p = 0;
@@ -2861,13 +2841,13 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     <span style={{ position: "relative", display: "inline" }}>
       {tokens.map((tok, idx) => {
         if (/^\s+$/.test(tok) || tok === "") return <React.Fragment key={idx}>{tok}</React.Fragment>;
-        if (groupSkip.has(idx)) return null;
+        if (groupSkip.has(idx)) return null; // already rendered as part of its group's combined span
         const group = groupAt[idx];
         const displayText = group ? group.text : tok;
         const startTok = group ? group.start : idx;
         const endTok = group ? group.end : idx;
         const isOpen = openKey === `${startTok}-${endTok}`;
-        const isUnderlined = !!group;
+        const isUnderlined = !!group; // has a saved explanation
         return (
           <span key={idx} style={{ position: "relative", display: "inline-block" }}>
             <span
