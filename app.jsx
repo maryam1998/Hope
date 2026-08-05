@@ -415,7 +415,7 @@ const speechController = (() => {
   let segmentStartTime = 0; // Date.now() when the current utterance began
   let boundaryFired = false; // whether onboundary has fired at least once for the current utterance
   let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1; // 0.5 (slow) .. 2 (fast), 1 = normal
-  let currentUtterance = null; // برای نگهداری reference صدای فعلی
+  let currentAudio = null; // 🔥 برای پخش صدای Google TTS
   const listeners = new Set();
 
   function notify() {
@@ -444,43 +444,34 @@ const speechController = (() => {
     return wordIndexForCharOffset(Math.min(estOffset, fullText.length - 1));
   }
 
-  // 🔥 انتخاب صدای بهتر (Google Voices در کروم/اج)
   function getBestVoice(langCode) {
     const voices = window.speechSynthesis.getVoices();
     const langPrefix = langCode.split("-")[0];
-    
-    // اولویت ۱: صدای Google با کیفیت بالا (زنانه یا مردانه)
     let preferred = voices.find(v => 
       v.lang.startsWith(langPrefix) && 
       (v.name.includes("Google") || v.name.includes("Natural")) &&
       (v.name.includes("Female") || v.name.includes("Male"))
     );
-    
-    // اولویت ۲: هر صدای Google
     if (!preferred) {
       preferred = voices.find(v => 
         v.lang.startsWith(langPrefix) && 
         (v.name.includes("Google") || v.name.includes("Natural"))
       );
     }
-    
-    // اولویت ۳: هر صدای با کیفیت بالا
     if (!preferred) {
       preferred = voices.find(v => 
         v.lang.startsWith(langPrefix) && 
         (v.name.includes("Enhanced") || v.name.includes("Premium"))
       );
     }
-    
-    // اولویت ۴: اولین صدای موجود برای این زبان
     if (!preferred) {
       preferred = voices.find(v => v.lang.startsWith(langPrefix));
     }
-    
     return preferred || null;
   }
 
-    function speakFromWord(i, forceRestart = false) {
+  // 🔥 تابع جدید برای پخش صدا
+  function speakFromWord(i, forceRestart = false) {
     const clamped = Math.min(Math.max(i, 0), Math.max(words.length - 1, 0));
     if (!words.length) {
       status = "idle";
@@ -593,7 +584,6 @@ const speechController = (() => {
         if (!("speechSynthesis" in window) || !text) return "unsupported";
         
         let newLocale = TTS_LOCALE[code] || "en-US";
-        // اگر زبان فارسی است و صدای فارسی موجود نیست، از صدای عربی استفاده کن
         if (code === "fa") {
           const voices = window.speechSynthesis.getVoices();
           const hasPersianVoice = voices.some(v => v.lang.startsWith("fa"));
@@ -610,16 +600,26 @@ const speechController = (() => {
           wordIndex = estimateWordIndex();
           try {
             window.speechSynthesis.cancel();
+            if (currentAudio) {
+              currentAudio.pause();
+              currentAudio.currentTime = 0;
+              currentAudio = null;
+            }
           } catch (e) {}
           status = "paused";
           notify();
           return "ok";
         }
         
-               if (key === newKey && status === "paused") {
+        // اگر در حالت مکث است و دکمه زده شده، ادامه بده
+        if (key === newKey && status === "paused") {
           status = "playing";
+          // اگر صدای Google از قبل وجود دارد، ادامه بده
           if (currentAudio) {
             currentAudio.play();
+          } else {
+            // اگر نه، از کلمه‌ی فعلی شروع کن
+            speakFromWord(wordIndex, false);
           }
           return "ok";
         }
@@ -657,18 +657,17 @@ const speechController = (() => {
     stop() {
       try {
         window.speechSynthesis.cancel();
+        if (currentAudio) {
+          currentAudio.pause();
+          currentAudio.currentTime = 0;
+          currentAudio = null;
+        }
       } catch (e) {}
-            if (currentAudio) {
-        currentAudio.pause();
-        currentAudio.currentTime = 0;
-        currentAudio = null;
-      }
       key = null;
       words = [];
       status = "idle";
       wordIndex = 0;
       boundaryFired = false;
-      currentUtterance = null;
       notify();
     },
     getRate() {
@@ -687,7 +686,6 @@ const speechController = (() => {
     },
   };
 })();
-
 // ---------------------------------------------------------------------------
 // AI connection — standard architecture:
 //     User → React App (this file) → Backend Server (Render) → AI provider
