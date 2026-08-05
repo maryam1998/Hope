@@ -57,7 +57,7 @@ var index_default = {
           const text = await callProvider(provider, prompt, capped, env);
           return json({ text, provider });
         } catch (e) {
-          console.error(`[${provider}] error:`, e.message);
+          console.warn(`[${provider}] error:`, e.message); // این خط تغییر کرده تا برنامه خراب نشود
           errors.push(`${provider}: ${e.message}`);
         }
       }
@@ -119,4 +119,3 @@ __name(callHuggingFace, "callHuggingFace");
 export {
   index_default as default
 };
-
