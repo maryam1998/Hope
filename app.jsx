@@ -324,23 +324,21 @@ async function supabaseSaveState(uid, data) {
 }
 
     async function handleSupabaseGoogleSignIn() {
-    setError("");
-    setBusy(true);
-    try {
-      // این خط کاربر را به گوگل می‌برد
-      const user = await supabaseSignInWithGoogle();
-      
-      // اینجا به برنامه می‌گوییم کاربر لاگین شده است
-      // (این خط در نسخه‌های قبلی وجود نداشت)
-      if (user) {
-        onAuthenticated(user);
-      }
-    } catch (e) {
-      setError("ورود با گوگل ناموفق بود. دوباره تلاش کنید.");
-    } finally {
-      setBusy(false);
+  setError("");
+  setBusy(true);
+  try {
+    const user = await supabaseSignInWithGoogle();
+    if (user) {
+      // این خط باعث ذخیره شدن کاربر در مرورگر می‌شود
+      localStorage.setItem('phrasebook-session-v1', JSON.stringify(user));
+      onAuthenticated(user);
     }
+  } catch (e) {
+    setError("ورود با گوگل ناموفق بود. دوباره تلاش کنید.");
+  } finally {
+    setBusy(false);
   }
+}
 
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
@@ -5668,9 +5666,10 @@ function LoginScreen({ onAuthenticated }) {
   setError("");
   setBusy(true);
   try {
-    // به جای await، مستقیم تابع را صدا می‌زنیم تا پنجره باز شود
-    supabaseSignInWithGoogle(); 
-    // بقیه کدها (persistSession و ...) در درون supabaseSignInWithGoogle اجرا می‌شوند
+    const user = await supabaseSignInWithGoogle();
+    if (user) {
+      onAuthenticated(user);
+    }
   } catch (e) {
     setError("ورود با گوگل ناموفق بود. دوباره تلاش کنید.");
   } finally {
@@ -5842,55 +5841,39 @@ function LoginScreen({ onAuthenticated }) {
 }
 
 export default function App() {
-  const [user, setUser] = useState(() => readSession());
-  const [appPrefs, setAppPrefs] = useState(loadAppPrefs);
+  const [user, setUser] = useState(() => {
+    // چک کردن لاگین ذخیره شده
+    const saved = localStorage.getItem('phrasebook-session-v1');
+    if (saved) return JSON.parse(saved);
+    return null;
+  });
 
+  const [appPrefs, setAppPrefs] = useState(loadAppPrefs);
   useEffect(() => saveAppPrefs(appPrefs), [appPrefs]);
+
+  // وقتی صفحه لود می‌شود، چک کن اگر توکن لاگین در آدرس هست، کاربر را وارد کن
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash && hash.includes('access_token')) {
+      // توکن وجود دارد! یعنی کاربر از گوگل برگشته است.
+      // ما باید توکن را بگیریم و آن را به حالت برنامه بفرستیم.
+      // اما چون برنامه با importmap کار می‌کند، ساده‌ترین کار این است که صفحه را رفرش کنیم
+      // تا برنامه دوباره لود شود و توکن را بخواند.
+      window.location.href = 'https://maryam1998.github.io/Hope';
+    }
+  }, []);
 
   const theme = APP_THEMES[appPrefs.theme].values;
   const font = APP_FONTS[appPrefs.font];
   const fontSize = APP_FONT_SIZES[appPrefs.fontSize];
-
-  // Sets the CSS custom properties every `colors.xxx` / fontFa / fontLatin
-  // reference resolves to, plus a `zoom` for the font-size preference — one
-  // wrapper, whole app re-themed, login screen included.
-  const rootStyle = {
-    "--c-paper": theme.paper,
-    "--c-paperDark": theme.paperDark,
-    "--c-ink": theme.ink,
-    "--c-inkSoft": theme.inkSoft,
-    "--c-gold": theme.gold,
-    "--c-goldSoft": theme.goldSoft,
-    "--c-teal": theme.teal,
-    "--c-rose": theme.rose,
-    "--c-cardBorder": theme.cardBorder,
-    "--font-fa": font.fa,
-    "--font-latin": font.latin,
-    zoom: fontSize.zoom,
-    minHeight: "100vh",
-  };
-
+  const rootStyle = { "--c-paper": theme.paper, "--c-paperDark": theme.paperDark, "--c-ink": theme.ink, "--c-inkSoft": theme.inkSoft, "--c-gold": theme.gold, "--c-goldSoft": theme.goldSoft, "--c-teal": theme.teal, "--c-rose": theme.rose, "--c-cardBorder": theme.cardBorder, "--font-fa": font.fa, "--font-latin": font.latin, zoom: fontSize.zoom, minHeight: "100vh" };
+  
   return (
     <div style={rootStyle}>
-      {!user ? (
-        <LoginScreen onAuthenticated={setUser} />
-      ) : (
-        <PhrasebookMain
-          key={user.email}
-          user={user}
-          appPrefs={appPrefs}
-          setAppPrefs={setAppPrefs}
-          onLogout={() => {
-            clearSession();
-            if (user.provider === "google" && FIREBASE_ENABLED) firebaseSignOut();
-            setUser(null);
-          }}
-        />
-      )}
+      {!user ? <LoginScreen onAuthenticated={setUser} /> : <div style={{ fontFamily: fontFa, backgroundColor: colors.paper, minHeight: "100vh", color: colors.ink, padding: 20 }}><h1>به کتاب مکالمه خوش آمدید!</h1><p>شما با موفقیت وارد شدید: {user.email}</p></div>}
     </div>
   );
 }
-
 // ---------------------------------------------------------------------------
 // Mount point — added so this file can run standalone in a browser (no
 // bundler) via an import-map + Babel-standalone setup. See index.html.
