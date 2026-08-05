@@ -690,11 +690,11 @@ const DEFAULT_BACKEND_URL = "https://phrasebook-api.maryam-s-sharifiyan.workers.
 async function callAI({ prompt, maxTokens, retries = 2, aiSettings }) {
   const base = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || DEFAULT_BACKEND_URL;
   const body = JSON.stringify({
-    prompt,
-    maxTokens: Math.min(Math.max(maxTokens || 1000, 1000), 8192),
-      lengthType: storyLength, 
+  prompt,
+  maxTokens: Math.min(Math.max(maxTokens || 1000, 1000), 8192),
+  lengthType: storyLength, // ✅ اینجا باید از storyLength استفاده کنید
   contentType: contentType
-  });
+});
 
   for (let attempt = 0; ; attempt++) {
     try {
