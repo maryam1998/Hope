@@ -416,7 +416,6 @@ const speechController = (() => {
   let boundaryFired = false; // whether onboundary has fired at least once for the current utterance
   let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1; // 0.5 (slow) .. 2 (fast), 1 = normal
   let currentUtterance = null; // برای نگهداری reference صدای فعلی
-  let currentAudio = null;  // برای نگه‌داشتن صدای Google TTS در حال پخش
   const listeners = new Set();
 
   function notify() {
@@ -481,7 +480,7 @@ const speechController = (() => {
     return preferred || null;
   }
 
-    function speakFromWord(i, forceRestart = false) {
+  function speakFromWord(i, forceRestart = false) {
     const clamped = Math.min(Math.max(i, 0), Math.max(words.length - 1, 0));
     if (!words.length) {
       status = "idle";
@@ -489,7 +488,7 @@ const speechController = (() => {
       return;
     }
 
-    // حالت مکث (ادامه از همان کلمه)
+    // اگر در حالت paused هستیم و forceRestart = false، از همان نقطه ادامه بده
     if (status === "paused" && !forceRestart) {
       const baseOffset = words[wordIndex].start;
       segmentStartOffset = baseOffset;
@@ -499,69 +498,13 @@ const speechController = (() => {
       notify();
       
       const segment = fullText.slice(baseOffset);
-      const encodedText = encodeURIComponent(segment);
-      const ttsLang = locale.split('-')[0] === 'fa' ? 'fa-IR' : locale; 
-      const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${ttsLang}&client=tw-ob&q=${encodedText}`;
-      
-      // صدای Google ساخته و در متغیر ذخیره می‌شود
-      currentAudio = new Audio(audioUrl);
-      currentAudio.play().catch(() => {
-        // اگر Google کار نکرد، TTS گوشی
-        const utter = new SpeechSynthesisUtterance(segment);
-        utter.lang = locale;
-        utter.rate = rate;
-        const bestVoice = getBestVoice(locale);
-        if (bestVoice) utter.voice = bestVoice;
-        utter.onboundary = (e) => {
-          if (e.name && e.name !== "word") return;
-          boundaryFired = true;
-          const abs = baseOffset + (e.charIndex || 0);
-          wordIndex = wordIndexForCharOffset(abs);
-          notify();
-        };
-        utter.onend = () => {
-          if (status !== "playing") return;
-          status = "idle";
-          wordIndex = 0;
-          notify();
-        };
-        utter.onerror = () => {
-          status = "idle";
-          notify();
-        };
-        window.speechSynthesis.speak(utter);
-      });
-      
-      return;
-    }
-
-    // شروع از اول یا کلمه‌ی مشخص
-    try {
-      window.speechSynthesis.cancel();
-    } catch (e) {}
-    
-    const baseOffset = words[clamped].start;
-    wordIndex = clamped;
-    segmentStartOffset = baseOffset;
-    segmentStartTime = Date.now();
-    boundaryFired = false;
-    status = "playing";
-    notify();
-    
-    const segment = fullText.slice(baseOffset);
-    const encodedText = encodeURIComponent(segment);
-    const ttsLang = locale.split('-')[0] === 'fa' ? 'fa-IR' : locale; 
-    const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${ttsLang}&client=tw-ob&q=${encodedText}`;
-    
-    // صدای Google ساخته و در متغیر ذخیره می‌شود
-    currentAudio = new Audio(audioUrl);
-    currentAudio.play().catch(() => {
-      // اگر Google کار نکرد، TTS گوشی
       const utter = new SpeechSynthesisUtterance(segment);
       utter.lang = locale;
       utter.rate = rate;
+      
       const bestVoice = getBestVoice(locale);
       if (bestVoice) utter.voice = bestVoice;
+      
       utter.onboundary = (e) => {
         if (e.name && e.name !== "word") return;
         boundaryFired = true;
@@ -579,9 +522,11 @@ const speechController = (() => {
         status = "idle";
         notify();
       };
+      
+      currentUtterance = utter;
       window.speechSynthesis.speak(utter);
-    });
-  }
+      return;
+    }
 
     // شروع از اول یا از کلمه‌ی مشخص
     try {
@@ -662,9 +607,9 @@ const speechController = (() => {
           return "ok";
         }
         
-                if (key === newKey && status === "paused") {
+        if (key === newKey && status === "paused") {
           status = "playing";
-          window.speechSynthesis.resume(); // ادامه از همان نقطه با دستور استاندارد مرورگر
+          speakFromWord(wordIndex, false);
           return "ok";
         }
 
