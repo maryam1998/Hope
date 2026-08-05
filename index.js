@@ -119,3 +119,4 @@ __name(callHuggingFace, "callHuggingFace");
 export {
   index_default as default
 };
+
