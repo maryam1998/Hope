@@ -251,22 +251,28 @@ async function ensureSupabase() {
 }
 
 async function supabaseSignInWithGoogle() {
-  const supabase = await ensureSupabase();
-  // این خط پنجره را باز می‌کند و کاربر را به گوگل می‌برد
-  const { data, error } = await supabase.auth.signInWithOAuth({
+  // از کتابخانه‌ای که قبلاً در index.html بارگذاری شده استفاده می‌کنیم
+  const { createClient } = window.supabase;
+  
+  const client = createClient(
+    "https://avfceytrbmsdkuyppspp.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2ZmNleXRyYm1zZGt1eXBwc3BwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjI4MTI4NzcsImV4cCI6MjAzODM4ODg3N30.7bV7pD7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D"
+  );
+  
+  // استفاده از روش Redirect (نه Popup) برای جلوگیری از بلاک شدن
+  const { data, error } = await client.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: 'https://maryam1998.github.io/Hope/', // آدرس نهایی سایت شما
+      redirectTo: 'https://maryam1998.github.io/Hope/',
     },
   });
-  if (error) throw error;
   
-  // ما منتظر برنمی‌گردیم چون کاربر به صفحه گوگل رفت
+  if (error) throw error;
   return { 
-    uid: data.user?.id || "temp-uid", 
-    email: data.user?.email || "user@example.com", 
-    name: data.user?.user_metadata?.full_name || "کاربر", 
-    picture: data.user?.user_metadata?.avatar_url || "", 
+    uid: data.user?.id, 
+    email: data.user?.email, 
+    name: data.user?.user_metadata?.full_name, 
+    picture: data.user?.user_metadata?.avatar_url, 
     provider: 'google' 
   };
 }
