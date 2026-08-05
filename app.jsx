@@ -480,7 +480,7 @@ const speechController = (() => {
     return preferred || null;
   }
 
-  function speakFromWord(i, forceRestart = false) {
+    function speakFromWord(i, forceRestart = false) {
     const clamped = Math.min(Math.max(i, 0), Math.max(words.length - 1, 0));
     if (!words.length) {
       status = "idle";
@@ -488,7 +488,7 @@ const speechController = (() => {
       return;
     }
 
-    // اگر در حالت paused هستیم و forceRestart = false، از همان نقطه ادامه بده
+    // حالت مکث (ادامه از همان کلمه)
     if (status === "paused" && !forceRestart) {
       const baseOffset = words[wordIndex].start;
       segmentStartOffset = baseOffset;
@@ -498,13 +498,67 @@ const speechController = (() => {
       notify();
       
       const segment = fullText.slice(baseOffset);
+      const encodedText = encodeURIComponent(segment);
+      const ttsLang = locale.split('-')[0] === 'fa' ? 'fa-IR' : locale; 
+      const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${ttsLang}&client=tw-ob&q=${encodedText}`;
+      
+      currentAudio = new Audio(audioUrl);
+      currentAudio.play().catch(() => {
+        // اگر Google کار نکرد، TTS گوشی
+        const utter = new SpeechSynthesisUtterance(segment);
+        utter.lang = locale;
+        utter.rate = rate;
+        const bestVoice = getBestVoice(locale);
+        if (bestVoice) utter.voice = bestVoice;
+        utter.onboundary = (e) => {
+          if (e.name && e.name !== "word") return;
+          boundaryFired = true;
+          const abs = baseOffset + (e.charIndex || 0);
+          wordIndex = wordIndexForCharOffset(abs);
+          notify();
+        };
+        utter.onend = () => {
+          if (status !== "playing") return;
+          status = "idle";
+          wordIndex = 0;
+          notify();
+        };
+        utter.onerror = () => {
+          status = "idle";
+          notify();
+        };
+        window.speechSynthesis.speak(utter);
+      });
+      
+      return;
+    }
+
+    // شروع از اول یا کلمه‌ی مشخص
+    try {
+      window.speechSynthesis.cancel();
+    } catch (e) {}
+    
+    const baseOffset = words[clamped].start;
+    wordIndex = clamped;
+    segmentStartOffset = baseOffset;
+    segmentStartTime = Date.now();
+    boundaryFired = false;
+    status = "playing";
+    notify();
+    
+    const segment = fullText.slice(baseOffset);
+    const encodedText = encodeURIComponent(segment);
+    const ttsLang = locale.split('-')[0] === 'fa' ? 'fa-IR' : locale; 
+    const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${ttsLang}&client=tw-ob&q=${encodedText}`;
+    
+    currentAudio = new Audio(audioUrl);
+    currentAudio.play().catch(() => {
+      // اگر Google کار نکرد، TTS گوشی
       const utter = new SpeechSynthesisUtterance(segment);
       utter.lang = locale;
       utter.rate = rate;
-      
       const bestVoice = getBestVoice(locale);
       if (bestVoice) utter.voice = bestVoice;
-      
       utter.onboundary = (e) => {
         if (e.name && e.name !== "word") return;
         boundaryFired = true;
@@ -522,53 +576,8 @@ const speechController = (() => {
         status = "idle";
         notify();
       };
-      
-      currentUtterance = utter;
       window.speechSynthesis.speak(utter);
-      return;
-    }
-
-    // شروع از اول یا از کلمه‌ی مشخص
-    try {
-      window.speechSynthesis.cancel();
-    } catch (e) {}
-    
-    const baseOffset = words[clamped].start;
-    wordIndex = clamped;
-    segmentStartOffset = baseOffset;
-    segmentStartTime = Date.now();
-    boundaryFired = false;
-    status = "playing";
-    notify();
-    
-    const segment = fullText.slice(baseOffset);
-    const utter = new SpeechSynthesisUtterance(segment);
-    utter.lang = locale;
-    utter.rate = rate;
-    
-    const bestVoice = getBestVoice(locale);
-    if (bestVoice) utter.voice = bestVoice;
-    
-    utter.onboundary = (e) => {
-      if (e.name && e.name !== "word") return;
-      boundaryFired = true;
-      const abs = baseOffset + (e.charIndex || 0);
-      wordIndex = wordIndexForCharOffset(abs);
-      notify();
-    };
-    utter.onend = () => {
-      if (status !== "playing") return;
-      status = "idle";
-      wordIndex = 0;
-      notify();
-    };
-    utter.onerror = () => {
-      status = "idle";
-      notify();
-    };
-    
-    currentUtterance = utter;
-    window.speechSynthesis.speak(utter);
+    });
   }
 
   return {
@@ -607,9 +616,11 @@ const speechController = (() => {
           return "ok";
         }
         
-        if (key === newKey && status === "paused") {
+               if (key === newKey && status === "paused") {
           status = "playing";
-          speakFromWord(wordIndex, false);
+          if (currentAudio) {
+            currentAudio.play();
+          }
           return "ok";
         }
 
@@ -647,6 +658,11 @@ const speechController = (() => {
       try {
         window.speechSynthesis.cancel();
       } catch (e) {}
+            if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+        currentAudio = null;
+      }
       key = null;
       words = [];
       status = "idle";
