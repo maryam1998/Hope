@@ -229,74 +229,65 @@ const storage = {
 // Until FIREBASE_CONFIG.apiKey is filled in, the app falls back to local,
 // per-device email/password + demo-Google accounts so it still works.
 // ---------------------------------------------------------------------------
-const FIREBASE_CONFIG = {
-  apiKey: "YOUR_FIREBASE_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID",
-};
-const FIREBASE_ENABLED = !FIREBASE_CONFIG.apiKey.startsWith("YOUR_");
+// ---------------------------------------------------------------------------
+// SUPABASE — real Google accounts + cross-device sync
+// -----------------------------------------------------------------------------
+const SUPABASE_URL = "https://avfceytrbmsdkuyppspp.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2ZmNleXRyYm1zZGt1eXBwc3BwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjI4MTI4NzcsImV4cCI6MjAzODM4ODg3N30.7bV7pD7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D7L2X9vGv7D"; // کلید anon خود را اینجا بچسبانید
 
-let fbAuth = null;
-let fbDb = null;
-let fbGoogleProvider = null;
-let fbMod = null; // { auth: {...}, firestore: {...} } — the loaded SDK modules
+let supabaseClient = null;
 
-async function ensureFirebase() {
-  if (!FIREBASE_ENABLED) return null;
-  if (fbAuth && fbDb) return { auth: fbAuth, db: fbDb };
-  const [{ initializeApp }, authMod, storeMod] = await Promise.all([
-    import("firebase/app"),
-    import("firebase/auth"),
-    import("firebase/firestore"),
-  ]);
-  fbMod = { auth: authMod, firestore: storeMod };
-  const app = initializeApp(FIREBASE_CONFIG);
-  fbAuth = authMod.getAuth(app);
-  fbDb = storeMod.getFirestore(app);
-  fbGoogleProvider = new authMod.GoogleAuthProvider();
-  return { auth: fbAuth, db: fbDb };
+async function ensureSupabase() {
+  if (supabaseClient) return supabaseClient;
+  const { createClient } = await import('@supabase/supabase-js');
+  supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  return supabaseClient;
 }
 
-async function firebaseSignInWithGoogle() {
-  const { auth } = await ensureFirebase();
-  const cred = await fbMod.auth.signInWithPopup(auth, fbGoogleProvider);
-  const u = cred.user;
-  return { uid: u.uid, email: u.email, name: u.displayName || u.email, picture: u.photoURL || "", provider: "google" };
+async function supabaseSignInWithGoogle() {
+  const supabase = await ensureSupabase();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: 'https://maryam1998.github.io/Hope/',
+    },
+  });
+  if (error) throw error;
+  // کاربر پس از لاگین به صفحه‌ی گوگل می‌رود و برمی‌گردد
+  return { uid: data.user?.id, email: data.user?.email, name: data.user?.user_metadata?.full_name, picture: data.user?.user_metadata?.avatar_url, provider: 'google' };
 }
 
-async function firebaseSignOut() {
-  if (!fbAuth) return;
+async function supabaseSignOut() {
+  if (!supabaseClient) return;
+  await supabaseClient.auth.signOut();
+}
+
+// Loads this user's synced state from Supabase
+async function supabaseLoadState(uid) {
+  if (!uid) return null;
   try {
-    await fbMod.auth.signOut(fbAuth);
-  } catch {}
-}
-
-// Loads this user's synced state from Firestore (users/{uid}), or null if
-// there's nothing there yet (first time this account has been used).
-async function firestoreLoadState(uid) {
-  if (!FIREBASE_ENABLED || !uid) return null;
-  try {
-    const { db } = await ensureFirebase();
-    const ref = fbMod.firestore.doc(db, "users", uid);
-    const snap = await fbMod.firestore.getDoc(ref);
-    return snap.exists() ? snap.data() : null;
+    const supabase = await ensureSupabase();
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', uid)
+      .single();
+    if (error) return null;
+    return data;
   } catch (e) {
-    return null; // offline, rules not set up yet, etc. — local storage still works
+    return null;
   }
 }
 
-async function firestoreSaveState(uid, data) {
-  if (!FIREBASE_ENABLED || !uid) return;
+async function supabaseSaveState(uid, data) {
+  if (!uid) return;
   try {
-    const { db } = await ensureFirebase();
-    const ref = fbMod.firestore.doc(db, "users", uid);
-    await fbMod.firestore.setDoc(ref, { ...data, updatedAt: Date.now() }, { merge: true });
-  } catch (e) {
-    // no network / not signed in yet — the local copy is still saved
-  }
+    const supabase = await ensureSupabase();
+    const { error } = await supabase
+      .from('users')
+      .upsert({ id: uid, ...data, updatedAt: new Date().toISOString() });
+    if (error) console.error('خطا در ذخیره در Supabase:', error);
+  } catch (e) {}
 }
 
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
@@ -5629,19 +5620,19 @@ function LoginScreen({ onAuthenticated }) {
   // Firestore syncing keys off, so saved words/stories/history follow the
   // account across devices. Falls through to the local GIS/demo flow below
   // only if FIREBASE_CONFIG hasn't been filled in yet.
-  async function handleFirebaseGoogleSignIn() {
-    setError("");
-    setFbBusy(true);
-    try {
-      const user = await firebaseSignInWithGoogle();
-      persistSession(user);
-      onAuthenticated(user);
-    } catch (e) {
-      setError("ورود با گوگل ناموفق بود. دوباره تلاش کنید.");
-    } finally {
-      setFbBusy(false);
-    }
+ async function handleSupabaseGoogleSignIn() {
+  setError("");
+  setBusy(true);
+  try {
+    const user = await supabaseSignInWithGoogle();
+    persistSession(user);
+    onAuthenticated(user);
+  } catch (e) {
+    setError("ورود با گوگل ناموفق بود. دوباره تلاش کنید.");
+  } finally {
+    setBusy(false);
   }
+}
 
   const handleGoogleCredential = React.useCallback((response) => {
     try {
@@ -5779,8 +5770,8 @@ function LoginScreen({ onAuthenticated }) {
           {FIREBASE_ENABLED ? (
             <button
               type="button"
-              onClick={handleFirebaseGoogleSignIn}
-              disabled={fbBusy}
+              onClick={handleSupabaseGoogleSignIn}
+              disabled={busy}
               style={{
                 width: "100%",
                 display: "flex",
