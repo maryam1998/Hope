@@ -243,7 +243,7 @@ async function ensureSupabase() {
   if (window.supabase) return window.supabase;
   
   // اینجا کتابخانه را از اینترنت دانلود می‌کنیم
-  const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/module/index.js');
+  const { createClient } = await import('@supabase/supabase-js');
   
   const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   window.supabase = client; // ذخیره در حافظه برای استفاده‌های بعدی
