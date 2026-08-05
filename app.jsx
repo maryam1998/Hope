@@ -480,6 +480,7 @@ const speechController = (() => {
     return preferred || null;
   }
 
+    // ===== کد جدید (جایگزین کل تابع speakFromWord) =====
   function speakFromWord(i, forceRestart = false) {
     const clamped = Math.min(Math.max(i, 0), Math.max(words.length - 1, 0));
     if (!words.length) {
@@ -498,33 +499,40 @@ const speechController = (() => {
       notify();
       
       const segment = fullText.slice(baseOffset);
-      const utter = new SpeechSynthesisUtterance(segment);
-      utter.lang = locale;
-      utter.rate = rate;
       
-      const bestVoice = getBestVoice(locale);
-      if (bestVoice) utter.voice = bestVoice;
+      // تلاش اول: استفاده از Google TTS (رایگان)
+      const encodedText = encodeURIComponent(segment);
+      const ttsLang = locale.split('-')[0] === 'fa' ? 'fa-IR' : locale; 
+      const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${ttsLang}&client=tw-ob&q=${encodedText}`;
       
-      utter.onboundary = (e) => {
-        if (e.name && e.name !== "word") return;
-        boundaryFired = true;
-        const abs = baseOffset + (e.charIndex || 0);
-        wordIndex = wordIndexForCharOffset(abs);
-        notify();
-      };
-      utter.onend = () => {
-        if (status !== "playing") return;
-        status = "idle";
-        wordIndex = 0;
-        notify();
-      };
-      utter.onerror = () => {
-        status = "idle";
-        notify();
-      };
+      const audio = new Audio(audioUrl);
+      audio.play().catch(() => {
+        // اگر Google TTS کار نکرد، به TTS گوشی برگرد
+        const utter = new SpeechSynthesisUtterance(segment);
+        utter.lang = locale;
+        utter.rate = rate;
+        const bestVoice = getBestVoice(locale);
+        if (bestVoice) utter.voice = bestVoice;
+        utter.onboundary = (e) => {
+          if (e.name && e.name !== "word") return;
+          boundaryFired = true;
+          const abs = baseOffset + (e.charIndex || 0);
+          wordIndex = wordIndexForCharOffset(abs);
+          notify();
+        };
+        utter.onend = () => {
+          if (status !== "playing") return;
+          status = "idle";
+          wordIndex = 0;
+          notify();
+        };
+        utter.onerror = () => {
+          status = "idle";
+          notify();
+        };
+        window.speechSynthesis.speak(utter);
+      });
       
-      currentUtterance = utter;
-      window.speechSynthesis.speak(utter);
       return;
     }
 
@@ -542,36 +550,41 @@ const speechController = (() => {
     notify();
     
     const segment = fullText.slice(baseOffset);
-    const utter = new SpeechSynthesisUtterance(segment);
-    utter.lang = locale;
-    utter.rate = rate;
     
-    const bestVoice = getBestVoice(locale);
-    if (bestVoice) utter.voice = bestVoice;
+    // تلاش اول: استفاده از Google TTS (رایگان)
+    const encodedText = encodeURIComponent(segment);
+    const ttsLang = locale.split('-')[0] === 'fa' ? 'fa-IR' : locale; 
+    const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${ttsLang}&client=tw-ob&q=${encodedText}`;
     
-    utter.onboundary = (e) => {
-      if (e.name && e.name !== "word") return;
-      boundaryFired = true;
-      const abs = baseOffset + (e.charIndex || 0);
-      wordIndex = wordIndexForCharOffset(abs);
-      notify();
-    };
-    utter.onend = () => {
-      if (status !== "playing") return;
-      status = "idle";
-      wordIndex = 0;
-      notify();
-    };
-    utter.onerror = () => {
-      status = "idle";
-      notify();
-    };
-    
-    currentUtterance = utter;
-    window.speechSynthesis.speak(utter);
+    const audio = new Audio(audioUrl);
+    audio.play().catch(() => {
+      // اگر Google TTS کار نکرد، به TTS گوشی برگرد
+      const utter = new SpeechSynthesisUtterance(segment);
+      utter.lang = locale;
+      utter.rate = rate;
+      const bestVoice = getBestVoice(locale);
+      if (bestVoice) utter.voice = bestVoice;
+      utter.onboundary = (e) => {
+        if (e.name && e.name !== "word") return;
+        boundaryFired = true;
+        const abs = baseOffset + (e.charIndex || 0);
+        wordIndex = wordIndexForCharOffset(abs);
+        notify();
+      };
+      utter.onend = () => {
+        if (status !== "playing") return;
+        status = "idle";
+        wordIndex = 0;
+        notify();
+      };
+      utter.onerror = () => {
+        status = "idle";
+        notify();
+      };
+      window.speechSynthesis.speak(utter);
+    });
   }
-
-  return {
+  // ===== پایان کد جدید =====
     subscribe(cb) {
       listeners.add(cb);
       return () => listeners.delete(cb);
@@ -607,9 +620,9 @@ const speechController = (() => {
           return "ok";
         }
         
-        if (key === newKey && status === "paused") {
+                if (key === newKey && status === "paused") {
           status = "playing";
-          speakFromWord(wordIndex, false);
+          playStoppedAudio(); 
           return "ok";
         }
 
