@@ -3571,7 +3571,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       const genre = CONTENT_TYPES.find((c) => c.key === contentType) || CONTENT_TYPES[0];
       const lengthCfg = STORY_LENGTHS.find((l) => l.key === storyLength) || STORY_LENGTHS[1];
       
-      const prompt = `Write ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}. The story MUST use each of these words naturally, about ${repeatCount} times each, spread across different sentences, grammatical forms, and (where the word allows it) different meanings/contexts: ${selectedWords.join(", ")}. Keep the story coherent and appropriately sized for that many repetitions. Organize the story into ${lengthCfg.paragraphs} paragraphs, ${lengthCfg.sentencesHint}. After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
+      const prompt = `Write ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}. The story MUST use each of these words naturally, roughly ${repeatCount} times each, spread across different sentences, grammatical forms, and (where the word allows it) different meanings/contexts: ${selectedWords.join(", ")}. Keep the story coherent and appropriately sized for that many repetitions. Organize the story into ${lengthCfg.paragraphs} paragraphs, ${lengthCfg.sentencesHint}. After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
 
       const tokenBudget = Math.min(lengthCfg.tokens + 500, 8000);
       const res = await callAI({ prompt, maxTokens: tokenBudget, aiSettings });
@@ -3780,18 +3780,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         <div className="flex flex-wrap gap-2 mb-1">
           {CONTENT_TYPES.map((c) => (
             <button
-              key={c.key}
-              onClick={() => setContentType(c.key)}
-              style={{
-                padding: "4px 12px",
-                borderRadius: 20,
-                fontSize: 12,
-                border: `1px solid ${contentType === c.key ? colors.rose : colors.cardBorder}`,
-                backgroundColor: contentType === c.key ? colors.rose : "white",
-                color: contentType === c.key ? "white" : colors.ink,
-              }}
-            >
-              {c.label}
+              key={c.key}ص‌              {c.label}
             </button>
           ))}
         </div>
