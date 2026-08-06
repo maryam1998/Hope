@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
-import { Star, MessageCircle, RotateCcw, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type, Play } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // DESIGN TOKENS — deliberately not Tailwind's default palette / fonts.
@@ -2531,25 +2531,55 @@ function SpeakButton({ text, code, color }) {
   const locale = TTS_LOCALE[code] || "en-US";
   const myKey = `${locale}::${text}`;
   const [state, setState] = useState(() => speechController.getState());
+  const [showSpeedControl, setShowSpeedControl] = useState(false);
 
   useEffect(() => speechController.subscribe(setState), []);
 
   const isActive = state.key === myKey && state.status !== "idle";
   const isPlaying = isActive && state.status === "playing";
+  const canSeek = isActive && state.total > 1;
   const c = color || colors.gold;
 
   const handleToggle = (e) => {
     e.stopPropagation();
     const result = speechController.toggle(text, code);
     if (result === "no-voice") {
-      alert("صدای این زبون رو گوشیت نصب نیست.");
+      alert(
+        "صدای این زبون رو گوشیت نصب نیست. تنظیمات گوشی → زبان و ورودی → تبدیل متن به گفتار → نصب بسته‌ی زبان مربوطه."
+      );
     } else if (result === "unsupported") {
       alert("این مرورگر از خوندن صوتی متن پشتیبانی نمی‌کنه.");
     }
   };
 
+  const handleSeek = (e, delta) => {
+    e.stopPropagation();
+    speechController.seek(delta);
+  };
+
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {canSeek && (
+        <button
+          onClick={(e) => handleSeek(e, -1)}
+          aria-label="یک کلمه عقب"
+          title="عقب"
+          style={{ 
+            flexShrink: 0, 
+            display: "flex", 
+            alignItems: "center", 
+            color: c, 
+            opacity: 0.7,
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: 2
+          }}
+        >
+          <ChevronRight size={14} />
+        </button>
+      )}
+      
       <button
         onClick={handleToggle}
         aria-label={isPlaying ? "توقف موقت" : "تلفظ"}
@@ -2567,9 +2597,86 @@ function SpeakButton({ text, code, color }) {
       >
         {isPlaying ? <Pause size={16} /> : <Volume2 size={16} />}
       </button>
+      
+      {canSeek && (
+        <button
+          onClick={(e) => handleSeek(e, 1)}
+          aria-label="یک کلمه جلو"
+          title="جلو"
+          style={{ 
+            flexShrink: 0, 
+            display: "flex", 
+            alignItems: "center", 
+            color: c, 
+            opacity: 0.7,
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: 2
+          }}
+        >
+          <ChevronLeft size={14} />
+        </button>
+      )}
+      
+      {/* کنترل سرعت پخش */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowSpeedControl(!showSpeedControl);
+        }}
+        aria-label="تنظیم سرعت"
+        title="تنظیم سرعت پخش"
+        style={{ 
+          flexShrink: 0, 
+          display: "flex", 
+          alignItems: "center", 
+          color: c,
+          opacity: 0.5,
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: 2,
+          fontSize: 10
+        }}
+      >
+        {state.rate || 1}×
+      </button>
+      
+      {showSpeedControl && (
+        <span 
+          style={{ 
+            display: "inline-flex", 
+            alignItems: "center", 
+            gap: 4,
+            padding: "2px 6px",
+            backgroundColor: "rgba(0,0,0,0.05)",
+            borderRadius: 12
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="range"
+            min={0.5}
+            max={2}
+            step={0.1}
+            value={state.rate || 1}
+            onChange={(e) => speechController.setRate(Number(e.target.value))}
+            style={{ width: 60, accentColor: c }}
+            aria-label="سرعت پخش صدا"
+          />
+          <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 30 }}>
+            {(state.rate || 1).toFixed(1)}×
+          </span>
+        </span>
+      )}
     </span>
   );
 }
+
+// Playback-speed slider — global (applies to whatever's playing/next played,
+// same as the pause/resume behaviour above), so one slider anywhere in the
+// app controls speech speed everywhere.
 function SpeedControl({ color }) {
   const [rate, setRateState] = useState(() => speechController.getRate());
   useEffect(
@@ -3282,7 +3389,482 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
     </div>
   );
 }
+// =============================================================================
+// STORY PLAYER — like the reference image: play/pause, seek bar, speed control,
+// A-B repeat, and word highlighting as the audio plays.
+// =============================================================================
 
+function StoryPlayer({
+  text,
+  langCode,
+  onPlaybackStateChange,
+}) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [highlightedWord, setHighlightedWord] = useState(null);
+  const [aPoint, setAPoint] = useState(null);
+  const [bPoint, setBPoint] = useState(null);
+  const [isLooping, setIsLooping] = useState(false);
+  const [utterance, setUtterance] = useState(null);
+  const [words, setWords] = useState([]);
+  const [wordTimings, setWordTimings] = useState([]);
+  const [isReady, setIsReady] = useState(false);
+  const [repeatCount, setRepeatCount] = useState(8);
+  const [totalRepeats, setTotalRepeats] = useState(0);
+  const [currentRepeat, setCurrentRepeat] = useState(0);
+  const [isComplete, setIsComplete] = useState(false);
+
+  const containerRef = useRef(null);
+  const audioRef = useRef(null);
+
+  // Split text into words for highlighting
+  useEffect(() => {
+    if (!text) return;
+    const wordList = text.split(/\s+/).filter(w => w.length > 0);
+    setWords(wordList);
+    setTotalRepeats(wordList.length);
+    setCurrentRepeat(0);
+  }, [text]);
+
+  // Highlight current word based on time
+  useEffect(() => {
+    if (!wordTimings.length || !isPlaying) return;
+    const currentWordIndex = wordTimings.findIndex(
+      (t, i) => currentTime >= t.start && currentTime < t.end
+    );
+    if (currentWordIndex !== -1) {
+      setHighlightedWord(currentWordIndex);
+      setCurrentRepeat(currentWordIndex + 1);
+    }
+  }, [currentTime, wordTimings, isPlaying]);
+
+  // Speak text with word-level timing
+  const speakText = useCallback(() => {
+    if (!text || !window.speechSynthesis) return;
+
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+
+    const utter = new SpeechSynthesisUtterance(text);
+    const locale = TTS_LOCALE[langCode] || "en-US";
+    utter.lang = locale;
+    utter.rate = playbackRate;
+
+    // Get a good voice
+    const voices = window.speechSynthesis.getVoices();
+    const bestVoice = voices.find(v => v.lang.startsWith(locale.split('-')[0]) && v.name.includes("Google"));
+    if (bestVoice) utter.voice = bestVoice;
+
+    // Track word positions
+    const wordPositions = [];
+    let lastIndex = 0;
+    utter.onboundary = (e) => {
+      if (e.name === "word") {
+        const charIndex = e.charIndex || 0;
+        const word = text.slice(charIndex, charIndex + (e.charLength || 0));
+        const wordStart = e.charIndex / 100; // approximate time
+        const wordEnd = (e.charIndex + (e.charLength || 0)) / 100;
+        wordPositions.push({ word, start: wordStart, end: wordEnd, charIndex });
+      }
+    };
+
+    utter.onstart = () => {
+      setIsPlaying(true);
+      setIsComplete(false);
+      setDuration(text.length / (playbackRate * 15)); // approximate
+    };
+
+    utter.onend = () => {
+      setIsPlaying(false);
+      setIsComplete(true);
+      if (isLooping && aPoint !== null && bPoint !== null) {
+        // Loop A-B
+        speakText();
+      }
+    };
+
+    utter.onerror = () => {
+      setIsPlaying(false);
+    };
+
+    setUtterance(utter);
+    window.speechSynthesis.speak(utter);
+
+    // Simulate word timings (since speechSynthesis doesn't give precise timing)
+    const words = text.split(/\s+/).filter(w => w.length > 0);
+    const avgCharPerSec = 15 * playbackRate;
+    const totalChars = text.replace(/\s/g, '').length;
+    const durationSec = totalChars / avgCharPerSec;
+    const charTimings = [];
+    let charCount = 0;
+    let wordIndex = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === ' ') {
+        if (wordIndex < words.length) {
+          const start = charCount / avgCharPerSec;
+          const end = (charCount + words[wordIndex].length) / avgCharPerSec;
+          charTimings.push({ wordIndex: wordIndex, start, end });
+          wordIndex++;
+        }
+        charCount = 0;
+      } else {
+        charCount++;
+      }
+    }
+    // Last word
+    if (wordIndex < words.length) {
+      const start = charCount / avgCharPerSec;
+      const end = (charCount + words[wordIndex].length) / avgCharPerSec;
+      charTimings.push({ wordIndex: wordIndex, start, end });
+    }
+    setWordTimings(charTimings);
+    setDuration(durationSec);
+
+  }, [text, langCode, playbackRate, isLooping, aPoint, bPoint]);
+
+  const togglePlay = useCallback(() => {
+    if (isPlaying) {
+      window.speechSynthesis.pause();
+      setIsPlaying(false);
+    } else if (utterance && window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+      setIsPlaying(true);
+    } else {
+      speakText();
+    }
+  }, [isPlaying, utterance, speakText]);
+
+  const stopPlayback = useCallback(() => {
+    window.speechSynthesis.cancel();
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setHighlightedWord(null);
+    setCurrentRepeat(0);
+    setIsComplete(false);
+  }, []);
+
+  const seekTo = useCallback((time) => {
+    if (!utterance) return;
+    const percent = time / 100;
+    const charIndex = Math.floor(percent * text.length);
+    // Restart from position
+    const remainingText = text.slice(Math.max(0, charIndex - 20));
+    const newUtter = new SpeechSynthesisUtterance(remainingText);
+    const locale = TTS_LOCALE[langCode] || "en-US";
+    newUtter.lang = locale;
+    newUtter.rate = playbackRate;
+    const voices = window.speechSynthesis.getVoices();
+    const bestVoice = voices.find(v => v.lang.startsWith(locale.split('-')[0]) && v.name.includes("Google"));
+    if (bestVoice) newUtter.voice = bestVoice;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(newUtter);
+    setUtterance(newUtter);
+    setCurrentTime(time);
+  }, [text, langCode, playbackRate, utterance]);
+
+  const handleForward = useCallback(() => {
+    const newTime = Math.min(currentTime + 5, 100);
+    seekTo(newTime);
+  }, [currentTime, seekTo]);
+
+  const handleBackward = useCallback(() => {
+    const newTime = Math.max(currentTime - 5, 0);
+    seekTo(newTime);
+  }, [currentTime, seekTo]);
+
+  const toggleLoop = useCallback(() => {
+    setIsLooping(!isLooping);
+    if (!isLooping) {
+      // Set A at current position if not set
+      if (aPoint === null) {
+        setAPoint(currentTime);
+      }
+    } else {
+      // Reset A-B
+      setAPoint(null);
+      setBPoint(null);
+    }
+  }, [isLooping, currentTime, aPoint]);
+
+  const setABPoint = useCallback((point) => {
+    if (point === 'A') {
+      setAPoint(currentTime);
+    } else if (point === 'B') {
+      setBPoint(currentTime);
+    }
+  }, [currentTime]);
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Reset when text changes
+  useEffect(() => {
+    stopPlayback();
+    setWordTimings([]);
+    setHighlightedWord(null);
+    setCurrentRepeat(0);
+    setCurrentTime(0);
+    setDuration(0);
+    setIsReady(true);
+  }, [text, stopPlayback]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      window.speechSynthesis.cancel();
+    };
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        backgroundColor: colors.ink,
+        borderRadius: 16,
+        padding: '16px 20px',
+        color: colors.paper,
+        width: '100%',
+        maxWidth: 600,
+        margin: '0 auto',
+        direction: 'ltr',
+      }}
+    >
+      {/* Progress bar with word counter */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+        <span style={{ fontSize: 12, color: colors.goldSoft, minWidth: 40 }}>
+          {formatTime(currentTime)}
+        </span>
+        <div
+          style={{
+            flex: 1,
+            height: 4,
+            backgroundColor: 'rgba(255,255,255,0.2)',
+            borderRadius: 4,
+            position: 'relative',
+            cursor: 'pointer',
+          }}
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const percent = (e.clientX - rect.left) / rect.width;
+            seekTo(percent * duration);
+          }}
+        >
+          <div
+            style={{
+              width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%`,
+              height: '100%',
+              backgroundColor: colors.gold,
+              borderRadius: 4,
+              transition: 'width 0.1s',
+            }}
+          />
+          {/* A-B markers */}
+          {aPoint !== null && (
+            <div
+              style={{
+                position: 'absolute',
+                left: `${(aPoint / duration) * 100}%`,
+                top: -6,
+                width: 2,
+                height: 16,
+                backgroundColor: '#4CAF50',
+              }}
+            />
+          )}
+          {bPoint !== null && (
+            <div
+              style={{
+                position: 'absolute',
+                left: `${(bPoint / duration) * 100}%`,
+                top: -6,
+                width: 2,
+                height: 16,
+                backgroundColor: '#F44336',
+              }}
+            />
+          )}
+        </div>
+        <span style={{ fontSize: 12, color: colors.goldSoft, minWidth: 40 }}>
+          {formatTime(duration)}
+        </span>
+        <span style={{ fontSize: 11, color: colors.goldSoft, minWidth: 30 }}>
+          {`${currentRepeat}/${totalRepeats}`}
+        </span>
+      </div>
+
+      {/* Controls */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <button
+          onClick={handleBackward}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: colors.paper,
+            cursor: 'pointer',
+            padding: 4,
+          }}
+          title="۵ ثانیه عقب"
+        >
+          <ChevronLeft size={20} />
+        </button>
+
+        <button
+          onClick={togglePlay}
+          style={{
+            background: colors.gold,
+            border: 'none',
+            borderRadius: '50%',
+            width: 36,
+            height: 36,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            color: colors.ink,
+          }}
+        >
+          {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+        </button>
+
+        <button
+          onClick={handleForward}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: colors.paper,
+            cursor: 'pointer',
+            padding: 4,
+          }}
+          title="۵ ثانیه جلو"
+        >
+          <ChevronRight size={20} />
+        </button>
+
+        <button
+          onClick={stopPlayback}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: colors.rose,
+            cursor: 'pointer',
+            padding: 4,
+          }}
+          title="توقف"
+        >
+          <X size={16} />
+        </button>
+
+        <div style={{ width: 1, height: 24, backgroundColor: 'rgba(255,255,255,0.2)', margin: '0 4px' }} />
+
+        {/* A-B Repeat */}
+        <button
+          onClick={() => setABPoint('A')}
+          style={{
+            background: aPoint !== null ? '#4CAF50' : 'rgba(255,255,255,0.1)',
+            border: 'none',
+            borderRadius: 4,
+            color: colors.paper,
+            padding: '2px 8px',
+            fontSize: 11,
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          A
+        </button>
+        <button
+          onClick={() => setABPoint('B')}
+          style={{
+            background: bPoint !== null ? '#F44336' : 'rgba(255,255,255,0.1)',
+            border: 'none',
+            borderRadius: 4,
+            color: colors.paper,
+            padding: '2px 8px',
+            fontSize: 11,
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          B
+        </button>
+        <button
+          onClick={toggleLoop}
+          style={{
+            background: isLooping ? colors.gold : 'rgba(255,255,255,0.1)',
+            border: 'none',
+            borderRadius: 4,
+            color: isLooping ? colors.ink : colors.paper,
+            padding: '2px 8px',
+            fontSize: 11,
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          🔁 {isLooping ? 'ON' : 'OFF'}
+        </button>
+
+        <div style={{ width: 1, height: 24, backgroundColor: 'rgba(255,255,255,0.2)', margin: '0 4px' }} />
+
+        {/* Speed control */}
+        <select
+          value={playbackRate}
+          onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
+          style={{
+            background: 'rgba(255,255,255,0.1)',
+            border: 'none',
+            borderRadius: 4,
+            color: colors.paper,
+            padding: '2px 6px',
+            fontSize: 11,
+            cursor: 'pointer',
+          }}
+        >
+          <option value={0.5}>0.5×</option>
+          <option value={0.75}>0.75×</option>
+          <option value={1}>1×</option>
+          <option value={1.25}>1.25×</option>
+          <option value={1.5}>1.5×</option>
+          <option value={1.75}>1.75×</option>
+          <option value={2}>2×</option>
+        </select>
+
+        {/* Repeat count selector */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 11, color: colors.goldSoft }}>تکرار</span>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={repeatCount}
+            onChange={(e) => setRepeatCount(Math.max(1, parseInt(e.target.value) || 1))}
+            style={{
+              width: 40,
+              background: 'rgba(255,255,255,0.1)',
+              border: 'none',
+              borderRadius: 4,
+              color: colors.paper,
+              padding: '2px 4px',
+              fontSize: 12,
+              textAlign: 'center',
+            }}
+          />
+        </div>
+      </div>
+
+      {/* A-B status */}
+      {aPoint !== null && bPoint !== null && (
+        <div style={{ fontSize: 11, color: colors.goldSoft, textAlign: 'center', marginTop: 6 }}>
+          🔁 حلقه از {formatTime(aPoint)} تا {formatTime(bPoint)} ({isLooping ? 'فعال' : 'غیرفعال'})
+        </div>
+      )}
+    </div>
+  );
+}
 function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
@@ -4273,6 +4855,17 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
               <SpeedControl color={colors.teal} />
             </div>
           </div>
+		      {/* Story Player */}
+    <div style={{ marginBottom: 16 }}>
+      <StoryPlayer
+        text={fullStoryText}
+        langCode={storyLang}
+      />
+    </div>
+
+    {translationLangOptions.length > 0 && (
+      ...
+    )}
 
           {translationLangOptions.length > 0 && (
             <div className="mb-3">
