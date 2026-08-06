@@ -255,6 +255,7 @@ async function supabaseSignIn(email, password) {
 async function supabaseSignOut() {
   const supabase = await ensureSupabase();
   await supabase.auth.signOut();
+  clearSession(); // ← این مهم است
 }
 
 async function supabaseLoadState(uid) {
@@ -319,13 +320,19 @@ async function supabaseGetSession() {
   const supabase = await ensureSupabase();
   const { data: { session }, error } = await supabase.auth.getSession();
   if (error || !session) return null;
-  return {
-    uid: session.user.id,
-    email: session.user.email,
-    name: session.user.user_metadata?.full_name || session.user.email,
-    picture: session.user.user_metadata?.avatar_url || "",
-    provider: "supabase"
-  };
+  
+  // ❌ اگر کاربر مهمان است، نادیده بگیر
+  if (session.user?.aud === 'authenticated' && session.user?.email) {
+    return {
+      uid: session.user.id,
+      email: session.user.email,
+      name: session.user.user_metadata?.full_name || session.user.email,
+      picture: session.user.user_metadata?.avatar_url || "",
+      provider: "supabase"
+    };
+  }
+  
+  return null; // مهمان را قبول نکن
 }
 
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
@@ -5537,11 +5544,11 @@ function LoginScreen({ onAuthenticated }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // ✅ وقتی صفحه لود شد، بررسی کن که آیا از گوگل برگشتیم
-  useEffect(() => {
+useEffect(() => {
   (async () => {
     const session = await supabaseGetSession();
-    if (session) {
+    // فقط اگر کاربر واقعی است، وارد کن
+    if (session && session.email) {
       persistSession(session);
       onAuthenticated(session);
     }
@@ -5737,10 +5744,16 @@ function LoginScreen({ onAuthenticated }) {
 }
 
 export default function App() {
-  const [user, setUser] = useState(() => readSession());
-  const [appPrefs, setAppPrefs] = useState(loadAppPrefs);
-
-  useEffect(() => saveAppPrefs(appPrefs), [appPrefs]);
+  // اگر نشست مهمان بود، نادیده بگیر
+  const initialUser = (() => {
+    const session = readSession();
+    if (session && session.email) return session;
+    return null; // مهمان را قبول نکن
+  })();
+  
+  const [user, setUser] = useState(initialUser);
+  // ...
+}
 
   const theme = APP_THEMES[appPrefs.theme].values;
   const font = APP_FONTS[appPrefs.font];
