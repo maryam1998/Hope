@@ -2531,25 +2531,55 @@ function SpeakButton({ text, code, color }) {
   const locale = TTS_LOCALE[code] || "en-US";
   const myKey = `${locale}::${text}`;
   const [state, setState] = useState(() => speechController.getState());
+  const [showSpeedControl, setShowSpeedControl] = useState(false);
 
   useEffect(() => speechController.subscribe(setState), []);
 
   const isActive = state.key === myKey && state.status !== "idle";
   const isPlaying = isActive && state.status === "playing";
+  const canSeek = isActive && state.total > 1;
   const c = color || colors.gold;
 
   const handleToggle = (e) => {
     e.stopPropagation();
     const result = speechController.toggle(text, code);
     if (result === "no-voice") {
-      alert("صدای این زبون رو گوشیت نصب نیست.");
+      alert(
+        "صدای این زبون رو گوشیت نصب نیست. تنظیمات گوشی → زبان و ورودی → تبدیل متن به گفتار → نصب بسته‌ی زبان مربوطه."
+      );
     } else if (result === "unsupported") {
       alert("این مرورگر از خوندن صوتی متن پشتیبانی نمی‌کنه.");
     }
   };
 
+  const handleSeek = (e, delta) => {
+    e.stopPropagation();
+    speechController.seek(delta);
+  };
+
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {canSeek && (
+        <button
+          onClick={(e) => handleSeek(e, -1)}
+          aria-label="یک کلمه عقب"
+          title="عقب"
+          style={{ 
+            flexShrink: 0, 
+            display: "flex", 
+            alignItems: "center", 
+            color: c, 
+            opacity: 0.7,
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: 2
+          }}
+        >
+          <ChevronRight size={14} />
+        </button>
+      )}
+      
       <button
         onClick={handleToggle}
         aria-label={isPlaying ? "توقف موقت" : "تلفظ"}
@@ -2567,9 +2597,86 @@ function SpeakButton({ text, code, color }) {
       >
         {isPlaying ? <Pause size={16} /> : <Volume2 size={16} />}
       </button>
+      
+      {canSeek && (
+        <button
+          onClick={(e) => handleSeek(e, 1)}
+          aria-label="یک کلمه جلو"
+          title="جلو"
+          style={{ 
+            flexShrink: 0, 
+            display: "flex", 
+            alignItems: "center", 
+            color: c, 
+            opacity: 0.7,
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: 2
+          }}
+        >
+          <ChevronLeft size={14} />
+        </button>
+      )}
+      
+      {/* کنترل سرعت پخش */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowSpeedControl(!showSpeedControl);
+        }}
+        aria-label="تنظیم سرعت"
+        title="تنظیم سرعت پخش"
+        style={{ 
+          flexShrink: 0, 
+          display: "flex", 
+          alignItems: "center", 
+          color: c,
+          opacity: 0.5,
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: 2,
+          fontSize: 10
+        }}
+      >
+        {state.rate || 1}×
+      </button>
+      
+      {showSpeedControl && (
+        <span 
+          style={{ 
+            display: "inline-flex", 
+            alignItems: "center", 
+            gap: 4,
+            padding: "2px 6px",
+            backgroundColor: "rgba(0,0,0,0.05)",
+            borderRadius: 12
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="range"
+            min={0.5}
+            max={2}
+            step={0.1}
+            value={state.rate || 1}
+            onChange={(e) => speechController.setRate(Number(e.target.value))}
+            style={{ width: 60, accentColor: c }}
+            aria-label="سرعت پخش صدا"
+          />
+          <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 30 }}>
+            {(state.rate || 1).toFixed(1)}×
+          </span>
+        </span>
+      )}
     </span>
   );
 }
+
+// Playback-speed slider — global (applies to whatever's playing/next played,
+// same as the pause/resume behaviour above), so one slider anywhere in the
+// app controls speech speed everywhere.
 function SpeedControl({ color }) {
   const [rate, setRateState] = useState(() => speechController.getRate());
   useEffect(
