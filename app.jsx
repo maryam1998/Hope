@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
-import { Star, MessageCircle, RotateCcw, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // DESIGN TOKENS — deliberately not Tailwind's default palette / fonts.
@@ -4975,6 +4975,16 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       {(tab === "phrases" || tab === "favorites" || tab === "vocab") && (
         <div className="px-4 pt-3">
           <LevelFilterRow levelFilter={levelFilter} setLevelFilter={setLevelFilter} />
+        </div>
+      )}
+
+      {/* تکرار سراسری برای این صفحه — چون دیگه کنار هر عبارت دکمه‌ی 🔁 جدا نیست،
+          همین یکی روی هر 🔊ای که پایین‌تر بزنی اعمال می‌شه */}
+      {(tab === "phrases" || tab === "favorites" || tab === "vocab") && (
+        <div className="px-4 pt-2 flex items-center gap-2" style={{ justifyContent: "flex-end" }}>
+          <span style={{ fontSize: 11, color: colors.inkSoft }}>تکرار پخش</span>
+          <RepeatButton color={colors.gold} />
+          <SpeedControl color={colors.gold} />
         </div>
       )}
 
