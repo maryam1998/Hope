@@ -417,15 +417,19 @@ const speechController = (() => {
   let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1; // 0.5 (slow) .. 2 (fast), 1 = normal
   let currentUtterance = null; // برای نگهداری reference صدای فعلی
   // --- تکرار سراسری ---------------------------------------------------
-  // این یک تنظیم مشترکه برای کل اپ، نه مال یک متن خاص. هر جا کاربر روی هر
+  // یک تنظیم مشترک برای کل اپه، نه مال یک متن خاص. هر جا کاربر روی هر
   // 🔊ای کلیک کنه، همین تنظیم روش اعمال می‌شه. مقدار: 0 (خاموش) | 1 | 2 | "inf"
-  let globalRepeatSetting = Number(localStorage.getItem("phrasebook-tts-repeat")) || 0;
-  if (localStorage.getItem("phrasebook-tts-repeat") === "inf") globalRepeatSetting = "inf";
+  let globalRepeatSetting = (() => {
+    const saved = localStorage.getItem("phrasebook-tts-repeat");
+    if (saved === "inf") return "inf";
+    const n = Number(saved);
+    return n === 1 || n === 2 ? n : 0;
+  })();
   let remaining = 0; // چند تکرار دیگه برای متن فعلی مونده
   // وقتی خودمون عمداً speechSynthesis.cancel() صدا می‌زنیم (برای مکث، یا برای
-  // شروع یه پخش جدید/تکرار)، مرورگر یه onerror با error="interrupted" شلیک
+  // شروع پخش جدید/تکرار)، مرورگر یه onerror با error="interrupted" شلیک
   // می‌کنه که خطای واقعی نیست. این فلگ همون قطع‌شدن‌های عمدی رو از خطای
-  // واقعی جدا می‌کنه — قبلاً نبود و باعث می‌شد Pause گاهی همه‌چیز رو ریست کنه.
+  // واقعی جدا می‌کنه.
   let expectingCancel = false;
   const listeners = new Set();
 
@@ -534,7 +538,6 @@ const speechController = (() => {
       };
       utter.onend = () => {
         if (status !== "playing") return;
-        // پخش به‌طور طبیعی تموم شد — اگر تکرار سراسری روشنه، از اول دوباره بخون
         if (globalRepeatSetting === "inf") {
           speakFromWord(0, true);
           return;
@@ -550,7 +553,6 @@ const speechController = (() => {
       };
       utter.onerror = (e) => {
         if (expectingCancel) {
-          // خودمون عمداً این پخش رو قطع کردیم (مکث/تکرار/رفتن سراغ متن بعدی) — خطای واقعی نیست
           expectingCancel = false;
           return;
         }
@@ -591,7 +593,6 @@ const speechController = (() => {
     };
     utter.onend = () => {
       if (status !== "playing") return;
-      // پخش به‌طور طبیعی تموم شد — اگر تکرار سراسری روشنه، از اول دوباره بخون
       if (globalRepeatSetting === "inf") {
         speakFromWord(0, true);
         return;
@@ -636,7 +637,6 @@ const speechController = (() => {
       try {
         localStorage.setItem("phrasebook-tts-repeat", String(globalRepeatSetting));
       } catch (e) {}
-      // اگر همین الان چیزی در حال پخش/مکث‌ه، شمارنده‌ی باقی‌مونده رو هم آپدیت کن
       if (status === "playing" || status === "paused") {
         remaining = globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
       }
@@ -2625,17 +2625,16 @@ function SpeakButton({ text, code, color }) {
           cursor: "pointer",
           padding: 2
         }}
-           >
+      >
         {isPlaying ? <Pause size={16} /> : <Volume2 size={16} />}
       </button>
     </span>
   );
 }
-
-// دکمه‌ی تکرار سراسری — دیگه مال یک متن خاص نیست. یک تنظیم مشترکه که خودِ
-// speechController نگهش می‌داره؛ هر جا کاربر روی هر 🔊ای کلیک کنه همین
-// تنظیم روش اعمال می‌شه. به همین خاطر دیگه لازم نیست کنار تک‌تک جمله‌ها یا
-// پاراگراف‌ها یه دکمه‌ی 🔁 جدا بذاریم — یکی بالای هر بخش کافیه.
+// دکمه‌ی تکرار سراسری — یک تنظیم مشترکه که خودِ speechController نگهش
+// می‌داره؛ هر جا کاربر روی هر 🔊ای کلیک کنه همین تنظیم روش اعمال می‌شه.
+// به همین خاطر لازم نیست کنار تک‌تک جمله‌ها/عبارت‌ها دکمه‌ی 🔁 جدا بذاریم —
+// یکی بالای هر بخش کافیه.
 function RepeatButton({ color }) {
   const [state, setState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setState), []);
@@ -2699,7 +2698,6 @@ function RepeatButton({ color }) {
     </button>
   );
 }
-
 function SpeedControl({ color }) {
   const [rate, setRateState] = useState(() => speechController.getRate());
   useEffect(
@@ -4386,7 +4384,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         </div>
       )}
 
-            {paragraphs.length > 0 && (
+      {paragraphs.length > 0 && (
         <div
           style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }}
         >
@@ -4477,7 +4475,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
                     <div className="flex flex-col gap-3">
                       {p.sentences.map((s, si) => (
                         <div key={si}>
-                                                    <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
+                          <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                             <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} />
                             <p style={{ fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, fontSize: 15, lineHeight: 1.8, textAlign: RTL_LANGS.includes(storyLang) ? "right" : "left" }}>
                               <ClickableSentence
@@ -4523,7 +4521,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
                     </div>
                   ) : (
                     <div>
-                                            <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
+                      <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                         <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} />
                         <p style={{ fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, fontSize: 15, lineHeight: 1.8, textAlign: RTL_LANGS.includes(storyLang) ? "right" : "left" }}>
                           <ClickableSentence
@@ -4978,8 +4976,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         </div>
       )}
 
-      {/* تکرار سراسری برای این صفحه — چون دیگه کنار هر عبارت دکمه‌ی 🔁 جدا نیست،
-          همین یکی روی هر 🔊ای که پایین‌تر بزنی اعمال می‌شه */}
+      {/* تکرار سراسری — روی هر 🔊ای که پایین‌تر تو این صفحه بزنی اعمال می‌شه */}
       {(tab === "phrases" || tab === "favorites" || tab === "vocab") && (
         <div className="px-4 pt-2 flex items-center gap-2" style={{ justifyContent: "flex-end" }}>
           <span style={{ fontSize: 11, color: colors.inkSoft }}>تکرار پخش</span>
@@ -5199,7 +5196,7 @@ function PhraseList({ phrases, nativeLang, targetLangs, favorites, toggleFavorit
               >
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                                        <p style={{ fontWeight: 600, fontSize: 15 }}>{p.t[nativeLang]}</p>
+                    <p style={{ fontWeight: 600, fontSize: 15 }}>{p.t[nativeLang]}</p>
                     <SpeakButton text={p.t[nativeLang]} code={nativeLang} />
                     {p.level && <LevelBadge level={p.level} />}
                   </div>
