@@ -3815,6 +3815,9 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   useEffect(() => {
     if (jumpTo && jumpTo.lang) {
       setStoryLang(jumpTo.lang);
+      if (Array.isArray(jumpTo.words) && jumpTo.words.length) {
+        setSelectedWords((prev) => Array.from(new Set([...prev, ...jumpTo.words])));
+      }
     }
   }, [jumpTo]);
 
@@ -4249,6 +4252,42 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
             زبان داستان: {storyLangLabel} (طبق زبان مقصدی که بالای صفحه انتخاب کردی)
           </p>
         )}
+
+        {translationLangOptions.length > 0 && (
+          <div className="mb-3" style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12, backgroundColor: colors.paper }}>
+            <div className="flex items-center justify-between mb-2">
+              <p style={{ fontSize: 12, color: colors.inkSoft }}>
+                داستان همزمان به چه زبان‌هایی ترجمه بشه؟ (می‌تونی چند تا انتخاب کنی)
+              </p>
+              <div className="flex gap-2">
+                <button onClick={selectAllTranslationLangs} style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}>
+                  انتخاب همه
+                </button>
+                <button onClick={clearAllTranslationLangs} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
+                  پاک کردن همه
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {translationLangOptions.map((code) => (
+                <button
+                  key={code}
+                  onClick={() => toggleTranslationLang(code)}
+                  style={{
+                    padding: "3px 10px",
+                    borderRadius: 20,
+                    fontSize: 12,
+                    border: `1px solid ${translationLangs.includes(code) ? colors.gold : colors.cardBorder}`,
+                    backgroundColor: translationLangs.includes(code) ? colors.goldSoft : "white",
+                  }}
+                >
+                  {LANGUAGES.find((l) => l.code === code)?.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <p style={{ fontSize: 12, color: colors.inkSoft, margin: "0 0 6px" }}>سطح داستان</p>
         <div className="flex flex-wrap gap-2 mb-1">
           {LEVELS.map((lv) => (
@@ -4668,44 +4707,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         )}
       </div>
 
-      {translationLangOptions.length > 0 && (
-        <div className="mb-3" style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12, backgroundColor: colors.paper }}>
-          <div className="flex items-center justify-between mb-2">
-            <p style={{ fontSize: 12, color: colors.inkSoft }}>
-              داستان همزمان به چه زبان‌هایی ترجمه بشه؟ (می‌تونی چند تا انتخاب کنی)
-            </p>
-            <div className="flex gap-2">
-              <button onClick={selectAllTranslationLangs} style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}>
-                انتخاب همه
-              </button>
-              <button onClick={clearAllTranslationLangs} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
-                پاک کردن همه
-              </button>
-            </div>
-          </div>
-          <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 6 }}>
-            ⚠️ هرچی زبون بیشتری انتخاب کنی، احتمال قطع‌شدن داستان وسط کار بیشتره — بهتره ۱ تا ۳ تا باشه.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {translationLangOptions.map((code) => (
-              <button
-                key={code}
-                onClick={() => toggleTranslationLang(code)}
-                style={{
-                  padding: "3px 10px",
-                  borderRadius: 20,
-                  fontSize: 12,
-                  border: `1px solid ${translationLangs.includes(code) ? colors.gold : colors.cardBorder}`,
-                  backgroundColor: translationLangs.includes(code) ? colors.goldSoft : "white",
-                }}
-              >
-                {LANGUAGES.find((l) => l.code === code)?.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       <button
         onClick={generateStory}
         disabled={!selectedWords.length || generating}
@@ -5016,6 +5017,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
 // ---------------------------------------------------------------------------
 function SavedWordsPanel({ onJumpToStory }) {
   const [words, setWords] = useState([]);
+  const [selected, setSelected] = useState({}); // { [langCode]: Set(word) }
 
   useEffect(() => {
     const refresh = () => setWords(loadSavedStoryWords());
@@ -5023,6 +5025,15 @@ function SavedWordsPanel({ onJumpToStory }) {
     window.addEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
   }, []);
+
+  const toggleSelected = (code, word) => {
+    setSelected((prev) => {
+      const current = new Set(prev[code] || []);
+      if (current.has(word)) current.delete(word);
+      else current.add(word);
+      return { ...prev, [code]: current };
+    });
+  };
 
   const byLang = {};
   words.forEach((w) => {
@@ -5057,7 +5068,7 @@ function SavedWordsPanel({ onJumpToStory }) {
                   {label} ({byLang[code].length})
                 </p>
                 <button
-                  onClick={() => onJumpToStory(code)}
+                  onClick={() => onJumpToStory(code, Array.from(selected[code] || []))}
                   className="flex items-center gap-1"
                   style={{ fontSize: 12, color: colors.teal, textDecoration: "underline" }}
                 >
@@ -5066,29 +5077,35 @@ function SavedWordsPanel({ onJumpToStory }) {
                 </button>
               </div>
               <div className="flex flex-wrap gap-2">
-                {byLang[code].map((e) => (
-                  <span
-                    key={e.word}
-                    dir="auto"
-                    className="flex items-center gap-1"
-                    style={{
-                      padding: "5px 6px 5px 12px",
-                      borderRadius: 20,
-                      fontSize: 12,
-                      border: `1px solid ${colors.cardBorder}`,
-                      backgroundColor: colors.paper,
-                    }}
-                  >
-                    {e.word}
-                    <button
-                      onClick={() => removeSavedStoryWord(e.word, code)}
-                      style={{ color: colors.inkSoft, display: "flex" }}
-                      title="حذف"
+                {byLang[code].map((e) => {
+                  const active = (selected[code] || new Set()).has(e.word);
+                  return (
+                    <span
+                      key={e.word}
+                      dir="auto"
+                      className="flex items-center gap-1"
+                      style={{
+                        padding: "5px 6px 5px 12px",
+                        borderRadius: 20,
+                        fontSize: 12,
+                        border: `1px solid ${active ? colors.gold : colors.cardBorder}`,
+                        backgroundColor: active ? colors.goldSoft : colors.paper,
+                        fontWeight: active ? 700 : 400,
+                      }}
                     >
-                      <X size={12} />
-                    </button>
-                  </span>
-                ))}
+                      <button onClick={() => toggleSelected(code, e.word)} title="انتخاب برای داستان">
+                        {e.word}
+                      </button>
+                      <button
+                        onClick={() => removeSavedStoryWord(e.word, code)}
+                        style={{ color: colors.inkSoft, display: "flex" }}
+                        title="حذف"
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  );
+                })}
               </div>
             </div>
           );
@@ -5430,8 +5447,8 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
         {tab === "saved" && (
           <SavedWordsPanel
-            onJumpToStory={(lang) => {
-              setStoryJump({ lang, token: Date.now() });
+            onJumpToStory={(lang, words) => {
+              setStoryJump({ lang, words, token: Date.now() });
               setTab("story");
             }}
           />
