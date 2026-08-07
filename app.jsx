@@ -3795,12 +3795,10 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     const refresh = () => {
       const list = loadSavedStoryWords().filter((e) => e.langCode === storyLang);
       setSavedStoryWords(list);
-      // Bring newly-bookmarked words straight into the next story's word list
-      // automatically — this is what a tap on "Save for next story" is for.
-      setSelectedWords((prev) => {
-        const additions = list.map((e) => e.word).filter((w) => !prev.includes(w));
-        return additions.length ? [...prev, ...additions] : prev;
-      });
+      // توجه: قبلاً اینجا همه‌ی لغات ذخیره‌شده خودکار به لیست انتخاب‌شده‌ی
+      // داستان اضافه می‌شدن. حالا اضافه نمی‌شن — فقط به شکل چیپ‌های قابل‌کلیک
+      // نشون داده می‌شن (پایین‌تر) و کاربر خودش تعیین می‌کنه کدوم‌ها رو
+      // برای این داستان انتخاب کنه.
     };
     refresh();
     window.addEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
@@ -4026,19 +4024,60 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       // 🔥 اینجا فقط داستان به زبان اصلی ساخته می‌شه (بدون درخواست ترجمه از هوش مصنوعی)
       const genre = CONTENT_TYPES.find((c) => c.key === contentType) || CONTENT_TYPES[0];
       const lengthCfg = STORY_LENGTHS.find((l) => l.key === storyLength) || STORY_LENGTHS[1];
-      
-      const prompt = `Write ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}. The story MUST use each of these words naturally, about ${repeatCount} times each, spread across different sentences, grammatical forms, and (where the word allows it) different meanings/contexts: ${selectedWords.join(", ")}. Keep the story coherent and appropriately sized for that many repetitions. Organize the story into ${lengthCfg.paragraphs} paragraphs, ${lengthCfg.sentencesHint}. After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
+
+      // شمارش تقریبی تعداد تکرار هر لغت (و اشکال صرفی نزدیکش) تو متن داستان —
+      // برای اینکه بفهمیم مدل واقعاً به تعداد درخواستی پایبند بوده یا نه.
+      const countWordOccurrences = (text, word) => {
+        const esc = word.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        if (!esc) return 0;
+        const re = new RegExp(`\\b${esc}[a-zA-Z]*`, "gi");
+        const matches = text.match(re);
+        return matches ? matches.length : 0;
+      };
+
+      const buildPrompt = (correction) => `Write ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}. HARD CONSTRAINT — read carefully: each of the target words below has a strict usage BUDGET of exactly ${repeatCount} total mentions (counting all grammatical forms together as one). This is a hard ceiling, not a suggestion: ${repeatCount} is the maximum AND the goal — do not go over it, and do not pad the story with extra unnecessary mentions "to be safe". Before finalizing your answer, silently count how many times you used each target word and trim any that went over budget. Target words and their exact budget: ${selectedWords.map((w) => `"${w}" → exactly ${repeatCount} times`).join(", ")}.${correction ? " " + correction : ""} The total length of the story must stay proportionate to ${lengthCfg.paragraphs} paragraphs, ${lengthCfg.sentencesHint} — do NOT lengthen the story just to fit more repetitions; if needed, reuse the same word within one sentence rather than adding new sentences. Organize the story into ${lengthCfg.paragraphs} paragraphs as described. After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
 
       const tokenBudget = Math.min(lengthCfg.tokens + 500, 8000);
-      const res = await callAI({ prompt, maxTokens: tokenBudget, aiSettings });
-      const cleaned = res.replace(/```json|```/g, "").trim();
-      let parsed;
-      try {
-        parsed = JSON.parse(cleaned);
-      } catch (parseErr) {
-        throw new Error("parse-error: پاسخ هوش مصنوعی کامل یا JSON معتبر نبود — دوباره امتحان کن.");
+
+      const runAttempt = async (correction) => {
+        const res = await callAI({ prompt: buildPrompt(correction), maxTokens: tokenBudget, aiSettings });
+        const cleaned = res.replace(/```json|```/g, "").trim();
+        try {
+          return JSON.parse(cleaned);
+        } catch (parseErr) {
+          throw new Error("parse-error: پاسخ هوش مصنوعی کامل یا JSON معتبر نبود — دوباره امتحان کن.");
+        }
+      };
+
+      const scoreAttempt = (parsedAttempt) => {
+        const text = (parsedAttempt.paragraphs || []).flatMap((p) => (p.sentences || []).map((s) => s.text)).join(" ");
+        const attemptCounts = selectedWords.map((w) => ({ word: w, count: countWordOccurrences(text, w) }));
+        const deviation = attemptCounts.reduce((sum, c) => sum + Math.abs(c.count - repeatCount), 0);
+        const offenders = attemptCounts.filter((c) => c.count > repeatCount || c.count < Math.max(1, repeatCount - 2));
+        return { counts: attemptCounts, deviation, offenders };
+      };
+
+      let parsed = await runAttempt();
+      let best = { parsed, ...scoreAttempt(parsed) };
+
+      // اگه تعداد تکرارها با درخواست فاصله داشت، تا ۲ بار دیگه با بازخورد
+      // دقیق (چند بار واقعاً استفاده شده) دوباره امتحان می‌کنیم و در نهایت
+      // بهترین نسخه (کمترین فاصله‌ی کل از عدد درخواستی) رو نگه می‌داریم.
+      for (let attempt = 0; attempt < 2 && best.offenders.length > 0; attempt++) {
+        const detail = best.counts.map((c) => `"${c.word}": you used it ${c.count} times, but the budget is ${repeatCount}`).join("; ");
+        const correction = `Your previous attempt broke the repetition budget (${detail}). Rewrite the story from scratch, shorter if needed, and this time strictly cap every target word at exactly ${repeatCount} total mentions — count as you go and stop each word once it hits its budget.`;
+        try {
+          const retryParsed = await runAttempt(correction);
+          const retryScore = { parsed: retryParsed, ...scoreAttempt(retryParsed) };
+          if (retryScore.deviation < best.deviation) {
+            best = retryScore;
+          }
+        } catch {
+          // اگه یه تلاش خطا داد، بهترین نسخه‌ی موجود رو نگه می‌داریم و ادامه می‌دیم
+        }
       }
-      
+      parsed = best.parsed;
+
       const storyParagraphs = parsed.paragraphs || [];
       
       // ============================================================
@@ -4050,14 +4089,11 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       setParagraphs(storyParagraphs);
       
       setQuestions(Array.isArray(parsed.questions) ? parsed.questions : []);
-      
-      if (savedStoryWords.length) {
-        try {
-          const remaining = loadSavedStoryWords().filter((e) => e.langCode !== storyLang);
-          window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(remaining));
-          window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
-        } catch {}
-      }
+
+      // توجه: قبلاً بعد از ساخت هر داستان، همه‌ی لغات ذخیره‌شده‌ی این زبان
+      // از «لغات ذخیره‌شده» پاک می‌شدن. دیگه این کار انجام نمی‌شه — لغات
+      // ذخیره‌شده می‌مونن تا هر وقت خواستی (با دکمه‌ی ضربدر کنار هرکدوم)
+      // خودت پاکشون کنی.
     } catch (e) {
       const msg = String(e?.message || "");
       if (msg.startsWith("ai-backend-error:")) {
