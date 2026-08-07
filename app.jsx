@@ -734,7 +734,134 @@ const speechController = (() => {
 })();
 
 // ---------------------------------------------------------------------------
-// AI connection — standard architecture:
+// دیکشنری آفلاین دانلودی — یه فایل JSON ساده (کلمه ↔ معنی) که یه‌بار از
+// همین سایت دانلود و با Cache API رو گوشی کاربر ذخیره می‌شه. بعد از اون،
+// جستجو کاملاً آفلاینه و نیازی به اینترنت یا سرور AI نداره.
+//
+// فایل‌های دیکشنری تو پوشه‌ی /dictionaries/<code>.json این ریپو هستن
+// (مثلاً dictionaries/en.json). برای اضافه‌کردن یه زبون جدید، همون فرمت
+// (آرایه‌ای از {"en": "...", "fa": "..."}) رو تو یه فایل جدید با اسم کد
+// زبون بذار و به OFFLINE_DICT_LANGS اضافه‌ش کن.
+// ---------------------------------------------------------------------------
+const OFFLINE_DICT_CACHE_NAME = "phrasebook-offline-dict-v1";
+const OFFLINE_DICT_LANGS = ["en"]; // زبون‌هایی که دیکشنری آفلاین براشون آماده‌ست
+
+const offlineDictionary = (() => {
+  // code -> array of {en, fa} (یا هر جفت‌زبونی که فایل داشته باشه)
+  const loaded = new Map();
+  const listeners = new Set();
+
+  function notify() {
+    listeners.forEach((cb) => cb());
+  }
+
+  function fileUrl(code) {
+    // نسبت به خود صفحه — رو GitHub Pages دقیقاً همون /dictionaries/en.json می‌شه
+    return new URL(`dictionaries/${code}.json`, window.location.href).toString();
+  }
+
+  async function isDownloaded(code) {
+    if (loaded.has(code)) return true;
+    if (!("caches" in window)) return false;
+    try {
+      const cache = await caches.open(OFFLINE_DICT_CACHE_NAME);
+      const match = await cache.match(fileUrl(code));
+      return !!match;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // موقع بالا اومدن اپ، هر دیکشنری‌ای که قبلاً دانلود شده رو از Cache می‌خونه
+  // تو حافظه، بدون نیاز به دوباره‌دانلودکردن یا حتی اینترنت داشتن.
+  async function hydrateFromCache() {
+    if (!("caches" in window)) return;
+    try {
+      const cache = await caches.open(OFFLINE_DICT_CACHE_NAME);
+      for (const code of OFFLINE_DICT_LANGS) {
+        if (loaded.has(code)) continue;
+        const match = await cache.match(fileUrl(code));
+        if (match) {
+          const data = await match.json();
+          loaded.set(code, data);
+        }
+      }
+      notify();
+    } catch (e) {}
+  }
+
+  async function download(code, onProgress) {
+    const url = fileUrl(code);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`دانلود دیکشنری ${code} شکست خورد (HTTP ${res.status})`);
+
+    // تخمین پیشرفت از روی Content-Length، اگه سرور بفرسته
+    const total = Number(res.headers.get("content-length")) || 0;
+    let received = 0;
+    const reader = res.body?.getReader ? res.body.getReader() : null;
+    let text;
+    if (reader) {
+      const chunks = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        if (onProgress) onProgress(total ? Math.min(99, Math.round((received / total) * 100)) : 60);
+      }
+      const blob = new Blob(chunks);
+      text = await blob.text();
+    } else {
+      text = await res.text();
+    }
+    const data = JSON.parse(text);
+
+    loaded.set(code, data);
+    if ("caches" in window) {
+      try {
+        const cache = await caches.open(OFFLINE_DICT_CACHE_NAME);
+        await cache.put(url, new Response(text, { headers: { "Content-Type": "application/json" } }));
+      } catch (e) {}
+    }
+    if (onProgress) onProgress(100);
+    notify();
+    return data.length;
+  }
+
+  function entryCount(code) {
+    return loaded.get(code)?.length || 0;
+  }
+
+  // جستجوی دوطرفه: هم تو کلمه‌ی خارجی، هم تو معنی فارسی می‌گرده
+  function lookup(word, code) {
+    const list = loaded.get(code);
+    if (!list || !word) return [];
+    const q = word.trim().toLowerCase();
+    const qFa = word.trim();
+    if (!q) return [];
+    // اول تطبیق کامل، بعد شامل‌بودن
+    const exact = list.filter((e) => e.en.toLowerCase() === q || e.fa === qFa);
+    if (exact.length) return exact;
+    return list.filter((e) => e.en.toLowerCase().includes(q) || e.fa.includes(qFa)).slice(0, 20);
+  }
+
+  return {
+    subscribe(cb) {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+    isDownloaded,
+    hydrateFromCache,
+    download,
+    entryCount,
+    lookup,
+    isLoadedInMemory(code) {
+      return loaded.has(code);
+    },
+  };
+})();
+
+
 //     User → React App (this file) → Backend Server (Render) → AI provider
 // The frontend NEVER talks to an AI provider directly and never holds an
 // API key. It only calls this one backend endpoint (POST /api/generate).
@@ -3175,21 +3302,138 @@ const CONTENT_TYPES = [
 // covers any word or phrase in any of the app's languages, not just a
 // pre-built database.
 // ---------------------------------------------------------------------------
+// کارت دانلود/وضعیت دیکشنری آفلاین برای یه زبون مشخص — دانلود یه‌بار،
+// بعدش جستجو کاملاً بدون اینترنت کار می‌کنه.
+function OfflineDictionaryCard({ code, label }) {
+  const [status, setStatus] = useState("checking"); // checking | idle | downloading | ready | error
+  const [progress, setProgress] = useState(0);
+  const [count, setCount] = useState(0);
+  const [errMsg, setErrMsg] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    offlineDictionary.isDownloaded(code).then((yes) => {
+      if (cancelled) return;
+      if (yes) {
+        setStatus("ready");
+        setCount(offlineDictionary.entryCount(code));
+      } else {
+        setStatus("idle");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
+
+  const handleDownload = async () => {
+    setStatus("downloading");
+    setProgress(0);
+    setErrMsg("");
+    try {
+      const n = await offlineDictionary.download(code, setProgress);
+      setCount(n);
+      setStatus("ready");
+    } catch (e) {
+      setStatus("error");
+      setErrMsg(e?.message || "دانلود ناموفق بود");
+    }
+  };
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${colors.cardBorder}`,
+        borderRadius: 12,
+        padding: 12,
+        backgroundColor: "white",
+      }}
+    >
+      <div className="flex items-center justify-between">
+        <span style={{ fontSize: 13, fontWeight: 600 }}>دیکشنری آفلاین {label}</span>
+        {status === "ready" && (
+          <span style={{ display: "flex", alignItems: "center", gap: 4, color: colors.teal, fontSize: 11, fontWeight: 600 }}>
+            <Check size={13} /> آماده ({count} لغت)
+          </span>
+        )}
+      </div>
+
+      {status === "idle" && (
+        <button
+          onClick={handleDownload}
+          style={{
+            marginTop: 8,
+            fontSize: 12,
+            padding: "6px 12px",
+            borderRadius: 8,
+            border: "none",
+            backgroundColor: colors.gold,
+            color: "white",
+            cursor: "pointer",
+          }}
+        >
+          دانلود برای استفاده‌ی آفلاین
+        </button>
+      )}
+
+      {status === "downloading" && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 4 }}>در حال دانلود… {progress}٪</div>
+          <div style={{ height: 6, backgroundColor: colors.cardBorder, borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${progress}%`, backgroundColor: colors.gold, transition: "width .15s linear" }} />
+          </div>
+        </div>
+      )}
+
+      {status === "ready" && (
+        <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 6 }}>
+          از این به بعد، جستجوی این لغات حتی بدون اینترنت هم کار می‌کنه — رایگان و آنی.
+        </p>
+      )}
+
+      {status === "error" && (
+        <div style={{ marginTop: 8 }}>
+          <p style={{ fontSize: 11, color: colors.rose }}>{errMsg}</p>
+          <button
+            onClick={handleDownload}
+            style={{ marginTop: 4, fontSize: 12, color: colors.gold, textDecoration: "underline", background: "none", border: "none", cursor: "pointer" }}
+          >
+            دوباره امتحان کن
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSettings }) {
   const [query, setQuery] = useState("");
   const [result, setResult] = useState(null);
+  const [offlineHits, setOfflineHits] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showHistory, setShowHistory] = useState(false);
 
   const targetLangs = PHRASEBOOK_LANGUAGES.filter((l) => l.code !== "fa");
 
-  const lookup = async (term) => {
+  const lookup = async (term, opts = {}) => {
     const word = (term ?? query).trim();
     if (!word || loading) return;
-    setLoading(true);
     setError("");
     setResult(null);
+    setOfflineHits([]);
+
+    // اول تو دیکشنری آفلاین (اگه دانلود شده باشه) نگاه کن — رایگان و آنی،
+    // نیازی به اینترنت یا سرور AI نیست. فقط وقتی opts.forceAI باشه ردش کن.
+    if (!opts.forceAI && offlineDictionary.isLoadedInMemory("en")) {
+      const hits = offlineDictionary.lookup(word, "en");
+      if (hits.length) {
+        setOfflineHits(hits);
+        return;
+      }
+    }
+
+    setLoading(true);
     try {
       const langLabelPairs = targetLangs.map((l) => ({ code: l.code, label: l.label }));
       const schema = `{"word": "the term exactly as given, corrected for obvious typos", "detectedLang": "ISO 639-1 code of the language the term is written in", "pos": "part of speech in Persian (اسم/فعل/صفت/قید/حرف اضافه/عبارت)", "ipa": "IPA pronunciation if it's a single word, else empty string", "meaningFa": "clear definition/meaning of the word IN PERSIAN, 1-2 sentences", "translations": {${langLabelPairs
@@ -3256,6 +3500,8 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
         هر کلمه یا اصطلاحی رو، به هر زبونی، تایپ کن — معنی، تلفظ، مثال و ترجمه‌ش به همه‌ی زبون‌های اپ رو زنده از AI می‌گیره.
       </p>
 
+      <OfflineDictionaryCard code="en" label="انگلیسی" />
+
       <div
         className="flex items-center gap-2 px-3"
         style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 20, height: 44 }}
@@ -3269,7 +3515,7 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
           style={{ flex: 1, fontFamily: fontFa, border: "none", outline: "none", fontSize: 14, backgroundColor: "transparent" }}
         />
         {query && (
-          <button onClick={() => { setQuery(""); setResult(null); }} aria-label="پاک کردن">
+          <button onClick={() => { setQuery(""); setResult(null); setOfflineHits([]); }} aria-label="پاک کردن">
             <X size={16} color={colors.inkSoft} />
           </button>
         )}
@@ -3288,6 +3534,31 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
       >
         {loading ? "در حال جستجو..." : "جستجو"}
       </button>
+
+      {offlineHits.length > 0 && (
+        <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: 12, backgroundColor: "white" }}>
+          <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+            <span style={{ fontSize: 11, color: colors.teal, fontWeight: 600 }}>از دیکشنری آفلاین (بدون اینترنت)</span>
+          </div>
+          {offlineHits.map((h, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-between"
+              style={{ padding: "8px 2px", borderTop: i > 0 ? `1px solid ${colors.cardBorder}` : "none" }}
+            >
+              <span style={{ fontWeight: 600, fontSize: 15 }}>{h.fa}</span>
+              <span style={{ color: colors.teal, fontSize: 14, direction: "ltr" }}>{h.en}</span>
+            </div>
+          ))}
+          <button
+            onClick={() => lookup(query, { forceAI: true })}
+            disabled={loading}
+            style={{ marginTop: 8, fontSize: 12, color: colors.gold, textDecoration: "underline", background: "none", border: "none", cursor: "pointer" }}
+          >
+            جستجوی کامل‌تر با هوش مصنوعی (مثال، تلفظ، ترجمه به همه‌ی زبون‌ها)
+          </button>
+        </div>
+      )}
 
       {error && (
         <div style={{ backgroundColor: "#F8E8E8", border: `1px solid ${colors.rose}`, borderRadius: 10, padding: 12 }}>
@@ -5960,6 +6231,13 @@ export default function App() {
   const [appPrefs, setAppPrefs] = useState(loadAppPrefs);
 
   useEffect(() => saveAppPrefs(appPrefs), [appPrefs]);
+
+  // اگه کاربر قبلاً دیکشنری‌ای دانلود کرده بوده، همین اول بارگذاریش کن تو
+  // حافظه — بدون این کار، جستجوی آفلاین فقط بعد از یه دانلود تازه کار می‌کنه.
+  useEffect(() => {
+    offlineDictionary.hydrateFromCache();
+  }, []);
+
 
   const theme = APP_THEMES[appPrefs.theme].values;
   const font = APP_FONTS[appPrefs.font];
