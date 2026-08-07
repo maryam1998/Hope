@@ -4978,16 +4978,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         </div>
       )}
 
-      {/* تکرار سراسری برای این صفحه — چون دیگه کنار هر عبارت دکمه‌ی 🔁 جدا نیست،
-          همین یکی روی هر 🔊ای که پایین‌تر بزنی اعمال می‌شه */}
-      {(tab === "phrases" || tab === "favorites" || tab === "vocab") && (
-        <div className="px-4 pt-2 flex items-center gap-2" style={{ justifyContent: "flex-end" }}>
-          <span style={{ fontSize: 11, color: colors.inkSoft }}>تکرار پخش</span>
-          <RepeatButton color={colors.gold} />
-          <SpeedControl color={colors.gold} />
-        </div>
-      )}
-
       {/* Search — only meaningful for the phrase list tabs */}
       {(tab === "phrases" || tab === "favorites") && (
         <div className="px-4 pt-3">
