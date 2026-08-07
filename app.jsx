@@ -1,5 +1,62 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type } from "lucide-react";
+import { createClient } from "@supabase/supabase-js";
+
+// ---------------------------------------------------------------------------
+// SUPABASE — real accounts (email/password + Google) and cross-device sync.
+// این‌جا واقعاً به پروژه‌ی Supabase وصل می‌شیم؛ دیگه هیچ حساب یا داده‌ای فقط
+// محلی/ساختگی نیست. برای فعال‌سازی ورود با گوگل هم باید تو داشبورد Supabase
+// (نه فقط گوگل کنسول) این مسیر رو انجام بدی:
+//   Authentication → Sign In / Providers → Google → روشنش کن و
+//   Client ID و Client Secret که از Google Cloud Console گرفتی رو بذار.
+// و تو Google Cloud Console، زیر همون OAuth Client، این آدرس رو به
+// "Authorized redirect URIs" اضافه کن (Supabase خودش تو همون صفحه‌ی
+// Providers این آدرس رو بهت نشون می‌ده تا کپی کنی):
+//   https://avfceytrbmsdkuyppspp.supabase.co/auth/v1/callback
+// و تو Supabase، زیر Authentication → URL Configuration → Site URL / Redirect
+// URLs، آدرس واقعی سایتت رو اضافه کن (مثلاً https://maryam1998.github.io/Hope/)
+// وگرنه بعد از ورود با گوگل به آدرس اشتباهی برمی‌گردی.
+// ---------------------------------------------------------------------------
+const SUPABASE_URL = "https://avfceytrbmsdkuyppspp.supabase.co";
+const SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2ZmNleXRyYm1zZGt1eXBwc3BwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU5MjMwNDUsImV4cCI6MjEwMTQ5OTA0NX0.IYyNpcznb3g2zdruLn2XSlVHFtDK4OQPm0RIOcIBNhE";
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ورودی/خروجی سازگار با بقیه‌ی اپ: { uid, email, name, picture, provider }
+function supabaseUserToSession(su) {
+  if (!su) return null;
+  const meta = su.user_metadata || {};
+  return {
+    uid: su.id,
+    email: su.email,
+    name: meta.name || meta.full_name || su.email,
+    picture: meta.avatar_url || meta.picture || "",
+    provider: meta.provider_source || (su.app_metadata?.provider === "google" ? "google" : "email"),
+  };
+}
+
+// جدول: user_data (user_id uuid primary key references auth.users, data jsonb, updated_at timestamptz)
+// با RLS که هر کاربر فقط ردیف خودش رو بخونه/بنویسه — SQL لازمش رو جدا فرستادم.
+async function supabaseLoadState(uid) {
+  if (!uid) return null;
+  try {
+    const { data, error } = await supabase.from("user_data").select("data").eq("user_id", uid).maybeSingle();
+    if (error || !data) return null;
+    return data.data || null;
+  } catch (e) {
+    return null; // آفلاین یا جدول هنوز ساخته نشده — نسخه‌ی محلی همچنان کار می‌کنه
+  }
+}
+
+async function supabaseSaveState(uid, data) {
+  if (!uid) return;
+  try {
+    await supabase.from("user_data").upsert({ user_id: uid, data, updated_at: new Date().toISOString() });
+  } catch (e) {
+    // ذخیره‌ی ابری ناموفق بود — نسخه‌ی محلی (localStorage) هنوز سِیو شده
+  }
+}
 
 // ---------------------------------------------------------------------------
 // DESIGN TOKENS — deliberately not Tailwind's default palette / fonts.
@@ -5041,7 +5098,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       try {
         const [local, cloud] = await Promise.all([
           storage.get(userStorageKey, false),
-          user?.uid ? firestoreLoadState(user.uid) : Promise.resolve(null),
+          user?.uid ? supabaseLoadState(user.uid) : Promise.resolve(null),
         ]);
         const saved = cloud || (local && local.value ? JSON.parse(local.value) : null);
         if (saved) {
@@ -5088,7 +5145,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       } catch (e) {
         // local save failed — still try the cloud copy below
       }
-      if (user?.uid) firestoreSaveState(user.uid, payload);
+      if (user?.uid) supabaseSaveState(user.uid, payload);
     }, 500);
     return () => clearTimeout(timeout);
   }, [nativeLang, targetOrder, favorites, boxes, wordStats, savedStories, dictHistory, backendUrl, loaded, userStorageKey, user?.uid]);
@@ -5922,107 +5979,72 @@ function LoginScreen({ onAuthenticated }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  const [googleLive, setGoogleLive] = useState(false);
-  const [fbBusy, setFbBusy] = useState(false);
-  const googleBtnRef = useRef(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
 
-  // Preferred path: real Firebase Auth (Google) — gives a stable `uid` that
-  // Firestore syncing keys off, so saved words/stories/history follow the
-  // account across devices. Falls through to the local GIS/demo flow below
-  // only if FIREBASE_CONFIG hasn't been filled in yet.
-  async function handleFirebaseGoogleSignIn() {
+  // ورود واقعی با گوگل از طریق Supabase (نه Firebase، نه GIS محلی).
+  // بعد از این‌که Google را در Supabase → Authentication → Providers فعال
+  // کردی، این دکمه کاربر رو به صفحه‌ی ورود گوگل می‌فرسته و بعد از تایید،
+  // Supabase خودش برش می‌گردونه به همین سایت با یه سشن واقعی.
+  async function handleGoogleSignIn() {
     setError("");
-    setFbBusy(true);
+    setGoogleBusy(true);
     try {
-      const user = await firebaseSignInWithGoogle();
-      persistSession(user);
-      onAuthenticated(user);
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.href },
+      });
+      if (oauthError) throw oauthError;
+      // مرورگر همین‌جا به صفحه‌ی گوگل ریدایرکت می‌شه؛ ادامه‌ی کار (ساخت
+      // سشن) تو App، با onAuthStateChange انجام می‌شه.
     } catch (e) {
-      setError("ورود با گوگل ناموفق بود. دوباره تلاش کنید.");
-    } finally {
-      setFbBusy(false);
+      setError("ورود با گوگل ناموفق بود: " + (e?.message || "دوباره تلاش کنید."));
+      setGoogleBusy(false);
     }
   }
 
-  const handleGoogleCredential = React.useCallback((response) => {
-    try {
-      const payload = JSON.parse(atob(response.credential.split(".")[1]));
-      const user = { email: payload.email, name: payload.name, picture: payload.picture, provider: "google" };
-      const users = loadUsers();
-      if (!users.find((u) => u.email === user.email)) saveUsers([...users, user]);
-      persistSession(user);
-      onAuthenticated(user);
-    } catch {
-      setError("ورود با گوگل ناموفق بود. دوباره تلاش کنید.");
-    }
-  }, [onAuthenticated]);
-
-  useEffect(() => {
-    if (GOOGLE_CLIENT_ID.startsWith("YOUR_")) return; // no real client id configured yet
-    const script = document.createElement("script");
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.defer = true;
-    script.onload = () => {
-      try {
-        window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleCredential });
-        window.google.accounts.id.renderButton(googleBtnRef.current, {
-          theme: "outline",
-          size: "large",
-          width: 300,
-          shape: "pill",
-          text: mode === "signup" ? "signup_with" : "signin_with",
-        });
-        setGoogleLive(true);
-      } catch {
-        setGoogleLive(false);
-      }
-    };
-    script.onerror = () => setGoogleLive(false);
-    document.body.appendChild(script);
-    return () => {
-      document.body.contains(script) && document.body.removeChild(script);
-    };
-  }, [mode, handleGoogleCredential]);
-
-  function handleDemoGoogle() {
-    setBusy(true);
-    setTimeout(() => {
-      const user = { email: "demo.user@gmail.com", name: "کاربر آزمایشی", picture: "", provider: "google-demo" };
-      persistSession(user);
-      setBusy(false);
-      onAuthenticated(user);
-    }, 450);
-  }
-
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     setError("");
+    setNotice("");
     if (!email.trim() || !password.trim() || (mode === "signup" && !name.trim())) {
       setError("همه‌ی فیلدها را پر کنید.");
       return;
     }
-    const users = loadUsers();
-    if (mode === "signup") {
-      if (users.find((u) => u.email === email.trim())) {
-        setError("این ایمیل قبلاً ثبت شده. وارد شوید.");
-        return;
+    setBusy(true);
+    try {
+      if (mode === "signup") {
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: { data: { name: name.trim() } },
+        });
+        if (signUpError) throw signUpError;
+        if (data.session) {
+          // تایید ایمیل خاموشه (یا از قبل تاییده) — مستقیم وارد می‌شیم
+          onAuthenticated(supabaseUserToSession(data.user));
+        } else {
+          // Supabase یه ایمیل تاییدیه فرستاده؛ تا کلیک نکنه نمی‌تونه وارد شه
+          setNotice("یک ایمیل تایید برایتان فرستاده شد. لطفاً ایمیلتان را باز کنید و لینک را بزنید، بعد وارد شوید.");
+          setMode("login");
+        }
+      } else {
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        if (signInError) throw signInError;
+        onAuthenticated(supabaseUserToSession(data.user));
       }
-      const user = { name: name.trim(), email: email.trim(), passHash: simpleHash(password), provider: "email" };
-      saveUsers([...users, user]);
-      const session = { name: user.name, email: user.email, provider: "email" };
-      persistSession(session);
-      onAuthenticated(session);
-    } else {
-      const user = users.find((u) => u.email === email.trim());
-      if (!user || user.passHash !== simpleHash(password)) {
-        setError("ایمیل یا رمز عبور اشتباه است.");
-        return;
-      }
-      const session = { name: user.name, email: user.email, provider: "email" };
-      persistSession(session);
-      onAuthenticated(session);
+    } catch (e) {
+      const msg = e?.message || "";
+      if (/already registered|already exists/i.test(msg)) setError("این ایمیل قبلاً ثبت شده. وارد شوید.");
+      else if (/invalid login credentials/i.test(msg)) setError("ایمیل یا رمز عبور اشتباه است.");
+      else if (/email not confirmed/i.test(msg)) setError("هنوز ایمیلتان را تایید نکرده‌اید — صندوق ورودی را چک کنید.");
+      else setError(msg || "خطایی رخ داد. دوباره تلاش کنید.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -6078,82 +6100,39 @@ function LoginScreen({ onAuthenticated }) {
         </div>
 
         <div style={{ marginBottom: 16 }}>
-          {FIREBASE_ENABLED ? (
-            <button
-              type="button"
-              onClick={handleFirebaseGoogleSignIn}
-              disabled={fbBusy}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 10,
-                padding: "11px 16px",
-                borderRadius: 999,
-                border: `1px solid ${colors.cardBorder}`,
-                background: "#fff",
-                color: colors.ink,
-                fontFamily: fontFa,
-                fontWeight: 600,
-                fontSize: 14,
-                cursor: fbBusy ? "default" : "pointer",
-              }}
-            >
-              {fbBusy ? (
-                <Loader2 size={18} className="spin" />
-              ) : (
-                <svg width="18" height="18" viewBox="0 0 48 48">
-                  <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.2-.1-2.4-.4-3.5z" />
-                  <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 15.6 3 8.4 8 6.3 14.7z" />
-                  <path fill="#4CAF50" d="M24 45c5.4 0 10.3-2.1 14-5.5l-6.5-5.4C29.5 35.9 26.9 37 24 37c-5.3 0-9.7-3.4-11.3-8.1l-6.6 5.1C8.3 40 15.5 45 24 45z" />
-                  <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.3 5.6l6.5 5.4C41.4 35.9 44 30.5 44 24c0-1.2-.1-2.4-.4-3.5z" />
-                </svg>
-              )}
-              ورود با حساب گوگل
-            </button>
-          ) : googleLive ? (
-            <div ref={googleBtnRef} style={{ display: "flex", justifyContent: "center" }} />
-          ) : (
-            <button
-              type="button"
-              onClick={handleDemoGoogle}
-              disabled={busy}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 10,
-                padding: "11px 16px",
-                borderRadius: 999,
-                border: `1px solid ${colors.cardBorder}`,
-                background: "#fff",
-                color: colors.ink,
-                fontFamily: fontFa,
-                fontWeight: 600,
-                fontSize: 14,
-                cursor: busy ? "default" : "pointer",
-              }}
-            >
-              {busy ? (
-                <Loader2 size={18} className="spin" />
-              ) : (
-                <svg width="18" height="18" viewBox="0 0 48 48">
-                  <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.2-.1-2.4-.4-3.5z" />
-                  <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 15.6 3 8.4 8 6.3 14.7z" />
-                  <path fill="#4CAF50" d="M24 45c5.4 0 10.3-2.1 14-5.5l-6.5-5.4C29.5 35.9 26.9 37 24 37c-5.3 0-9.7-3.4-11.3-8.1l-6.6 5.1C8.3 40 15.5 45 24 45z" />
-                  <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.3 5.6l6.5 5.4C41.4 35.9 44 30.5 44 24c0-1.2-.1-2.4-.4-3.5z" />
-                </svg>
-              )}
-              ورود با حساب گوگل
-            </button>
-          )}
-          {!FIREBASE_ENABLED && !googleLive && (
-            <p style={{ fontSize: 11, color: colors.inkSoft, textAlign: "center", marginTop: 6, opacity: 0.75 }}>
-              حالت آزمایشی — برای گوگل واقعی، پروژه‌ی Firebase را تنظیم کنید
-            </p>
-          )}
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={googleBusy}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10,
+              padding: "11px 16px",
+              borderRadius: 999,
+              border: `1px solid ${colors.cardBorder}`,
+              background: "#fff",
+              color: colors.ink,
+              fontFamily: fontFa,
+              fontWeight: 600,
+              fontSize: 14,
+              cursor: googleBusy ? "default" : "pointer",
+            }}
+          >
+            {googleBusy ? (
+              <Loader2 size={18} className="spin" />
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 48 48">
+                <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.2-.1-2.4-.4-3.5z" />
+                <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 15.6 3 8.4 8 6.3 14.7z" />
+                <path fill="#4CAF50" d="M24 45c5.4 0 10.3-2.1 14-5.5l-6.5-5.4C29.5 35.9 26.9 37 24 37c-5.3 0-9.7-3.4-11.3-8.1l-6.6 5.1C8.3 40 15.5 45 24 45z" />
+                <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.3 5.6l6.5 5.4C41.4 35.9 44 30.5 44 24c0-1.2-.1-2.4-.4-3.5z" />
+              </svg>
+            )}
+            ورود با حساب گوگل
+          </button>
         </div>
 
         <div className="flex items-center gap-2" style={{ margin: "18px 0" }}>
@@ -6176,9 +6155,11 @@ function LoginScreen({ onAuthenticated }) {
           />
 
           {error && <div style={{ color: colors.rose, fontSize: 13, textAlign: "center" }}>{error}</div>}
+          {notice && <div style={{ color: colors.teal, fontSize: 13, textAlign: "center" }}>{notice}</div>}
 
           <button
             type="submit"
+            disabled={busy}
             style={{
               marginTop: 4,
               padding: "12px 16px",
@@ -6189,9 +6170,14 @@ function LoginScreen({ onAuthenticated }) {
               fontFamily: fontFa,
               fontWeight: 700,
               fontSize: 14,
-              cursor: "pointer",
+              cursor: busy ? "default" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
             }}
           >
+            {busy && <Loader2 size={16} className="spin" />}
             {mode === "signup" ? "ساخت حساب" : "ورود"}
           </button>
         </form>
@@ -6202,6 +6188,7 @@ function LoginScreen({ onAuthenticated }) {
             onClick={() => {
               setMode(mode === "signup" ? "login" : "signup");
               setError("");
+              setNotice("");
             }}
             style={{
               background: "none",
@@ -6227,7 +6214,8 @@ function LoginScreen({ onAuthenticated }) {
 // user's saved progress loads fresh from their own storage slot.
 // -----------------------------------------------------------------------------
 export default function App() {
-  const [user, setUser] = useState(() => readSession());
+  const [user, setUser] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [appPrefs, setAppPrefs] = useState(loadAppPrefs);
 
   useEffect(() => saveAppPrefs(appPrefs), [appPrefs]);
@@ -6236,6 +6224,27 @@ export default function App() {
   // حافظه — بدون این کار، جستجوی آفلاین فقط بعد از یه دانلود تازه کار می‌کنه.
   useEffect(() => {
     offlineDictionary.hydrateFromCache();
+  }, []);
+
+  // سشن واقعی Supabase: هم موقع بارگذاری اول صفحه (مثلاً بعد از برگشتن از
+  // صفحه‌ی ورود گوگل) چک می‌کنیم، هم روی هر تغییر (ورود/خروج/تازه‌سازی توکن)
+  // گوش می‌دیم. خود Supabase سشن رو تو localStorage نگه می‌داره، پس با
+  // رفرش کردن صفحه هم لاگین باقی می‌مونه.
+  useEffect(() => {
+    let active = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      setUser(supabaseUserToSession(data?.session?.user || null));
+      setCheckingSession(false);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(supabaseUserToSession(session?.user || null));
+      setCheckingSession(false);
+    });
+    return () => {
+      active = false;
+      sub?.subscription?.unsubscribe();
+    };
   }, []);
 
 
@@ -6262,6 +6271,14 @@ export default function App() {
     minHeight: "100vh",
   };
 
+  if (checkingSession) {
+    return (
+      <div style={{ ...rootStyle, display: "flex", alignItems: "center", justifyContent: "center", background: colors.paper }}>
+        <Loader2 size={28} className="spin" color={colors.gold} />
+      </div>
+    );
+  }
+
   return (
     <div style={rootStyle}>
       {!user ? (
@@ -6272,9 +6289,10 @@ export default function App() {
           user={user}
           appPrefs={appPrefs}
           setAppPrefs={setAppPrefs}
-          onLogout={() => {
-            clearSession();
-            if (user.provider === "google" && FIREBASE_ENABLED) firebaseSignOut();
+          onLogout={async () => {
+            try {
+              await supabase.auth.signOut();
+            } catch {}
             setUser(null);
           }}
         />
