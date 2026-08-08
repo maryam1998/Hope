@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
 // ---------------------------------------------------------------------------
@@ -1231,12 +1231,7 @@ async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLab
     `   If it was just a naturalness issue (🟡), say briefly why native speakers prefer the new phrasing instead of "why it's wrong" language.\n` +
     `   If ✅, skip this step and just add one short encouraging line instead.\n\n` +
 
-    `3. Then add a line "## 🧩 کلمه به کلمه، ولی باحال!" and pick ONLY the words worth explaining (skip trivial ones like "a"/"the" unless genuinely relevant). For each, write ONE compact, fun single line in exactly this shape — no long sentences, no dry paragraph:\n` +
-    `   emoji **word** = meaning-in-${label} → نقش → نکته‌ی خیلی کوتاه\n` +
-    `   Example of the exact compactness expected (do not copy the words, just the shape): "👩 **she** = او → ضمیر → فاعل" or "🔮 **would** = قرار بود → فعل کمکی → از دید گذشته به آینده اشاره می‌کنه".\n` +
-    `   Pick a fitting emoji per word. If a word can have another important role/meaning elsewhere, add that in a few extra words on the SAME line after another →.\n\n` +
-
-    `4. Pick the ONE most important/trickiest point from this sentence (often the thing that got corrected) and add a line "## ✨ چند مثال دیگه برای <that point>", then give exactly 3 short example sentences in ${langLabel}, each on its own bullet with its ${label} translation on the line right after it:\n` +
+    `3. Pick the ONE most important/trickiest point from this sentence (often the thing that got corrected) and add a line "## ✨ چند مثال دیگه برای <that point>", then give exactly 3 short example sentences in ${langLabel}, each on its own bullet with its ${label} translation on the line right after it:\n` +
     `   - 🟢 ساده: (a very simple example sentence)\n` +
     `     ترجمه: (its ${label} translation)\n` +
     `   - 🟡 کمی سخت‌تر: (a slightly harder example)\n` +
@@ -1311,8 +1306,21 @@ function extractSpeakableText(markdown) {
   return kept.join(". ");
 }
 
-function MiniMarkdown({ text }) {
+// تشخیصِ سرهم‌دستیِ اینکه یه خط عمدتاً با حروف فارسی/عربی نوشته شده یا نه —
+// برای اینکه بفهمیم کدوم خط‌های داخل توضیح گرامری، جمله‌ی زبان مقصده (باید
+// کنارش دکمه‌ی 🔊 بذاریم) و کدوم‌ها ترجمه/توضیح فارسیه (نیازی به 🔊 نداره).
+function isPersianScriptLine(s) {
+  const persianChars = (s.match(/[\u0600-\u06FF]/g) || []).length;
+  const letters = (s.match(/[^\s\d.,;:!?()"'«»\-–—]/g) || []).length;
+  return letters > 0 && persianChars / letters > 0.4;
+}
+
+function MiniMarkdown({ text, speakCode }) {
   if (!text) return null;
+  // اگه زبان مقصد خودش فارسی/عربیه، نمی‌شه با اسکریپت تشخیص داد کدوم خط
+  // ترجمه‌ست و کدوم جمله‌ی هدف؛ پس همیشه دکمه‌ی خوانش رو نشون بده.
+  const alwaysSpeak = speakCode && ["fa", "ar"].includes(speakCode);
+  const shouldSpeak = (line) => !!speakCode && (alwaysSpeak || !isPersianScriptLine(line));
   const lines = String(text).split(/\r?\n/);
   const blocks = [];
   let listBuffer = [];
@@ -1326,8 +1334,9 @@ function MiniMarkdown({ text }) {
             // جهتِ کلیِ ثابت (که معمولاً فارسیه) برای کل کارت پیروی کنه —
             // وگرنه جمله‌های انگلیسیِ خالص هم بر عکس/به‌هم‌ریخته نشون داده
             // می‌شن، دقیقاً همون مشکلی که توی مثال‌ها پیش اومده بود.
-            <li key={i} dir="auto" style={{ marginBottom: 2, lineHeight: 1.8, textAlign: "start" }}>
-              {mdInline(li, `${blocks.length}-${i}`)}
+            <li key={i} dir="auto" className="flex items-start gap-1" style={{ marginBottom: 2, lineHeight: 1.8, textAlign: "start" }}>
+              {shouldSpeak(li) && <SpeakButton text={li} code={speakCode} color={colors.inkSoft} />}
+              <span style={{ flex: 1 }}>{mdInline(li, `${blocks.length}-${i}`)}</span>
             </li>
           ))}
         </ul>
@@ -1349,6 +1358,7 @@ function MiniMarkdown({ text }) {
         <p
           key={blocks.length}
           dir="auto"
+          className="flex items-start gap-1"
           style={{
             fontWeight: 800,
             fontSize: level === 1 ? 16 : level === 2 ? 15 : 14,
@@ -1357,7 +1367,8 @@ function MiniMarkdown({ text }) {
             textAlign: "start",
           }}
         >
-          {mdInline(content, blocks.length)}
+          {shouldSpeak(content) && <SpeakButton text={content} code={speakCode} color={colors.inkSoft} />}
+          <span style={{ flex: 1 }}>{mdInline(content, blocks.length)}</span>
         </p>
       );
       return;
@@ -1375,8 +1386,9 @@ function MiniMarkdown({ text }) {
     }
     flushList();
     blocks.push(
-      <p key={blocks.length} dir="auto" style={{ margin: "4px 0", lineHeight: 1.9, textAlign: "start" }}>
-        {mdInline(line, blocks.length)}
+      <p key={blocks.length} dir="auto" className="flex items-start gap-1" style={{ margin: "4px 0", lineHeight: 1.9, textAlign: "start" }}>
+        {shouldSpeak(line) && <SpeakButton text={line} code={speakCode} color={colors.inkSoft} />}
+        <span style={{ flex: 1 }}>{mdInline(line, blocks.length)}</span>
       </p>
     );
   });
@@ -3271,15 +3283,14 @@ function AutoReadButton({ getItems, color, label }) {
         background: "none",
         border: "none",
         cursor: "pointer",
-        fontSize: 12,
-        fontWeight: 700,
         padding: 2,
-        whiteSpace: "nowrap",
+        flexShrink: 0,
       }}
       title={active ? "توقف خواندن خودکار" : "خواندن خودکار همه (با اسکرول خودکار)"}
+      aria-label={active ? "توقف خواندن خودکار" : "خواندن خودکار همه"}
     >
-      {active ? <Pause size={15} /> : <PlayCircle size={15} />}
-      <span>{label || (active ? "در حال خواندن..." : "خواندن خودکار")}</span>
+      {active ? <Pause size={16} /> : <PlayCircle size={16} />}
+      {label && <span style={{ fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}>{label}</span>}
     </button>
   );
 }
@@ -3291,10 +3302,11 @@ function SpeedControl({ color }) {
   );
   const c = color || colors.gold;
   return (
-    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 1, flexShrink: 0 }}>
-      <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>
-        سرعت {rate.toFixed(1)}×
-      </span>
+    <span
+      title={`سرعت پخش: ${rate.toFixed(1)}×`}
+      style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}
+    >
+      <Gauge size={15} color={colors.inkSoft} />
       <input
         type="range"
         min={0.5}
@@ -3302,9 +3314,12 @@ function SpeedControl({ color }) {
         step={0.1}
         value={rate}
         onChange={(e) => speechController.setRate(e.target.value)}
-        style={{ width: 64, accentColor: c }}
+        style={{ width: 44, accentColor: c }}
         aria-label="سرعت پخش صدا"
       />
+      <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap", minWidth: 24 }}>
+        {rate.toFixed(1)}×
+      </span>
     </span>
   );
 }
@@ -3444,6 +3459,20 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     }
   }
 
+  // دوباره‌ همون واژه‌ی بازِ فعلی رو (بدون بستن پاپ‌آپ) امتحان می‌کنه — برای
+  // دکمه‌ی «تلاش دوباره» وقتی سرور جواب نداده (مثلاً بک‌اند تازه از خواب
+  // بیدار می‌شه و اولین درخواست تایم‌اوت می‌خوره).
+  async function retryLookup() {
+    if (!activeTerm) return;
+    setInfo("loading");
+    try {
+      const result = await lookupWordMeaning({ word: activeTerm, sentence: text, langCode, nativeLang, nativeLabel, aiSettings });
+      setInfo(result);
+    } catch (e) {
+      setInfo("error");
+    }
+  }
+
   return (
     <span style={{ position: "relative", display: "inline" }}>
       {tokens.map((tok, idx) => {
@@ -3511,7 +3540,28 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                   </div>
                 )}
                 {info === "error" && (
-                  <span style={{ color: colors.rose }}>{isFa ? "خطا در دریافت معنی" : "Couldn't fetch the meaning"}</span>
+                  <div>
+                    <span style={{ color: colors.rose }}>{isFa ? "خطا در دریافت معنی (سرور جواب نداد)" : "Couldn't fetch the meaning (server didn't respond)"}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        retryLookup();
+                      }}
+                      style={{
+                        display: "block",
+                        marginTop: 6,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: colors.paper,
+                        background: "rgba(255,255,255,0.08)",
+                        border: "1px solid rgba(255,255,255,0.25)",
+                        borderRadius: 6,
+                        padding: "3px 8px",
+                      }}
+                    >
+                      {isFa ? "تلاش دوباره" : "Retry"}
+                    </button>
+                  </div>
                 )}
                 {info && info !== "loading" && info !== "error" && (
                   <>
@@ -4498,7 +4548,20 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         return matches ? matches.length : 0;
       };
 
-      const buildPrompt = (correction) => `Write ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}. HARD CONSTRAINT — read carefully: each of the target words below has a strict usage BUDGET of exactly ${repeatCount} total mentions (counting all grammatical forms together as one). This is a hard ceiling, not a suggestion: ${repeatCount} is the maximum AND the goal — do not go over it, and do not pad the story with extra unnecessary mentions "to be safe". Before finalizing your answer, silently count how many times you used each target word and trim any that went over budget. Target words and their exact budget: ${selectedWords.map((w) => `"${w}" → exactly ${repeatCount} times`).join(", ")}.${correction ? " " + correction : ""} The total length of the story must stay proportionate to ${lengthCfg.paragraphs} paragraphs, ${lengthCfg.sentencesHint} — do NOT lengthen the story just to fit more repetitions; if needed, reuse the same word within one sentence rather than adding new sentences. Organize the story into ${lengthCfg.paragraphs} paragraphs as described. After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
+      const buildPrompt = (correction) => `You are a skilled storyteller writing ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}.
+
+NARRATIVE QUALITY — this is the most important requirement:
+- Write ONE genuinely coherent, connected story with a real narrative arc (setup → development → payoff/ending appropriate to the genre) — NOT a disconnected list of example sentences that merely happen to sit next to each other.
+- Every sentence must follow logically or causally from the one before it and set up the one after it: consistent characters, setting, and cause-and-effect, the way a real short story reads — a reader should never be able to tell which sentence was "built around" which target word.
+- The plot and content must feel fully intentional and relevant to the target words themselves — build a story that is actually ABOUT something connected to these words, not a generic story with the words awkwardly inserted.
+- You do NOT need to introduce the target words in the order they're listed — use whatever order serves the story best.
+- Paragraphs must flow into each other (later paragraphs should refer back to people, places, or events from earlier ones), not restart the scene each time.
+
+HARD CONSTRAINT on repetition — read carefully: each of the target words below has a strict usage BUDGET of exactly ${repeatCount} total mentions (counting all grammatical forms together as one). This is a hard ceiling, not a suggestion: ${repeatCount} is the maximum AND the goal — do not go over it, and do not pad the story with extra unnecessary mentions "to be safe". Meet this budget WITHOUT sacrificing narrative coherence — never break the story's flow just to squeeze in a repetition; if a word's budget is hard to fill naturally, let the plot itself create a reason for that word to come up again. Before finalizing your answer, silently count how many times you used each target word and trim any that went over budget. Target words and their exact budget: ${selectedWords.map((w) => `"${w}" → exactly ${repeatCount} times`).join(", ")}.${correction ? " " + correction : ""}
+
+The total length of the story must stay proportionate to ${lengthCfg.paragraphs} paragraphs, ${lengthCfg.sentencesHint} — do NOT lengthen the story just to fit more repetitions; if needed, reuse the same word within one sentence rather than adding new sentences. Organize the story into ${lengthCfg.paragraphs} paragraphs as described, each continuing the same throughline.
+
+After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
 
       const tokenBudget = Math.min(lengthCfg.tokens + 500, 8000);
 
@@ -4528,7 +4591,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       // بهترین نسخه (کمترین فاصله‌ی کل از عدد درخواستی) رو نگه می‌داریم.
       for (let attempt = 0; attempt < 2 && best.offenders.length > 0; attempt++) {
         const detail = best.counts.map((c) => `"${c.word}": you used it ${c.count} times, but the budget is ${repeatCount}`).join("; ");
-        const correction = `Your previous attempt broke the repetition budget (${detail}). Rewrite the story from scratch, shorter if needed, and this time strictly cap every target word at exactly ${repeatCount} total mentions — count as you go and stop each word once it hits its budget.`;
+        const correction = `Your previous attempt broke the repetition budget (${detail}). Rewrite the story from scratch, shorter if needed, and this time strictly cap every target word at exactly ${repeatCount} total mentions — count as you go and stop each word once it hits its budget. Keep the story just as coherent and connected as before (or more so) while you do this — don't turn it into disconnected example sentences to make counting easier.`;
         try {
           const retryParsed = await runAttempt(correction);
           const retryScore = { parsed: retryParsed, ...scoreAttempt(retryParsed) };
@@ -5184,9 +5247,20 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
             <div className="flex items-center gap-3 flex-wrap" style={{ rowGap: 8 }}>
               <button
                 onClick={saveCurrentStory}
-                style={{ fontSize: 12, color: justSaved ? colors.teal : colors.gold, textDecoration: "underline", fontWeight: justSaved ? 700 : 400 }}
+                title={justSaved ? "ذخیره شد" : "ذخیره داستان"}
+                aria-label={justSaved ? "ذخیره شد" : "ذخیره داستان"}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  color: justSaved ? colors.teal : colors.gold,
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 2,
+                  flexShrink: 0,
+                }}
               >
-                {justSaved ? "✓ ذخیره شد" : "ذخیره داستان"}
+                {justSaved ? <Check size={16} /> : <Bookmark size={16} />}
               </button>
               <SpeakButton text={fullStoryText} code={storyLang} color={colors.teal} />
               <AutoReadButton
@@ -5755,7 +5829,7 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
           )}
           {pending.markdown && pending.markdown !== "loading" && pending.markdown !== "error" && (
             <>
-              <MiniMarkdown text={pending.markdown} />
+              <MiniMarkdown text={pending.markdown} speakCode={pending.langCode} />
               <button
                 onClick={() => {
                   saveGrammarNote({
@@ -5790,22 +5864,6 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
           <p style={{ fontSize: 13, color: colors.inkSoft }}>
             هنوز نکته‌ی گرامری‌ای ذخیره نکردی. روی هر کلمه‌ی داخل داستان بزن و «افزودن به یادگیری گرامر» رو انتخاب کن.
           </p>
-        )}
-        {notes.length > 0 && (
-          <div className="flex items-center gap-3 flex-wrap" style={{ marginBottom: 2 }}>
-            <AutoReadButton
-              color={colors.gold}
-              getItems={() =>
-                notes.map((n) => ({
-                  text: extractSpeakableText(n.markdown) || n.word,
-                  code: n.langCode,
-                  el: noteElsRef.current[n.id],
-                }))
-              }
-            />
-            <RepeatButton color={colors.gold} />
-            <SpeedControl color={colors.gold} />
-          </div>
         )}
         {notes.map((n) => {
           const isOpen = expandedNote === n.id;
@@ -5857,7 +5915,7 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
               </div>
               {isOpen && (
                 <div style={{ marginTop: 8, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 8 }}>
-                  <MiniMarkdown text={n.markdown} />
+                  <MiniMarkdown text={n.markdown} speakCode={n.langCode} />
 
                   {(n.thread || []).map((t, i) => (
                     <div key={i} style={{ marginTop: 10 }}>
@@ -5865,7 +5923,7 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
                         {t.question}
                       </div>
                       <div style={{ background: colors.goldSoft, borderRadius: 10, padding: "8px 10px" }}>
-                        <MiniMarkdown text={t.answer} />
+                        <MiniMarkdown text={t.answer} speakCode={n.langCode} />
                       </div>
                     </div>
                   ))}
@@ -5977,7 +6035,7 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
                     border: `1px solid ${colors.cardBorder}`,
                   }}
                 >
-                  {m.role === "user" ? m.text : <MiniMarkdown text={m.text} />}
+                  {m.role === "user" ? m.text : <MiniMarkdown text={m.text} speakCode={chatLang} />}
                   {m.role === "ai" && (
                     <div className="flex justify-end" style={{ marginTop: 6 }}>
                       <button
@@ -6287,7 +6345,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           <p style={{ fontSize: 12, color: colors.paperDark, marginBottom: 6 }}>
             زبان مادری
           </p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
+          <div className="flex flex-wrap gap-2">
             {PHRASEBOOK_LANGUAGES.map((l) => (
               <LangStamp
                 key={l.code}
@@ -6300,7 +6358,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           <p style={{ fontSize: 12, color: colors.paperDark, margin: "10px 0 6px" }}>
             زبان‌های مقصد (چند تا رو می‌تونی هم‌زمان انتخاب کنی)
           </p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
+          <div className="flex flex-wrap gap-2">
             {PHRASEBOOK_LANGUAGES.map((l) => (
               <LangStamp
                 key={l.code}
