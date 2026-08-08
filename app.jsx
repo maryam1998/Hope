@@ -1137,6 +1137,22 @@ function removeGrammarNote(id) {
     window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
   } catch {}
 }
+// Replaces a saved note's markdown in place — used to quietly upgrade a
+// basic, offline-built note (word + translation + sentence, saved
+// instantly with no AI/internet needed) into the AI's fuller grammar
+// breakdown once/if that finishes loading in the background. The note is
+// never lost or left unsaved just because the AI backend is slow or down.
+function updateGrammarNoteMarkdown(id, markdown) {
+  if (!markdown) return;
+  const list = loadGrammarNotes();
+  const idx = list.findIndex((n) => n.id === id);
+  if (idx === -1) return;
+  list[idx] = { ...list[idx], markdown };
+  try {
+    window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+  } catch {}
+}
 // Appends one Q&A pair to a saved note's own follow-up thread. Since the
 // note itself is already saved, anything asked here is automatically
 // persisted along with it — no separate "save" step needed.
@@ -1507,10 +1523,21 @@ function findInVocab(word, langCode) {
   };
 }
 
-// Asks the AI backend for {pos, meaningFa} of one word, given the sentence
-// it appeared in for context. Result is cached in localStorage per
-// (word + language) so it only ever costs one request per word per device.
-async function lookupWordMeaning({ word, sentence, langCode, nativeLang, nativeLabel, aiSettings }) {
+// Looks up one tapped word's meaning, in this order:
+//   1) the local VOCAB list (instant, fully offline)
+//   2) a cached lookup from before (instant, fully offline)
+//   3) the free translation chain (translateFree — Google → MyMemory →
+//      Lingva → LibreTranslate, each one tried automatically if the last
+//      failed/was unreachable)
+// No AI backend involved anymore — this used to depend on an AI call for
+// the word's part-of-speech, which meant the whole popover broke whenever
+// that backend was asleep/unreachable. translateFree() itself never
+// throws (see its own definition above): if literally every free service
+// fails too, it just hands the original word back, so this function is
+// never fully "cut off" — the popover always has *something* to show and
+// save. Result is cached in localStorage per (word + language) so it only
+// ever costs one network request per word per device.
+async function lookupWordMeaning({ word, sentence, langCode, nativeLang }) {
   const local = nativeLang === "fa" ? findInVocab(word, langCode) : null;
   if (local) return local;
 
@@ -1518,40 +1545,11 @@ async function lookupWordMeaning({ word, sentence, langCode, nativeLang, nativeL
   const cache = loadWordCache();
   if (cache[cacheKey]) return { ...cache[cacheKey], source: "cache" };
 
-  const posListInstruction =
-    "noun|verb|adjective|adverb|pronoun|preposition|conjunction|article|interjection|numeral|auxiliary|other";
-  const prompt =
-    `You are a concise dictionary for a language learner whose native language is ${nativeLabel || "Persian"}.\n` +
-    `In the sentence: "${sentence}"\n` +
-    `the word "${word}" (language code: ${langCode}) has a specific grammatical role and meaning in this context.\n` +
-    `Also think about which parts of speech this word can generally take on across different sentences (e.g. many words can be more than one of: ${posListInstruction}).\n` +
-    `Respond with ONLY strict JSON, no markdown, no explanation, in this exact shape:\n` +
-    `{"pos":"${posListInstruction}","possiblePos":["<1-4 part-of-speech tags from the same list this word can generally be, including the current one>"],` +
-    `"posLabel":"<the current 'pos' value translated into ${nativeLabel || "Persian"}, as a single short word>",` +
-    `"possiblePosLabels":["<each entry of 'possiblePos' translated into ${nativeLabel || "Persian"}, same order>"],` +
-    `"meaning":"<short meaning of the word, WRITTEN IN ${nativeLabel || "Persian"}, matching the meaning it has in THIS sentence>"}`;
-
-  const text = await callAI({ prompt, maxTokens: 300, aiSettings });
-  let parsed;
-  try {
-    const clean = text.replace(/```json|```/g, "").trim();
-    parsed = JSON.parse(clean);
-  } catch {
-    parsed = { pos: "other", possiblePos: [], posLabel: "", possiblePosLabels: [], meaning: "معنی این کلمه پیدا نشد." };
-  }
-  const result = {
-    pos: parsed.pos || "other",
-    possiblePos: Array.isArray(parsed.possiblePos) && parsed.possiblePos.length ? parsed.possiblePos : [parsed.pos || "other"],
-    posLabel: parsed.posLabel || parsed.pos || "other",
-    possiblePosLabels:
-      Array.isArray(parsed.possiblePosLabels) && parsed.possiblePosLabels.length
-        ? parsed.possiblePosLabels
-        : [parsed.posLabel || parsed.pos || "other"],
-    meaning: parsed.meaning || parsed.meaningFa || "—",
-  };
+  const meaning = await translateFree(word, nativeLang || "fa", langCode);
+  const result = { meaning: meaning || word };
   cache[cacheKey] = result;
   saveWordCache(cache);
-  return { ...result, source: "ai" };
+  return { ...result, source: "translate" };
 }
 
 // ---------------------------------------------------------------------------
@@ -3335,6 +3333,10 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
   const [anchorRect, setAnchorRect] = useState(null); // clicked word's screen position
   const [coords, setCoords] = useState(null); // { top, left } — final, clamped popup position
   const [saved, setSaved] = useState(false);
+  // Whether the currently-open word was already saved to grammar learning
+  // during this popover session — just for the button's own confirmation
+  // state, reset every time a new word is tapped.
+  const [grammarSaved, setGrammarSaved] = useState(false);
   // The exact word/expression currently open in the popover. Looked up once
   // at click time and reused for both the AI lookup and the Save button, so
   // Save can never drift from what's actually on screen (this used to read a
@@ -3449,14 +3451,41 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     setAnchorRect(evt.currentTarget.getBoundingClientRect());
     setActiveTerm(term);
     setSaved(isWordSaved(term, langCode));
+    setGrammarSaved(false);
     setOpenKey(key);
     setInfo("loading");
     try {
-      const result = await lookupWordMeaning({ word: term, sentence: text, langCode, nativeLang, nativeLabel, aiSettings });
+      const result = await lookupWordMeaning({ word: term, sentence: text, langCode, nativeLang });
       setInfo(result);
     } catch (e) {
       setInfo("error");
     }
+  }
+
+  // Saves a grammar note for the currently-open word IMMEDIATELY — no AI
+  // and no internet required — using whatever meaning we already have on
+  // screen (or just the word + sentence if even the free translation
+  // didn't come through). Stays on the current tab; nothing navigates the
+  // learner away. If the AI backend does answer, its fuller breakdown
+  // quietly replaces the basic note's text afterwards — but the save
+  // itself never waits on that.
+  function saveActiveTermToGrammar() {
+    if (!activeTerm) return;
+    const meaningText = info && info !== "loading" && info !== "error" ? info.meaning : "";
+    const basicMarkdown =
+      `## 🧩 ${activeTerm}\n\n` +
+      (meaningText ? `**🔹 معنی:** ${meaningText}\n\n` : "") +
+      `**جمله:** ${text}`;
+    const entry = saveGrammarNote({ langCode, word: activeTerm, sentence: text, markdown: basicMarkdown });
+    setGrammarSaved(true);
+    if (!entry) return;
+    lookupWordGrammarDetail({ word: activeTerm, sentence: text, langCode, nativeLang, nativeLabel, aiSettings })
+      .then((md) => {
+        if (md) updateGrammarNoteMarkdown(entry.id, md);
+      })
+      .catch(() => {
+        // AI backend down/offline — the basic note saved above still stands.
+      });
   }
 
   // دوباره‌ همون واژه‌ی بازِ فعلی رو (بدون بستن پاپ‌آپ) امتحان می‌کنه — برای
@@ -3466,7 +3495,7 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     if (!activeTerm) return;
     setInfo("loading");
     try {
-      const result = await lookupWordMeaning({ word: activeTerm, sentence: text, langCode, nativeLang, nativeLabel, aiSettings });
+      const result = await lookupWordMeaning({ word: activeTerm, sentence: text, langCode, nativeLang });
       setInfo(result);
     } catch (e) {
       setInfo("error");
@@ -3539,31 +3568,7 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                     <span>{isFa ? "در حال یافتن معنی..." : "Looking up meaning..."}</span>
                   </div>
                 )}
-                {info === "error" && (
-                  <div>
-                    <span style={{ color: colors.rose }}>{isFa ? "خطا در دریافت معنی (سرور جواب نداد)" : "Couldn't fetch the meaning (server didn't respond)"}</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        retryLookup();
-                      }}
-                      style={{
-                        display: "block",
-                        marginTop: 6,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: colors.paper,
-                        background: "rgba(255,255,255,0.08)",
-                        border: "1px solid rgba(255,255,255,0.25)",
-                        borderRadius: 6,
-                        padding: "3px 8px",
-                      }}
-                    >
-                      {isFa ? "تلاش دوباره" : "Retry"}
-                    </button>
-                  </div>
-                )}
-                {info && info !== "loading" && info !== "error" && (
+                {info !== "loading" && (
                   <>
                     <div className="flex items-center gap-2" style={{ marginBottom: 4 }}>
                       <SpeakButton text={activeTerm} code={langCode} color={colors.goldSoft} />
@@ -3571,39 +3576,42 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                         {activeTerm}
                       </span>
                     </div>
-                    <div style={{ color: colors.goldSoft, fontWeight: 700, marginBottom: 3, lineHeight: 1.7 }}>
-                      {info.possiblePosLabels && info.possiblePosLabels.length > 1 ? (
-                        isFa ? (
-                          <>
-                            این کلمه می‌تونه{" "}
-                            {info.possiblePosLabels.map((p, i) => (
-                              <span key={p + i}>
-                                {i > 0 && (i === info.possiblePosLabels.length - 1 ? " یا " : "، ")}
-                                «{p}»
-                              </span>
-                            ))}{" "}
-                            باشه؛ اینجا نقش «{info.posLabel}» گرفته.
-                          </>
-                        ) : (
-                          <>
-                            This word can be{" "}
-                            {info.possiblePosLabels.map((p, i) => (
-                              <span key={p + i}>
-                                {i > 0 && (i === info.possiblePosLabels.length - 1 ? " or " : ", ")}
-                                “{p}”
-                              </span>
-                            ))}
-                            ; here it's used as “{info.posLabel}”.
-                          </>
-                        )
-                      ) : (
-                        <>{isFa ? `نقش: ${info.posLabel}` : `Role: ${info.posLabel}`}</>
-                      )}
-                    </div>
-                    <div style={{ marginBottom: 2, fontSize: 10, color: colors.inkSoft, opacity: 0.85 }}>
-                      {isFa ? "ترجمه:" : "Translation:"}
-                    </div>
-                    <div style={{ marginBottom: 6 }}>{info.meaning}</div>
+                    {info && info !== "error" ? (
+                      <>
+                        <div style={{ marginBottom: 2, fontSize: 10, color: colors.inkSoft, opacity: 0.85 }}>
+                          {isFa ? "ترجمه:" : "Translation:"}
+                        </div>
+                        <div style={{ marginBottom: 6 }}>{info.meaning}</div>
+                      </>
+                    ) : (
+                      <div style={{ marginBottom: 6 }}>
+                        <span style={{ color: colors.rose, fontSize: 11 }}>
+                          {isFa ? "معنی پیدا نشد (احتمالاً آفلاینی)" : "Couldn't find a meaning (maybe offline)"}
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            retryLookup();
+                          }}
+                          style={{
+                            display: "block",
+                            marginTop: 6,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: colors.paper,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(255,255,255,0.25)",
+                            borderRadius: 6,
+                            padding: "3px 8px",
+                          }}
+                        >
+                          {isFa ? "تلاش دوباره" : "Retry"}
+                        </button>
+                      </div>
+                    )}
+                    {/* Save + grammar buttons always show once loading is done — even
+                        with no meaning found — so bookmarking/saving keeps working
+                        fully offline regardless of whether translation succeeded. */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -3636,10 +3644,7 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (!activeTerm || !requestGrammarJump) return;
-                        requestGrammarJump(activeTerm, text, langCode);
-                        setOpenKey(null);
-                        setCoords(null);
+                        saveActiveTermToGrammar();
                       }}
                       style={{
                         display: "flex",
@@ -3647,15 +3652,21 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                         gap: 4,
                         fontSize: 11,
                         fontWeight: 700,
-                        color: colors.paper,
+                        color: grammarSaved ? colors.gold : colors.paper,
                         background: "rgba(255,255,255,0.08)",
-                        border: "1px solid rgba(255,255,255,0.25)",
+                        border: `1px solid ${grammarSaved ? colors.gold : "rgba(255,255,255,0.25)"}`,
                         borderRadius: 6,
                         padding: "3px 8px",
                       }}
                     >
                       <Type size={11} />
-                      {isFa ? "افزودن به یادگیری گرامر" : "Add to grammar learning"}
+                      {grammarSaved
+                        ? isFa
+                          ? "ذخیره شد در گرامر"
+                          : "Saved to grammar"
+                        : isFa
+                        ? "افزودن به یادگیری گرامر"
+                        : "Add to grammar learning"}
                     </button>
                   </>
                 )}
