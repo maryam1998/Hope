@@ -81,7 +81,7 @@ async function safeJson(r) {
 // Reads AI_PROVIDER (comma-separated, e.g. "huggingface,groq,gemini") and
 // falls back through them in order — same behavior as the old Express
 // server. Defaults to huggingface alone if not set.
-const VALID_PROVIDERS = ["huggingface", "groq", "gemini", "deepseek", "openai", "avalai"];
+const VALID_PROVIDERS = ["huggingface", "groq", "gemini", "deepseek", "openai", "avalai", "grok", "openrouter", "mistral", "cerebras"];
 function getProviderChain(env) {
   // Gemini is geo-blocked by Google itself for requests from Iran-adjacent
   // Cloudflare edge locations ("User location is not supported for the API
@@ -90,16 +90,20 @@ function getProviderChain(env) {
   // VPN only affects the connection TO the Worker, not the Worker's own
   // outbound call FROM Cloudflare's servers TO Google). Hugging Face's
   // router has also been consistently unreachable (Cloudflare error 1016 —
-  // likely blocked/broken for the same region-based reason). Groq is the
-  // one that's actually been responding (once given a current, non-
-  // decommissioned model name), so it's first by default; the other two
-  // are just kept as long-shot fallbacks.
-  const raw = (env.AI_PROVIDER || "groq,gemini,huggingface").toLowerCase();
+  // likely blocked/broken for the same region-based reason).
+  // Default chain now leads with the providers the app owner actually holds
+  // API keys for (openrouter/mistral/groq/gemini/cerebras) — set
+  // OPENROUTER_API_KEY, MISTRAL_API_KEY, GROQ_API_KEY, GEMINI_API_KEY,
+  // CEREBRAS_API_KEY (and/or GROK_API_KEY) in the Worker's environment
+  // variables (wrangler.toml / dashboard → Settings → Variables) for these
+  // to actually work; any provider whose key isn't set is skipped
+  // automatically and the chain moves on to the next one.
+  const raw = (env.AI_PROVIDER || "openrouter,mistral,groq,gemini,cerebras,grok,huggingface").toLowerCase();
   const chain = raw
     .split(",")
     .map((p) => p.trim())
     .filter((p) => VALID_PROVIDERS.includes(p));
-  return chain.length ? chain : ["groq"];
+  return chain.length ? chain : ["openrouter"];
 }
 
 async function callProvider(provider, prompt, maxTokens, env) {
@@ -109,6 +113,10 @@ async function callProvider(provider, prompt, maxTokens, env) {
   if (provider === "deepseek") return callDeepSeek(prompt, maxTokens, env);
   if (provider === "openai") return callOpenAI(prompt, maxTokens, env);
   if (provider === "avalai") return callAvalAI(prompt, maxTokens, env);
+  if (provider === "grok") return callGrok(prompt, maxTokens, env);
+  if (provider === "openrouter") return callOpenRouter(prompt, maxTokens, env);
+  if (provider === "mistral") return callMistral(prompt, maxTokens, env);
+  if (provider === "cerebras") return callCerebras(prompt, maxTokens, env);
   throw new Error(`Unknown provider "${provider}"`);
 }
 
@@ -222,6 +230,93 @@ async function callOpenAI(prompt, maxTokens, env) {
   if (!r.ok) throw new Error(data?.error?.message || `OpenAI HTTP ${r.status}`);
   const text = data.choices?.[0]?.message?.content || "";
   if (!text) throw new Error("OpenAI returned empty response");
+  return text;
+}
+
+// --- Grok (xAI, OpenAI-compatible) ------------------------------------------
+async function callGrok(prompt, maxTokens, env) {
+  const key = env.GROK_API_KEY || env.XAI_API_KEY;
+  if (!key) throw new Error("GROK_API_KEY not set");
+  const r = await fetch("https://api.x.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: env.GROK_MODEL || "grok-3-mini",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.error?.message || data?.error || `Grok HTTP ${r.status}`);
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text) throw new Error("Grok returned empty response");
+  return text;
+}
+
+// --- OpenRouter (OpenAI-compatible gateway to many models) ------------------
+async function callOpenRouter(prompt, maxTokens, env) {
+  const key = env.OPENROUTER_API_KEY;
+  if (!key) throw new Error("OPENROUTER_API_KEY not set");
+  const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+      // OpenRouter uses these purely for their own analytics/rankings —
+      // optional, but recommended by their docs.
+      "HTTP-Referer": env.OPENROUTER_SITE_URL || "https://maryam1998.github.io/Hope/",
+      "X-Title": "کتاب مکالمه من",
+    },
+    body: JSON.stringify({
+      model: env.OPENROUTER_MODEL || "deepseek/deepseek-chat",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.error?.message || `OpenRouter HTTP ${r.status}`);
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text) throw new Error("OpenRouter returned empty response");
+  return text;
+}
+
+// --- Mistral (OpenAI-compatible) ---------------------------------------------
+async function callMistral(prompt, maxTokens, env) {
+  const key = env.MISTRAL_API_KEY;
+  if (!key) throw new Error("MISTRAL_API_KEY not set");
+  const r = await fetch("https://api.mistral.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: env.MISTRAL_MODEL || "mistral-small-latest",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.error?.message || `Mistral HTTP ${r.status}`);
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text) throw new Error("Mistral returned empty response");
+  return text;
+}
+
+// --- Cerebras (OpenAI-compatible) --------------------------------------------
+async function callCerebras(prompt, maxTokens, env) {
+  const key = env.CEREBRAS_API_KEY;
+  if (!key) throw new Error("CEREBRAS_API_KEY not set");
+  const r = await fetch("https://api.cerebras.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: env.CEREBRAS_MODEL || "llama3.1-8b",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.error?.message || `Cerebras HTTP ${r.status}`);
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text) throw new Error("Cerebras returned empty response");
   return text;
 }
 
