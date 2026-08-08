@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type, Trash2 } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
 // ---------------------------------------------------------------------------
@@ -480,7 +480,7 @@ const speechController = (() => {
     const saved = localStorage.getItem("phrasebook-tts-repeat");
     if (saved === "inf") return "inf";
     const n = Number(saved);
-    return n === 1 || n === 2 ? n : 0;
+    return n === 3 || n === 6 ? n : 0;
   })();
   let remaining = 0; // چند تکرار دیگه برای متن فعلی مونده
   // وقتی خودمون عمداً speechSynthesis.cancel() صدا می‌زنیم (برای مکث، یا برای
@@ -688,7 +688,7 @@ const speechController = (() => {
       return globalRepeatSetting;
     },
     cycleGlobalRepeat() {
-      const order = [0, 1, 2, "inf"];
+      const order = [0, 3, 6, "inf"];
       const idx = order.indexOf(globalRepeatSetting);
       globalRepeatSetting = order[(idx + 1) % order.length];
       try {
@@ -1285,6 +1285,32 @@ function mdInline(str, keyBase) {
   }
   return parts;
 }
+// از متن مارک‌داونِ یک نکته‌ی گرامری، فقط جمله‌های زبان مقصد رو (برای خوندن
+// با tts) بیرون می‌کشه — خط‌های ترجمه‌ی فارسی/زبان مادری، هدرها و علامت‌های
+// مارک‌داون کنار گذاشته می‌شن، چون خوندنشون با صدای زبان مقصد اشتباه از آب
+// در میاد.
+function extractSpeakableText(markdown) {
+  if (!markdown) return "";
+  const lines = String(markdown).split(/\r?\n/);
+  const kept = [];
+  for (let raw of lines) {
+    let line = raw.trim();
+    if (!line) continue;
+    if (/^#{1,3}\s+/.test(line)) continue; // headers
+    if (/^-{3,}$/.test(line)) continue; // hr
+    line = line.replace(/^[-*]\s+/, ""); // list bullets
+    line = line.replace(/^(ترجمه|Translation)\s*:\s*/i, "TRANSLATION::"); // mark translation lines
+    if (line.startsWith("TRANSLATION::")) continue;
+    if (/[\u0600-\u06FF]/.test(line)) continue; // skip Persian/Arabic-script lines
+    line = line.replace(/^[❌✅🟢🟡🔴]\s*/u, "");
+    line = line.replace(/\*\*/g, "").replace(/`/g, "");
+    line = line.replace(/^\*\*?🔹.*?:\*\*?/, "").trim();
+    if (!line) continue;
+    kept.push(line);
+  }
+  return kept.join(". ");
+}
+
 function MiniMarkdown({ text }) {
   if (!text) return null;
   const lines = String(text).split(/\r?\n/);
@@ -3166,6 +3192,97 @@ function RepeatButton({ color }) {
     </button>
   );
 }
+// دکمه‌ی «خواندن خودکار» — یک لیست از {text, code, el} می‌گیره (el اختیاریه،
+// برای اسکرول‌کردن خودکار به همون آیتم) و پشت سر هم، با توجه به تنظیم
+// تکرار سراسری (RepeatButton بالاتر)، هرکدوم رو می‌خونه؛ وقتی یه آیتم تمام
+// تکرارهاش تموم شد (status از speechController میره رو idle)، خودش می‌ره
+// سراغ آیتم بعدی و صفحه رو با اسکرول نرم به همون‌جا می‌بره.
+function AutoReadButton({ getItems, color, label }) {
+  const [active, setActive] = useState(false);
+  const activeRef = useRef(false);
+  const idxRef = useRef(0);
+  const lastKeyRef = useRef(null);
+
+  function playAt(i) {
+    if (!activeRef.current) return;
+    const items = (getItems && getItems()) || [];
+    if (i >= items.length) {
+      activeRef.current = false;
+      setActive(false);
+      lastKeyRef.current = null;
+      return;
+    }
+    const item = items[i];
+    idxRef.current = i;
+    if (!item || !item.text) {
+      playAt(i + 1);
+      return;
+    }
+    if (item.el && item.el.scrollIntoView) {
+      item.el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    const locale = TTS_LOCALE[item.code] || "en-US";
+    lastKeyRef.current = `${locale}::${item.text}`;
+    speechController.toggle(item.text, item.code);
+  }
+
+  useEffect(() => {
+    return speechController.subscribe((state) => {
+      if (!activeRef.current) return;
+      if (state.status === "idle" && state.key && state.key === lastKeyRef.current) {
+        playAt(idxRef.current + 1);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // اگه کامپوننت از بین رفت وسط خوندن خودکار، پخش رو نگه‌دار.
+    return () => {
+      if (activeRef.current) {
+        activeRef.current = false;
+        speechController.stop();
+      }
+    };
+  }, []);
+
+  const c = color || colors.gold;
+
+  function handleClick(e) {
+    e.stopPropagation();
+    if (active) {
+      activeRef.current = false;
+      setActive(false);
+      speechController.stop();
+    } else {
+      activeRef.current = true;
+      idxRef.current = 0;
+      setActive(true);
+      playAt(0);
+    }
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      className="flex items-center gap-1"
+      style={{
+        color: active ? c : colors.inkSoft,
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        fontSize: 12,
+        fontWeight: 700,
+        padding: 2,
+        whiteSpace: "nowrap",
+      }}
+      title={active ? "توقف خواندن خودکار" : "خواندن خودکار همه (با اسکرول خودکار)"}
+    >
+      {active ? <Pause size={15} /> : <PlayCircle size={15} />}
+      <span>{label || (active ? "در حال خواندن..." : "خواندن خودکار")}</span>
+    </button>
+  );
+}
 function SpeedControl({ color }) {
   const [rate, setRateState] = useState(() => speechController.getRate());
   useEffect(
@@ -3397,6 +3514,12 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                 )}
                 {info && info !== "loading" && info !== "error" && (
                   <>
+                    <div className="flex items-center gap-2" style={{ marginBottom: 4 }}>
+                      <SpeakButton text={activeTerm} code={langCode} color={colors.goldSoft} />
+                      <span dir="auto" style={{ fontWeight: 800, fontSize: 13 }}>
+                        {activeTerm}
+                      </span>
+                    </div>
                     <div style={{ color: colors.goldSoft, fontWeight: 700, marginBottom: 3, lineHeight: 1.7 }}>
                       {info.possiblePosLabels && info.possiblePosLabels.length > 1 ? (
                         isFa ? (
@@ -3425,6 +3548,9 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                       ) : (
                         <>{isFa ? `نقش: ${info.posLabel}` : `Role: ${info.posLabel}`}</>
                       )}
+                    </div>
+                    <div style={{ marginBottom: 2, fontSize: 10, color: colors.inkSoft, opacity: 0.85 }}>
+                      {isFa ? "ترجمه:" : "Translation:"}
                     </div>
                     <div style={{ marginBottom: 6 }}>{info.meaning}</div>
                     <button
@@ -4059,6 +4185,8 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const defaultStoryLang =
     (targetOrder || []).find((c) => storyLangOptions.includes(c)) || storyLangOptions[0] || "en";
   const [storyLang, setStoryLang] = useState(defaultStoryLang);
+  const sentenceElsRef = useRef({}); // "pi-si" -> DOM node, for auto-read scroll
+  const paragraphElsRef = useRef({}); // pi -> DOM node, for auto-read scroll
   const [storyLevel, setStoryLevel] = useState("A2");
   const [contentType, setContentType] = useState("general");
   const [storyLength, setStoryLength] = useState("medium");
@@ -5051,6 +5179,25 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
                 {justSaved ? "✓ ذخیره شد" : "ذخیره داستان"}
               </button>
               <SpeakButton text={fullStoryText} code={storyLang} color={colors.teal} />
+              <AutoReadButton
+                color={colors.teal}
+                getItems={() => {
+                  if (granularity === "sentence") {
+                    return paragraphs.flatMap((p, pi) =>
+                      p.sentences.map((s, si) => ({
+                        text: s.text,
+                        code: storyLang,
+                        el: sentenceElsRef.current[`${pi}-${si}`],
+                      }))
+                    );
+                  }
+                  return paragraphs.map((p, pi) => ({
+                    text: p.sentences.map((s) => s.text).join(" "),
+                    code: storyLang,
+                    el: paragraphElsRef.current[pi],
+                  }));
+                }}
+              />
               <RepeatButton color={colors.teal} />
               <SpeedControl color={colors.teal} />
             </div>
@@ -5096,7 +5243,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
                   {granularity === "sentence" ? (
                     <div className="flex flex-col gap-3">
                       {p.sentences.map((s, si) => (
-                        <div key={si}>
+                        <div key={si} ref={(el) => (sentenceElsRef.current[`${pi}-${si}`] = el)}>
                           <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                             <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} />
                             <p style={{ fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, fontSize: 15, lineHeight: 1.8, textAlign: RTL_LANGS.includes(storyLang) ? "right" : "left" }}>
@@ -5142,7 +5289,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
                       ))}
                     </div>
                   ) : (
-                    <div>
+                    <div ref={(el) => (paragraphElsRef.current[pi] = el)}>
                       <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                         <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} />
                         <p style={{ fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, fontSize: 15, lineHeight: 1.8, textAlign: RTL_LANGS.includes(storyLang) ? "right" : "left" }}>
@@ -5407,6 +5554,15 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
   const [noteAskInput, setNoteAskInput] = useState({});
   const [noteAskLoading, setNoteAskLoading] = useState({});
   const [noteAskError, setNoteAskError] = useState({});
+  const noteElsRef = useRef({}); // id -> DOM node, for auto-read scroll
+  const noteAskTextareaRefs = useRef({}); // id -> textarea DOM node, for auto-grow
+  const [savedWordsTick, setSavedWordsTick] = useState(0); // bumps when a word gets saved/removed, to refresh bookmark icons
+
+  useEffect(() => {
+    const bump = () => setSavedWordsTick((t) => t + 1);
+    window.addEventListener(SAVED_WORDS_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, bump);
+  }, []);
 
   const isFa = nativeLang === "fa";
 
@@ -5464,6 +5620,8 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
     setNoteAskInput((s) => ({ ...s, [note.id]: "" }));
     setNoteAskError((s) => ({ ...s, [note.id]: "" }));
     setNoteAskLoading((s) => ({ ...s, [note.id]: true }));
+    const ta = noteAskTextareaRefs.current[note.id];
+    if (ta) ta.style.height = "auto";
     try {
       const history = [
         { role: "user", text: note.sentence || note.word },
@@ -5531,9 +5689,19 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
       {pending && (
         <div style={{ backgroundColor: "white", border: `1px solid ${colors.gold}`, borderRadius: 16, padding: 16 }}>
           <div className="flex items-center justify-between mb-2">
-            <p dir="auto" style={{ fontWeight: 700 }}>
-              {pending.word}
-            </p>
+            <div className="flex items-center gap-2">
+              <SpeakButton text={pending.word} code={pending.langCode} />
+              <p dir="auto" style={{ fontWeight: 700 }}>
+                {pending.word}
+              </p>
+              <button
+                onClick={() => toggleSavedStoryWord(pending.word, pending.langCode)}
+                title={isWordSaved(pending.word, pending.langCode) ? "حذف از لغات ذخیره‌شده" : "ذخیره‌ی لغت"}
+                style={{ color: isWordSaved(pending.word, pending.langCode) ? colors.gold : colors.inkSoft, display: "flex" }}
+              >
+                <Bookmark size={14} fill={isWordSaved(pending.word, pending.langCode) ? colors.gold : "none"} />
+              </button>
+            </div>
             <button onClick={() => setPending(null)} style={{ color: colors.inkSoft, display: "flex" }}>
               <X size={16} />
             </button>
@@ -5585,23 +5753,57 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
             هنوز نکته‌ی گرامری‌ای ذخیره نکردی. روی هر کلمه‌ی داخل داستان بزن و «افزودن به یادگیری گرامر» رو انتخاب کن.
           </p>
         )}
+        {notes.length > 0 && (
+          <div className="flex items-center gap-3 flex-wrap" style={{ marginBottom: 2 }}>
+            <AutoReadButton
+              color={colors.gold}
+              getItems={() =>
+                notes.map((n) => ({
+                  text: extractSpeakableText(n.markdown) || n.word,
+                  code: n.langCode,
+                  el: noteElsRef.current[n.id],
+                }))
+              }
+            />
+            <RepeatButton color={colors.gold} />
+            <SpeedControl color={colors.gold} />
+          </div>
+        )}
         {notes.map((n) => {
           const isOpen = expandedNote === n.id;
           const langLabel = LANGUAGES.find((l) => l.code === n.langCode)?.label || n.langCode;
+          const wordSaved = isWordSaved(n.word, n.langCode);
           return (
-            <div key={n.id} style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12 }}>
+            <div
+              key={n.id}
+              ref={(el) => (noteElsRef.current[n.id] = el)}
+              style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12 }}
+            >
               <div
                 className="flex items-center justify-between"
                 onClick={() => setExpandedNote(isOpen ? null : n.id)}
                 style={{ cursor: "pointer" }}
               >
-                <div>
-                  <p dir="auto" style={{ fontWeight: 700, fontSize: 14 }}>
-                    {n.word}
-                  </p>
-                  <p style={{ fontSize: 11, color: colors.inkSoft }}>{langLabel}</p>
+                <div className="flex items-center gap-2">
+                  <SpeakButton text={extractSpeakableText(n.markdown) || n.word} code={n.langCode} />
+                  <div>
+                    <p dir="auto" style={{ fontWeight: 700, fontSize: 14 }}>
+                      {n.word}
+                    </p>
+                    <p style={{ fontSize: 11, color: colors.inkSoft }}>{langLabel}</p>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleSavedStoryWord(n.word, n.langCode);
+                    }}
+                    style={{ color: wordSaved ? colors.gold : colors.inkSoft, display: "flex" }}
+                    title={wordSaved ? "حذف از لغات ذخیره‌شده" : "ذخیره‌ی لغت"}
+                  >
+                    <Bookmark size={14} fill={wordSaved ? colors.gold : "none"} />
+                  </button>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -5630,16 +5832,39 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
                     </div>
                   ))}
 
-                  <div className="flex gap-2" style={{ marginTop: 10, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 10 }}>
-                    <input
+                  <div className="flex gap-2 items-end" style={{ marginTop: 10, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 10 }}>
+                    <textarea
+                      ref={(el) => (noteAskTextareaRefs.current[n.id] = el)}
                       dir="auto"
+                      rows={1}
                       value={noteAskInput[n.id] || ""}
-                      onChange={(e) => setNoteAskInput((s) => ({ ...s, [n.id]: e.target.value }))}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") askAboutNote(n);
+                      onChange={(e) => {
+                        setNoteAskInput((s) => ({ ...s, [n.id]: e.target.value }));
+                        e.target.style.height = "auto";
+                        e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
                       }}
-                      placeholder={isFa ? "سوالی درباره‌ی همین نکته داری؟" : "Ask about this note..."}
-                      style={{ flex: 1, border: `1px solid ${colors.cardBorder}`, borderRadius: 8, padding: "6px 8px", fontSize: 12 }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                          e.preventDefault();
+                          askAboutNote(n);
+                        }
+                      }}
+                      placeholder={
+                        isFa
+                          ? "سوالی درباره‌ی همین نکته داری؟ (برای خط جدید Enter، برای پرسیدن دکمه رو بزن)"
+                          : "Ask about this note... (Enter for new line, tap the button to ask)"
+                      }
+                      style={{
+                        flex: 1,
+                        border: `1px solid ${colors.cardBorder}`,
+                        borderRadius: 8,
+                        padding: "6px 8px",
+                        fontSize: 12,
+                        fontFamily: "inherit",
+                        resize: "none",
+                        lineHeight: 1.6,
+                        maxHeight: 120,
+                      }}
                     />
                     <button
                       onClick={() => askAboutNote(n)}
@@ -5653,6 +5878,7 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
                         display: "flex",
                         alignItems: "center",
                         opacity: noteAskLoading[n.id] || !(noteAskInput[n.id] || "").trim() ? 0.6 : 1,
+                        flexShrink: 0,
                       }}
                     >
                       {noteAskLoading[n.id] ? <Loader2 size={13} className="spin" /> : (isFa ? "بپرس" : "Ask")}
@@ -6561,7 +6787,7 @@ function ReviewBox({ phrases, boxes, setBoxes, nativeLang, targetLangs, index, s
 // ---------------------------------------------------------------------------
 function AiChat({ targetLabel, nativeLabel }) {
   const [messages, setMessages] = useState([
-    { role: "assistant", text: `سلام! هر سوالی درباره‌ی ${targetLabel || "زبان مقصد"} داری بپرس، یا بیا تمرین مکالمه کنیم. به ${nativeLabel} هم می‌تونی بنویسی.` },
+    { role: "assistant", text: `سلام! هر سوالی داری بپرس — درباره‌ی ${targetLabel || "زبانی که یاد می‌گیری"}، یا هر موضوع دیگه‌ای، هرچی دلت خواست. به ${nativeLabel} هم می‌تونی بنویسی.` },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -6587,7 +6813,7 @@ function AiChat({ targetLabel, nativeLabel }) {
           messages: [
             {
               role: "user",
-              content: `You are a friendly conversation-practice partner helping a Persian speaker practice ${targetLabel || "a foreign language"}. The user's native language is ${nativeLabel}. Keep replies short (2-4 sentences), reply mainly in ${targetLabel || "the target language"}, but add a short ${nativeLabel} translation in parentheses when the sentence is non-trivial. Gently correct mistakes. Also answer any general questions the user asks. Conversation so far:\n\n${[...messages, userMsg].map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`).join("\n")}`,
+              content: `You are a helpful, all-purpose AI assistant chatting with a Persian speaker inside a language-learning app. Answer ANY question the user asks, on ANY topic (not just language learning) — general knowledge, advice, help with code, translation, or plain conversation — exactly like a general-purpose assistant would. Default to replying in ${nativeLabel} unless the user is specifically practicing ${targetLabel || "a foreign language"} or asks in another language, in which case reply in that language (adding a short ${nativeLabel} translation in parentheses for non-trivial sentences). If the user writes a sentence in ${targetLabel || "the target language"} that looks like a practice attempt, gently correct it. Keep replies reasonably short and conversational unless the question needs more depth. Conversation so far:\n\n${[...messages, userMsg].map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`).join("\n")}`,
             },
           ],
         }),
