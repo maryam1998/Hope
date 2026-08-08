@@ -1178,32 +1178,32 @@ let requestGrammarJump = null;
 // word as used in a specific sentence (role, usage formula, simple examples,
 // a common-mistake note). Written entirely in the learner's native language.
 async function lookupWordGrammarDetail({ word, sentence, langCode, nativeLang, nativeLabel, aiSettings }) {
-  const label = nativeLabel || "Persian";
+  const label = nativeLabel || "فارسی";
+  const langLabel = LANGUAGES.find((l) => l.code === langCode)?.label || langCode;
+  // پرامت دقیقاً طبق درخواست کاربر: تحلیل کامل و آموزشیِ جمله‌ای که کلمه‌ی
+  // لمس‌شده توش بکار رفته — معنی کل جمله، ساختار گرامری، تقسیم به بخش‌ها،
+  // تحلیل تک‌تک کلمات (معنی/نقش/دلیل/مثال)، ترکیب‌های مهم، نکات و
+  // اشتباهات رایج، و چند جمله‌ی تمرینیِ مشابه — با ایموجی، جدول و زبان ساده.
   const prompt =
-    `You are an expert, warm language teacher helping a true beginner (A1/A2 level) whose native language is ${label}.\n` +
-    `The learner tapped on the word "${word}" inside this sentence (language code: ${langCode}): "${sentence}"\n\n` +
-    `🚨 HARD LANGUAGE RULE: your ENTIRE explanation — every sentence, every header — must be written in ${label}, regardless of what language the word/sentence being explained is in. Only the quoted word itself, the example sentences, and their inline code formulas may appear in the language being learned; everything else is 100% in ${label}.\n\n` +
-    `Write a detailed grammar explanation of this word, ENTIRELY in ${label}, formatted in Markdown, beginner-friendly, following EXACTLY this structure (keep the emoji, keep short section titles in ${label} matching this meaning):\n\n` +
-    `## 🧩 ${word}\n\n` +
-    `**🔹 معنی:** (the word's meaning as used in THIS exact sentence)\n\n` +
-    `**🔹 نقش دستوری:** (its part of speech / grammatical role here)\n\n` +
-    `**🧠 فرمول:** (the general usage pattern, written as inline code, e.g. \`Despite + noun\`)\n\n` +
-    `**مثال‌ها:**\n` +
-    `- (simple example sentence 1, in ${langCode} ONLY, nothing else on this line)\n` +
-    `- ترجمه: (Persian/${label} translation of example 1, on its OWN separate line)\n` +
-    `- (simple example sentence 2, in ${langCode} ONLY)\n` +
-    `- ترجمه: (translation of example 2, on its OWN separate line)\n` +
-    `- (simple example sentence 3, in ${langCode} ONLY)\n` +
-    `- ترجمه: (translation of example 3, on its OWN separate line)\n\n` +
-    `**⚠️ نکته مهم:**\n` +
-    `- ❌ (one wrong example sentence, in ${langCode} ONLY, nothing else on this line)\n` +
-    `- ✅ (the corrected version of that same sentence, in ${langCode} ONLY, nothing else on this line)\n` +
-    `- (one short line in ${label} explaining why, on its own)\n\n` +
-    `IMPORTANT: never put two different languages on the same line — always give each language its own separate line/bullet, exactly like the pattern above.\n` +
-    `If this word can ALSO play a different grammatical role in other sentences, briefly add one short line about that too, with one example.\n` +
-    `Keep every sentence short and simple. Return ONLY the markdown — no extra commentary before or after it.`;
+    `من مبتدی زبان ${langLabel} هستم. لطفاً جمله زیر را خیلی ساده، جذاب و آموزشی تحلیل کن.\n\n` +
+    `برای جمله:\n"${sentence}"\n\n` +
+    `(کلمه‌ای که روش دست گذاشتم و می‌خوام بیشتر روش تمرکز کنی: "${word}")\n\n` +
+    `این موارد را توضیح بده:\n\n` +
+    `1. معنی کل جمله به ${label}.\n` +
+    `2. ساختار گرامری کلی جمله (Sentence Structure) را بگو.\n` +
+    `3. جمله را به بخش‌های مختلف تقسیم کن و نقش هر بخش را توضیح بده.\n` +
+    `4. برای تک‌تک کلمات:\n` +
+    `   - معنی\n` +
+    `   - نقش دستوری (اسم، فعل، صفت، قید، حرف اضافه، ضمیر و ...)\n` +
+    `   - دلیل استفاده در این جمله\n` +
+    `   - چند مثال ساده با همان کلمه در نقش‌های مختلف بزن.\n` +
+    `5. اگر کلمه یا عبارتی ترکیب مهمی داره (مثل focus on، try to، look at)، توضیح بده.\n` +
+    `6. نکات مهم گرامری و اشتباهات رایج را بگو.\n` +
+    `7. در پایان چند جمله مشابه با همین ساختار بساز تا تمرین کنم.\n\n` +
+    `لطفاً از ایموجی، جدول و توضیح خیلی ساده استفاده کن؛ طوری توضیح بده که یک زبان‌آموز کاملاً مبتدی متوجه شود.\n\n` +
+    `🚨 قانون مهم: کل پاسخ باید به زبان ${label} نوشته بشه (فقط خودِ کلمات/جمله‌های نمونه به زبان ${langLabel} باشن، هیچ‌وقت دو زبان تو یه خط قاطی نشن). پاسخ رو با فرمت Markdown بده و فقط همون تحلیل رو برگردون، بدون مقدمه یا توضیح اضافه قبل/بعدش.`;
 
-  const text = await callAI({ prompt, maxTokens: 900, aiSettings });
+  const text = await callAI({ prompt, maxTokens: 1700, aiSettings });
   return text.trim();
 }
 
@@ -1560,19 +1560,17 @@ async function lookupWordMeaning({ word, sentence, langCode, nativeLang }) {
 const LANGUAGES = [
   { code: "fa", label: "فارسی", abbr: "FA" },
   { code: "en", label: "انگلیسی", abbr: "EN" },
-  { code: "de", label: "آلمانی", abbr: "DE" },
-  { code: "es", label: "اسپانیایی", abbr: "ES" },
-  { code: "fr", label: "فرانسوی", abbr: "FR" },
-  { code: "ar", label: "عربی", abbr: "AR" },
-  { code: "tr", label: "ترکی", abbr: "TR" },
-  { code: "zh", label: "چینی", abbr: "ZH" },
-  { code: "ru", label: "روسی", abbr: "RU" },
   { code: "it", label: "ایتالیایی", abbr: "IT" },
-  { code: "ko", label: "کره‌ای", abbr: "KO" },
-  { code: "ja", label: "ژاپنی", abbr: "JA" },
   { code: "hi", label: "هندی", abbr: "HI" },
-  { code: "ga", label: "ایرلندی", abbr: "GA" },
-  { code: "uk", label: "اوکراینی", abbr: "UK" },
+  { code: "tr", label: "ترکی", abbr: "TR" },
+  { code: "ar", label: "عربی", abbr: "AR" },
+  { code: "es", label: "اسپانیایی", abbr: "ES" },
+  { code: "de", label: "آلمانی", abbr: "DE" },
+  { code: "fr", label: "فرانسوی", abbr: "FR" },
+  { code: "zh", label: "چینی", abbr: "ZH" },
+  { code: "ko", label: "کره‌ای", abbr: "KO" },
+  { code: "ru", label: "روسی", abbr: "RU" },
+  { code: "ja", label: "ژاپنی", abbr: "JA" },
 ];
 
 // Languages that read right-to-left — used so any text block (story
@@ -1585,9 +1583,9 @@ const dirFor = (code) => (RTL_LANGS.includes(code) ? "rtl" : "ltr");
 // Only these have real phrase/vocab data (PHRASES / VOCAB below). Russian and
 // Italian are only used as extra translation options in the Story Builder,
 // which generates its translations live via AI rather than from static data.
-const PHRASEBOOK_LANGUAGES = LANGUAGES.filter((l) =>
-  ["fa", "en", "de", "es", "fr", "ar", "tr", "zh", "ko", "ja", "hi", "ga", "uk"].includes(l.code)
-);
+// همه‌ی ۱۳ زبان الان توی خودِ لیست LANGUAGES هستن، پس این فیلتر همه رو نگه می‌داره —
+// نگه داشته شده صرفاً برای سازگاری با بقیه‌ی کدی که PHRASEBOOK_LANGUAGES رو صدا می‌زنه.
+const PHRASEBOOK_LANGUAGES = LANGUAGES;
 
 const CATEGORIES = {
   greetings: "احوال‌پرسی",
@@ -2903,14 +2901,14 @@ function LangStamp({ lang, active, onClick, disabled }) {
       disabled={disabled}
       style={{
         fontFamily: fontFa,
-        width: 52,
-        height: 52,
+        width: 36,
+        height: 36,
         borderRadius: "50%",
         border: `2px dashed ${active ? colors.gold : colors.cardBorder}`,
         backgroundColor: active ? colors.gold : "transparent",
         color: active ? colors.paper : colors.inkSoft,
         fontWeight: 700,
-        fontSize: 13,
+        fontSize: 10,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -3742,7 +3740,7 @@ function LevelFilterRow({ levelFilter, setLevelFilter }) {
 
 // Drag-to-reorder row of chips (touch + mouse). Dragging a chip over another
 // swaps their position live; the new order is reported via onReorder.
-function OrderChips({ order, languages, onReorder }) {
+function OrderChips({ order, languages, onReorder, onRemove }) {
   const [dragCode, setDragCode] = useState(null);
 
   useEffect(() => {
@@ -3811,6 +3809,33 @@ function OrderChips({ order, languages, onReorder }) {
           >
             <span style={{ color: dragCode === code ? colors.paper : colors.gold, fontSize: 11 }}>⠿</span>
             {lang.label}
+            {onRemove && order.length > 1 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(code);
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+                aria-label={`حذف ${lang.label}`}
+                title={`حذف ${lang.label}`}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 16,
+                  height: 16,
+                  borderRadius: "50%",
+                  border: "none",
+                  background: dragCode === code ? "rgba(255,255,255,0.3)" : colors.paperDark,
+                  color: dragCode === code ? colors.paper : colors.inkSoft,
+                  flexShrink: 0,
+                  cursor: "pointer",
+                }}
+              >
+                <X size={10} />
+              </button>
+            )}
           </div>
         );
       })}
@@ -6404,7 +6429,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               <p style={{ fontSize: 12, color: colors.paperDark, margin: "10px 0 6px" }}>
                 ترتیب نمایش ترجمه‌ها (بکش تا جابجا بشه)
               </p>
-              <OrderChips order={targetOrder} languages={PHRASEBOOK_LANGUAGES} onReorder={setTargetOrder} />
+              <OrderChips order={targetOrder} languages={PHRASEBOOK_LANGUAGES} onReorder={setTargetOrder} onRemove={toggleTargetLang} />
             </>
           )}
         </div>
