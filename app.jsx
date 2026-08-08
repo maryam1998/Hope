@@ -1095,6 +1095,207 @@ function removeSavedStoryWord(word, langCode) {
 }
 
 // ---------------------------------------------------------------------------
+// Grammar notes — detailed, per-word grammar explanations the user chose to
+// keep ("افزودن به یادگیری گرامر"), plus AI-checked practice sentences from
+// the Grammar tab's chat. Stored per-device, global across every story —
+// same pattern as SAVED_STORY_WORDS_KEY above.
+// ---------------------------------------------------------------------------
+const GRAMMAR_NOTES_KEY = "phrasebook-grammar-notes-v1";
+const GRAMMAR_NOTES_CHANGED_EVENT = "phrasebook:grammarNotesChanged";
+
+function loadGrammarNotes() {
+  try {
+    const raw = window.localStorage.getItem(GRAMMAR_NOTES_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+function saveGrammarNote({ langCode, word, sentence, markdown }) {
+  if (!markdown) return null;
+  const list = loadGrammarNotes();
+  const entry = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    langCode,
+    word: word || "",
+    sentence: sentence || "",
+    markdown,
+    savedAt: new Date().toISOString(),
+  };
+  list.unshift(entry);
+  try {
+    window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+  } catch {}
+  return entry;
+}
+function removeGrammarNote(id) {
+  const list = loadGrammarNotes().filter((n) => n.id !== id);
+  try {
+    window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+  } catch {}
+}
+
+// Set once by PhrasebookMain (below) so any ClickableSentence popover,
+// wherever it's rendered, can hand a word off to the Grammar tab without
+// threading a callback prop through every intermediate component — same
+// escape hatch style as the SAVED_WORDS_CHANGED_EVENT plumbing above.
+let requestGrammarJump = null;
+
+// Asks the AI backend for a full, beginner-friendly grammar breakdown of one
+// word as used in a specific sentence (role, usage formula, simple examples,
+// a common-mistake note). Written entirely in the learner's native language.
+async function lookupWordGrammarDetail({ word, sentence, langCode, nativeLang, nativeLabel, aiSettings }) {
+  const label = nativeLabel || "Persian";
+  const prompt =
+    `You are an expert, warm language teacher helping a true beginner (A1/A2 level) whose native language is ${label}.\n` +
+    `The learner tapped on the word "${word}" inside this sentence (language code: ${langCode}): "${sentence}"\n\n` +
+    `Write a detailed grammar explanation of this word, ENTIRELY in ${label}, formatted in Markdown, beginner-friendly, following EXACTLY this structure (keep the emoji, keep short section titles in ${label} matching this meaning):\n\n` +
+    `## 🧩 ${word}\n\n` +
+    `**🔹 معنی:** (the word's meaning as used in THIS exact sentence)\n\n` +
+    `**🔹 نقش دستوری:** (its part of speech / grammatical role here)\n\n` +
+    `**🧠 فرمول:** (the general usage pattern, written as inline code, e.g. \`Despite + noun\`)\n\n` +
+    `**مثال‌ها:**\n- (simple example 1, with a short translation)\n- (simple example 2, with a short translation)\n- (simple example 3, with a short translation)\n\n` +
+    `**⚠️ نکته مهم:**\n(one common mistake learners make with this word: one ❌ wrong example, one ✅ correct example)\n\n` +
+    `If this word can ALSO play a different grammatical role in other sentences, briefly add one short line about that too, with one example.\n` +
+    `Keep every sentence short and simple. Return ONLY the markdown — no extra commentary before or after it.`;
+
+  const text = await callAI({ prompt, maxTokens: 900, aiSettings });
+  return text.trim();
+}
+
+// Acts as the AI "teacher" in the Grammar tab's practice chat: checks a
+// learner-written sentence, corrects it if needed, then walks through the
+// (corrected) sentence word by word — role, why it's there, alternate roles,
+// simple examples — same spirit as lookupWordGrammarDetail but for a whole
+// sentence the learner wrote themselves.
+async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history }) {
+  const label = nativeLabel || "Persian";
+  const langLabel = LANGUAGES.find((l) => l.code === langCode)?.label || langCode;
+  const historyText = (history || [])
+    .slice(-6)
+    .map((m) => `${m.role === "user" ? "Learner" : "Teacher"}: ${m.text}`)
+    .join("\n");
+  const prompt =
+    `You are an expert, patient, encouraging ${langLabel} language teacher helping a true beginner whose native language is ${label}. Everything you write must be in ${label}, formatted in Markdown, beginner-friendly (A1/A2 level).\n` +
+    (historyText ? `Recent conversation so far, for context only:\n${historyText}\n\n` : "") +
+    `The learner just wrote this sentence in ${langLabel}: "${userSentence}"\n\n` +
+    `Respond with EXACTLY this structure, in ${label}:\n\n` +
+    `1. If the sentence has any grammar / word-order / word-choice mistake: start with a line "## ❌ اصلاح" then give the corrected sentence in **bold**, then explain in 1-2 short simple sentences what was wrong.\n` +
+    `   If the sentence is already correct: start with "## ✅ جمله‌ت درسته!" then one short encouraging line.\n\n` +
+    `2. Then add a line "## 🧩 بررسی کلمه به کلمه" and, for EACH word of the (corrected) sentence, add:\n` +
+    `**word** — نقشش رو در یک جمله‌ی خیلی کوتاه بگو (چرا اینجا اومده)، و اگه نقش دیگه‌ای هم می‌تونه داشته باشه، در یک جمله‌ی کوتاه با یک مثال ساده اونم بگو.\n\n` +
+    `Keep the whole response short, simple, and encouraging, like a real teacher talking to a true beginner — use headers (##) and bold (**) exactly like Markdown. Return ONLY the markdown.`;
+
+  const text = await callAI({ prompt, maxTokens: 1400, aiSettings });
+  return text.trim();
+}
+
+// A tiny, purpose-built Markdown renderer — just enough for the specific
+// shapes lookupWordGrammarDetail()/askGrammarTeacher() are prompted to
+// produce (## / ### headers, **bold**, `inline code`, "- " bullet lists,
+// "---" rules, plain paragraphs). Avoids pulling in a full Markdown package
+// for what's really a fixed, known set of formatting the AI is instructed
+// to use.
+function mdInline(str, keyBase) {
+  const parts = [];
+  let rest = String(str || "");
+  const regex = /(\*\*(.+?)\*\*|`(.+?)`)/;
+  let key = 0;
+  while (rest) {
+    const m = rest.match(regex);
+    if (!m) {
+      parts.push(rest);
+      break;
+    }
+    if (m.index > 0) parts.push(rest.slice(0, m.index));
+    if (m[2] !== undefined) {
+      parts.push(<b key={`${keyBase}-${key++}`}>{m[2]}</b>);
+    } else if (m[3] !== undefined) {
+      parts.push(
+        <code
+          key={`${keyBase}-${key++}`}
+          dir="auto"
+          style={{ background: "rgba(0,0,0,0.06)", padding: "1px 5px", borderRadius: 4, fontFamily: fontLatin }}
+        >
+          {m[3]}
+        </code>
+      );
+    }
+    rest = rest.slice(m.index + m[0].length);
+  }
+  return parts;
+}
+function MiniMarkdown({ text }) {
+  if (!text) return null;
+  const lines = String(text).split(/\r?\n/);
+  const blocks = [];
+  let listBuffer = [];
+  const flushList = () => {
+    if (listBuffer.length) {
+      blocks.push(
+        <ul key={blocks.length} style={{ margin: "4px 0 8px", paddingInlineStart: 18 }}>
+          {listBuffer.map((li, i) => (
+            <li key={i} style={{ marginBottom: 2, lineHeight: 1.8 }}>
+              {mdInline(li, `${blocks.length}-${i}`)}
+            </li>
+          ))}
+        </ul>
+      );
+      listBuffer = [];
+    }
+  };
+  lines.forEach((raw) => {
+    const line = raw.trim();
+    if (!line) {
+      flushList();
+      return;
+    }
+    if (/^#{1,3}\s+/.test(line)) {
+      flushList();
+      const level = line.match(/^#+/)[0].length;
+      const content = line.replace(/^#{1,3}\s+/, "");
+      blocks.push(
+        <p
+          key={blocks.length}
+          style={{
+            fontWeight: 800,
+            fontSize: level === 1 ? 16 : level === 2 ? 15 : 14,
+            margin: "10px 0 4px",
+            color: colors.ink,
+          }}
+        >
+          {mdInline(content, blocks.length)}
+        </p>
+      );
+      return;
+    }
+    if (/^-{3,}$/.test(line)) {
+      flushList();
+      blocks.push(
+        <hr key={blocks.length} style={{ border: "none", borderTop: `1px dashed ${colors.cardBorder}`, margin: "8px 0" }} />
+      );
+      return;
+    }
+    if (/^[-*]\s+/.test(line)) {
+      listBuffer.push(line.replace(/^[-*]\s+/, ""));
+      return;
+    }
+    flushList();
+    blocks.push(
+      <p key={blocks.length} style={{ margin: "4px 0", lineHeight: 1.9 }}>
+        {mdInline(line, blocks.length)}
+      </p>
+    );
+  });
+  flushList();
+  return <div dir="auto">{blocks}</div>;
+}
+
+
+// ---------------------------------------------------------------------------
 // Word Collections — lets a user bring in their own reference vocabulary
 // list (e.g. a "504 Essential Words" book, a class word list, a personal
 // deck for any language) and pick words from it in Story Builder.
@@ -3179,6 +3380,7 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                         border: `1px solid ${saved ? colors.gold : "rgba(255,255,255,0.25)"}`,
                         borderRadius: 6,
                         padding: "3px 8px",
+                        marginBottom: 6,
                       }}
                     >
                       <Bookmark size={11} fill={saved ? colors.gold : "none"} />
@@ -3189,6 +3391,30 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                         : isFa
                         ? "ذخیره برای داستان بعدی"
                         : "Save for next story"}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!activeTerm || !requestGrammarJump) return;
+                        requestGrammarJump(activeTerm, text, langCode);
+                        setOpenKey(null);
+                        setCoords(null);
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: colors.paper,
+                        background: "rgba(255,255,255,0.08)",
+                        border: "1px solid rgba(255,255,255,0.25)",
+                        borderRadius: 6,
+                        padding: "3px 8px",
+                      }}
+                    >
+                      <Type size={11} />
+                      {isFa ? "افزودن به یادگیری گرامر" : "Add to grammar learning"}
                     </button>
                   </>
                 )}
@@ -5089,6 +5315,295 @@ function SavedWordsPanel({ onJumpToStory }) {
 }
 
 // ---------------------------------------------------------------------------
+// Grammar tab — two things live here:
+//   1) Saved grammar notes: detailed per-word explanations the user chose to
+//      keep from the word-tap popover ("افزودن به یادگیری گرامر").
+//   2) A practice chat: the learner writes a sentence, the AI corrects it if
+//      needed and walks through it word by word, like a real teacher.
+// `jumpTo` arrives from requestGrammarJump() (word popover) with a fresh
+// word to fetch + show immediately, offering a "save" button once it loads.
+// ---------------------------------------------------------------------------
+function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo }) {
+  const [notes, setNotes] = useState([]);
+  const [expandedNote, setExpandedNote] = useState(null);
+  const [pending, setPending] = useState(null); // { word, sentence, langCode, markdown: "loading" | "error" | string }
+
+  const [chatLang, setChatLang] = useState((targetOrder && targetOrder[0]) || "en");
+  const [chatMessages, setChatMessages] = useState([]); // [{ role: "user"|"ai", text }]
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
+  const chatEndRef = useRef(null);
+
+  const isFa = nativeLang === "fa";
+
+  useEffect(() => {
+    const refresh = () => setNotes(loadGrammarNotes());
+    refresh();
+    window.addEventListener(GRAMMAR_NOTES_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(GRAMMAR_NOTES_CHANGED_EVENT, refresh);
+  }, []);
+
+  useEffect(() => {
+    if (!jumpTo || !jumpTo.word) return;
+    let cancelled = false;
+    setPending({ word: jumpTo.word, sentence: jumpTo.sentence, langCode: jumpTo.langCode, markdown: "loading" });
+    lookupWordGrammarDetail({
+      word: jumpTo.word,
+      sentence: jumpTo.sentence,
+      langCode: jumpTo.langCode,
+      nativeLang,
+      nativeLabel,
+      aiSettings,
+    })
+      .then((md) => {
+        if (!cancelled) setPending((p) => (p && p.word === jumpTo.word ? { ...p, markdown: md } : p));
+      })
+      .catch(() => {
+        if (!cancelled) setPending((p) => (p && p.word === jumpTo.word ? { ...p, markdown: "error" } : p));
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpTo?.token]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ block: "nearest" });
+  }, [chatMessages, chatLoading]);
+
+  async function sendChat() {
+    const sentence = chatInput.trim();
+    if (!sentence || chatLoading) return;
+    setChatInput("");
+    setChatError("");
+    const nextMessages = [...chatMessages, { role: "user", text: sentence }];
+    setChatMessages(nextMessages);
+    setChatLoading(true);
+    try {
+      const reply = await askGrammarTeacher({
+        userSentence: sentence,
+        langCode: chatLang,
+        nativeLang,
+        nativeLabel,
+        aiSettings,
+        history: chatMessages,
+      });
+      setChatMessages((m) => [...m, { role: "ai", text: reply, forSentence: sentence }]);
+    } catch (e) {
+      setChatError(e?.message?.replace(/^ai-backend-error:\s*/, "") || (isFa ? "خطا در دریافت پاسخ" : "Couldn't get a reply"));
+    } finally {
+      setChatLoading(false);
+    }
+  }
+
+  const langOptions = targetOrder && targetOrder.length ? targetOrder : LANGUAGES.map((l) => l.code);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h2 style={{ fontWeight: 800, fontSize: 18, color: colors.ink, marginBottom: 4 }}>گرامر</h2>
+        <p style={{ fontSize: 13, color: colors.inkSoft, lineHeight: 1.7 }}>
+          توضیحات گرامری‌ای که از روی لغت‌های داستان ذخیره کردی اینجاست. پایین‌تر هم می‌تونی با هوش مصنوعی جمله بنویسی تا مثل یه معلم زبان، اصلاحش کنه و گرامرش رو کلمه‌به‌کلمه بهت یاد بده.
+        </p>
+      </div>
+
+      {pending && (
+        <div style={{ backgroundColor: "white", border: `1px solid ${colors.gold}`, borderRadius: 16, padding: 16 }}>
+          <div className="flex items-center justify-between mb-2">
+            <p dir="auto" style={{ fontWeight: 700 }}>
+              {pending.word}
+            </p>
+            <button onClick={() => setPending(null)} style={{ color: colors.inkSoft, display: "flex" }}>
+              <X size={16} />
+            </button>
+          </div>
+          {pending.markdown === "loading" && (
+            <div className="flex items-center gap-1" style={{ fontSize: 13, color: colors.inkSoft }}>
+              <Loader2 size={14} className="spin" />
+              در حال آماده کردن توضیح کامل...
+            </div>
+          )}
+          {pending.markdown === "error" && (
+            <p style={{ color: colors.rose, fontSize: 13 }}>خطا در دریافت توضیح. دوباره امتحان کن.</p>
+          )}
+          {pending.markdown && pending.markdown !== "loading" && pending.markdown !== "error" && (
+            <>
+              <MiniMarkdown text={pending.markdown} />
+              <button
+                onClick={() => {
+                  saveGrammarNote({
+                    langCode: pending.langCode,
+                    word: pending.word,
+                    sentence: pending.sentence,
+                    markdown: pending.markdown,
+                  });
+                  setPending(null);
+                }}
+                className="flex items-center gap-1"
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "white",
+                  background: colors.gold,
+                  borderRadius: 8,
+                  padding: "6px 12px",
+                }}
+              >
+                <Bookmark size={13} />
+                ذخیره در یادگیری گرامر
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {notes.length === 0 && !pending && (
+          <p style={{ fontSize: 13, color: colors.inkSoft }}>
+            هنوز نکته‌ی گرامری‌ای ذخیره نکردی. روی هر کلمه‌ی داخل داستان بزن و «افزودن به یادگیری گرامر» رو انتخاب کن.
+          </p>
+        )}
+        {notes.map((n) => {
+          const isOpen = expandedNote === n.id;
+          const langLabel = LANGUAGES.find((l) => l.code === n.langCode)?.label || n.langCode;
+          return (
+            <div key={n.id} style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12 }}>
+              <div
+                className="flex items-center justify-between"
+                onClick={() => setExpandedNote(isOpen ? null : n.id)}
+                style={{ cursor: "pointer" }}
+              >
+                <div>
+                  <p dir="auto" style={{ fontWeight: 700, fontSize: 14 }}>
+                    {n.word}
+                  </p>
+                  <p style={{ fontSize: 11, color: colors.inkSoft }}>{langLabel}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeGrammarNote(n.id);
+                    }}
+                    style={{ color: colors.inkSoft, display: "flex" }}
+                    title="حذف"
+                  >
+                    <X size={14} />
+                  </button>
+                  {isOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+                </div>
+              </div>
+              {isOpen && (
+                <div style={{ marginTop: 8, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 8 }}>
+                  <MiniMarkdown text={n.markdown} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }}>
+        <div className="flex items-center justify-between mb-2">
+          <p style={{ fontWeight: 700 }}>تمرین جمله‌سازی با هوش مصنوعی</p>
+          <select
+            value={chatLang}
+            onChange={(e) => setChatLang(e.target.value)}
+            style={{ fontSize: 12, border: `1px solid ${colors.cardBorder}`, borderRadius: 8, padding: "3px 6px" }}
+          >
+            {langOptions.map((code) => (
+              <option key={code} value={code}>
+                {LANGUAGES.find((l) => l.code === code)?.label || code}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 8 }}>
+          یه جمله به {LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang} بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم.
+        </p>
+
+        {chatMessages.length > 0 && (
+          <div style={{ maxHeight: 360, overflowY: "auto", marginBottom: 10, paddingRight: 2 }}>
+            {chatMessages.map((m, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-start" : "flex-end", marginBottom: 10 }}>
+                <div
+                  dir="auto"
+                  style={{
+                    maxWidth: "90%",
+                    padding: "8px 12px",
+                    borderRadius: 12,
+                    fontSize: 13,
+                    backgroundColor: m.role === "user" ? colors.paper : colors.goldSoft,
+                    border: `1px solid ${colors.cardBorder}`,
+                  }}
+                >
+                  {m.role === "user" ? m.text : <MiniMarkdown text={m.text} />}
+                  {m.role === "ai" && (
+                    <div className="flex justify-end" style={{ marginTop: 6 }}>
+                      <button
+                        onClick={() =>
+                          saveGrammarNote({
+                            langCode: chatLang,
+                            word: m.forSentence || "جمله",
+                            sentence: m.forSentence || "",
+                            markdown: m.text,
+                          })
+                        }
+                        style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}
+                      >
+                        ذخیره در یادگیری گرامر
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {chatLoading && (
+              <div className="flex items-center gap-1" style={{ fontSize: 12, color: colors.inkSoft }}>
+                <Loader2 size={13} className="spin" />
+                در حال بررسی جمله...
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+        )}
+        {chatError && <p style={{ fontSize: 12, color: colors.rose, marginBottom: 8 }}>{chatError}</p>}
+
+        <div className="flex gap-2">
+          <input
+            dir="auto"
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") sendChat();
+            }}
+            placeholder="جمله‌ت رو اینجا بنویس..."
+            style={{ flex: 1, border: `1px solid ${colors.cardBorder}`, borderRadius: 10, padding: "8px 10px", fontSize: 13 }}
+          />
+          <button
+            onClick={sendChat}
+            disabled={chatLoading || !chatInput.trim()}
+            style={{
+              backgroundColor: colors.teal,
+              color: "white",
+              borderRadius: 10,
+              padding: "8px 14px",
+              display: "flex",
+              alignItems: "center",
+              opacity: chatLoading || !chatInput.trim() ? 0.6 : 1,
+            }}
+          >
+            <Send size={16} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main App
 // ---------------------------------------------------------------------------
 function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
@@ -5112,8 +5627,22 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [dictHistory, setDictHistory] = useState([]);
   const [backendUrl, setBackendUrl] = useState("");
   const [storyJump, setStoryJump] = useState(null); // { lang, token } — set when jumping in from Saved Words
+  const [grammarJump, setGrammarJump] = useState(null); // { word, sentence, langCode, token } — set from the word popover
   const aiSettings = { backendUrl, setBackendUrl };
   const userStorageKey = `${STORAGE_KEY}:${user?.email || "guest"}`;
+
+  // Lets the word-tap popover (ClickableSentence, rendered in several
+  // far-apart tabs) hand a word straight to the Grammar tab without
+  // threading a callback prop through every component in between.
+  useEffect(() => {
+    requestGrammarJump = (word, sentence, langCode) => {
+      setGrammarJump({ word, sentence, langCode, token: Date.now() });
+      setTab("grammar");
+    };
+    return () => {
+      requestGrammarJump = null;
+    };
+  }, []);
 
   // بوکمارک‌های «ذخیره برای داستان بعدی» توی localStorage نگه داشته می‌شن
   // (نه توی یه useState اینجا)، برای همین بدون این ورژن‌شمار، افکت ذخیره‌ی
@@ -5335,6 +5864,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         <TabButton label="مرور (جعبه لایتنر)" icon={RotateCcw} active={tab === "review"} onClick={() => { setTab("review"); setReviewIndex(0); setShowAnswer(false); }} />
         <TabButton label="داستان‌ساز" icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} />
         <TabButton label="لغات ذخیره‌شده" icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} />
+        <TabButton label="گرامر" icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} />
       </nav>
 
       {/* Level filter — applies to phrases, favorites, and vocabulary */}
@@ -5440,6 +5970,18 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             }}
           />
         )}
+
+        {/* گرامر هم مثل داستان‌ساز همیشه mount شده می‌مونه، که با رفتن به تب
+            دیگه، چتِ تمرین جمله‌سازی و توضیحِ در حال بارگذاری از بین نره. */}
+        <div style={{ display: tab === "grammar" ? "block" : "none" }}>
+          <GrammarPanel
+            nativeLang={nativeLang}
+            nativeLabel={nativeLabel}
+            targetOrder={targetOrder}
+            aiSettings={aiSettings}
+            jumpTo={grammarJump}
+          />
+        </div>
 
         {/* توجه: برخلاف بقیه‌ی تب‌ها، داستان‌ساز همیشه mount شده می‌مونه (فقط
             با display:none قایم می‌شه) نه این‌که با رفتن به تب دیگه کامل از
