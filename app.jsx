@@ -3291,8 +3291,10 @@ function SpeedControl({ color }) {
   );
   const c = color || colors.gold;
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-      <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>سرعت</span>
+    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 1, flexShrink: 0 }}>
+      <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>
+        سرعت {rate.toFixed(1)}×
+      </span>
       <input
         type="range"
         min={0.5}
@@ -3300,10 +3302,9 @@ function SpeedControl({ color }) {
         step={0.1}
         value={rate}
         onChange={(e) => speechController.setRate(e.target.value)}
-        style={{ width: 80, accentColor: c }}
+        style={{ width: 64, accentColor: c }}
         aria-label="سرعت پخش صدا"
       />
-      <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 26, textAlign: "left" }}>{rate.toFixed(1)}×</span>
     </span>
   );
 }
@@ -4357,6 +4358,15 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     setTranslationLangs((prev) => prev.filter((c) => c !== storyLang));
   }, [storyLang]);
 
+  // اگه کاربر یه زبان رو از «زبان‌های مقصد» (بالای صفحه) حذف کنه، دیگه نباید
+  // به‌عنوان یه گزینه‌ی ترجمه‌ی فعال هم بمونه — همون لحظه از نمایش می‌افته،
+  // حتی اگه قبلاً توی translationLangs انتخاب شده بود.
+  const translationLangOptionsKey = translationLangOptions.join(",");
+  useEffect(() => {
+    setTranslationLangs((prev) => prev.filter((c) => translationLangOptions.includes(c)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [translationLangOptionsKey]);
+
   // 🔥 ترجمه‌ی زنده و افزایشی: هر زبانی که توی translationLangs باشه ولی
   // هنوز برای جمله‌های داستان ترجمه نشده (چه همون اول، چه هر زبان جدیدی که
   // کاربر بعداً — بعد از ساخته‌شدنِ داستان — اضافه کنه)، همینجا با زنجیره‌ی
@@ -5171,7 +5181,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         >
           <div className="flex items-center justify-between mb-3">
             <p style={{ fontWeight: 700 }}>داستان</p>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap" style={{ rowGap: 8 }}>
               <button
                 onClick={saveCurrentStory}
                 style={{ fontSize: 12, color: justSaved ? colors.teal : colors.gold, textDecoration: "underline", fontWeight: justSaved ? 700 : 400 }}
@@ -5246,7 +5256,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
                         <div key={si} ref={(el) => (sentenceElsRef.current[`${pi}-${si}`] = el)}>
                           <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                             <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} />
-                            <p style={{ fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, fontSize: 15, lineHeight: 1.8, textAlign: RTL_LANGS.includes(storyLang) ? "right" : "left" }}>
+                            <p style={{ fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, fontSize: 15, lineHeight: 1.8, textAlign: "justify" }}>
                               <ClickableSentence
                                 text={s.text}
                                 langCode={storyLang}
@@ -5258,33 +5268,45 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
                             </p>
                           </div>
                           {showTranslations &&
-                            translationLangs.map((code) => (
-                              <div
-                                key={code}
-                                className="flex items-start gap-2"
-                                dir={dirFor(code)}
-                                style={{
-                                  marginTop: 3,
-                                  marginRight: RTL_LANGS.includes(code) ? 26 : 0,
-                                  marginLeft: RTL_LANGS.includes(code) ? 0 : 26,
-                                }}
-                              >
-                                {s.t?.[code] && <SpeakButton text={s.t[code]} code={code} color={colors.teal} />}
-                                <p
+                            translationLangs.map((code) => {
+                              const translated = s.t?.[code];
+                              return (
+                                <div
+                                  key={code}
+                                  className="flex items-start gap-2"
+                                  dir={dirFor(code)}
                                   style={{
-                                    fontSize: 13,
-                                    color: colors.inkSoft,
-                                    textAlign: RTL_LANGS.includes(code) ? "right" : "left",
-                                    fontFamily: code === "fa" ? fontFa : fontLatin,
+                                    marginTop: 3,
+                                    marginInlineStart: 26,
                                   }}
                                 >
-                                  <span style={{ fontSize: 10, color: colors.gold }}>[{code}]</span>{" "}
-                                  {s.t?.[code] || (
-                                    <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
-                                  )}
-                                </p>
-                              </div>
-                            ))}
+                                  {translated && <SpeakButton text={translated} code={code} color={colors.teal} />}
+                                  <p
+                                    style={{
+                                      fontSize: 13,
+                                      color: colors.inkSoft,
+                                      textAlign: "justify",
+                                      fontFamily: code === "fa" ? fontFa : fontLatin,
+                                    }}
+                                  >
+                                    <span style={{ fontSize: 10, color: colors.gold }}>[{code}]</span>{" "}
+                                    {translated ? (
+                                      <ClickableSentence
+                                        text={translated}
+                                        langCode={code}
+                                        nativeLang={nativeLang}
+                                        nativeLabel={nativeLabel}
+                                        aiSettings={aiSettings}
+                                        color={colors.inkSoft}
+                                        fontFamily={code === "fa" ? fontFa : fontLatin}
+                                      />
+                                    ) : (
+                                      <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
+                                    )}
+                                  </p>
+                                </div>
+                              );
+                            })}
                         </div>
                       ))}
                     </div>
@@ -5292,7 +5314,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
                     <div ref={(el) => (paragraphElsRef.current[pi] = el)}>
                       <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                         <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} />
-                        <p style={{ fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, fontSize: 15, lineHeight: 1.8, textAlign: RTL_LANGS.includes(storyLang) ? "right" : "left" }}>
+                        <p style={{ fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, fontSize: 15, lineHeight: 1.8, textAlign: "justify" }}>
                           <ClickableSentence
                             text={paragraphText}
                             langCode={storyLang}
@@ -5304,28 +5326,44 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
                         </p>
                       </div>
                       {showTranslations &&
-                        translationLangs.map((code) => (
-                          <p
-                            key={code}
-                            dir={dirFor(code)}
-                            style={{
-                              fontSize: 13,
-                              color: colors.inkSoft,
-                              marginTop: 4,
-                              marginRight: RTL_LANGS.includes(code) ? 26 : 0,
-                              marginLeft: RTL_LANGS.includes(code) ? 0 : 26,
-                              textAlign: RTL_LANGS.includes(code) ? "right" : "left",
-                              fontFamily: code === "fa" ? fontFa : fontLatin,
-                            }}
-                          >
-                            <span style={{ fontSize: 10, color: colors.gold }}>[{code}]</span>{" "}
-                            {p.sentences.every((s) => s.t?.[code]) ? (
-                              p.sentences.map((s) => s.t[code]).join(" ")
-                            ) : (
-                              <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
-                            )}
-                          </p>
-                        ))}
+                        translationLangs.map((code) => {
+                          const translated = p.sentences.every((s) => s.t?.[code])
+                            ? p.sentences.map((s) => s.t[code]).join(" ")
+                            : null;
+                          return (
+                            <div
+                              key={code}
+                              className="flex items-start gap-2"
+                              dir={dirFor(code)}
+                              style={{ marginTop: 4, marginInlineStart: 26 }}
+                            >
+                              {translated && <SpeakButton text={translated} code={code} color={colors.teal} />}
+                              <p
+                                style={{
+                                  fontSize: 13,
+                                  color: colors.inkSoft,
+                                  textAlign: "justify",
+                                  fontFamily: code === "fa" ? fontFa : fontLatin,
+                                }}
+                              >
+                                <span style={{ fontSize: 10, color: colors.gold }}>[{code}]</span>{" "}
+                                {translated ? (
+                                  <ClickableSentence
+                                    text={translated}
+                                    langCode={code}
+                                    nativeLang={nativeLang}
+                                    nativeLabel={nativeLabel}
+                                    aiSettings={aiSettings}
+                                    color={colors.inkSoft}
+                                    fontFamily={code === "fa" ? fontFa : fontLatin}
+                                  />
+                                ) : (
+                                  <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
+                                )}
+                              </p>
+                            </div>
+                          );
+                        })}
                     </div>
                   )}
                 </div>
@@ -6306,7 +6344,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
       {/* تکرار سراسری — روی هر 🔊ای که پایین‌تر تو این صفحه بزنی اعمال می‌شه */}
       {(tab === "phrases" || tab === "favorites" || tab === "vocab") && (
-        <div className="px-4 pt-2 flex items-center gap-2" style={{ justifyContent: "flex-end" }}>
+        <div className="px-4 pt-2 flex items-center gap-2 flex-wrap" style={{ justifyContent: "flex-end", rowGap: 8 }}>
           <span style={{ fontSize: 11, color: colors.inkSoft }}>تکرار پخش</span>
           <RepeatButton color={colors.gold} />
           <SpeedControl color={colors.gold} />
