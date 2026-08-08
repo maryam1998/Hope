@@ -62,17 +62,44 @@ function json(data, status = 200) {
   });
 }
 
+// Some providers return an HTML/plain-text error page (e.g. Cloudflare's own
+// "error code: 1016" page) instead of JSON when something's wrong upstream.
+// r.json() throws a cryptic "Unexpected token..." in that case, which used
+// to bubble straight up as the error message. Reading the raw text first and
+// parsing it ourselves means a broken provider always fails with a clear,
+// readable message and the chain moves on to the next provider cleanly.
+async function safeJson(r) {
+  const raw = await r.text();
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const snippet = raw.trim().slice(0, 120) || `HTTP ${r.status}`;
+    throw new Error(`non-JSON response (${snippet})`);
+  }
+}
+
 // Reads AI_PROVIDER (comma-separated, e.g. "huggingface,groq,gemini") and
 // falls back through them in order — same behavior as the old Express
 // server. Defaults to huggingface alone if not set.
 const VALID_PROVIDERS = ["huggingface", "groq", "gemini", "deepseek", "openai", "avalai"];
 function getProviderChain(env) {
-  const raw = (env.AI_PROVIDER || "gemini,huggingface,groq").toLowerCase();
+  // Gemini is geo-blocked by Google itself for requests from Iran-adjacent
+  // Cloudflare edge locations ("User location is not supported for the API
+  // use") — this happens on Cloudflare's own network, completely
+  // independent of any VPN on the phone/computer using the app (the phone's
+  // VPN only affects the connection TO the Worker, not the Worker's own
+  // outbound call FROM Cloudflare's servers TO Google). Hugging Face's
+  // router has also been consistently unreachable (Cloudflare error 1016 —
+  // likely blocked/broken for the same region-based reason). Groq is the
+  // one that's actually been responding (once given a current, non-
+  // decommissioned model name), so it's first by default; the other two
+  // are just kept as long-shot fallbacks.
+  const raw = (env.AI_PROVIDER || "groq,gemini,huggingface").toLowerCase();
   const chain = raw
     .split(",")
     .map((p) => p.trim())
     .filter((p) => VALID_PROVIDERS.includes(p));
-  return chain.length ? chain : ["gemini"];
+  return chain.length ? chain : ["groq"];
 }
 
 async function callProvider(provider, prompt, maxTokens, env) {
@@ -101,7 +128,7 @@ async function callHuggingFace(prompt, maxTokens, env) {
       max_tokens: maxTokens,
     }),
   });
-  const data = await r.json();
+  const data = await safeJson(r);
   if (!r.ok) throw new Error(data?.error?.message || data?.error || `Hugging Face HTTP ${r.status}`);
   const text = data.choices?.[0]?.message?.content || "";
   if (!text) throw new Error("Hugging Face returned empty response");
@@ -109,6 +136,12 @@ async function callHuggingFace(prompt, maxTokens, env) {
 }
 
 // --- Groq (OpenAI-compatible) ------------------------------------------------
+// llama-3.3-70b-versatile and llama-3.1-8b-instant were both deprecated by
+// Groq — openai/gpt-oss-120b is their current recommended general-purpose
+// replacement (openai/gpt-oss-20b if you want the smaller/faster one). If
+// GROQ_MODEL is set in the dashboard to an old name (e.g. the very old
+// mixtral-8x7b-32768 default), update it there — this fallback only kicks
+// in when GROQ_MODEL isn't set at all.
 async function callGroq(prompt, maxTokens, env) {
   const key = env.GROQ_API_KEY;
   if (!key) throw new Error("GROQ_API_KEY not set");
@@ -116,12 +149,12 @@ async function callGroq(prompt, maxTokens, env) {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      model: env.GROQ_MODEL || "openai/gpt-oss-120b",
       messages: [{ role: "user", content: prompt }],
       max_tokens: maxTokens,
     }),
   });
-  const data = await r.json();
+  const data = await safeJson(r);
   if (!r.ok) throw new Error(data?.error?.message || `Groq HTTP ${r.status}`);
   const text = data.choices?.[0]?.message?.content || "";
   if (!text) throw new Error("Groq returned empty response");
@@ -144,7 +177,7 @@ async function callGemini(prompt, maxTokens, env) {
       }),
     }
   );
-  const data = await r.json();
+  const data = await safeJson(r);
   if (!r.ok) throw new Error(data?.error?.message || `Gemini HTTP ${r.status}`);
   const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
   if (!text) throw new Error("Gemini returned empty response");
@@ -165,7 +198,7 @@ async function callDeepSeek(prompt, maxTokens, env) {
       max_tokens: maxTokens,
     }),
   });
-  const data = await r.json();
+  const data = await safeJson(r);
   if (!r.ok) throw new Error(data?.error?.message || `DeepSeek HTTP ${r.status}`);
   const text = data.choices?.[0]?.message?.content || "";
   if (!text) throw new Error("DeepSeek returned empty response");
@@ -185,7 +218,7 @@ async function callOpenAI(prompt, maxTokens, env) {
       max_tokens: maxTokens,
     }),
   });
-  const data = await r.json();
+  const data = await safeJson(r);
   if (!r.ok) throw new Error(data?.error?.message || `OpenAI HTTP ${r.status}`);
   const text = data.choices?.[0]?.message?.content || "";
   if (!text) throw new Error("OpenAI returned empty response");
@@ -205,7 +238,7 @@ async function callAvalAI(prompt, maxTokens, env) {
       max_tokens: maxTokens,
     }),
   });
-  const data = await r.json();
+  const data = await safeJson(r);
   if (!r.ok) throw new Error(data?.error?.message || `AvalAI HTTP ${r.status}`);
   const text = data.choices?.[0]?.message?.content || "";
   if (!text) throw new Error("AvalAI returned empty response");
