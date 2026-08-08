@@ -67,12 +67,12 @@ function json(data, status = 200) {
 // server. Defaults to huggingface alone if not set.
 const VALID_PROVIDERS = ["huggingface", "groq", "gemini", "deepseek", "openai", "avalai"];
 function getProviderChain(env) {
-  const raw = (env.AI_PROVIDER || "huggingface").toLowerCase();
+  const raw = (env.AI_PROVIDER || "gemini,huggingface,groq").toLowerCase();
   const chain = raw
     .split(",")
     .map((p) => p.trim())
     .filter((p) => VALID_PROVIDERS.includes(p));
-  return chain.length ? chain : ["huggingface"];
+  return chain.length ? chain : ["gemini"];
 }
 
 async function callProvider(provider, prompt, maxTokens, env) {
@@ -85,27 +85,25 @@ async function callProvider(provider, prompt, maxTokens, env) {
   throw new Error(`Unknown provider "${provider}"`);
 }
 
-// --- Hugging Face (serverless Inference API) --------------------------------
+// --- Hugging Face ------------------------------------------------------------
+// api-inference.huggingface.co was retired — HF now routes every model
+// through router.huggingface.co with an OpenAI-compatible chat endpoint.
 async function callHuggingFace(prompt, maxTokens, env) {
   const key = env.HF_API_KEY;
   if (!key) throw new Error("HF_API_KEY not set");
   const model = env.HF_MODEL || "google/gemma-2-2b-it";
-  const r = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+  const r = await fetch("https://router.huggingface.co/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      inputs: prompt,
-      parameters: { max_new_tokens: maxTokens, return_full_text: false },
-      options: { wait_for_model: true },
+      model,
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
     }),
   });
   const data = await r.json();
-  if (!r.ok) throw new Error(data?.error || `Hugging Face HTTP ${r.status}`);
-  // HF returns either an array of { generated_text } or, for some chat
-  // models, an object with a different shape — handle both.
-  const text = Array.isArray(data)
-    ? data[0]?.generated_text || ""
-    : data?.generated_text || data?.[0]?.generated_text || "";
+  if (!r.ok) throw new Error(data?.error?.message || data?.error || `Hugging Face HTTP ${r.status}`);
+  const text = data.choices?.[0]?.message?.content || "";
   if (!text) throw new Error("Hugging Face returned empty response");
   return text.trim();
 }
