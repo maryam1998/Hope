@@ -3777,7 +3777,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [customWord, setCustomWord] = useState("");
   const [wordTranslating, setWordTranslating] = useState(false);
   const [translateNote, setTranslateNote] = useState("");
-  const [savedStoryWords, setSavedStoryWords] = useState([]);
   const [collections, setCollections] = useState([]);
   const [activeCollectionId, setActiveCollectionId] = useState("");
   const [showAddCollection, setShowAddCollection] = useState(false);
@@ -3807,35 +3806,34 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const allSentences = paragraphs.flatMap((p) => p.sentences);
   const fullStoryText = allSentences.map((s) => s.text).join(" ");
 
-  // Words bookmarked via the "Save for next story" button in the word-tap
-  // popover. Reload whenever the target language changes, and live-refresh
-  // when a word gets (un)bookmarked anywhere in the app.
-  useEffect(() => {
-    const refresh = () => {
-      const list = loadSavedStoryWords().filter((e) => e.langCode === storyLang);
-      setSavedStoryWords(list);
-      // توجه: قبلاً اینجا همه‌ی لغات ذخیره‌شده خودکار به لیست انتخاب‌شده‌ی
-      // داستان اضافه می‌شدن. حالا اضافه نمی‌شن — فقط به شکل چیپ‌های قابل‌کلیک
-      // نشون داده می‌شن (پایین‌تر) و کاربر خودش تعیین می‌کنه کدوم‌ها رو
-      // برای این داستان انتخاب کنه.
-    };
-    refresh();
-    window.addEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
-    return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
-  }, [storyLang]);
+  // توجه: انبار «لغات ذخیره‌شده» دیگه به‌شکل چیپ‌های پیشنهادی توی همین
+  // صفحه بارگذاری/نشون داده نمی‌شه (چون شلوغش می‌کرد). لغاتِ انتخاب‌شده
+  // از تبِ «لغات ذخیره‌شده» از طریق jumpTo مستقیماً به selectedWords
+  // اضافه می‌شن (پایین‌تر).
 
   useEffect(() => {
     setCollections(loadWordCollections().filter((c) => c.langCode === storyLang));
     setActiveCollectionId("");
   }, [storyLang]);
 
-  // Coming from the Saved Words panel with "انتخاب برای داستان" — jump the
-  // story language to match so those words are immediately visible.
+  // Coming from the Saved Words panel with "افزودن به داستان‌ساز" — jump the
+  // story language to match, and drop the specific words the user picked
+  // there straight into this story's selected-words list.
   useEffect(() => {
     if (jumpTo && jumpTo.lang) {
       setStoryLang(jumpTo.lang);
+      if (Array.isArray(jumpTo.words) && jumpTo.words.length) {
+        setSelectedWords((prev) => {
+          const merged = [...prev];
+          jumpTo.words.forEach((w) => {
+            if (!merged.includes(w)) merged.push(w);
+          });
+          return merged;
+        });
+      }
     }
-  }, [jumpTo]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpTo?.token]);
 
   const activeCollection = collections.find((c) => c.id === activeCollectionId) || null;
 
@@ -4401,44 +4399,11 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
           <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 8 }}>{translateNote}</p>
         )}
 
-        {savedStoryWords.length > 0 && (
-          <div style={{ marginBottom: 10 }}>
-            <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 4 }}>
-              لغات ذخیره‌شده برای داستان ({storyLangLabel})
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {savedStoryWords.map((e) => {
-                const active = selectedWords.includes(e.word);
-                return (
-                  <span
-                    key={e.word}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      padding: "4px 10px",
-                      borderRadius: 20,
-                      fontSize: 12,
-                      border: `1px solid ${active ? colors.gold : colors.cardBorder}`,
-                      backgroundColor: active ? colors.goldSoft : "white",
-                    }}
-                  >
-                    <button dir="auto" onClick={() => toggleWord(e.word)}>
-                      {e.word}
-                    </button>
-                    <button
-                      onClick={() => removeSavedStoryWord(e.word, storyLang)}
-                      style={{ color: colors.inkSoft, display: "flex" }}
-                      title="حذف از لغات ذخیره‌شده"
-                    >
-                      <X size={12} />
-                    </button>
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        {/* لیست انبار «لغات ذخیره‌شده» دیگه اینجا نشون داده نمی‌شه — چون
+            تعدادش زیاد می‌شه و صفحه‌ی داستان‌ساز رو شلوغ می‌کنه. برای
+            استفاده از لغاتِ ذخیره‌شده، کاربر می‌ره تبِ «لغات ذخیره‌شده»،
+            هرکدوم رو خواست انتخاب می‌کنه، و از همون‌جا با دکمه‌ی «افزودن به
+            داستان‌ساز» به همین‌جا (selectedWords) اضافه می‌شن. */}
 
         <div style={{ marginBottom: 10, border: `1px dashed ${colors.cardBorder}`, borderRadius: 12, padding: 10 }}>
           <div className="flex items-center justify-between mb-2">
@@ -4801,39 +4766,11 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
             </div>
           </div>
 
+          {/* انتخاب زبان‌های ترجمه از اینجا حذف شد — همون انتخاب بالای دکمه‌ی
+              «بساز داستان» (قبل از ساخت) کافیه و دیگه دوباره اینجا تکرار
+              نمی‌شه. فقط «نمایش ترجمه» (نحوه‌ی چیدمانش) اینجا می‌مونه. */}
           {translationLangOptions.length > 0 && (
             <div className="mb-3">
-              <div className="flex items-center justify-between mb-2">
-                <p style={{ fontSize: 12, color: colors.inkSoft }}>
-                  ترجمه به چه زبان‌هایی نشون داده بشه؟
-                </p>
-                <div className="flex gap-2">
-                  <button onClick={selectAllTranslationLangs} style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}>
-                    انتخاب همه
-                  </button>
-                  <button onClick={clearAllTranslationLangs} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
-                    پاک کردن همه
-                  </button>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2 mb-3">
-                {translationLangOptions.map((code) => (
-                  <button
-                    key={code}
-                    onClick={() => toggleTranslationLang(code)}
-                    style={{
-                      padding: "3px 10px",
-                      borderRadius: 20,
-                      fontSize: 12,
-                      border: `1px solid ${translationLangs.includes(code) ? colors.gold : colors.cardBorder}`,
-                      backgroundColor: translationLangs.includes(code) ? colors.goldSoft : "white",
-                    }}
-                  >
-                    {LANGUAGES.find((l) => l.code === code)?.label}
-                  </button>
-                ))}
-              </div>
-
               <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>نمایش ترجمه:</p>
               <div className="flex flex-wrap gap-2">
                 {[
@@ -5047,6 +4984,9 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
 // ---------------------------------------------------------------------------
 function SavedWordsPanel({ onJumpToStory }) {
   const [words, setWords] = useState([]);
+  // لغاتی که کاربر توی همین صفحه علامت زده تا ببره داستان‌ساز — جدا از
+  // خودِ انبار دائمی؛ فقط یه انتخاب موقتیه، نه حذف/اضافه به ذخیره‌شده‌ها.
+  const [picked, setPicked] = useState({}); // { [langCode]: Set(word) }
 
   useEffect(() => {
     const refresh = () => setWords(loadSavedStoryWords());
@@ -5054,6 +4994,15 @@ function SavedWordsPanel({ onJumpToStory }) {
     window.addEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
   }, []);
+
+  const togglePick = (code, word) => {
+    setPicked((prev) => {
+      const set = new Set(prev[code] || []);
+      if (set.has(word)) set.delete(word);
+      else set.add(word);
+      return { ...prev, [code]: set };
+    });
+  };
 
   const byLang = {};
   words.forEach((w) => {
@@ -5067,17 +5016,18 @@ function SavedWordsPanel({ onJumpToStory }) {
       <div>
         <h2 style={{ fontWeight: 800, fontSize: 18, color: colors.ink, marginBottom: 4 }}>لغات ذخیره‌شده</h2>
         <p style={{ fontSize: 13, color: colors.inkSoft, lineHeight: 1.7 }}>
-          لغاتی که با دکمه‌ی «ذخیره برای داستان بعدی» نشون کردی، اینجا جمع می‌شن تا هر وقت خواستی برای ساخت داستان از بینشون انتخاب کنی.
+          لغاتی که با دکمه‌ی «ذخیره برای داستان بعدی» نشون کردی، یا موقع ساختن هر داستانی انتخاب کردی، همه‌شون اینجا جمع می‌شن. هرکدوم رو خواستی بزن تا انتخاب بشه، بعد «افزودن به داستان‌ساز» رو بزن.
         </p>
       </div>
 
       {langCodes.length === 0 ? (
         <p style={{ fontSize: 13, color: colors.inkSoft }}>
-          هنوز لغتی ذخیره نکردی. روی هر کلمه‌ی داخل متن‌ها بزن و از پاپ‌آپش «ذخیره برای داستان بعدی» رو انتخاب کن.
+          هنوز لغتی ذخیره نکردی. روی هر کلمه‌ی داخل متن‌ها بزن و از پاپ‌آپش «ذخیره برای داستان بعدی» رو انتخاب کن، یا موقع ساخت داستان لغت انتخاب کن.
         </p>
       ) : (
         langCodes.map((code) => {
           const label = LANGUAGES.find((l) => l.code === code)?.label || code;
+          const pickedSet = picked[code] || new Set();
           return (
             <div
               key={code}
@@ -5088,38 +5038,47 @@ function SavedWordsPanel({ onJumpToStory }) {
                   {label} ({byLang[code].length})
                 </p>
                 <button
-                  onClick={() => onJumpToStory(code)}
+                  onClick={() => onJumpToStory(code, Array.from(pickedSet))}
+                  disabled={pickedSet.size === 0}
                   className="flex items-center gap-1"
-                  style={{ fontSize: 12, color: colors.teal, textDecoration: "underline" }}
+                  style={{
+                    fontSize: 12,
+                    color: pickedSet.size ? colors.teal : colors.inkSoft,
+                    textDecoration: "underline",
+                    opacity: pickedSet.size ? 1 : 0.5,
+                  }}
                 >
                   <Sparkles size={13} />
-                  انتخاب برای داستان
+                  {pickedSet.size ? `افزودن ${pickedSet.size} لغت به داستان‌ساز` : "افزودن به داستان‌ساز"}
                 </button>
               </div>
               <div className="flex flex-wrap gap-2">
-                {byLang[code].map((e) => (
-                  <span
-                    key={e.word}
-                    dir="auto"
-                    className="flex items-center gap-1"
-                    style={{
-                      padding: "5px 6px 5px 12px",
-                      borderRadius: 20,
-                      fontSize: 12,
-                      border: `1px solid ${colors.cardBorder}`,
-                      backgroundColor: colors.paper,
-                    }}
-                  >
-                    {e.word}
-                    <button
-                      onClick={() => removeSavedStoryWord(e.word, code)}
-                      style={{ color: colors.inkSoft, display: "flex" }}
-                      title="حذف"
+                {byLang[code].map((e) => {
+                  const isPicked = pickedSet.has(e.word);
+                  return (
+                    <span
+                      key={e.word}
+                      dir="auto"
+                      className="flex items-center gap-1"
+                      style={{
+                        padding: "5px 6px 5px 12px",
+                        borderRadius: 20,
+                        fontSize: 12,
+                        border: `1px solid ${isPicked ? colors.gold : colors.cardBorder}`,
+                        backgroundColor: isPicked ? colors.goldSoft : colors.paper,
+                      }}
                     >
-                      <X size={12} />
-                    </button>
-                  </span>
-                ))}
+                      <button onClick={() => togglePick(code, e.word)}>{e.word}</button>
+                      <button
+                        onClick={() => removeSavedStoryWord(e.word, code)}
+                        style={{ color: colors.inkSoft, display: "flex" }}
+                        title="حذف دائمی"
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  );
+                })}
               </div>
             </div>
           );
@@ -5155,6 +5114,20 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [storyJump, setStoryJump] = useState(null); // { lang, token } — set when jumping in from Saved Words
   const aiSettings = { backendUrl, setBackendUrl };
   const userStorageKey = `${STORAGE_KEY}:${user?.email || "guest"}`;
+
+  // بوکمارک‌های «ذخیره برای داستان بعدی» توی localStorage نگه داشته می‌شن
+  // (نه توی یه useState اینجا)، برای همین بدون این ورژن‌شمار، افکت ذخیره‌ی
+  // ابری پایین هیچ‌وقت با تغییر لغات ذخیره‌شده اجرا نمی‌شد — یعنی لغت‌های
+  // تازه‌بوکمارک‌شده هیچ‌وقت به سرور/کلود نمی‌رفتن، و دفعه‌ی بعد که برنامه
+  // لود می‌شد، نسخه‌ی قدیمی‌تر ابری جایگزین نسخه‌ی محلی (که لغت جدید رو
+  // داشت) می‌شد و لغت انگار «گم» می‌شد. این ورژن‌شمار همون چیزیه که باعث
+  // می‌شه لغات ذخیره‌شده واقعاً از همه‌ی داستان‌ها (قبل و بعد) جمع بمونن.
+  const [savedWordsVersion, setSavedWordsVersion] = useState(0);
+  useEffect(() => {
+    const bump = () => setSavedWordsVersion((v) => v + 1);
+    window.addEventListener(SAVED_WORDS_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, bump);
+  }, []);
 
   // --- Load saved progress once, on first mount ---------------------------
   // Firestore (this Google account, any device) wins over the local copy
@@ -5215,7 +5188,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       if (user?.uid) supabaseSaveState(user.uid, payload);
     }, 500);
     return () => clearTimeout(timeout);
-  }, [nativeLang, targetOrder, favorites, boxes, wordStats, savedStories, dictHistory, backendUrl, loaded, userStorageKey, user?.uid]);
+  }, [nativeLang, targetOrder, favorites, boxes, wordStats, savedStories, dictHistory, backendUrl, loaded, userStorageKey, user?.uid, savedWordsVersion]);
 
   const toggleTargetLang = (code) => {
     setTargetOrder((prev) => {
@@ -5461,14 +5434,19 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
         {tab === "saved" && (
           <SavedWordsPanel
-            onJumpToStory={(lang) => {
-              setStoryJump({ lang, token: Date.now() });
+            onJumpToStory={(lang, words) => {
+              setStoryJump({ lang, words, token: Date.now() });
               setTab("story");
             }}
           />
         )}
 
-        {tab === "story" && (
+        {/* توجه: برخلاف بقیه‌ی تب‌ها، داستان‌ساز همیشه mount شده می‌مونه (فقط
+            با display:none قایم می‌شه) نه این‌که با رفتن به تب دیگه کامل از
+            بین بره. قبلاً چون با {tab === "story" && ...} کاملاً unmount
+            می‌شد، هر بار کاربر می‌رفت لغات‌ذخیره‌شده/دیکشنری و برمی‌گشت،
+            داستانِ ساخته‌شده (و لغات انتخابی) پاک می‌شد. */}
+        <div style={{ display: tab === "story" ? "block" : "none" }}>
           <StoryBuilder
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
@@ -5480,7 +5458,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             aiSettings={aiSettings}
             jumpTo={storyJump}
           />
-        )}
+        </div>
       </main>
 
       {/* Floating AI chat — reachable from every tab */}
