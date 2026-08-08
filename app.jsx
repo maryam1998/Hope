@@ -6195,6 +6195,17 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, bump);
   }, []);
 
+  // Same idea, but for saved grammar notes (added to the cloud-sync payload
+  // below) — bumps whenever a note is added/removed/updated so the debounced
+  // save effect actually re-runs and pushes the change to Supabase, not just
+  // to this one browser's localStorage.
+  const [grammarNotesVersion, setGrammarNotesVersion] = useState(0);
+  useEffect(() => {
+    const bump = () => setGrammarNotesVersion((v) => v + 1);
+    window.addEventListener(GRAMMAR_NOTES_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(GRAMMAR_NOTES_CHANGED_EVENT, bump);
+  }, []);
+
   // --- Load saved progress once, on first mount ---------------------------
   // Firestore (this Google account, any device) wins over the local copy
   // (this browser only) when both exist, since it's the more current source
@@ -6222,6 +6233,12 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
             } catch {}
           }
+          if (Array.isArray(saved.grammarNotes)) {
+            try {
+              window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(saved.grammarNotes));
+              window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+            } catch {}
+          }
         }
       } catch (e) {
         // no saved data yet, or storage unavailable — start fresh
@@ -6245,6 +6262,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         dictHistory,
         backendUrl,
         savedStoryWords: loadSavedStoryWords(),
+        grammarNotes: loadGrammarNotes(),
       };
       try {
         await storage.set(userStorageKey, JSON.stringify(payload), false);
@@ -6254,7 +6272,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       if (user?.uid) supabaseSaveState(user.uid, payload);
     }, 500);
     return () => clearTimeout(timeout);
-  }, [nativeLang, targetOrder, favorites, boxes, wordStats, savedStories, dictHistory, backendUrl, loaded, userStorageKey, user?.uid, savedWordsVersion]);
+  }, [nativeLang, targetOrder, favorites, boxes, wordStats, savedStories, dictHistory, backendUrl, loaded, userStorageKey, user?.uid, savedWordsVersion, grammarNotesVersion]);
 
   const toggleTargetLang = (code) => {
     setTargetOrder((prev) => {
