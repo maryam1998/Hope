@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type, Trash2 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
 // ---------------------------------------------------------------------------
@@ -1137,6 +1137,20 @@ function removeGrammarNote(id) {
     window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
   } catch {}
 }
+// Appends one Q&A pair to a saved note's own follow-up thread. Since the
+// note itself is already saved, anything asked here is automatically
+// persisted along with it — no separate "save" step needed.
+function appendGrammarNoteThread(id, { question, answer }) {
+  const list = loadGrammarNotes();
+  const idx = list.findIndex((n) => n.id === id);
+  if (idx === -1) return;
+  const thread = Array.isArray(list[idx].thread) ? list[idx].thread : [];
+  list[idx] = { ...list[idx], thread: [...thread, { question, answer }] };
+  try {
+    window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+  } catch {}
+}
 
 // Set once by PhrasebookMain (below) so any ClickableSentence popover,
 // wherever it's rendered, can hand a word off to the Grammar tab without
@@ -1152,6 +1166,7 @@ async function lookupWordGrammarDetail({ word, sentence, langCode, nativeLang, n
   const prompt =
     `You are an expert, warm language teacher helping a true beginner (A1/A2 level) whose native language is ${label}.\n` +
     `The learner tapped on the word "${word}" inside this sentence (language code: ${langCode}): "${sentence}"\n\n` +
+    `🚨 HARD LANGUAGE RULE: your ENTIRE explanation — every sentence, every header — must be written in ${label}, regardless of what language the word/sentence being explained is in. Only the quoted word itself, the example sentences, and their inline code formulas may appear in the language being learned; everything else is 100% in ${label}.\n\n` +
     `Write a detailed grammar explanation of this word, ENTIRELY in ${label}, formatted in Markdown, beginner-friendly, following EXACTLY this structure (keep the emoji, keep short section titles in ${label} matching this meaning):\n\n` +
     `## 🧩 ${word}\n\n` +
     `**🔹 معنی:** (the word's meaning as used in THIS exact sentence)\n\n` +
@@ -1190,16 +1205,18 @@ async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLab
     .map((m) => `${m.role === "user" ? "Learner" : "Teacher"}: ${m.text}`)
     .join("\n");
   const prompt =
-    `You are an expert, patient, encouraging ${langLabel} language teacher helping a true beginner whose native language is ${label}. Everything you write must be in ${label}, formatted in Markdown, beginner-friendly (A1/A2 level), and genuinely FUN to read — never a dry, robotic list.\n` +
+    `You are an expert, patient, encouraging ${langLabel} language teacher helping a true beginner whose native language is ${label}.\n\n` +
+    `🚨 HARD LANGUAGE RULE (read this twice): your ENTIRE reply — every explanation, every header, every sentence of commentary — must be written in ${label}. This applies NO MATTER WHAT language the learner's message, question, or the sentence being discussed is in, and no matter what language ${langLabel} (the language being learned) is. The ONLY things allowed to appear in ${langLabel} are: the example/practice sentences themselves, and individual quoted words being pointed out (e.g. **word**). Never write a full explanatory sentence in ${langLabel} or in English — if you catch yourself doing that, stop and rewrite it in ${label}. This rule applies equally to brand-new sentences (case A) and to follow-up questions (case B) below.\n\n` +
+    `Formatted in Markdown, beginner-friendly (A1/A2 level), and genuinely FUN to read — never a dry, robotic list.\n` +
     (historyText ? `Recent conversation so far, for context — use it to understand what the learner is referring to:\n${historyText}\n\n` : "") +
     `The learner's new message is: "${userSentence}"\n\n` +
 
     `First decide which of these two situations this is:\n` +
     `A) A NEW sentence in ${langLabel} that the learner wants checked/practiced (this is the default when there's no earlier conversation, or the message reads like a fresh attempt at a sentence).\n` +
-    `B) A FOLLOW-UP question about something you (the teacher) already said above — e.g. asking "چرا will نه؟", "یعنی چی؟", "فرق ... با ... چیه؟", or anything else that's clearly a question about the previous explanation rather than a new sentence to check.\n\n` +
+    `B) A FOLLOW-UP question about something you (the teacher) already said above — e.g. asking "چرا will نه؟", "یعنی چی؟", "فرق ... با ... چیه؟", or anything else that's clearly a question about the previous explanation rather than a new sentence to check. This includes questions that themselves mix in ${langLabel} words or phrases (like "i will speak, i am speaking, i speak فرق چیه") — the question being partly in ${langLabel} does NOT mean you should answer in ${langLabel}; your answer is still 100% in ${label}.\n\n` +
 
     `IF (B) — follow-up question:\n` +
-    `Just answer their question directly and conversationally, in ${label}, referring back to the earlier sentence/explanation from the conversation above as needed. Keep it short, clear, and warm — like a teacher answering a student, not a fixed report. Use a short header like "## 💬 جواب سوالت" if it reads well, bold (**) for the key word/rule being explained, and a tiny example if it genuinely helps. Do NOT redo the full correction+breakdown structure below — only follow it for case (A). Return ONLY the markdown.\n\n` +
+    `Just answer their question directly and conversationally, ENTIRELY in ${label} (see hard rule above), referring back to the earlier sentence/explanation from the conversation above as needed. Keep it short, clear, and warm — like a teacher answering a student, not a fixed report. Use a short header like "## 💬 جواب سوالت" if it reads well, bold (**) for the key word/rule being explained, and a tiny example if it genuinely helps. Do NOT redo the full correction+breakdown structure below — only follow it for case (A). Return ONLY the markdown.\n\n` +
 
     `IF (A) — new sentence to check, respond with EXACTLY this structure, in ${label}:\n\n` +
 
@@ -5381,6 +5398,15 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
   const chatEndRef = useRef(null);
+  const chatTextareaRef = useRef(null);
+
+  // Follow-up "ask about this note" box shown under each expanded saved
+  // note. Keyed by note id since several notes can (in theory) be expanded
+  // one at a time. Answers here get appended straight onto the note itself
+  // (see appendGrammarNoteThread), so they're always persisted already.
+  const [noteAskInput, setNoteAskInput] = useState({});
+  const [noteAskLoading, setNoteAskLoading] = useState({});
+  const [noteAskError, setNoteAskError] = useState({});
 
   const isFa = nativeLang === "fa";
 
@@ -5418,6 +5444,53 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ block: "nearest" });
   }, [chatMessages, chatLoading]);
+
+  // Auto-grow the textarea as the learner types multi-line sentences.
+  useEffect(() => {
+    const el = chatTextareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [chatInput]);
+
+  function clearChat() {
+    setChatMessages([]);
+    setChatError("");
+  }
+
+  async function askAboutNote(note) {
+    const question = (noteAskInput[note.id] || "").trim();
+    if (!question || noteAskLoading[note.id]) return;
+    setNoteAskInput((s) => ({ ...s, [note.id]: "" }));
+    setNoteAskError((s) => ({ ...s, [note.id]: "" }));
+    setNoteAskLoading((s) => ({ ...s, [note.id]: true }));
+    try {
+      const history = [
+        { role: "user", text: note.sentence || note.word },
+        { role: "ai", text: note.markdown },
+        ...(note.thread || []).flatMap((t) => [
+          { role: "user", text: t.question },
+          { role: "ai", text: t.answer },
+        ]),
+      ];
+      const answer = await askGrammarTeacher({
+        userSentence: question,
+        langCode: note.langCode,
+        nativeLang,
+        nativeLabel,
+        aiSettings,
+        history,
+      });
+      appendGrammarNoteThread(note.id, { question, answer });
+    } catch (e) {
+      setNoteAskError((s) => ({
+        ...s,
+        [note.id]: e?.message?.replace(/^ai-backend-error:\s*/, "") || (isFa ? "خطا در دریافت پاسخ" : "Couldn't get a reply"),
+      }));
+    } finally {
+      setNoteAskLoading((s) => ({ ...s, [note.id]: false }));
+    }
+  }
 
   async function sendChat() {
     const sentence = chatInput.trim();
@@ -5545,6 +5618,49 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
               {isOpen && (
                 <div style={{ marginTop: 8, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 8 }}>
                   <MiniMarkdown text={n.markdown} />
+
+                  {(n.thread || []).map((t, i) => (
+                    <div key={i} style={{ marginTop: 10 }}>
+                      <div dir="auto" style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 4 }}>
+                        {t.question}
+                      </div>
+                      <div style={{ background: colors.goldSoft, borderRadius: 10, padding: "8px 10px" }}>
+                        <MiniMarkdown text={t.answer} />
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="flex gap-2" style={{ marginTop: 10, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 10 }}>
+                    <input
+                      dir="auto"
+                      value={noteAskInput[n.id] || ""}
+                      onChange={(e) => setNoteAskInput((s) => ({ ...s, [n.id]: e.target.value }))}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") askAboutNote(n);
+                      }}
+                      placeholder={isFa ? "سوالی درباره‌ی همین نکته داری؟" : "Ask about this note..."}
+                      style={{ flex: 1, border: `1px solid ${colors.cardBorder}`, borderRadius: 8, padding: "6px 8px", fontSize: 12 }}
+                    />
+                    <button
+                      onClick={() => askAboutNote(n)}
+                      disabled={noteAskLoading[n.id] || !(noteAskInput[n.id] || "").trim()}
+                      style={{
+                        backgroundColor: colors.gold,
+                        color: "white",
+                        borderRadius: 8,
+                        padding: "6px 10px",
+                        fontSize: 12,
+                        display: "flex",
+                        alignItems: "center",
+                        opacity: noteAskLoading[n.id] || !(noteAskInput[n.id] || "").trim() ? 0.6 : 1,
+                      }}
+                    >
+                      {noteAskLoading[n.id] ? <Loader2 size={13} className="spin" /> : (isFa ? "بپرس" : "Ask")}
+                    </button>
+                  </div>
+                  {noteAskError[n.id] && (
+                    <p style={{ fontSize: 11, color: colors.rose, marginTop: 4 }}>{noteAskError[n.id]}</p>
+                  )}
                 </div>
               )}
             </div>
@@ -5555,6 +5671,17 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
       <div style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }}>
         <div className="flex items-center justify-between mb-2">
           <p style={{ fontWeight: 700 }}>تمرین جمله‌سازی با هوش مصنوعی</p>
+          {chatMessages.length > 0 && (
+            <button
+              onClick={clearChat}
+              className="flex items-center gap-1"
+              style={{ fontSize: 11, color: colors.rose }}
+              title={isFa ? "پاک‌کردن گفتگو" : "Clear conversation"}
+            >
+              <Trash2 size={12} />
+              {isFa ? "پاک‌کردن گفتگو" : "Clear"}
+            </button>
+          )}
           <select
             value={chatLang}
             onChange={(e) => setChatLang(e.target.value)}
@@ -5618,16 +5745,45 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
         )}
         {chatError && <p style={{ fontSize: 12, color: colors.rose, marginBottom: 8 }}>{chatError}</p>}
 
-        <div className="flex gap-2">
-          <input
+        {/* Sticks to the bottom of the visible screen as you scroll through a
+            long conversation, so the box never gets lost above the fold and
+            you don't lose track of what you were typing. Enter makes a new
+            line like a normal chat app; the button on the bottom-right sends. */}
+        <div
+          className="flex gap-2 items-end"
+          style={{
+            position: "sticky",
+            bottom: 8,
+            backgroundColor: "white",
+            border: `1px solid ${colors.cardBorder}`,
+            borderRadius: 12,
+            padding: 6,
+          }}
+        >
+          <textarea
+            ref={chatTextareaRef}
             dir="auto"
+            rows={1}
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") sendChat();
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                sendChat();
+              }
             }}
-            placeholder="جمله‌ت رو بنویس یا سوالت رو بپرس..."
-            style={{ flex: 1, border: `1px solid ${colors.cardBorder}`, borderRadius: 10, padding: "8px 10px", fontSize: 13 }}
+            placeholder="جمله‌ت رو بنویس یا سوالت رو بپرس... (برای خط جدید Enter، برای ارسال دکمه رو بزن)"
+            style={{
+              flex: 1,
+              border: "none",
+              outline: "none",
+              resize: "none",
+              padding: "8px 10px",
+              fontSize: 13,
+              fontFamily: "inherit",
+              lineHeight: 1.6,
+              maxHeight: 140,
+            }}
           />
           <button
             onClick={sendChat}
@@ -5640,6 +5796,7 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
               display: "flex",
               alignItems: "center",
               opacity: chatLoading || !chatInput.trim() ? 0.6 : 1,
+              flexShrink: 0,
             }}
           >
             <Send size={16} />
@@ -6473,20 +6630,33 @@ function AiChat({ targetLabel, nativeLabel }) {
         )}
         <div ref={bottomRef} />
       </div>
-      <div className="flex gap-2 pt-2" style={{ borderTop: `1px solid ${colors.cardBorder}` }}>
-        <input
+      <div className="flex gap-2 items-end pt-2" style={{ borderTop: `1px solid ${colors.cardBorder}`, position: "sticky", bottom: 0, backgroundColor: colors.paper }}>
+        <textarea
+          rows={1}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
-          placeholder="پیامت رو بنویس..."
+          onChange={(e) => {
+            setInput(e.target.value);
+            e.target.style.height = "auto";
+            e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault();
+              send();
+            }
+          }}
+          placeholder="پیامت رو بنویس... (برای خط جدید Enter، برای ارسال دکمه رو بزن)"
           style={{
             flex: 1,
             fontFamily: fontFa,
             border: `1px solid ${colors.cardBorder}`,
-            borderRadius: 20,
+            borderRadius: 18,
             padding: "10px 16px",
             fontSize: 14,
             outline: "none",
+            resize: "none",
+            maxHeight: 140,
+            lineHeight: 1.5,
           }}
         />
         <button
