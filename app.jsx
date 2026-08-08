@@ -1157,8 +1157,18 @@ async function lookupWordGrammarDetail({ word, sentence, langCode, nativeLang, n
     `**🔹 معنی:** (the word's meaning as used in THIS exact sentence)\n\n` +
     `**🔹 نقش دستوری:** (its part of speech / grammatical role here)\n\n` +
     `**🧠 فرمول:** (the general usage pattern, written as inline code, e.g. \`Despite + noun\`)\n\n` +
-    `**مثال‌ها:**\n- (simple example 1, with a short translation)\n- (simple example 2, with a short translation)\n- (simple example 3, with a short translation)\n\n` +
-    `**⚠️ نکته مهم:**\n(one common mistake learners make with this word: one ❌ wrong example, one ✅ correct example)\n\n` +
+    `**مثال‌ها:**\n` +
+    `- (simple example sentence 1, in ${langCode} ONLY, nothing else on this line)\n` +
+    `- ترجمه: (Persian/${label} translation of example 1, on its OWN separate line)\n` +
+    `- (simple example sentence 2, in ${langCode} ONLY)\n` +
+    `- ترجمه: (translation of example 2, on its OWN separate line)\n` +
+    `- (simple example sentence 3, in ${langCode} ONLY)\n` +
+    `- ترجمه: (translation of example 3, on its OWN separate line)\n\n` +
+    `**⚠️ نکته مهم:**\n` +
+    `- ❌ (one wrong example sentence, in ${langCode} ONLY, nothing else on this line)\n` +
+    `- ✅ (the corrected version of that same sentence, in ${langCode} ONLY, nothing else on this line)\n` +
+    `- (one short line in ${label} explaining why, on its own)\n\n` +
+    `IMPORTANT: never put two different languages on the same line — always give each language its own separate line/bullet, exactly like the pattern above.\n` +
     `If this word can ALSO play a different grammatical role in other sentences, briefly add one short line about that too, with one example.\n` +
     `Keep every sentence short and simple. Return ONLY the markdown — no extra commentary before or after it.`;
 
@@ -1166,30 +1176,60 @@ async function lookupWordGrammarDetail({ word, sentence, langCode, nativeLang, n
   return text.trim();
 }
 
-// Acts as the AI "teacher" in the Grammar tab's practice chat: checks a
-// learner-written sentence, corrects it if needed, then walks through the
-// (corrected) sentence word by word — role, why it's there, alternate roles,
-// simple examples — same spirit as lookupWordGrammarDetail but for a whole
-// sentence the learner wrote themselves.
+// Acts as the AI "teacher" in the Grammar tab's practice chat. Two modes,
+// decided by the AI itself from the message + recent history:
+//   - a NEW sentence to check → full correction + word-by-word + examples
+//   - a FOLLOW-UP question about the previous explanation (e.g. "چرا will
+//     نه؟") → just answer the question directly, conversationally, no need
+//     to redo the whole structured breakdown.
 async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history }) {
   const label = nativeLabel || "Persian";
   const langLabel = LANGUAGES.find((l) => l.code === langCode)?.label || langCode;
   const historyText = (history || [])
-    .slice(-6)
+    .slice(-8)
     .map((m) => `${m.role === "user" ? "Learner" : "Teacher"}: ${m.text}`)
     .join("\n");
   const prompt =
-    `You are an expert, patient, encouraging ${langLabel} language teacher helping a true beginner whose native language is ${label}. Everything you write must be in ${label}, formatted in Markdown, beginner-friendly (A1/A2 level).\n` +
-    (historyText ? `Recent conversation so far, for context only:\n${historyText}\n\n` : "") +
-    `The learner just wrote this sentence in ${langLabel}: "${userSentence}"\n\n` +
-    `Respond with EXACTLY this structure, in ${label}:\n\n` +
-    `1. If the sentence has any grammar / word-order / word-choice mistake: start with a line "## ❌ اصلاح" then give the corrected sentence in **bold**, then explain in 1-2 short simple sentences what was wrong.\n` +
-    `   If the sentence is already correct: start with "## ✅ جمله‌ت درسته!" then one short encouraging line.\n\n` +
-    `2. Then add a line "## 🧩 بررسی کلمه به کلمه" and, for EACH word of the (corrected) sentence, add:\n` +
-    `**word** — نقشش رو در یک جمله‌ی خیلی کوتاه بگو (چرا اینجا اومده)، و اگه نقش دیگه‌ای هم می‌تونه داشته باشه، در یک جمله‌ی کوتاه با یک مثال ساده اونم بگو.\n\n` +
-    `Keep the whole response short, simple, and encouraging, like a real teacher talking to a true beginner — use headers (##) and bold (**) exactly like Markdown. Return ONLY the markdown.`;
+    `You are an expert, patient, encouraging ${langLabel} language teacher helping a true beginner whose native language is ${label}. Everything you write must be in ${label}, formatted in Markdown, beginner-friendly (A1/A2 level), and genuinely FUN to read — never a dry, robotic list.\n` +
+    (historyText ? `Recent conversation so far, for context — use it to understand what the learner is referring to:\n${historyText}\n\n` : "") +
+    `The learner's new message is: "${userSentence}"\n\n` +
 
-  const text = await callAI({ prompt, maxTokens: 1400, aiSettings });
+    `First decide which of these two situations this is:\n` +
+    `A) A NEW sentence in ${langLabel} that the learner wants checked/practiced (this is the default when there's no earlier conversation, or the message reads like a fresh attempt at a sentence).\n` +
+    `B) A FOLLOW-UP question about something you (the teacher) already said above — e.g. asking "چرا will نه؟", "یعنی چی؟", "فرق ... با ... چیه؟", or anything else that's clearly a question about the previous explanation rather than a new sentence to check.\n\n` +
+
+    `IF (B) — follow-up question:\n` +
+    `Just answer their question directly and conversationally, in ${label}, referring back to the earlier sentence/explanation from the conversation above as needed. Keep it short, clear, and warm — like a teacher answering a student, not a fixed report. Use a short header like "## 💬 جواب سوالت" if it reads well, bold (**) for the key word/rule being explained, and a tiny example if it genuinely helps. Do NOT redo the full correction+breakdown structure below — only follow it for case (A). Return ONLY the markdown.\n\n` +
+
+    `IF (A) — new sentence to check, respond with EXACTLY this structure, in ${label}:\n\n` +
+
+    `1. First, decide which of these three cases applies, and start with exactly one of these headers:\n` +
+    `   - "## ❌ اصلاح" — if there's a real grammar / word-order / word-choice MISTAKE.\n` +
+    `   - "## 🟡 طبیعی‌تره" — if the sentence is grammatically correct, but a native speaker would normally phrase it differently.\n` +
+    `   - "## ✅ جمله‌ت درسته!" — if it's already correct AND natural, nothing to improve.\n` +
+    `   NEVER mix up "wrong" and "just sounds non-native" — a fluent-but-unusual phrasing is NOT a mistake, always use "🟡 طبیعی‌تره" for that case, never "❌ اصلاح".\n\n` +
+
+    `2. If ❌ or 🟡: on its own separate line, give the corrected/more-natural sentence in **bold** (in ${langLabel} ONLY, nothing else on that line). Then, for EACH individual thing that changed, add ONE short bullet line explaining the SPECIFIC reason WHY — never a vague summary like "این جمله اشکال داشت". Example of the level of specificity required:\n` +
+    `   - از **will** به **would** تغییر کرد، چون داری نقل‌قول از زمان گذشته می‌کنی (she said...)؛ بعد از فعل گذشته، will هم به‌طور معمول تبدیل به would می‌شه.\n` +
+    `   If it was just a naturalness issue (🟡), say briefly why native speakers prefer the new phrasing instead of "why it's wrong" language.\n` +
+    `   If ✅, skip this step and just add one short encouraging line instead.\n\n` +
+
+    `3. Then add a line "## 🧩 کلمه به کلمه، ولی باحال!" and pick ONLY the words worth explaining (skip trivial ones like "a"/"the" unless genuinely relevant). For each, write ONE compact, fun single line in exactly this shape — no long sentences, no dry paragraph:\n` +
+    `   emoji **word** = meaning-in-${label} → نقش → نکته‌ی خیلی کوتاه\n` +
+    `   Example of the exact compactness expected (do not copy the words, just the shape): "👩 **she** = او → ضمیر → فاعل" or "🔮 **would** = قرار بود → فعل کمکی → از دید گذشته به آینده اشاره می‌کنه".\n` +
+    `   Pick a fitting emoji per word. If a word can have another important role/meaning elsewhere, add that in a few extra words on the SAME line after another →.\n\n` +
+
+    `4. Pick the ONE most important/trickiest point from this sentence (often the thing that got corrected) and add a line "## ✨ چند مثال دیگه برای <that point>", then give exactly 3 short example sentences in ${langLabel}, each on its own bullet with its ${label} translation on the line right after it:\n` +
+    `   - 🟢 ساده: (a very simple example sentence)\n` +
+    `     ترجمه: (its ${label} translation)\n` +
+    `   - 🟡 کمی سخت‌تر: (a slightly harder example)\n` +
+    `     ترجمه: (its translation)\n` +
+    `   - 🔵 موقعیت واقعی: (a realistic, everyday-situation example)\n` +
+    `     ترجمه: (its translation)\n\n` +
+
+    `IMPORTANT: never put two different languages on the same line (a bolded single word/sentence being quoted is fine). Keep everything short, warm, and genuinely engaging — like a great teacher, not a manual. Use headers (##) and bold (**) exactly like Markdown. Return ONLY the markdown, for whichever case (A or B) applies.`;
+
+  const text = await callAI({ prompt, maxTokens: 1700, aiSettings });
   return text.trim();
 }
 
@@ -1238,7 +1278,12 @@ function MiniMarkdown({ text }) {
       blocks.push(
         <ul key={blocks.length} style={{ margin: "4px 0 8px", paddingInlineStart: 18 }}>
           {listBuffer.map((li, i) => (
-            <li key={i} style={{ marginBottom: 2, lineHeight: 1.8 }}>
+            // dir="auto" اینجا لازمه که برای هر خط جدا تصمیم بگیره راست‌چین
+            // باشه یا چپ‌چین (بر اساس اولین حرفِ همون خط)، نه اینکه از یه
+            // جهتِ کلیِ ثابت (که معمولاً فارسیه) برای کل کارت پیروی کنه —
+            // وگرنه جمله‌های انگلیسیِ خالص هم بر عکس/به‌هم‌ریخته نشون داده
+            // می‌شن، دقیقاً همون مشکلی که توی مثال‌ها پیش اومده بود.
+            <li key={i} dir="auto" style={{ marginBottom: 2, lineHeight: 1.8, textAlign: "start" }}>
               {mdInline(li, `${blocks.length}-${i}`)}
             </li>
           ))}
@@ -1260,11 +1305,13 @@ function MiniMarkdown({ text }) {
       blocks.push(
         <p
           key={blocks.length}
+          dir="auto"
           style={{
             fontWeight: 800,
             fontSize: level === 1 ? 16 : level === 2 ? 15 : 14,
             margin: "10px 0 4px",
             color: colors.ink,
+            textAlign: "start",
           }}
         >
           {mdInline(content, blocks.length)}
@@ -1285,13 +1332,13 @@ function MiniMarkdown({ text }) {
     }
     flushList();
     blocks.push(
-      <p key={blocks.length} style={{ margin: "4px 0", lineHeight: 1.9 }}>
+      <p key={blocks.length} dir="auto" style={{ margin: "4px 0", lineHeight: 1.9, textAlign: "start" }}>
         {mdInline(line, blocks.length)}
       </p>
     );
   });
   flushList();
-  return <div dir="auto">{blocks}</div>;
+  return <div>{blocks}</div>;
 }
 
 
@@ -5521,7 +5568,7 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
           </select>
         </div>
         <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 8 }}>
-          یه جمله به {LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang} بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم.
+          یه جمله به {LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang} بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. بعدش هم می‌تونی هر سوال گرامری‌ای درباره‌ش داشتی همین‌جا بپرسی.
         </p>
 
         {chatMessages.length > 0 && (
@@ -5579,7 +5626,7 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
             onKeyDown={(e) => {
               if (e.key === "Enter") sendChat();
             }}
-            placeholder="جمله‌ت رو اینجا بنویس..."
+            placeholder="جمله‌ت رو بنویس یا سوالت رو بپرس..."
             style={{ flex: 1, border: `1px solid ${colors.cardBorder}`, borderRadius: 10, padding: "8px 10px", fontSize: 13 }}
           />
           <button
