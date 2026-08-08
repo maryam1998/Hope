@@ -4705,6 +4705,41 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         )}
       </div>
 
+      {translationLangOptions.length > 0 && (
+        <div className="mb-3" style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12, backgroundColor: colors.paper }}>
+          <div className="flex items-center justify-between mb-2">
+            <p style={{ fontSize: 12, color: colors.inkSoft }}>
+              داستان همزمان به چه زبان‌هایی ترجمه بشه؟ (می‌تونی چند تا انتخاب کنی)
+            </p>
+            <div className="flex gap-2">
+              <button onClick={selectAllTranslationLangs} style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}>
+                انتخاب همه
+              </button>
+              <button onClick={clearAllTranslationLangs} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
+                پاک کردن همه
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {translationLangOptions.map((code) => (
+              <button
+                key={code}
+                onClick={() => toggleTranslationLang(code)}
+                style={{
+                  padding: "3px 10px",
+                  borderRadius: 20,
+                  fontSize: 12,
+                  border: `1px solid ${translationLangs.includes(code) ? colors.gold : colors.cardBorder}`,
+                  backgroundColor: translationLangs.includes(code) ? colors.goldSoft : "white",
+                }}
+              >
+                {LANGUAGES.find((l) => l.code === code)?.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <button
         onClick={generateStory}
         disabled={!selectedWords.length || generating}
@@ -4769,14 +4804,14 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
           {translationLangOptions.length > 0 && (
             <div className="mb-3">
               <div className="flex items-center justify-between mb-2">
-                <p style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>
+                <p style={{ fontSize: 12, color: colors.inkSoft }}>
                   ترجمه به چه زبان‌هایی نشون داده بشه؟
                 </p>
-                <div className="flex gap-2" style={{ flexShrink: 0 }}>
-                  <button onClick={selectAllTranslationLangs} style={{ fontSize: 11, color: colors.teal, fontWeight: 600 }}>
+                <div className="flex gap-2">
+                  <button onClick={selectAllTranslationLangs} style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}>
                     انتخاب همه
                   </button>
-                  <button onClick={clearAllTranslationLangs} style={{ fontSize: 11, color: colors.rose, fontWeight: 600 }}>
+                  <button onClick={clearAllTranslationLangs} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
                     پاک کردن همه
                   </button>
                 </div>
