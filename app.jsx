@@ -1026,6 +1026,10 @@ function saveWordCache(cache) {
 // ---------------------------------------------------------------------------
 const SAVED_STORY_WORDS_KEY = "phrasebook-saved-story-words-v1";
 const SAVED_WORDS_CHANGED_EVENT = "phrasebook:savedWordsChanged";
+// جلوگیری از چند درخواست هم‌زمان برای ترجمه‌ی یک لغت به یک زبان مشخص —
+// چه از پنل «لغات ذخیره‌شده» چه از زیرخط‌کشیِ ClickableSentence در چند
+// نمونه‌ی هم‌زمان روی صفحه.
+const crossTranslateInFlight = new Set();
 
 function loadSavedStoryWords() {
   try {
@@ -1039,7 +1043,11 @@ function isWordSaved(word, langCode) {
   const w = normalizeWord(word);
   return loadSavedStoryWords().some((e) => e.langCode === langCode && normalizeWord(e.word) === w);
 }
-function toggleSavedStoryWord(word, langCode) {
+// opts (اختیاری): { meaning, nativeLang } — اگه موقع ذخیره، ترجمه‌ی لغت به
+// زبان مادری کاربر از قبل روی صفحه (پاپ‌آپ لغت) موجود بود، همون‌جا همراه
+// خودِ لغت ذخیره می‌شه؛ وگرنه بعداً از جاهای دیگه (نگاه‌کردن دوباره به لغت،
+// یا پنل «لغات ذخیره‌شده») کامل می‌شه.
+function toggleSavedStoryWord(word, langCode, opts) {
   const w = normalizeWord(word);
   if (!w) return false;
   // Strip the same stray leading/trailing punctuation normalizeWord() would
@@ -1056,7 +1064,9 @@ function toggleSavedStoryWord(word, langCode) {
     list.splice(idx, 1);
     nowSaved = false;
   } else {
-    list.unshift({ word: cleanWord || word, langCode, savedAt: new Date().toISOString() });
+    const translations = {};
+    if (opts && opts.meaning && opts.nativeLang) translations[opts.nativeLang] = opts.meaning;
+    list.unshift({ word: cleanWord || word, langCode, savedAt: new Date().toISOString(), translations });
     nowSaved = true;
   }
   try {
@@ -1064,6 +1074,27 @@ function toggleSavedStoryWord(word, langCode) {
     window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
   } catch {}
   return nowSaved;
+}
+
+// ترجمه‌ی یک لغت ذخیره‌شده رو به یک زبان مشخص (targetLangCode) کامل/به‌روز
+// می‌کنه — هم برای نمایش ترجمه توی پنل «لغات ذخیره‌شده» استفاده می‌شه، هم
+// برای این‌که همون لغت وقتی به زبان‌های دیگه ترجمه شده تو متن دیده می‌شه،
+// زیرخط بخوره (نگاه کن به ClickableSentence).
+function updateSavedWordTranslation(word, langCode, targetLangCode, translatedText) {
+  if (!translatedText || !translatedText.trim()) return;
+  const w = normalizeWord(word);
+  const list = loadSavedStoryWords();
+  const idx = list.findIndex((e) => e.langCode === langCode && normalizeWord(e.word) === w);
+  if (idx === -1) return;
+  const entry = list[idx];
+  const prev = (entry.translations && entry.translations[targetLangCode]) || "";
+  if (prev === translatedText.trim()) return; // از رویداد بی‌فایده جلوگیری می‌کنه
+  const translations = { ...(entry.translations || {}), [targetLangCode]: translatedText.trim() };
+  list[idx] = { ...entry, translations };
+  try {
+    window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
+  } catch {}
 }
 // فقط اضافه می‌کنه (اگه از قبل نبود) — برخلاف toggleSavedStoryWord، هیچ‌وقت
 // چیزی رو حذف نمی‌کنه. برای اینکه هر لغتی که برای ساخت یه داستان انتخاب
@@ -1078,7 +1109,7 @@ function ensureSavedStoryWord(word, langCode) {
   const list = loadSavedStoryWords();
   const exists = list.some((e) => e.langCode === langCode && normalizeWord(e.word) === w);
   if (exists) return;
-  list.unshift({ word: cleanWord || word, langCode, savedAt: new Date().toISOString() });
+  list.unshift({ word: cleanWord || word, langCode, savedAt: new Date().toISOString(), translations: {} });
   try {
     window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(list));
     window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
@@ -3345,6 +3376,10 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
   // kept live so previously-saved terms get a dotted underline as soon as
   // they're saved (or lose it as soon as they're un-saved) anywhere in the app.
   const [savedTerms, setSavedTerms] = useState([]);
+  // ترجمه‌ی لغاتی که به یه زبان دیگه ذخیره شدن ولی معادل‌شون تو همین زبان
+  // (langCode فعلی) از قبل شناخته شده (یا تازه ترجمه شده) — تا همون معادل
+  // هم مثل خودِ لغتِ اصلی زیرخط بخوره.
+  const [crossTerms, setCrossTerms] = useState([]);
   const popupRef = useRef(null);
 
   const isFa = nativeLang === "fa";
@@ -3357,6 +3392,40 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     refresh();
     window.addEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
+  }, [langCode]);
+
+  // زیرخط کشیدنِ لغات ذخیره‌شده فقط به زبان مبدأ محدود نمونه — لغتی که به
+  // یه زبان دیگه ذخیره شده، معادلش رو تو این زبان (langCode) هم پیدا می‌کنه
+  // (از کش، یا با ترجمه‌ی آزاد در پس‌زمینه) و همون‌جا هم زیرخط می‌خوره.
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      const others = loadSavedStoryWords().filter((e) => e.langCode !== langCode);
+      const cached = others
+        .filter((e) => e.translations && e.translations[langCode])
+        .map((e) => e.translations[langCode]);
+      if (!cancelled) setCrossTerms(cached);
+      others.forEach((e) => {
+        if (e.translations && e.translations[langCode]) return;
+        const fetchKey = `${e.langCode}:${normalizeWord(e.word)}:${langCode}`;
+        if (crossTranslateInFlight.has(fetchKey)) return;
+        crossTranslateInFlight.add(fetchKey);
+        translateFree(e.word, langCode, e.langCode)
+          .then((result) => {
+            if (result && normalizeWord(result) !== normalizeWord(e.word)) {
+              updateSavedWordTranslation(e.word, e.langCode, langCode, result);
+            }
+          })
+          .catch(() => {})
+          .finally(() => crossTranslateInFlight.delete(fetchKey));
+      });
+    };
+    refresh();
+    window.addEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
+    };
   }, [langCode]);
 
   // Keep the popup inside the visible viewport (crucial on phones, where a
@@ -3407,7 +3476,9 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
   // saved word/expression for this language — longest match first, so a
   // saved multi-word expression (e.g. "give up") underlines as ONE unit
   // instead of underlining "give" and "up" separately.
-  const savedNorms = new Set(savedTerms.map((e) => normalizeWord(e.word)).filter(Boolean));
+  const savedNorms = new Set(
+    [...savedTerms.map((e) => e.word), ...crossTerms].map((w) => normalizeWord(w)).filter(Boolean)
+  );
   const wordTokIdx = [];
   tokens.forEach((t, i) => {
     if (!(/^\s+$/.test(t) || t === "")) wordTokIdx.push(i);
@@ -3455,6 +3526,12 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     try {
       const result = await lookupWordMeaning({ word: term, sentence: text, langCode, nativeLang });
       setInfo(result);
+      // اگه این لغت از قبل ذخیره شده بود ولی هنوز ترجمه‌اش به زبان مادری
+      // کش نشده بود، همین حالا که معنی‌اش پیدا شد، کاملش کن — هم برای
+      // نمایش تو پنل «لغات ذخیره‌شده»، هم برای زیرخط خوردنِ ترجمه‌اش.
+      if (result && result !== "error" && result.meaning) {
+        updateSavedWordTranslation(term, langCode, nativeLang, result.meaning);
+      }
     } catch (e) {
       setInfo("error");
     }
@@ -3614,7 +3691,8 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                       onClick={(e) => {
                         e.stopPropagation();
                         if (!activeTerm) return;
-                        setSaved(toggleSavedStoryWord(activeTerm, langCode));
+                        const meaningNow = info && info !== "loading" && info !== "error" ? info.meaning : "";
+                        setSaved(toggleSavedStoryWord(activeTerm, langCode, { meaning: meaningNow, nativeLang }));
                       }}
                       style={{
                         display: "flex",
@@ -4429,8 +4507,10 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   };
 
   // any language in the app can be a translation target — the story is
-  // always AI-generated fresh, so it isn't limited to the static phrase data
-  const translationLangOptions = Array.from(new Set([nativeLang, ...(targetOrder || [])])).filter((c) => c !== storyLang);
+  // always AI-generated fresh, so it isn't limited to the static phrase data.
+  // نمایش همه‌ی زبان‌های اپ اینجا (نه فقط زبان‌های بالای صفحه)، تا کاربر
+  // مجبور نباشه برای اضافه‌کردن یه زبون جدید بره بالا و اسکرول کنه.
+  const translationLangOptions = LANGUAGES.map((l) => l.code).filter((c) => c !== storyLang);
 
   const toggleTranslationLang = (code) => {
     setTranslationLangs((prev) =>
@@ -5567,7 +5647,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
 // popover's "save for next story" button, grouped by language, so they're
 // easy to find later instead of only surfacing inside Story Builder.
 // ---------------------------------------------------------------------------
-function SavedWordsPanel({ onJumpToStory }) {
+function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel }) {
   const [words, setWords] = useState([]);
   // لغاتی که کاربر توی همین صفحه علامت زده تا ببره داستان‌ساز — جدا از
   // خودِ انبار دائمی؛ فقط یه انتخاب موقتیه، نه حذف/اضافه به ذخیره‌شده‌ها.
@@ -5579,6 +5659,28 @@ function SavedWordsPanel({ onJumpToStory }) {
     window.addEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
   }, []);
+
+  // هر لغتی که هنوز ترجمه‌اش به زبان مادری کاربر ذخیره نشده (مثلاً چون از
+  // داستان‌ساز اضافه شده، نه از پاپ‌آپ لغت)، همین‌جا در پس‌زمینه ترجمه و کش
+  // می‌شه تا زیر همون کلمه نشون داده بشه.
+  useEffect(() => {
+    if (!nativeLang) return;
+    words.forEach((e) => {
+      if (e.langCode === nativeLang) return;
+      if (e.translations && e.translations[nativeLang]) return;
+      const fetchKey = `${e.langCode}:${normalizeWord(e.word)}:${nativeLang}`;
+      if (crossTranslateInFlight.has(fetchKey)) return;
+      crossTranslateInFlight.add(fetchKey);
+      translateFree(e.word, nativeLang, e.langCode)
+        .then((result) => {
+          if (result && normalizeWord(result) !== normalizeWord(e.word)) {
+            updateSavedWordTranslation(e.word, e.langCode, nativeLang, result);
+          }
+        })
+        .catch(() => {})
+        .finally(() => crossTranslateInFlight.delete(fetchKey));
+    });
+  }, [words, nativeLang]);
 
   const togglePick = (code, word) => {
     setPicked((prev) => {
@@ -5640,28 +5742,57 @@ function SavedWordsPanel({ onJumpToStory }) {
               <div className="flex flex-wrap gap-2">
                 {byLang[code].map((e) => {
                   const isPicked = pickedSet.has(e.word);
+                  const translation = (e.translations && e.translations[nativeLang]) || "";
                   return (
-                    <span
+                    <div
                       key={e.word}
-                      dir="auto"
-                      className="flex items-center gap-1"
                       style={{
-                        padding: "5px 6px 5px 12px",
-                        borderRadius: 20,
-                        fontSize: 12,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 3,
+                        minWidth: 96,
+                        maxWidth: 190,
+                        borderRadius: 14,
                         border: `1px solid ${isPicked ? colors.gold : colors.cardBorder}`,
                         backgroundColor: isPicked ? colors.goldSoft : colors.paper,
+                        padding: "7px 10px",
                       }}
                     >
-                      <button onClick={() => togglePick(code, e.word)}>{e.word}</button>
-                      <button
-                        onClick={() => removeSavedStoryWord(e.word, code)}
-                        style={{ color: colors.inkSoft, display: "flex" }}
-                        title="حذف دائمی"
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          onClick={() => togglePick(code, e.word)}
+                          dir="auto"
+                          style={{
+                            fontWeight: 700,
+                            fontSize: 13,
+                            color: colors.ink,
+                            textAlign: "start",
+                            overflowWrap: "break-word",
+                          }}
+                        >
+                          {e.word}
+                        </button>
+                        <button
+                          onClick={() => removeSavedStoryWord(e.word, code)}
+                          style={{ color: colors.inkSoft, display: "flex", flexShrink: 0 }}
+                          title="حذف دائمی"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                      <div
+                        dir={dirFor(nativeLang)}
+                        style={{
+                          fontSize: 11,
+                          color: colors.inkSoft,
+                          lineHeight: 1.6,
+                          fontFamily: nativeLang === "fa" ? fontFa : fontLatin,
+                          overflowWrap: "break-word",
+                        }}
                       >
-                        <X size={12} />
-                      </button>
-                    </span>
+                        {translation || "…"}
+                      </div>
+                    </div>
                   );
                 })}
               </div>
@@ -6074,19 +6205,37 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
                   {m.role === "user" ? m.text : <MiniMarkdown text={m.text} speakCode={chatLang} />}
                   {m.role === "ai" && (
                     <div className="flex justify-end" style={{ marginTop: 6 }}>
-                      <button
-                        onClick={() =>
-                          saveGrammarNote({
-                            langCode: chatLang,
-                            word: m.forSentence || "جمله",
-                            sentence: m.forSentence || "",
-                            markdown: m.text,
-                          })
-                        }
-                        style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}
-                      >
-                        ذخیره در یادگیری گرامر
-                      </button>
+                      {m.savedToGrammar ? (
+                        <span
+                          className="flex items-center gap-1"
+                          style={{ fontSize: 11, color: colors.gold, fontWeight: 700 }}
+                        >
+                          <Bookmark size={12} fill={colors.gold} />
+                          ذخیره شد
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            saveGrammarNote({
+                              langCode: chatLang,
+                              word: m.forSentence || "جمله",
+                              sentence: m.forSentence || "",
+                              markdown: m.text,
+                            });
+                            // یه‌بار ذخیره کافیه — با تغییر همین پیام به حالت
+                            // «ذخیره شد»، دکمه غیرفعال می‌شه و دیگه نیازی به
+                            // زدن دوباره‌ش نیست (که قبلاً گیج‌کننده بود).
+                            setChatMessages((prev) =>
+                              prev.map((msg, idx) => (idx === i ? { ...msg, savedToGrammar: true } : msg))
+                            );
+                          }}
+                          className="flex items-center gap-1"
+                          style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}
+                        >
+                          <Bookmark size={12} />
+                          ذخیره در یادگیری گرامر
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -6544,6 +6693,8 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
         {tab === "saved" && (
           <SavedWordsPanel
+            nativeLang={nativeLang}
+            nativeLabel={nativeLabel}
             onJumpToStory={(lang, words) => {
               setStoryJump({ lang, words, token: Date.now() });
               setTab("story");
