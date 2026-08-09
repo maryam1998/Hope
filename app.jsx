@@ -145,6 +145,39 @@ async function translateFree(text, targetLang, sourceLang = "auto") {
 async function translateWithGoogle(text, targetLang) {
   return translateFree(text, targetLang, "auto");
 }
+
+// ---------------------------------------------------------------------------
+// ترجمه‌ی «داخل جمله»‌ی یک کلمه/عبارت — به‌جای ترجمه‌ی مجزا و بی‌ربطِ خودِ
+// کلمه (که معمولاً شکلش با چیزی که واقعاً توی ترجمه‌ی جمله نوشته شده فرق
+// داره، مثلاً فعل صرف‌نشده در برابر صرف‌شده)، کل جمله رو با یک نشانگرِ
+// مخصوص دور همون کلمه ترجمه می‌کنیم؛ سرویس‌های ترجمه معمولاً این نشانگرها
+// رو دست‌نخورده رد می‌کنن، پس دقیقاً همون تکه از ترجمه که به اون کلمه
+// مربوطه رو بیرون می‌کشیم. این یعنی نتیجه، رشته‌ای واقعی از همون جمله‌ی
+// ترجمه‌شده‌ست و همیشه match می‌کنه — بدون نیاز به هوش مصنوعی یا بک‌اند.
+const ALIGN_L = "⟦";
+const ALIGN_R = "⟧";
+async function translateWordInContext(sentenceText, word, sourceLang, targetLang) {
+  if (!sentenceText || !word) return null;
+  const idx = sentenceText.toLowerCase().indexOf(word.toLowerCase());
+  if (idx === -1) return null;
+  const wrapped =
+    sentenceText.slice(0, idx) +
+    ALIGN_L +
+    sentenceText.slice(idx, idx + word.length) +
+    ALIGN_R +
+    sentenceText.slice(idx + word.length);
+  try {
+    const translated = await translateFree(wrapped, targetLang, sourceLang);
+    if (!translated) return null;
+    const re = new RegExp(`${ALIGN_L}([^${ALIGN_R}]*)${ALIGN_R}`);
+    const m = translated.match(re);
+    if (m && m[1] && m[1].trim()) return m[1].trim();
+  } catch {
+    // اگه سرویس‌ها نشانگر رو حذف/جابجا کردن یا شکست خورد، بی‌سروصدا برمی‌گردیم
+    // تا فراخوان‌کننده بره سراغ راه قبلی (ترجمه‌ی مجزای کلمه).
+  }
+  return null;
+}
 const colors = {
   paper: "var(--c-paper)",
   paperDark: "var(--c-paperDark)",
@@ -3395,15 +3428,30 @@ function RepeatButton({ color }) {
 // تکرار سراسری (RepeatButton بالاتر)، هرکدوم رو می‌خونه؛ وقتی یه آیتم تمام
 // تکرارهاش تموم شد (status از speechController میره رو idle)، خودش می‌ره
 // سراغ آیتم بعدی و صفحه رو با اسکرول نرم به همون‌جا می‌بره.
-function AutoReadButton({ getItems, color, label, trackLangCode }) {
+function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
   const [active, setActive] = useState(false);
   const activeRef = useRef(false);
   const idxRef = useRef(0);
+  // پاراگرافی که آیتمِ در حال خواندنِ فعلی بهش تعلق داره (نه ایندکسِ خام تو
+  // لیست — چون طول لیست با عوض‌شدنِ حالت جمله‌به‌جمله/پاراگراف‌به‌پاراگراف
+  // فرق می‌کنه). با همین، وقتی کاربر وسط خواندنِ خودکار حالت رو عوض می‌کنه
+  // می‌فهمیم دقیقاً کجای داستانیم و می‌تونیم تو لیستِ تازه هم از همون‌جا
+  // ادامه بدیم.
+  const piRef = useRef(0);
   const lastKeyRef = useRef(null);
   // برای تایمر خواندن: لحظه‌ی شروعِ همین جلسه‌ی روشن‌بودن، تا وقتی خاموش
   // شد (چه با دست، چه خودش با تمومِ داستان) طول جلسه محاسبه و ذخیره بشه.
   const sessionStartRef = useRef(null);
   const [elapsed, setElapsed] = useState(0);
+  // همیشه آخرین getItems (یعنی آخرین انتخاب کاربر برای جمله‌به‌جمله/
+  // پاراگراف‌به‌پاراگراف) رو نگه می‌داره. چون این ref هر رندر آپدیت می‌شه ولی
+  // خودِ آبجکتش عوض نمی‌شه، حتی effectِ زیرین (که فقط یه‌بار موقع mount اجرا
+  // می‌شه و playAt رو closure می‌کنه) هم با خوندن getItemsRef.current همیشه
+  // به آخرین انتخاب کاربر می‌رسه — نه یه نسخه‌ی قدیمی که موقع mount گیر کرده.
+  const getItemsRef = useRef(getItems);
+  useEffect(() => {
+    getItemsRef.current = getItems;
+  });
 
   useEffect(() => {
     if (!trackLangCode) return;
@@ -3431,7 +3479,7 @@ function AutoReadButton({ getItems, color, label, trackLangCode }) {
 
   function playAt(i) {
     if (!activeRef.current) return;
-    const items = (getItems && getItems()) || [];
+    const items = (getItemsRef.current && getItemsRef.current()) || [];
     if (i >= items.length) {
       activeRef.current = false;
       setActive(false);
@@ -3444,6 +3492,7 @@ function AutoReadButton({ getItems, color, label, trackLangCode }) {
       playAt(i + 1);
       return;
     }
+    if (item.pi !== undefined) piRef.current = item.pi;
     if (item.el && item.el.scrollIntoView) {
       item.el.scrollIntoView({ behavior: "smooth", block: "center" });
     }
@@ -3455,8 +3504,16 @@ function AutoReadButton({ getItems, color, label, trackLangCode }) {
   useEffect(() => {
     return speechController.subscribe((state) => {
       if (!activeRef.current) return;
-      if (state.status === "idle" && state.key && state.key === lastKeyRef.current) {
+      if (state.status !== "idle" || !state.key) return;
+      if (state.key === lastKeyRef.current) {
+        // خودِ آیتمِ جاریِ خواندن خودکار تموم شد — برو سراغ بعدی.
         playAt(idxRef.current + 1);
+      } else if (lastKeyRef.current) {
+        // یه پخشِ دیگه (مثلاً تلفظِ یه لغت که کاربر روش زده) وسط خواندن
+        // خودکار اجرا و تموم شد — به‌جای اینکه خواندن خودکار متوقف بمونه یا
+        // از اول شروع بشه، دقیقاً از همون جمله/پاراگرافی که قطع شده بود
+        // ادامه پیدا می‌کنه.
+        playAt(idxRef.current);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3471,6 +3528,23 @@ function AutoReadButton({ getItems, color, label, trackLangCode }) {
       }
     };
   }, []);
+
+  // کاربر وسط خواندنِ خودکار، حالتِ نمایش ترجمه رو عوض کرد (جمله‌به‌جمله
+  // ↔ پاراگراف‌به‌پاراگراف ↔ هیچکدام) — تشخیص می‌دیم و به‌جای قطع‌شدن یا
+  // پرش به ایندکسِ اشتباه (چون طول لیستِ آیتم‌ها با هر حالت فرق می‌کنه)،
+  // همون پاراگرافی که تا الان می‌خوندیم رو تو لیستِ تازه پیدا می‌کنیم و
+  // خواندن رو دقیقاً از همون‌جا ادامه می‌دیم.
+  const prevModeKeyRef = useRef(modeKey);
+  useEffect(() => {
+    if (modeKey === prevModeKeyRef.current) return;
+    prevModeKeyRef.current = modeKey;
+    if (!activeRef.current) return;
+    const items = (getItemsRef.current && getItemsRef.current()) || [];
+    let newIdx = items.findIndex((it) => it.pi === piRef.current);
+    if (newIdx === -1) newIdx = 0;
+    playAt(newIdx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modeKey]);
 
   const c = color || colors.gold;
 
@@ -3559,7 +3633,7 @@ function SpeedControl({ color }) {
 // a small popover with its part of speech + Persian meaning, looked up first
 // from the local VOCAB list, then (if not found) from the AI backend.
 // ---------------------------------------------------------------------------
-function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabelProp, aiSettings, color, fontFamily }) {
+function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabelProp, aiSettings, color, fontFamily, alignSourceText, alignSourceLang }) {
   const [openKey, setOpenKey] = useState(null); // `${startTokenIdx}-${endTokenIdx}` of the word/expression with popover open
   const [info, setInfo] = useState(null); // { pos, meaning } | "loading" | "error"
   const [anchorRect, setAnchorRect] = useState(null); // clicked word's screen position
@@ -3613,7 +3687,17 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
         const fetchKey = `${e.langCode}:${normalizeWord(e.word)}:${langCode}`;
         if (crossTranslateInFlight.has(fetchKey)) return;
         crossTranslateInFlight.add(fetchKey);
-        translateFree(e.word, langCode, e.langCode)
+        // اگه جمله‌ی مبدأ (همون زبانی که این لغت توش سیو شده) در دسترسه و
+        // خودِ لغت واقعاً توش هست، اول با تکنیک «ترجمه‌ی داخل جمله» امتحان
+        // می‌کنیم — نتیجه‌ش دقیقاً همون تکه‌ای از متنه که الان روی صفحه
+        // دیده می‌شه، پس همیشه زیرش خط می‌افته. فقط اگه این راه جواب نداد
+        // (یا جمله‌ی مبدأ در دسترس نبود)، می‌ریم سراغ ترجمه‌ی مجزای کلمه.
+        const aligned =
+          alignSourceText && e.langCode === alignSourceLang
+            ? translateWordInContext(alignSourceText, e.word, alignSourceLang, langCode)
+            : Promise.resolve(null);
+        aligned
+          .then((result) => result || translateFree(e.word, langCode, e.langCode))
           .then((result) => {
             if (result && normalizeWord(result) !== normalizeWord(e.word)) {
               updateSavedWordTranslation(e.word, e.langCode, langCode, result);
@@ -3629,7 +3713,7 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
       cancelled = true;
       window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
     };
-  }, [langCode]);
+  }, [langCode, alignSourceText, alignSourceLang]);
 
   // Keep the popup inside the visible viewport (crucial on phones, where a
   // long explanation used to spill off the right/left edge or bottom of
@@ -5585,6 +5669,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
               <AutoReadButton
                 color={colors.teal}
                 trackLangCode={storyLang}
+                modeKey={granularity}
                 getItems={() => {
                   if (granularity === "sentence") {
                     return paragraphs.flatMap((p, pi) =>
@@ -5592,6 +5677,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                         text: s.text,
                         code: storyLang,
                         el: sentenceElsRef.current[`${pi}-${si}`],
+                        pi,
                       }))
                     );
                   }
@@ -5599,6 +5685,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                     text: p.sentences.map((s) => s.text).join(" "),
                     code: storyLang,
                     el: paragraphElsRef.current[pi],
+                    pi,
                   }));
                 }}
               />
@@ -5693,6 +5780,8 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                         aiSettings={aiSettings}
                                         color={colors.inkSoft}
                                         fontFamily={code === "fa" ? fontFa : fontLatin}
+                                        alignSourceText={s.text}
+                                        alignSourceLang={storyLang}
                                       />
                                     ) : (
                                       <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
@@ -5750,6 +5839,8 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                     aiSettings={aiSettings}
                                     color={colors.inkSoft}
                                     fontFamily={code === "fa" ? fontFa : fontLatin}
+                                    alignSourceText={paragraphText}
+                                    alignSourceLang={storyLang}
                                   />
                                 ) : (
                                   <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
