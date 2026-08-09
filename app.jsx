@@ -1126,6 +1126,165 @@ function removeSavedStoryWord(word, langCode) {
 }
 
 // ---------------------------------------------------------------------------
+// Reading-time tracking — هر بار که «خواندن خودکار» داستان روشن/خاموش می‌شه
+// (چه با دست، چه خودش با تمومِ داستان)، یه رکورد ثبت می‌شه: چقدر طول کشید،
+// به تاریخ میلادی و شمسی. برای گزارش‌گیری و تحلیل توسط چت هوش مصنوعیِ
+// شناور استفاده می‌شه (نگاه کن به buildReadingReport و AiChat).
+// ---------------------------------------------------------------------------
+const READING_SESSIONS_KEY = "phrasebook-reading-sessions-v1";
+const READING_SESSIONS_CHANGED_EVENT = "phrasebook:readingSessionsChanged";
+
+function loadReadingSessions() {
+  try {
+    const raw = window.localStorage.getItem(READING_SESSIONS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+// تبدیل تاریخ میلادی به شمسی — الگوریتم استاندارد و رایج (مبتنی بر همون
+// حساب معروفِ jalaali)، بدون نیاز به هیچ کتابخونه‌ی جانبی.
+function gregorianToJalali(gy, gm, gd) {
+  const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+  let jy = gy <= 1600 ? 0 : 979;
+  gy -= gy <= 1600 ? 621 : 1600;
+  const gy2 = gm > 2 ? gy + 1 : gy;
+  let days =
+    365 * gy +
+    Math.floor((gy2 + 3) / 4) -
+    Math.floor((gy2 + 99) / 100) +
+    Math.floor((gy2 + 399) / 400) -
+    80 +
+    gd +
+    g_d_m[gm - 1];
+  jy += 33 * Math.floor(days / 12053);
+  days %= 12053;
+  jy += 4 * Math.floor(days / 1461);
+  days %= 1461;
+  if (days > 365) {
+    jy += Math.floor((days - 1) / 365);
+    days = (days - 1) % 365;
+  }
+  const jm = days < 186 ? 1 + Math.floor(days / 31) : 7 + Math.floor((days - 186) / 30);
+  const jd = 1 + (days < 186 ? days % 31 : (days - 186) % 30);
+  return [jy, jm, jd];
+}
+function formatJalaliDate(date) {
+  const [jy, jm, jd] = gregorianToJalali(date.getFullYear(), date.getMonth() + 1, date.getDate());
+  return `${jy}/${String(jm).padStart(2, "0")}/${String(jd).padStart(2, "0")}`;
+}
+
+// جلسه‌ی فعالیت رو ذخیره می‌کنه — جلسه‌های خیلی کوتاه‌تر از ۳ ثانیه (مثلاً
+// کلیک اشتباهی، یا سوییچ سریع بین تب‌ها) اصلاً ثبت نمی‌شن که گزارش رو شلوغ
+// نکنن. category یکی از این‌هاست: "app" (کل زمان بازبودن نرم‌افزار)،
+// "story" (خواندن خودکار داستان)، "grammar" (زمان توی تبِ گرامر)،
+// "phrases" (زمان توی تبِ عبارات).
+function saveReadingSession({ category = "story", langCode, startedAt, endedAt, durationSeconds }) {
+  if (!durationSeconds || durationSeconds < 3) return;
+  const list = loadReadingSessions();
+  const endDate = new Date(endedAt);
+  list.unshift({
+    id: `${endedAt}-${Math.random().toString(36).slice(2, 7)}`,
+    category,
+    langCode: langCode || null,
+    startedAt,
+    endedAt,
+    durationSeconds: Math.round(durationSeconds),
+    gregorianDate: endDate.toISOString().slice(0, 10),
+    jalaliDate: formatJalaliDate(endDate),
+  });
+  try {
+    // فقط ۸۰۰ رکورد آخر نگه داشته می‌شه که حافظه‌ی محلی شلوغ نشه.
+    window.localStorage.setItem(READING_SESSIONS_KEY, JSON.stringify(list.slice(0, 800)));
+    window.dispatchEvent(new Event(READING_SESSIONS_CHANGED_EVENT));
+  } catch {}
+}
+
+// یه گزارش خلاصه از فعالیت‌های ثبت‌شده می‌سازه: امروز، هفت روز اخیر، مجموع
+// کل زمانِ بازبودنِ اپ، تفکیک به‌ازای هر بخش (داستان/گرامر/عبارات) و هر
+// زبان، و ده جلسه‌ی آخر همراه با تاریخ میلادی/شمسی. هم برای نمایش کوتاه
+// داخل خودِ اپ، هم برای دادن به‌عنوان زمینه (context) به چت هوش مصنوعی
+// شناور تا واقعاً بر پایه‌ی داده‌های خودِ کاربر تحلیل و راهنمایی کنه.
+function buildReadingReport() {
+  const sessions = loadReadingSessions();
+  if (!sessions.length) return null;
+  // معیار «امروز/هفت‌روز اخیر/مجموع» بر پایه‌ی category=app (کل زمان
+  // بازبودن نرم‌افزار) حساب می‌شه — شهودی‌ترین عدده برای «چقدر استفاده کردم».
+  const appSessions = sessions.filter((e) => e.category === "app");
+  const totalAppSeconds = appSessions.reduce((s, e) => s + e.durationSeconds, 0);
+  const today = new Date().toISOString().slice(0, 10);
+  const todaySeconds = appSessions.filter((e) => e.gregorianDate === today).reduce((s, e) => s + e.durationSeconds, 0);
+  const weekAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+  const weekSeconds = appSessions
+    .filter((e) => new Date(e.endedAt) >= weekAgo)
+    .reduce((s, e) => s + e.durationSeconds, 0);
+  const byCategory = {};
+  sessions.forEach((e) => {
+    byCategory[e.category] = (byCategory[e.category] || 0) + e.durationSeconds;
+  });
+  const byLang = {};
+  sessions
+    .filter((e) => e.langCode)
+    .forEach((e) => {
+      byLang[e.langCode] = (byLang[e.langCode] || 0) + e.durationSeconds;
+    });
+  return {
+    totalSessions: sessions.length,
+    totalAppMinutes: Math.round(totalAppSeconds / 60),
+    todayMinutes: Math.round(todaySeconds / 60),
+    weekMinutes: Math.round(weekSeconds / 60),
+    byCategoryMinutes: Object.fromEntries(Object.entries(byCategory).map(([k, v]) => [k, Math.round(v / 60)])),
+    byLangMinutes: Object.fromEntries(Object.entries(byLang).map(([k, v]) => [k, Math.round(v / 60)])),
+    recent: sessions.slice(0, 10).map((e) => ({
+      category: e.category,
+      langCode: e.langCode,
+      minutes: Math.max(1, Math.round(e.durationSeconds / 60)),
+      gregorianDate: e.gregorianDate,
+      jalaliDate: e.jalaliDate,
+    })),
+  };
+}
+
+// هوکِ عمومیِ اندازه‌گیری زمان — وقتی isActive روشنه (مثلاً یه تب خاص بازه)
+// و صفحه هم واقعاً جلوی چشم کاربره (نه پس‌زمینه‌ی مرورگر)، زمان می‌شمره؛
+// به محض false شدن isActive، یا مخفی‌شدن تب مرورگر، یا unmount شدن، همون
+// جلسه رو با saveReadingSession ذخیره می‌کنه. برای هر سه‌ی «کل زمان اپ»،
+// «تبِ گرامر»، و «تبِ عبارات» از همین هوک استفاده می‌شه.
+function useActivityTimeTracker(category, isActive, langCode) {
+  const startRef = useRef(null);
+  useEffect(() => {
+    function start() {
+      if (!startRef.current) startRef.current = new Date().toISOString();
+    }
+    function stop() {
+      if (!startRef.current) return;
+      const startedAt = startRef.current;
+      startRef.current = null;
+      const endedAt = new Date().toISOString();
+      const durationSeconds = (new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000;
+      saveReadingSession({ category, langCode, startedAt, endedAt, durationSeconds });
+    }
+    if (isActive && (typeof document === "undefined" || document.visibilityState === "visible")) start();
+    else stop();
+
+    function handleVisibility() {
+      if (!isActive) return;
+      if (document.visibilityState === "visible") start();
+      else stop();
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("beforeunload", stop);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("beforeunload", stop);
+      stop();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive, category, langCode]);
+}
+
+// ---------------------------------------------------------------------------
 // Grammar notes — detailed, per-word grammar explanations the user chose to
 // keep ("افزودن به یادگیری گرامر"), plus AI-checked practice sentences from
 // the Grammar tab's chat. Stored per-device, global across every story —
@@ -3236,11 +3395,39 @@ function RepeatButton({ color }) {
 // تکرار سراسری (RepeatButton بالاتر)، هرکدوم رو می‌خونه؛ وقتی یه آیتم تمام
 // تکرارهاش تموم شد (status از speechController میره رو idle)، خودش می‌ره
 // سراغ آیتم بعدی و صفحه رو با اسکرول نرم به همون‌جا می‌بره.
-function AutoReadButton({ getItems, color, label }) {
+function AutoReadButton({ getItems, color, label, trackLangCode }) {
   const [active, setActive] = useState(false);
   const activeRef = useRef(false);
   const idxRef = useRef(0);
   const lastKeyRef = useRef(null);
+  // برای تایمر خواندن: لحظه‌ی شروعِ همین جلسه‌ی روشن‌بودن، تا وقتی خاموش
+  // شد (چه با دست، چه خودش با تمومِ داستان) طول جلسه محاسبه و ذخیره بشه.
+  const sessionStartRef = useRef(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!trackLangCode) return;
+    if (active) {
+      sessionStartRef.current = new Date().toISOString();
+    } else if (sessionStartRef.current) {
+      const startedAt = sessionStartRef.current;
+      sessionStartRef.current = null;
+      const endedAt = new Date().toISOString();
+      const durationSeconds = (new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000;
+      saveReadingSession({ langCode: trackLangCode, startedAt, endedAt, durationSeconds });
+    }
+  }, [active, trackLangCode]);
+
+  // تایمرِ زنده — تا کاربر همون لحظه ببینه چقدر داره می‌خونه.
+  useEffect(() => {
+    if (!active) {
+      setElapsed(0);
+      return;
+    }
+    const start = Date.now();
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [active]);
 
   function playAt(i) {
     if (!activeRef.current) return;
@@ -3302,23 +3489,39 @@ function AutoReadButton({ getItems, color, label }) {
   }
 
   return (
-    <button
-      onClick={handleClick}
-      className="flex items-center gap-1"
-      style={{
-        color: active ? c : colors.inkSoft,
-        background: "none",
-        border: "none",
-        cursor: "pointer",
-        padding: 2,
-        flexShrink: 0,
-      }}
-      title={active ? "توقف خواندن خودکار" : "خواندن خودکار همه (با اسکرول خودکار)"}
-      aria-label={active ? "توقف خواندن خودکار" : "خواندن خودکار همه"}
-    >
-      {active ? <Pause size={16} /> : <PlayCircle size={16} />}
-      {label && <span style={{ fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}>{label}</span>}
-    </button>
+    <span className="flex items-center gap-1">
+      <button
+        onClick={handleClick}
+        className="flex items-center gap-1"
+        style={{
+          color: active ? c : colors.inkSoft,
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: 2,
+          flexShrink: 0,
+        }}
+        title={active ? "توقف خواندن خودکار" : "خواندن خودکار همه (با اسکرول خودکار)"}
+        aria-label={active ? "توقف خواندن خودکار" : "خواندن خودکار همه"}
+      >
+        {active ? <Pause size={16} /> : <PlayCircle size={16} />}
+        {label && <span style={{ fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}>{label}</span>}
+      </button>
+      {active && trackLangCode && (
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            color: c,
+            fontVariantNumeric: "tabular-nums",
+            whiteSpace: "nowrap",
+          }}
+          title="مدت زمان خواندن این جلسه"
+        >
+          ⏱ {String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}
+        </span>
+      )}
+    </span>
   );
 }
 function SpeedControl({ color }) {
@@ -5381,6 +5584,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
               <SpeakButton text={fullStoryText} code={storyLang} color={colors.teal} />
               <AutoReadButton
                 color={colors.teal}
+                trackLangCode={storyLang}
                 getItems={() => {
                   if (granularity === "sentence") {
                     return paragraphs.flatMap((p, pi) =>
@@ -6332,6 +6536,22 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [query, setQuery] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
   const [chatOpen, setChatOpen] = useState(false);
+  // گزارش خواندن — از رکوردهای تایمرِ «خواندن خودکار» ساخته می‌شه و هم
+  // برای خلاصه‌ی کوچیک بالای چت، هم به‌عنوان زمینه برای خودِ چت هوش
+  // مصنوعی (AiChat) استفاده می‌شه تا بتونه بر پایه‌ی داده‌ی واقعی تحلیل کنه.
+  const [readingReport, setReadingReport] = useState(() => buildReadingReport());
+  useEffect(() => {
+    const refresh = () => setReadingReport(buildReadingReport());
+    window.addEventListener(READING_SESSIONS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(READING_SESSIONS_CHANGED_EVENT, refresh);
+  }, []);
+  // اندازه‌گیری زمان: کل زمانی که نرم‌افزار جلوی چشم کاربره (همیشه فعال، تا
+  // وقتی این کامپوننت سوار/باز باشه)، بعلاوه‌ی زمانی که مشخصاً تو تبِ گرامر
+  // یا تبِ عبارات سپری می‌شه — همه‌شون جدا از تایمرِ «خواندن خودکار داستان»
+  // (که خودش تو AutoReadButton ثبت می‌شه) و همه با هم می‌رن تو یه گزارش.
+  useActivityTimeTracker("app", true);
+  useActivityTimeTracker("grammar", tab === "grammar");
+  useActivityTimeTracker("phrases", tab === "phrases");
   const [loaded, setLoaded] = useState(false);
   const [wordStats, setWordStats] = useState({});
   const [savedStories, setSavedStories] = useState([]);
@@ -6790,7 +7010,13 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                 <X size={20} color={colors.inkSoft} />
               </button>
             </div>
-            <AiChat targetLabel={targetLabel} nativeLabel={nativeLabel} />
+            {readingReport && (
+              <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 8 }}>
+                ⏱ امروز {readingReport.todayMinutes} دقیقه، هفت روز اخیر {readingReport.weekMinutes} دقیقه تو اپ بودی —
+                از هوش مصنوعی بخواه گزارش کاملت (داستان، گرامر، عبارات) رو تحلیل کنه.
+              </p>
+            )}
+            <AiChat targetLabel={targetLabel} nativeLabel={nativeLabel} readingReport={readingReport} />
           </div>
         </div>
       )}
@@ -7086,7 +7312,7 @@ function ReviewBox({ phrases, boxes, setBoxes, nativeLang, targetLangs, index, s
 // ---------------------------------------------------------------------------
 // AI chat practice partner
 // ---------------------------------------------------------------------------
-function AiChat({ targetLabel, nativeLabel }) {
+function AiChat({ targetLabel, nativeLabel, readingReport }) {
   const [messages, setMessages] = useState([
     { role: "assistant", text: `سلام! هر سوالی داری بپرس — درباره‌ی ${targetLabel || "زبانی که یاد می‌گیری"}، یا هر موضوع دیگه‌ای، هرچی دلت خواست. به ${nativeLabel} هم می‌تونی بنویسی.` },
   ]);
@@ -7105,6 +7331,9 @@ function AiChat({ targetLabel, nativeLabel }) {
     setInput("");
     setLoading(true);
     try {
+      const reportText = readingReport
+        ? `Here is the user's REAL usage/practice data in this app, tracked automatically (Persian dates are the Jalali/Shamsi calendar; "app" = total time the app was open and in view, "story"/"grammar"/"phrases" = time spent specifically in each of those sections — sections can overlap with "app" time, they're not additive). Use it whenever the user asks about their study habits, progress, streaks, or wants encouragement/analysis — refer to real numbers, don't make them up: total sessions ever: ${readingReport.totalSessions}; total app-open minutes ever: ${readingReport.totalAppMinutes}; app-open minutes today: ${readingReport.todayMinutes}; app-open minutes in the last 7 days: ${readingReport.weekMinutes}; minutes per section (app/story/grammar/phrases → minutes): ${JSON.stringify(readingReport.byCategoryMinutes)}; minutes per language read/listened to (ISO code → minutes): ${JSON.stringify(readingReport.byLangMinutes)}; last sessions (most recent first, section/language/minutes/Gregorian date/Jalali date): ${readingReport.recent.map((r) => `${r.category}${r.langCode ? "/" + r.langCode : ""} ${r.minutes}min on ${r.gregorianDate} (${r.jalaliDate})`).join("; ")}.`
+        : "The user has no recorded usage sessions yet in this app (tracking just started, or they haven't used it long enough — sessions under 3 seconds aren't logged). If they ask about their progress, mention it'll start showing up as they use the app.";
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -7114,7 +7343,7 @@ function AiChat({ targetLabel, nativeLabel }) {
           messages: [
             {
               role: "user",
-              content: `You are a helpful, all-purpose AI assistant chatting with a Persian speaker inside a language-learning app. Answer ANY question the user asks, on ANY topic (not just language learning) — general knowledge, advice, help with code, translation, or plain conversation — exactly like a general-purpose assistant would. Default to replying in ${nativeLabel} unless the user is specifically practicing ${targetLabel || "a foreign language"} or asks in another language, in which case reply in that language (adding a short ${nativeLabel} translation in parentheses for non-trivial sentences). If the user writes a sentence in ${targetLabel || "the target language"} that looks like a practice attempt, gently correct it. Keep replies reasonably short and conversational unless the question needs more depth. Conversation so far:\n\n${[...messages, userMsg].map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`).join("\n")}`,
+              content: `You are a helpful, all-purpose AI assistant chatting with a Persian speaker inside a language-learning app. Answer ANY question the user asks, on ANY topic (not just language learning) — general knowledge, advice, help with code, translation, or plain conversation — exactly like a general-purpose assistant would. Default to replying in ${nativeLabel} unless the user is specifically practicing ${targetLabel || "a foreign language"} or asks in another language, in which case reply in that language (adding a short ${nativeLabel} translation in parentheses for non-trivial sentences). If the user writes a sentence in ${targetLabel || "the target language"} that looks like a practice attempt, gently correct it. Keep replies reasonably short and conversational unless the question needs more depth.\n\n${reportText}\n\nConversation so far:\n\n${[...messages, userMsg].map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`).join("\n")}`,
             },
           ],
         }),
