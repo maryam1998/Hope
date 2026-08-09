@@ -129,9 +129,27 @@ async function translateViaLibre(text, targetLang, sourceLang = "auto") {
   return data.translatedText;
 }
 
+// ۵) آخرین راه‌حل: از همون بک‌اند AI خودِ اپ (Cloudflare Worker) بخوایم ترجمه
+// کنه. برخلاف ۴ سرویس بالا (که مستقیماً از مرورگر به سرورهای خارجی وصل
+// می‌شن و بسته به شبکه/ISP کاربر ممکنه فیلتر یا بلاک باشن)، این یکی از
+// همون Worker همیشه‌دردسترسِ خودِ اپ رد می‌شه — پس اگه AI برای بقیه‌ی
+// بخش‌های اپ (مثل ساخت داستان) کار می‌کنه، این هم کار می‌کنه.
+async function translateViaAI(text, targetLang, sourceLang, aiSettings) {
+  if (!aiSettings) throw new Error("translate-ai-no-settings");
+  const targetLabel = (typeof LANGUAGES !== "undefined" && LANGUAGES.find((l) => l.code === targetLang)?.label) || targetLang;
+  const prompt =
+    `Translate the following text into ${targetLabel}. ` +
+    `Respond with ONLY the translation itself — no quotes, no explanation, no original text, nothing else.\n\n` +
+    `Text: ${text}`;
+  const result = await callAI({ prompt, maxTokens: 200, retries: 1, aiSettings });
+  const cleaned = String(result || "").replace(/^["'«»]+|["'«».\s]+$/g, "").trim();
+  if (!cleaned) throw new Error("translate-ai-empty-response");
+  return cleaned;
+}
+
 // تابع اصلی: هر سرویس رو به‌ترتیب امتحان می‌کنه، به محض موفقیت نتیجه رو برمی‌گردونه.
 // اگه همه شکست خوردن، متن اصلی بدون تغییر برگردونده می‌شه (تا برنامه از کار نیفته).
-async function translateFree(text, targetLang, sourceLang = "auto") {
+async function translateFree(text, targetLang, sourceLang = "auto", aiSettings = null) {
   if (!text || !targetLang) return text;
   // اگه زبان مبدا و مقصد یکی باشن، ترجمه بی‌معنیه (و بعضی سرویس‌ها به‌جای
   // خطا، یه پیام متنی برمی‌گردونن که اشتباهی به‌عنوان "ترجمه" ذخیره می‌شد) —
@@ -146,7 +164,18 @@ async function translateFree(text, targetLang, sourceLang = "auto") {
       console.warn(`ترجمه با ${provider.name} ناموفق بود، رفتن سراغ سرویس بعدی:`, error?.message || error);
     }
   }
-  console.error("همه‌ی سرویس‌های ترجمه‌ی رایگان شکست خوردند؛ متن اصلی برگردانده شد.");
+  // اگه هر ۴ سرویسِ رایگان شکست خوردن (مثلاً به‌خاطر فیلتر/بلاک‌بودنِ
+  // این سرورهای خارجی توی شبکه‌ی کاربر) و aiSettings در دسترس بود،
+  // به‌عنوان آخرین چاره از بک‌اند AI خودِ اپ کمک می‌گیریم.
+  if (aiSettings) {
+    try {
+      const result = await translateViaAI(text, targetLang, sourceLang, aiSettings);
+      if (result && result.trim()) return result;
+    } catch (error) {
+      console.warn("ترجمه با بک‌اند AI هم ناموفق بود:", error?.message || error);
+    }
+  }
+  console.error("همه‌ی سرویس‌های ترجمه شکست خوردند؛ متن اصلی برگردانده شد.");
   return text; // اگر هیچ سرویسی جواب نداد، متن اصلی برگردانده می‌شود
 }
 
@@ -4986,6 +5015,16 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const defaultStoryLang =
     (targetOrder || []).find((c) => storyLangOptions.includes(c)) || storyLangOptions[0] || "en";
   const [storyLang, setStoryLang] = useState(defaultStoryLang);
+  // اگه کاربر بالای صفحه زبان‌های مقصد رو عوض کنه (مثلاً از انگلیسی به
+  // هندی)، storyLang باید خودش رو با انتخاب جدید هماهنگ کنه — قبلاً فقط
+  // یه‌بار موقع mount مقداردهی می‌شد و بعدش «قفل» می‌موند رو همون زبون اول،
+  // حتی اگه دیگه جزو گزینه‌های فعلی نبود.
+  useEffect(() => {
+    if (!storyLangOptions.includes(storyLang)) {
+      setStoryLang(defaultStoryLang);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultStoryLang, storyLangOptions.join(",")]);
   const sentenceElsRef = useRef({}); // "pi-si" -> DOM node, for auto-read scroll
   const paragraphElsRef = useRef({}); // pi -> DOM node, for auto-read scroll
   const [storyLevel, setStoryLevel] = useState("A2");
@@ -5102,7 +5141,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         // مقصدِ معنی باید همون زبان مادریِ کاربر باشه (nativeLang)، نه همیشه
         // فارسی — چون پیش‌فرض برنامه فارسیه ولی کاربر می‌تونه هر زبونی رو
         // به‌عنوان زبان مادریش انتخاب کنه.
-        const res = await translateFree(term, nativeLang, storyLang);
+        const res = await translateFree(term, nativeLang, storyLang, aiSettings);
         meaning = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim();
       }
     } catch (e) {
@@ -5143,7 +5182,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     try {
       const meanings = await Promise.all(
         missing.map((w) =>
-          translateFree(w.term, nativeLang, storyLang).catch(() => "")
+          translateFree(w.term, nativeLang, storyLang, aiSettings).catch(() => "")
         )
       );
       const list = loadWordCollections();
@@ -5260,7 +5299,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       // fed to the story generator must be in storyLang too. Translate it
       // via the free translation services (not the AI) — a same-language
       // word just comes back unchanged.
-      const res = await translateFree(w, storyLang, "auto");
+      const res = await translateFree(w, storyLang, "auto", aiSettings);
       const translated = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim() || w;
       if (!selectedWords.includes(translated)) {
         setSelectedWords((prev) => [...prev, translated]);
@@ -8441,23 +8480,31 @@ export default function App() {
   // رفرش کردن صفحه هم لاگین باقی می‌مونه.
   useEffect(() => {
     let active = true;
-    // If we just landed back from a Google OAuth redirect, the URL contains
-    // the access/refresh tokens (or an error) in the query/hash — Supabase
-    // reads them on load, but we then scrub the address bar immediately so
-    // 1) those tokens don't sit visibly in the URL/history, and 2) the next
-    // login attempt (redirectTo above) never picks up a leftover fragment.
-    if (window.location.hash.includes("access_token") || window.location.search.includes("error")) {
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
+    // NOTE: we used to strip access_token/error from the URL right here,
+    // synchronously, before Supabase had a chance to read it. That's a race:
+    // Supabase's own hash/code parsing (detectSessionInUrl) runs
+    // asynchronously, and if we clear the URL first, Supabase finds nothing
+    // left to parse — no session gets created — and the app falls back to
+    // the login screen even though Google auth itself succeeded. So now we
+    // let getSession()/onAuthStateChange do their job first, and only scrub
+    // the address bar afterward (see onAuthStateChange below and the
+    // fallback cleanup a few lines down).
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return;
       setUser(supabaseUserToSession(data?.session?.user || null));
       setCheckingSession(false);
+      if (
+        window.location.hash.includes("access_token") ||
+        window.location.search.includes("code=") ||
+        window.location.search.includes("error")
+      ) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(supabaseUserToSession(session?.user || null));
       setCheckingSession(false);
-      if (window.location.hash.includes("access_token")) {
+      if (window.location.hash.includes("access_token") || window.location.search.includes("code=")) {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     });
