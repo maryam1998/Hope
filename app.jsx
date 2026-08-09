@@ -1326,91 +1326,6 @@ function useActivityTimeTracker(category, isActive, langCode) {
 }
 
 // ---------------------------------------------------------------------------
-// تایمرِ دستیِ مطالعه — یک دکمه‌ی روشن/خاموشِ ساده که کاملاً دستِ خودِ
-// کاربره: خودش تصمیم می‌گیره کِی بزنه روشن (شروع مطالعه) و کِی خاموش
-// (پایان مطالعه)، برخلاف useActivityTimeTracker بالا که خودکار و بر پایه‌ی
-// اینکه کدوم تب بازه کار می‌کنه. با خاموش‌کردن (یا بستن مرورگر/رفتن از
-// صفحه وسط روشن‌بودنش)، جلسه با saveReadingSession ثبت می‌شه — همراه هم
-// تاریخ میلادی هم شمسی. توی داستان‌ساز/گرامر/عبارات استفاده می‌شه.
-// ---------------------------------------------------------------------------
-function SectionTimer({ category, langCode, label, color }) {
-  const [running, setRunning] = useState(false);
-  const runningRef = useRef(false);
-  const [elapsed, setElapsed] = useState(0);
-  const startRef = useRef(null);
-  const c = color || colors.gold;
-
-  function stopAndSave() {
-    if (!startRef.current) return;
-    const startedAt = startRef.current;
-    startRef.current = null;
-    const endedAt = new Date().toISOString();
-    const durationSeconds = (new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000;
-    saveReadingSession({ category, langCode, startedAt, endedAt, durationSeconds });
-  }
-
-  useEffect(() => {
-    if (!running) return;
-    const start = Date.now();
-    const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
-    return () => clearInterval(id);
-  }, [running]);
-
-  // اگه وسط روشن‌بودن، صفحه بسته/رفرش بشه، جلسه به‌جای گم‌شدن همون لحظه
-  // ثبت می‌شه — فقط یه‌بار هنگام mount/unmount، نه هر بار toggle.
-  useEffect(() => {
-    function handleUnload() {
-      if (runningRef.current) stopAndSave();
-    }
-    window.addEventListener("beforeunload", handleUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleUnload);
-      if (runningRef.current) stopAndSave();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function toggle() {
-    if (running) {
-      stopAndSave();
-      runningRef.current = false;
-      setRunning(false);
-      setElapsed(0);
-    } else {
-      startRef.current = new Date().toISOString();
-      runningRef.current = true;
-      setElapsed(0);
-      setRunning(true);
-    }
-  }
-
-  return (
-    <button
-      onClick={toggle}
-      className="flex items-center gap-1.5"
-      style={{
-        fontFamily: fontFa,
-        color: running ? "white" : c,
-        backgroundColor: running ? c : "transparent",
-        border: `1px solid ${c}`,
-        borderRadius: 20,
-        padding: "5px 12px",
-        cursor: "pointer",
-        fontSize: 12,
-        fontWeight: 700,
-        flexShrink: 0,
-      }}
-      title={running ? "توقف و ذخیره‌ی تایمرِ مطالعه" : "شروع تایمرِ مطالعه"}
-    >
-      {running ? <Pause size={13} /> : <PlayCircle size={13} />}
-      {running
-        ? `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`
-        : label || "تایمر مطالعه"}
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Grammar notes — detailed, per-word grammar explanations the user chose to
 // keep ("افزودن به یادگیری گرامر"), plus AI-checked practice sentences from
 // the Grammar tab's chat. Stored per-device, global across every story —
@@ -3242,6 +3157,101 @@ function LangStamp({ lang, active, onClick, disabled }) {
 }
 
 // ---------------------------------------------------------------------------
+// ردیفِ قابل‌کشیدنِ زبان‌ها — دقیقاً همون LangStamp‌های قبلی رو نشون می‌ده
+// (برای انتخابِ زبان مادری/مقصد با یه تپ ساده)، ولی هر مهرِ زبان رو هم
+// قابل‌کشیدن می‌کنه تا ترتیبِ نمایش‌شون عوض بشه. برای تشخیصِ «کشیدن» از
+// «تپ‌زدن»، تا وقتی انگشت/ماوس کمتر از ۸ پیکسل جابه‌جا نشده، هنوز تپ
+// حساب می‌شه (تا انتخابِ زبان با تپ خراب نشه)؛ بعد از اون آستانه، حالت
+// کشیدن فعال می‌شه و تپِ نهاییِ onClick نادیده گرفته می‌شه.
+// ---------------------------------------------------------------------------
+function DraggableLangRow({ order, setOrder, languages, isActive, isDisabled, onClick }) {
+  const dragState = useRef({ code: null, startX: 0, startY: 0, dragging: false });
+  const [dragCode, setDragCode] = useState(null);
+
+  useEffect(() => {
+    function handleMove(e) {
+      const st = dragState.current;
+      if (!st.code) return;
+      const point = e.touches ? e.touches[0] : e;
+      if (!st.dragging) {
+        const dx = Math.abs(point.clientX - st.startX);
+        const dy = Math.abs(point.clientY - st.startY);
+        if (dx < 8 && dy < 8) return; // هنوز آستانه‌ی کشیدن رد نشده — تپ حساب می‌شه
+        st.dragging = true;
+        setDragCode(st.code);
+      }
+      if (e.cancelable) e.preventDefault();
+      const el = document.elementFromPoint(point.clientX, point.clientY);
+      const stampEl = el && el.closest("[data-lang-order-code]");
+      if (!stampEl) return;
+      const hoveredCode = stampEl.getAttribute("data-lang-order-code");
+      if (hoveredCode === st.code) return;
+      const fromIndex = order.indexOf(st.code);
+      const toIndex = order.indexOf(hoveredCode);
+      if (fromIndex === -1 || toIndex === -1) return;
+      const next = [...order];
+      next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, st.code);
+      setOrder(next);
+    }
+    function handleUp() {
+      dragState.current = { code: null, startX: 0, startY: 0, dragging: false };
+      setDragCode(null);
+    }
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("touchmove", handleMove, { passive: false });
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("touchend", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("touchend", handleUp);
+    };
+  }, [order, setOrder]);
+
+  // زبان‌هایی که هنوز توی order نیستن (مثلاً بعداً به PHRASEBOOK_LANGUAGES
+  // اضافه شدن) آخرِ ردیف نشون داده می‌شن تا از دست نرن.
+  const orderedLangs = [
+    ...order.map((code) => languages.find((l) => l.code === code)).filter(Boolean),
+    ...languages.filter((l) => !order.includes(l.code)),
+  ];
+
+  return (
+    <div className="flex gap-2 overflow-x-auto pb-1">
+      {orderedLangs.map((l) => (
+        <div
+          key={l.code}
+          data-lang-order-code={l.code}
+          onMouseDown={(e) => {
+            dragState.current = { code: l.code, startX: e.clientX, startY: e.clientY, dragging: false };
+          }}
+          onTouchStart={(e) => {
+            const t = e.touches[0];
+            dragState.current = { code: l.code, startX: t.clientX, startY: t.clientY, dragging: false };
+          }}
+          style={{
+            touchAction: "pan-x",
+            cursor: "grab",
+            flexShrink: 0,
+            opacity: dragCode === l.code ? 0.55 : 1,
+          }}
+        >
+          <LangStamp
+            lang={l}
+            active={isActive(l.code)}
+            disabled={isDisabled ? isDisabled(l.code) : false}
+            onClick={() => {
+              if (!dragState.current.dragging) onClick(l.code);
+            }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Hamburger settings menu — theme color, font family, font size. Appears as
 // a dropdown panel from the header. Appearance prefs are device-level
 // (appPrefs/setAppPrefs, persisted via APP_PREFS_KEY) so they apply
@@ -4767,15 +4777,20 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [error, setError] = useState("");
   const [showSaved, setShowSaved] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
+  // لغاتِ ذخیره‌شده‌ی همین زبان — به‌شکلِ چیپ‌های کوچیکِ قابل‌تپ همین‌جا هم
+  // نشون داده می‌شن (نه فقط توی تبِ «لغات ذخیره‌شده») تا کاربر لازم نباشه
+  // برای استفاده‌ی دوباره از یه لغتِ قبلاً ذخیره‌شده، تب عوض کنه.
+  const [savedWordsForLang, setSavedWordsForLang] = useState([]);
+  useEffect(() => {
+    const refresh = () => setSavedWordsForLang(loadSavedStoryWords().filter((e) => e.langCode === storyLang));
+    refresh();
+    window.addEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
+  }, [storyLang]);
 
   const storyLangLabel = LANGUAGES.find((l) => l.code === storyLang)?.label || storyLang;
   const allSentences = paragraphs.flatMap((p) => p.sentences);
   const fullStoryText = allSentences.map((s) => s.text).join(" ");
-
-  // توجه: انبار «لغات ذخیره‌شده» دیگه به‌شکل چیپ‌های پیشنهادی توی همین
-  // صفحه بارگذاری/نشون داده نمی‌شه (چون شلوغش می‌کرد). لغاتِ انتخاب‌شده
-  // از تبِ «لغات ذخیره‌شده» از طریق jumpTo مستقیماً به selectedWords
-  // اضافه می‌شن (پایین‌تر).
 
   useEffect(() => {
     setCollections(loadWordCollections().filter((c) => c.langCode === storyLang));
@@ -5389,11 +5404,39 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
           <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 8 }}>{translateNote}</p>
         )}
 
-        {/* لیست انبار «لغات ذخیره‌شده» دیگه اینجا نشون داده نمی‌شه — چون
-            تعدادش زیاد می‌شه و صفحه‌ی داستان‌ساز رو شلوغ می‌کنه. برای
-            استفاده از لغاتِ ذخیره‌شده، کاربر می‌ره تبِ «لغات ذخیره‌شده»،
-            هرکدوم رو خواست انتخاب می‌کنه، و از همون‌جا با دکمه‌ی «افزودن به
-            داستان‌ساز» به همین‌جا (selectedWords) اضافه می‌شن. */}
+        {/* لغاتِ ذخیره‌شده‌ی این زبان — با یه تپ به selectedWords اضافه/حذف
+            می‌شن؛ حذف از اینجا فقط از انتخابِ همین داستان برمی‌داره، از
+            انبار دائمیِ «لغات ذخیره‌شده» چیزی پاک نمی‌کنه. */}
+        {savedWordsForLang.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 6 }}>
+              لغات ذخیره‌شده‌ی {storyLangLabel}:
+            </p>
+            <div className="flex flex-wrap gap-2" style={{ maxHeight: 120, overflowY: "auto" }}>
+              {savedWordsForLang.map((e) => {
+                const active = selectedWords.includes(e.word);
+                const meaning = e.translations && e.translations[nativeLang];
+                return (
+                  <button
+                    key={e.word}
+                    dir="auto"
+                    onClick={() => toggleWord(e.word)}
+                    title={meaning || ""}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: 20,
+                      fontSize: 12,
+                      border: `1px solid ${active ? colors.gold : colors.cardBorder}`,
+                      backgroundColor: active ? colors.goldSoft : colors.paper,
+                    }}
+                  >
+                    {e.word}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div style={{ marginBottom: 10, border: `1px dashed ${colors.cardBorder}`, borderRadius: 12, padding: 10 }}>
           <div className="flex items-center justify-between mb-2">
@@ -6711,6 +6754,10 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
 function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [nativeLang, setNativeLang] = useState("fa");
   const [targetOrder, setTargetOrder] = useState(["en"]);
+  // ترتیبِ نمایشِ خودِ مهرهای زبان (ردیفِ زبان مادری و ردیفِ زبان‌های مقصد) —
+  // با کشیدن یه مهر روی مهرِ دیگه (DraggableLangRow) عوض می‌شه، جدا از
+  // targetOrder که فقط ترتیبِ ترجمه‌های همون زبان‌های از‌قبل‌انتخاب‌شده‌ست.
+  const [langPickerOrder, setLangPickerOrder] = useState(() => PHRASEBOOK_LANGUAGES.map((l) => l.code));
   const [favorites, setFavorites] = useState(new Set());
   const [tab, setTab] = useState("phrases");
   const [boxes, setBoxes] = useState(() => {
@@ -6733,10 +6780,8 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     return () => window.removeEventListener(READING_SESSIONS_CHANGED_EVENT, refresh);
   }, []);
   // اندازه‌گیری زمان: کل زمانی که نرم‌افزار جلوی چشم کاربره (همیشه فعال، تا
-  // وقتی این کامپوننت سوار/باز باشه) خودکاره. اما زمانِ تبِ گرامر و تبِ
-  // عبارات دیگه خودکار نیست — چون کاربر می‌خواد خودش با یه دکمه‌ی روشن/
-  // خاموش (SectionTimer، پایین‌ترِ هر تب) تصمیم بگیره کِی داره واقعاً مطالعه
-  // می‌کنه، نه اینکه صرفِ بازبودنِ تب حساب بشه.
+  // وقتی این کامپوننت سوار/باز باشه) خودکار ثبت می‌شه — بدون هیچ دکمه‌ی
+  // روشن/خاموشِ دستی‌ای.
   useActivityTimeTracker("app", true);
   const [loaded, setLoaded] = useState(false);
   const [wordStats, setWordStats] = useState({});
@@ -6801,6 +6846,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         if (saved) {
           if (saved.nativeLang) setNativeLang(saved.nativeLang);
           if (Array.isArray(saved.targetOrder) && saved.targetOrder.length) setTargetOrder(saved.targetOrder);
+          if (Array.isArray(saved.langPickerOrder) && saved.langPickerOrder.length) setLangPickerOrder(saved.langPickerOrder);
           if (Array.isArray(saved.favorites)) setFavorites(new Set(saved.favorites));
           if (saved.boxes) setBoxes((prev) => ({ ...prev, ...saved.boxes }));
           if (saved.wordStats) setWordStats(saved.wordStats);
@@ -6835,6 +6881,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       const payload = {
         nativeLang,
         targetOrder,
+        langPickerOrder,
         favorites: Array.from(favorites),
         boxes,
         wordStats,
@@ -6852,7 +6899,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       if (user?.uid) supabaseSaveState(user.uid, payload);
     }, 500);
     return () => clearTimeout(timeout);
-  }, [nativeLang, targetOrder, favorites, boxes, wordStats, savedStories, dictHistory, backendUrl, loaded, userStorageKey, user?.uid, savedWordsVersion, grammarNotesVersion]);
+  }, [nativeLang, targetOrder, langPickerOrder, favorites, boxes, wordStats, savedStories, dictHistory, backendUrl, loaded, userStorageKey, user?.uid, savedWordsVersion, grammarNotesVersion]);
 
   const toggleTargetLang = (code) => {
     setTargetOrder((prev) => {
@@ -6916,11 +6963,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         style={{ backgroundColor: colors.ink, color: colors.paper }}
         className="px-4 pt-6 pb-5"
       >
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2">
-            <BookOpen size={20} color={colors.gold} />
-            <h1 style={{ fontWeight: 800, fontSize: 20 }}>کتاب مکالمه من</h1>
-          </div>
+        <div className="flex items-center justify-end mb-1">
           <div className="flex items-center gap-2">
             {user?.picture ? (
               <img src={user.picture} alt="" style={{ width: 26, height: 26, borderRadius: "50%" }} />
@@ -6952,32 +6995,26 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         {/* Language pickers */}
         <div className="mt-4">
           <p style={{ fontSize: 12, color: colors.paperDark, marginBottom: 6 }}>
-            زبان مادری
+            زبان مادری (برای جابه‌جایی، مهرِ زبان رو بکش)
           </p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {PHRASEBOOK_LANGUAGES.map((l) => (
-              <LangStamp
-                key={l.code}
-                lang={l}
-                active={l.code === nativeLang}
-                onClick={() => setNativeLang(l.code)}
-              />
-            ))}
-          </div>
+          <DraggableLangRow
+            order={langPickerOrder}
+            setOrder={setLangPickerOrder}
+            languages={PHRASEBOOK_LANGUAGES}
+            isActive={(code) => code === nativeLang}
+            onClick={(code) => setNativeLang(code)}
+          />
           <p style={{ fontSize: 12, color: colors.paperDark, margin: "10px 0 6px" }}>
-            زبان‌های مقصد (چند تا رو می‌تونی هم‌زمان انتخاب کنی)
+            زبان‌های مقصد (چند تا رو می‌تونی هم‌زمان انتخاب کنی — برای جابه‌جایی، مهرِ زبان رو بکش)
           </p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {PHRASEBOOK_LANGUAGES.map((l) => (
-              <LangStamp
-                key={l.code}
-                lang={l}
-                active={targetOrder.includes(l.code)}
-                disabled={l.code === nativeLang}
-                onClick={() => toggleTargetLang(l.code)}
-              />
-            ))}
-          </div>
+          <DraggableLangRow
+            order={langPickerOrder}
+            setOrder={setLangPickerOrder}
+            languages={PHRASEBOOK_LANGUAGES}
+            isActive={(code) => targetOrder.includes(code)}
+            isDisabled={(code) => code === nativeLang}
+            onClick={(code) => toggleTargetLang(code)}
+          />
 
           {targetLangList.length > 1 && (
             <>
@@ -7044,9 +7081,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       <main className="px-4 py-4 pb-24">
         {tab === "phrases" && (
           <>
-            <div className="flex justify-end mb-3">
-              <SectionTimer category="phrases" label="تایمر مطالعه‌ی عبارات" color={colors.teal} />
-            </div>
             <PhraseList
               phrases={PHRASES}
               nativeLang={nativeLang}
@@ -7116,9 +7150,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         {/* گرامر هم مثل داستان‌ساز همیشه mount شده می‌مونه، که با رفتن به تب
             دیگه، چتِ تمرین جمله‌سازی و توضیحِ در حال بارگذاری از بین نره. */}
         <div style={{ display: tab === "grammar" ? "block" : "none" }}>
-          <div className="flex justify-end mb-3">
-            <SectionTimer category="grammar" label="تایمر مطالعه‌ی گرامر" color={colors.gold} />
-          </div>
           <GrammarPanel
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
@@ -7134,9 +7165,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             می‌شد، هر بار کاربر می‌رفت لغات‌ذخیره‌شده/دیکشنری و برمی‌گشت،
             داستانِ ساخته‌شده (و لغات انتخابی) پاک می‌شد. */}
         <div style={{ display: tab === "story" ? "block" : "none" }}>
-          <div className="flex justify-end mb-3">
-            <SectionTimer category="story" label="تایمر مطالعه‌ی داستان‌ساز" color={colors.rose} />
-          </div>
           <StoryBuilder
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
@@ -7534,7 +7562,7 @@ function StudyStatsPanel({ report }) {
   if (!report) {
     return (
       <p style={{ fontSize: 12, color: colors.inkSoft, textAlign: "center", padding: "10px 0" }}>
-        هنوز فعالیتی ثبت نشده — با روشن‌کردنِ «تایمر مطالعه» بالای هر بخش (داستان‌ساز/گرامر/عبارات)، آمارت اینجا نشون داده می‌شه.
+        هنوز فعالیتی ثبت نشده — با استفاده از هر بخش (داستان‌ساز/گرامر/عبارات)، آمارت خودکار اینجا نشون داده می‌شه.
       </p>
     );
   }
