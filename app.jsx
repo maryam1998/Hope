@@ -129,9 +129,27 @@ async function translateViaLibre(text, targetLang, sourceLang = "auto") {
   return data.translatedText;
 }
 
+// ۵) آخرین راه‌حل: از همون بک‌اند AI خودِ اپ (Cloudflare Worker) بخوایم ترجمه
+// کنه. برخلاف ۴ سرویس بالا (که مستقیماً از مرورگر به سرورهای خارجی وصل
+// می‌شن و بسته به شبکه/ISP کاربر ممکنه فیلتر یا بلاک باشن)، این یکی از
+// همون Worker همیشه‌دردسترسِ خودِ اپ رد می‌شه — پس اگه AI برای بقیه‌ی
+// بخش‌های اپ (مثل ساخت داستان) کار می‌کنه، این هم کار می‌کنه.
+async function translateViaAI(text, targetLang, sourceLang, aiSettings) {
+  if (!aiSettings) throw new Error("translate-ai-no-settings");
+  const targetLabel = (typeof LANGUAGES !== "undefined" && LANGUAGES.find((l) => l.code === targetLang)?.label) || targetLang;
+  const prompt =
+    `Translate the following text into ${targetLabel}. ` +
+    `Respond with ONLY the translation itself — no quotes, no explanation, no original text, nothing else.\n\n` +
+    `Text: ${text}`;
+  const result = await callAI({ prompt, maxTokens: 200, retries: 1, aiSettings });
+  const cleaned = String(result || "").replace(/^["'«»]+|["'«».\s]+$/g, "").trim();
+  if (!cleaned) throw new Error("translate-ai-empty-response");
+  return cleaned;
+}
+
 // تابع اصلی: هر سرویس رو به‌ترتیب امتحان می‌کنه، به محض موفقیت نتیجه رو برمی‌گردونه.
 // اگه همه شکست خوردن، متن اصلی بدون تغییر برگردونده می‌شه (تا برنامه از کار نیفته).
-async function translateFree(text, targetLang, sourceLang = "auto") {
+async function translateFree(text, targetLang, sourceLang = "auto", aiSettings = null) {
   if (!text || !targetLang) return text;
   // اگه زبان مبدا و مقصد یکی باشن، ترجمه بی‌معنیه (و بعضی سرویس‌ها به‌جای
   // خطا، یه پیام متنی برمی‌گردونن که اشتباهی به‌عنوان "ترجمه" ذخیره می‌شد) —
@@ -146,7 +164,18 @@ async function translateFree(text, targetLang, sourceLang = "auto") {
       console.warn(`ترجمه با ${provider.name} ناموفق بود، رفتن سراغ سرویس بعدی:`, error?.message || error);
     }
   }
-  console.error("همه‌ی سرویس‌های ترجمه‌ی رایگان شکست خوردند؛ متن اصلی برگردانده شد.");
+  // اگه هر ۴ سرویسِ رایگان شکست خوردن (مثلاً به‌خاطر فیلتر/بلاک‌بودنِ
+  // این سرورهای خارجی توی شبکه‌ی کاربر) و aiSettings در دسترس بود،
+  // به‌عنوان آخرین چاره از بک‌اند AI خودِ اپ کمک می‌گیریم.
+  if (aiSettings) {
+    try {
+      const result = await translateViaAI(text, targetLang, sourceLang, aiSettings);
+      if (result && result.trim()) return result;
+    } catch (error) {
+      console.warn("ترجمه با بک‌اند AI هم ناموفق بود:", error?.message || error);
+    }
+  }
+  console.error("همه‌ی سرویس‌های ترجمه شکست خوردند؛ متن اصلی برگردانده شد.");
   return text; // اگر هیچ سرویسی جواب نداد، متن اصلی برگردانده می‌شود
 }
 
@@ -5112,7 +5141,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         // مقصدِ معنی باید همون زبان مادریِ کاربر باشه (nativeLang)، نه همیشه
         // فارسی — چون پیش‌فرض برنامه فارسیه ولی کاربر می‌تونه هر زبونی رو
         // به‌عنوان زبان مادریش انتخاب کنه.
-        const res = await translateFree(term, nativeLang, storyLang);
+        const res = await translateFree(term, nativeLang, storyLang, aiSettings);
         meaning = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim();
       }
     } catch (e) {
@@ -5153,7 +5182,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     try {
       const meanings = await Promise.all(
         missing.map((w) =>
-          translateFree(w.term, nativeLang, storyLang).catch(() => "")
+          translateFree(w.term, nativeLang, storyLang, aiSettings).catch(() => "")
         )
       );
       const list = loadWordCollections();
@@ -5270,7 +5299,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       // fed to the story generator must be in storyLang too. Translate it
       // via the free translation services (not the AI) — a same-language
       // word just comes back unchanged.
-      const res = await translateFree(w, storyLang, "auto");
+      const res = await translateFree(w, storyLang, "auto", aiSettings);
       const translated = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim() || w;
       if (!selectedWords.includes(translated)) {
         setSelectedWords((prev) => [...prev, translated]);
