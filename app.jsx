@@ -1067,6 +1067,12 @@ function saveWordCache(cache) {
 // ---------------------------------------------------------------------------
 const SAVED_STORY_WORDS_KEY = "phrasebook-saved-story-words-v1";
 const SAVED_WORDS_CHANGED_EVENT = "phrasebook:savedWordsChanged";
+// وقتی کاربر از پاپ‌آپِ لغت (وسطِ خوندنِ یه داستان) روی «ذخیره برای داستان
+// بعدی» می‌زنه، همین لغت باید بلافاصله به لیستِ لغاتِ انتخاب‌شده‌ی همون
+// داستان‌ساز (پیش از تولید/ترجمه‌ی داستانِ بعدی) هم اضافه بشه — نه فقط به
+// انبار دائمی. StoryBuilder به این رویداد گوش می‌ده و اگه زبانش با
+// زبانِ داستانِ فعلی یکی باشه، لغت رو به selectedWords اضافه می‌کنه.
+const STORY_WORD_PICKED_EVENT = "phrasebook:storyWordPicked";
 // جلوگیری از چند درخواست هم‌زمان برای ترجمه‌ی یک لغت به یک زبان مشخص —
 // چه از پنل «لغات ذخیره‌شده» چه از زیرخط‌کشیِ ClickableSentence در چند
 // نمونه‌ی هم‌زمان روی صفحه.
@@ -3132,14 +3138,14 @@ function LangStamp({ lang, active, onClick, disabled }) {
       disabled={disabled}
       style={{
         fontFamily: fontFa,
-        width: 36,
-        height: 36,
+        width: 44,
+        height: 44,
         borderRadius: "50%",
         border: `2px dashed ${active ? colors.gold : colors.cardBorder}`,
         backgroundColor: active ? colors.gold : "transparent",
         color: active ? colors.paper : colors.inkSoft,
         fontWeight: 700,
-        fontSize: 10,
+        fontSize: 11,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -3157,56 +3163,95 @@ function LangStamp({ lang, active, onClick, disabled }) {
 }
 
 // ---------------------------------------------------------------------------
-// ردیفِ قابل‌کشیدنِ زبان‌ها — دقیقاً همون LangStamp‌های قبلی رو نشون می‌ده
-// (برای انتخابِ زبان مادری/مقصد با یه تپ ساده)، ولی هر مهرِ زبان رو هم
-// قابل‌کشیدن می‌کنه تا ترتیبِ نمایش‌شون عوض بشه. برای تشخیصِ «کشیدن» از
-// «تپ‌زدن»، تا وقتی انگشت/ماوس کمتر از ۸ پیکسل جابه‌جا نشده، هنوز تپ
-// حساب می‌شه (تا انتخابِ زبان با تپ خراب نشه)؛ بعد از اون آستانه، حالت
-// کشیدن فعال می‌شه و تپِ نهاییِ onClick نادیده گرفته می‌شه.
+// ردیفِ قابل‌کشیدنِ زبان‌ها — همون LangStamp‌های قبلی رو نشون می‌ده (برای
+// انتخابِ زبان مادری/مقصد با یه تپ ساده)، و کل ردیف همیشه با اسکرولِ افقیِ
+// طبیعیِ خودِ مرورگر (بدون هیچ دخالتی) لغزنده می‌مونه — چون دقیقاً همون
+// حرکتِ افقی هم برای اسکرول و هم برای جابه‌جایی استفاده می‌شه، این دو با
+// «نگه‌داشتنِ طولانی» (long-press) از هم جدا می‌شن، نه با آستانه‌ی حرکت:
+//   - تپِ سریع (بدون نگه‌داشتن) → همون انتخابِ زبانِ قبلی.
+//   - کشیدنِ سریع/پیوسته (بدون مکث) → اسکرولِ عادیِ ردیفه، هیچ preventDefault
+//     ای صدا زده نمی‌شه، برای همین دیگه هنگ/کندی نداره.
+//   - لمس و نگه‌داشتن حدود سیصد میلی‌ثانیه بدونِ حرکتِ زیاد → حالتِ
+//     جابه‌جایی فعال می‌شه (مهر کمی بزرگ‌تر می‌شه)، از اون لحظه حرکت
+//     دادنِ انگشت باعثِ عوض‌شدنِ ترتیب می‌شه، نه اسکرول.
+//   - با ماوس (دسکتاپ) نیازی به نگه‌داشتن نیست، چون کشیدن-با-کلیک روی این
+//     ردیف اصلاً اسکرولی رو راه نمی‌ندازه؛ همون آستانه‌ی چندپیکسلی کافیه.
 // ---------------------------------------------------------------------------
 function DraggableLangRow({ order, setOrder, languages, isActive, isDisabled, onClick }) {
-  const dragState = useRef({ code: null, startX: 0, startY: 0, dragging: false });
+  const dragState = useRef({ code: null, startX: 0, startY: 0, dragging: false, longPressTimer: null });
   const [dragCode, setDragCode] = useState(null);
 
+  function clearLongPress(st) {
+    if (st.longPressTimer) {
+      clearTimeout(st.longPressTimer);
+      st.longPressTimer = null;
+    }
+  }
+
+  function reorderTo(code, clientX, clientY) {
+    const el = document.elementFromPoint(clientX, clientY);
+    const stampEl = el && el.closest("[data-lang-order-code]");
+    if (!stampEl) return;
+    const hoveredCode = stampEl.getAttribute("data-lang-order-code");
+    if (hoveredCode === code) return;
+    const fromIndex = order.indexOf(code);
+    const toIndex = order.indexOf(hoveredCode);
+    if (fromIndex === -1 || toIndex === -1) return;
+    const next = [...order];
+    next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, code);
+    setOrder(next);
+  }
+
   useEffect(() => {
-    function handleMove(e) {
+    function handleMouseMove(e) {
       const st = dragState.current;
       if (!st.code) return;
-      const point = e.touches ? e.touches[0] : e;
       if (!st.dragging) {
-        const dx = Math.abs(point.clientX - st.startX);
-        const dy = Math.abs(point.clientY - st.startY);
+        const dx = Math.abs(e.clientX - st.startX);
+        const dy = Math.abs(e.clientY - st.startY);
         if (dx < 8 && dy < 8) return; // هنوز آستانه‌ی کشیدن رد نشده — تپ حساب می‌شه
         st.dragging = true;
         setDragCode(st.code);
       }
+      reorderTo(st.code, e.clientX, e.clientY);
+    }
+    function handleTouchMove(e) {
+      const st = dragState.current;
+      if (!st.code) return;
+      const t = e.touches[0];
+      if (!st.dragging) {
+        // هنوز long-press فعال نشده — اگه انگشت زیاد جابه‌جا شده، یعنی
+        // کاربر داره اسکرول می‌کنه، نه نگه‌می‌داره؛ بی‌خیالِ کاندیدشدنِ
+        // این لمس برای کشیدن می‌شیم و می‌ذاریم اسکرولِ عادی انجام بشه.
+        const dx = Math.abs(t.clientX - st.startX);
+        const dy = Math.abs(t.clientY - st.startY);
+        if (dx > 10 || dy > 10) {
+          clearLongPress(st);
+          st.code = null;
+        }
+        return;
+      }
       if (e.cancelable) e.preventDefault();
-      const el = document.elementFromPoint(point.clientX, point.clientY);
-      const stampEl = el && el.closest("[data-lang-order-code]");
-      if (!stampEl) return;
-      const hoveredCode = stampEl.getAttribute("data-lang-order-code");
-      if (hoveredCode === st.code) return;
-      const fromIndex = order.indexOf(st.code);
-      const toIndex = order.indexOf(hoveredCode);
-      if (fromIndex === -1 || toIndex === -1) return;
-      const next = [...order];
-      next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, st.code);
-      setOrder(next);
+      reorderTo(st.code, t.clientX, t.clientY);
     }
     function handleUp() {
-      dragState.current = { code: null, startX: 0, startY: 0, dragging: false };
+      const st = dragState.current;
+      clearLongPress(st);
+      dragState.current = { code: null, startX: 0, startY: 0, dragging: false, longPressTimer: null };
       setDragCode(null);
     }
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("touchmove", handleMove, { passive: false });
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("touchmove", handleTouchMove, { passive: false });
     window.addEventListener("mouseup", handleUp);
     window.addEventListener("touchend", handleUp);
+    window.addEventListener("touchcancel", handleUp);
     return () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("touchmove", handleTouchMove);
       window.removeEventListener("mouseup", handleUp);
       window.removeEventListener("touchend", handleUp);
+      window.removeEventListener("touchcancel", handleUp);
     };
   }, [order, setOrder]);
 
@@ -3218,23 +3263,33 @@ function DraggableLangRow({ order, setOrder, languages, isActive, isDisabled, on
   ];
 
   return (
-    <div className="flex gap-2 overflow-x-auto pb-1">
+    <div className="flex gap-2 overflow-x-auto pb-1" style={{ WebkitOverflowScrolling: "touch" }}>
       {orderedLangs.map((l) => (
         <div
           key={l.code}
           data-lang-order-code={l.code}
           onMouseDown={(e) => {
-            dragState.current = { code: l.code, startX: e.clientX, startY: e.clientY, dragging: false };
+            dragState.current = { code: l.code, startX: e.clientX, startY: e.clientY, dragging: false, longPressTimer: null };
           }}
           onTouchStart={(e) => {
             const t = e.touches[0];
-            dragState.current = { code: l.code, startX: t.clientX, startY: t.clientY, dragging: false };
+            const st = { code: l.code, startX: t.clientX, startY: t.clientY, dragging: false, longPressTimer: null };
+            dragState.current = st;
+            st.longPressTimer = setTimeout(() => {
+              // اگه تا این لحظه هنوز همین لمس زنده‌ست (با حرکتِ زیاد لغو
+              // نشده)، وارد حالتِ جابه‌جایی می‌شیم.
+              if (dragState.current === st && st.code) {
+                st.dragging = true;
+                setDragCode(st.code);
+              }
+            }, 320);
           }}
           style={{
             touchAction: "pan-x",
             cursor: "grab",
             flexShrink: 0,
-            opacity: dragCode === l.code ? 0.55 : 1,
+            transform: dragCode === l.code ? "scale(1.15)" : "scale(1)",
+            transition: "transform 0.12s",
           }}
         >
           <LangStamp
@@ -4085,7 +4140,17 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                         e.stopPropagation();
                         if (!activeTerm) return;
                         const meaningNow = info && info !== "loading" && info !== "error" ? info.meaning : "";
-                        setSaved(toggleSavedStoryWord(activeTerm, langCode, { meaning: meaningNow, nativeLang }));
+                        const nowSaved = toggleSavedStoryWord(activeTerm, langCode, { meaning: meaningNow, nativeLang });
+                        setSaved(nowSaved);
+                        // فقط وقتی تازه ذخیره شد (نه وقتی داشت از حالتِ
+                        // ذخیره درمی‌اومد) به داستان‌سازِ باز هم اضافه کن.
+                        if (nowSaved) {
+                          try {
+                            window.dispatchEvent(
+                              new CustomEvent(STORY_WORD_PICKED_EVENT, { detail: { word: activeTerm, langCode } })
+                            );
+                          } catch {}
+                        }
                       }}
                       style={{
                         display: "flex",
@@ -4786,6 +4851,20 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     refresh();
     window.addEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
+  }, [storyLang]);
+
+  // وقتی از پاپ‌آپِ لغت (وسطِ خوندنِ یه داستان یا هر جای دیگه‌ی برنامه)
+  // «ذخیره برای داستان بعدی» زده می‌شه، اگه زبانِ همون لغت با زبانِ
+  // داستانِ فعلی یکی باشه، مستقیم به لیستِ لغاتِ انتخاب‌شده (پیش از
+  // تولید/ترجمه‌ی داستان) هم اضافه‌ش می‌کنیم — نه فقط انبار دائمی.
+  useEffect(() => {
+    function handlePicked(e) {
+      const { word, langCode } = (e && e.detail) || {};
+      if (!word || langCode !== storyLang) return;
+      setSelectedWords((prev) => (prev.includes(word) ? prev : [...prev, word]));
+    }
+    window.addEventListener(STORY_WORD_PICKED_EVENT, handlePicked);
+    return () => window.removeEventListener(STORY_WORD_PICKED_EVENT, handlePicked);
   }, [storyLang]);
 
   const storyLangLabel = LANGUAGES.find((l) => l.code === storyLang)?.label || storyLang;
@@ -6995,7 +7074,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         {/* Language pickers */}
         <div className="mt-4">
           <p style={{ fontSize: 12, color: colors.paperDark, marginBottom: 6 }}>
-            زبان مادری (برای جابه‌جایی، مهرِ زبان رو بکش)
+            زبان مادری (برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)
           </p>
           <DraggableLangRow
             order={langPickerOrder}
@@ -7005,7 +7084,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             onClick={(code) => setNativeLang(code)}
           />
           <p style={{ fontSize: 12, color: colors.paperDark, margin: "10px 0 6px" }}>
-            زبان‌های مقصد (چند تا رو می‌تونی هم‌زمان انتخاب کنی — برای جابه‌جایی، مهرِ زبان رو بکش)
+            زبان‌های مقصد (چند تا رو می‌تونی هم‌زمان انتخاب کنی — برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)
           </p>
           <DraggableLangRow
             order={langPickerOrder}
