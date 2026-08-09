@@ -97,6 +97,12 @@ async function translateViaMyMemory(text, targetLang, sourceLang = "auto") {
   const data = await response.json();
   const translated = data?.responseData?.translatedText;
   if (!translated) throw new Error("mymemory-empty-response");
+  // MyMemory به‌جای خطای واقعی، بعضی وقت‌ها یه پیام متنی مثل
+  // "PLEASE SELECT TWO DISTINCT LANGUAGES." یا "INVALID ..." برمی‌گردونه —
+  // این‌ها ترجمه نیستن، پیام خطای خودِ سرویس‌ان؛ باید به‌عنوان شکست تلقی بشن
+  // تا زنجیره‌ی fallback بره سراغ سرویس بعدی.
+  const looksLikeApiError = /^(PLEASE SELECT|INVALID |NO TRANSLATION|AMOUNT OF WORDS)/i.test(translated.trim());
+  if (looksLikeApiError) throw new Error("mymemory-api-error: " + translated);
   return translated;
 }
 
@@ -127,6 +133,10 @@ async function translateViaLibre(text, targetLang, sourceLang = "auto") {
 // اگه همه شکست خوردن، متن اصلی بدون تغییر برگردونده می‌شه (تا برنامه از کار نیفته).
 async function translateFree(text, targetLang, sourceLang = "auto") {
   if (!text || !targetLang) return text;
+  // اگه زبان مبدا و مقصد یکی باشن، ترجمه بی‌معنیه (و بعضی سرویس‌ها به‌جای
+  // خطا، یه پیام متنی برمی‌گردونن که اشتباهی به‌عنوان "ترجمه" ذخیره می‌شد) —
+  // پس همون متن اصلی رو بدون درخواست شبکه برمی‌گردونیم.
+  if (sourceLang && sourceLang !== "auto" && sourceLang === targetLang) return text;
   const providers = [translateViaGoogle, translateViaMyMemory, translateViaLingva, translateViaLibre];
   for (const provider of providers) {
     try {
@@ -1100,16 +1110,15 @@ const offlineDictionary = (() => {
 })();
 
 
-//     User → React App (this file) → Backend Server (Render) → AI provider
+//     User → React App (this file) → Cloudflare Worker (src/index.js) → AI provider
 // The frontend NEVER talks to an AI provider directly and never holds an
 // API key. It only calls this one backend endpoint (POST /api/generate).
-// Which actual AI provider answers (DeepSeek / OpenAI-ChatGPT, with
-// automatic fallback between them) is decided entirely on the server via
-// AI_PROVIDER in server/.env — see server.js.
+// Which actual AI provider answers (with automatic fallback between them)
+// is decided entirely on the Worker via AI_PROVIDER — see src/index.js.
 //
 // The backend URL is configurable per-device (Settings box in Story Builder,
 // wired through `aiSettings.backendUrl`) but defaults to DEFAULT_BACKEND_URL
-// below — replace that with your own Render URL once it's deployed.
+// below — replace that with your own Worker URL once it's deployed.
 // ---------------------------------------------------------------------------
 const DEFAULT_BACKEND_URL = "https://phrasebook-api.maryam-s-sharifiyan.workers.dev";
 
@@ -1163,7 +1172,7 @@ async function callAI({ prompt, maxTokens, retries = 2, aiSettings }) {
       if (isKnownServerError) throw e;
       throw new Error(
         isNetworkFailure
-          ? `ai-backend-error: به سرور (${base}) وصل نشد. مطمئن شو سرور Render روشنه (اگه مدتی بی‌کار بوده، بیدار شدنش تا ۵۰ ثانیه طول می‌کشه) و آدرسش درسته.`
+          ? `ai-backend-error: به سرور (${base}) وصل نشد. یعنی خودِ Cloudflare Worker جواب نداد — چک کن: ۱) آخرین دیپلوی توی داشبورد Cloudflare بدون خطا انجام شده باشه، ۲) این آدرس رو مستقیم توی مرورگر باز کن (${base}/health) و ببین یه JSON برمی‌گردونه یا خطا می‌ده، ۳) آدرس بک‌اند توی تنظیمات اپ (اگه دستی ست کردی) درست باشه.`
           : `ai-backend-error: ${msg || "خطای ناشناخته در اتصال"}`
       );
     }
@@ -1557,30 +1566,27 @@ let requestGrammarJump = null;
 async function lookupWordGrammarDetail({ word, sentence, langCode, nativeLang, nativeLabel, aiSettings }) {
   const label = nativeLabel || "فارسی";
   const langLabel = LANGUAGES.find((l) => l.code === langCode)?.label || langCode;
-  // پرامت دقیقاً طبق درخواست کاربر: تحلیل کامل و آموزشیِ جمله‌ای که کلمه‌ی
-  // لمس‌شده توش بکار رفته — معنی کل جمله، ساختار گرامری، تقسیم به بخش‌ها،
-  // تحلیل تک‌تک کلمات (معنی/نقش/دلیل/مثال)، ترکیب‌های مهم، نکات و
-  // اشتباهات رایج، و چند جمله‌ی تمرینیِ مشابه — با ایموجی، جدول و زبان ساده.
   const prompt =
-    `من مبتدی زبان ${langLabel} هستم. لطفاً جمله زیر را خیلی ساده، جذاب و آموزشی تحلیل کن.\n\n` +
-    `برای جمله:\n"${sentence}"\n\n` +
+    `این جمله‌ی ${langLabel} را مثل یک معلم حرفه‌ای زبان که چیزهای پیچیده رو به ساده‌ترین و قابل‌فهم‌ترین روش توضیح می‌ده، برای یک زبان‌آموز مبتدی توضیح بده.\n\n` +
+    `جمله: "${sentence}"\n` +
     `(کلمه‌ای که روش دست گذاشتم و می‌خوام بیشتر روش تمرکز کنی: "${word}")\n\n` +
-    `این موارد را توضیح بده:\n\n` +
-    `1. معنی کل جمله به ${label}.\n` +
-    `2. ساختار گرامری کلی جمله (Sentence Structure) را بگو.\n` +
-    `3. جمله را به بخش‌های مختلف تقسیم کن و نقش هر بخش را توضیح بده.\n` +
-    `4. برای تک‌تک کلمات:\n` +
-    `   - معنی\n` +
-    `   - نقش دستوری (اسم، فعل، صفت، قید، حرف اضافه، ضمیر و ...)\n` +
-    `   - دلیل استفاده در این جمله\n` +
-    `   - چند مثال ساده با همان کلمه در نقش‌های مختلف بزن.\n` +
-    `5. اگر کلمه یا عبارتی ترکیب مهمی داره (مثل focus on، try to، look at)، توضیح بده.\n` +
-    `6. نکات مهم گرامری و اشتباهات رایج را بگو.\n` +
-    `7. در پایان چند جمله مشابه با همین ساختار بساز تا تمرین کنم.\n\n` +
-    `لطفاً از ایموجی، جدول و توضیح خیلی ساده استفاده کن؛ طوری توضیح بده که یک زبان‌آموز کاملاً مبتدی متوجه شود.\n\n` +
-    `🚨 قانون مهم: کل پاسخ باید به زبان ${label} نوشته بشه (فقط خودِ کلمات/جمله‌های نمونه به زبان ${langLabel} باشن، هیچ‌وقت دو زبان تو یه خط قاطی نشن). پاسخ رو با فرمت Markdown بده و فقط همون تحلیل رو برگردون، بدون مقدمه یا توضیح اضافه قبل/بعدش.`;
+    `دقیقاً همین ساختار رو رعایت کن، به زبان ${label}:\n\n` +
+    `## ۱. معنی ساده\n` +
+    `معنی روان جمله به ${label} رو بگو (جمله‌ی اصلی به ${langLabel} رو هم **بولد** بیار).\n\n` +
+    `## ۲. ساختار جمله\n` +
+    `در ۱-۲ خط کوتاه، اجزای اصلی جمله رو بگو (فاعل، فعل، مفعول یا عبارت‌های مهم) — ساده و بدون اصطلاح فنیِ توضیح‌نداده.\n\n` +
+    `## ۳. کلمه‌های مهم\n` +
+    `فقط کلمات واقعاً مهم جمله (نه کلمات بی‌اهمیت) رو با این فرمت بولت کن: **کلمه** — معنی، و نقش دستوریش به زبان ساده. روی کلمه‌ی "${word}" حتماً تمرکز کن.\n\n` +
+    `## ۴. نکته‌ی گرامری\n` +
+    `مهم‌ترین نکته‌ی گرامری این جمله رو مثل یک معلم خوب، ساده و با یه مثال کوچیک روزمره توضیح بده.\n\n` +
+    `## ۵. ترکیب یا عبارت مهم\n` +
+    `اگر جمله یک ترکیب یا عبارت ثابت مهم داره، معنیش و دقیقاً ۲ مثال ساده (با ترجمه‌ی ${label}) بده. اگر واقعاً همچین چیزی نیست، این بخش رو کلاً حذف کن.\n\n` +
+    `## ۶. تمرین کن\n` +
+    `۱ یا ۲ جمله‌ی مشابه و ساده به ${langLabel} برای تمرین بساز، هرکدوم با ترجمه‌ی ${label} بعدش.\n\n` +
+    `توضیحات باید کوتاه و مفید باشن، از اصطلاحات پیچیده‌ی گرامری بدون توضیح استفاده نکنی، و فقط نکات کاربردی برای مکالمه‌ی روزمره رو بگی — نه توضیح اضافه.\n\n` +
+    `🚨 کل پاسخ باید به زبان ${label} نوشته بشه (فقط خودِ کلمات/جمله‌های نمونه به زبان ${langLabel} باشن، هیچ‌وقت دو زبان تو یه خط قاطی نشن). پاسخ رو با فرمت Markdown بده و فقط همون تحلیل رو برگردون، بدون مقدمه یا توضیح اضافه قبل/بعدش.`;
 
-  const text = await callAI({ prompt, maxTokens: 1700, aiSettings });
+  const text = await callAI({ prompt, maxTokens: 900, aiSettings });
   return text.trim();
 }
 
@@ -1611,26 +1617,29 @@ async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLab
     `IF (B) — follow-up question:\n` +
     `Just answer their question directly and conversationally, ENTIRELY in ${label} (see hard rule above), referring back to the earlier sentence/explanation from the conversation above as needed. Keep it short, clear, and warm — like a teacher answering a student, not a fixed report. Use a short header like "## 💬 جواب سوالت" if it reads well, bold (**) for the key word/rule being explained, and a tiny example if it genuinely helps. Do NOT redo the full correction+breakdown structure below — only follow it for case (A). Return ONLY the markdown.\n\n` +
 
-    `IF (A) — new sentence to check, respond with EXACTLY this structure, in ${label}:\n\n` +
+    `IF (A) — new sentence to check, respond with EXACTLY this structure, in ${label} (headers included), for the sentence: "${userSentence}":\n\n` +
 
-    `1. First, decide which of these three cases applies, and start with exactly one of these headers:\n` +
-    `   - "## ❌ اصلاح" — if there's a real grammar / word-order / word-choice MISTAKE.\n` +
-    `   - "## 🟡 طبیعی‌تره" — if the sentence is grammatically correct, but a native speaker would normally phrase it differently.\n` +
-    `   - "## ✅ جمله‌ت درسته!" — if it's already correct AND natural, nothing to improve.\n` +
-    `   NEVER mix up "wrong" and "just sounds non-native" — a fluent-but-unusual phrasing is NOT a mistake, always use "🟡 طبیعی‌تره" for that case, never "❌ اصلاح".\n\n` +
+    `Write like a warm, professional language teacher who makes complicated things sound simple for a real beginner — never like a dry grammar manual or a list of technical terms. Only ever mention what's actually USEFUL for everyday conversation, nothing extra.\n\n` +
 
-    `2. If ❌ or 🟡: on its own separate line, give the corrected/more-natural sentence in **bold** (in ${langLabel} ONLY, nothing else on that line). Then, for EACH individual thing that changed, add ONE short bullet line explaining the SPECIFIC reason WHY — never a vague summary like "این جمله اشکال داشت". Example of the level of specificity required:\n` +
-    `   - از **will** به **would** تغییر کرد، چون داری نقل‌قول از زمان گذشته می‌کنی (she said...)؛ بعد از فعل گذشته، will هم به‌طور معمول تبدیل به would می‌شه.\n` +
-    `   If it was just a naturalness issue (🟡), say briefly why native speakers prefer the new phrasing instead of "why it's wrong" language.\n` +
-    `   If ✅, skip this step and just add one short encouraging line instead.\n\n` +
+    `## ۱. معنی ساده\n` +
+    `One simple, natural ${label} translation of the whole sentence, in a single line (bold the original ${langLabel} sentence first, then the translation).\n\n` +
 
-    `3. Pick the ONE most important/trickiest point from this sentence (often the thing that got corrected) and add a line "## ✨ چند مثال دیگه برای <that point>", then give exactly 3 short example sentences in ${langLabel}, each on its own bullet with its ${label} translation on the line right after it:\n` +
-    `   - 🟢 ساده: (a very simple example sentence)\n` +
-    `     ترجمه: (its ${label} translation)\n` +
-    `   - 🟡 کمی سخت‌تر: (a slightly harder example)\n` +
-    `     ترجمه: (its translation)\n` +
-    `   - 🔵 موقعیت واقعی: (a realistic, everyday-situation example)\n` +
-    `     ترجمه: (its translation)\n\n` +
+    `## ۲. ساختار جمله\n` +
+    `In 1-2 short lines, point out the main structural pieces (فاعل / فعل / مفعول یا عبارت‌های مهم) — plain and short, no grammar-textbook jargon.\n\n` +
+
+    `## ۳. کلمه‌های مهم\n` +
+    `Bullet each genuinely important word (skip trivial ones like "the"/"a"): **word** — meaning, and its role in plain language (نه اصطلاح فنی بدون توضیح — اگه یه اصطلاح دستوری لازمه، همون‌جا با یه مثال ساده توضیحش بده).\n\n` +
+
+    `## ۴. نکته‌ی گرامری\n` +
+    `The ONE main grammar point in this sentence, explained the way a great teacher would — simply, with a tiny everyday example, never with unexplained jargon.\n\n` +
+
+    `## ۵. ترکیب یا عبارت مهم\n` +
+    `If there's a meaningful fixed phrase/collocation in the sentence, give its meaning + exactly 2 short example sentences (with ${label} translations). If there genuinely isn't one, skip this whole section entirely (don't force it).\n\n` +
+
+    `## ۶. تمرین کن\n` +
+    `1-2 short similar practice sentences in ${langLabel}, each with its ${label} translation right after it.\n\n` +
+
+    `Keep every section SHORT — a couple of lines each, not paragraphs. No filler, no repeating yourself, no unexplained technical terms.\n\n` +
 
     `IMPORTANT: never put two different languages on the same line (a bolded single word/sentence being quoted is fine). Keep everything short, warm, and genuinely engaging — like a great teacher, not a manual. Use headers (##) and bold (**) exactly like Markdown. Return ONLY the markdown, for whichever case (A or B) applies.`;
 
@@ -5089,8 +5098,11 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     let meaning = newWordMeaning.trim();
     try {
       if (!meaning) {
-        // ترجمه با سرویس‌های رایگان (نه هوش مصنوعی) — همون زنجیره‌ی fallback
-        const res = await translateFree(term, "fa", storyLang);
+        // ترجمه با سرویس‌های رایگان (نه هوش مصنوعی) — همون زنجیره‌ی fallback.
+        // مقصدِ معنی باید همون زبان مادریِ کاربر باشه (nativeLang)، نه همیشه
+        // فارسی — چون پیش‌فرض برنامه فارسیه ولی کاربر می‌تونه هر زبونی رو
+        // به‌عنوان زبان مادریش انتخاب کنه.
+        const res = await translateFree(term, nativeLang, storyLang);
         meaning = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim();
       }
     } catch (e) {
@@ -5131,7 +5143,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     try {
       const meanings = await Promise.all(
         missing.map((w) =>
-          translateFree(w.term, "fa", storyLang).catch(() => "")
+          translateFree(w.term, nativeLang, storyLang).catch(() => "")
         )
       );
       const list = loadWordCollections();
@@ -8185,7 +8197,12 @@ function LoginScreen({ onAuthenticated }) {
     try {
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: window.location.href },
+        // Always redirect to a CLEAN url (no leftover ?error=/#access_token=
+        // from a previous login attempt). Reusing window.location.href as-is
+        // carries old auth fragments into the new OAuth request and breaks
+        // Supabase's state check ("bad_oauth_state") — this is what was
+        // happening.
+        options: { redirectTo: window.location.origin + window.location.pathname },
       });
       if (oauthError) throw oauthError;
       // مرورگر همین‌جا به صفحه‌ی گوگل ریدایرکت می‌شه؛ ادامه‌ی کار (ساخت
@@ -8424,6 +8441,14 @@ export default function App() {
   // رفرش کردن صفحه هم لاگین باقی می‌مونه.
   useEffect(() => {
     let active = true;
+    // If we just landed back from a Google OAuth redirect, the URL contains
+    // the access/refresh tokens (or an error) in the query/hash — Supabase
+    // reads them on load, but we then scrub the address bar immediately so
+    // 1) those tokens don't sit visibly in the URL/history, and 2) the next
+    // login attempt (redirectTo above) never picks up a leftover fragment.
+    if (window.location.hash.includes("access_token") || window.location.search.includes("error")) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return;
       setUser(supabaseUserToSession(data?.session?.user || null));
@@ -8432,6 +8457,9 @@ export default function App() {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(supabaseUserToSession(session?.user || null));
       setCheckingSession(false);
+      if (window.location.hash.includes("access_token")) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
     });
     return () => {
       active = false;
