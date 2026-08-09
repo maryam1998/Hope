@@ -506,6 +506,10 @@ const speechController = (() => {
   let boundaryFired = false; // whether onboundary has fired at least once for the current utterance
   let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1; // 0.5 (slow) .. 2 (fast), 1 = normal
   let currentUtterance = null; // برای نگهداری reference صدای فعلی
+  // "local" = TTS خود گوشی (speechSynthesis) | "online" = سرویس رایگان
+  // آنلاین (وقتی گوشی اصلاً صدایی برای اون زبون نصب نداره، مثلاً خیلی از
+  // گوشی‌ها برای ایتالیایی/هندی/ژاپنی/روسی/کره‌ای صدا ندارن).
+  let mode = "local";
   // --- تکرار سراسری ---------------------------------------------------
   // یک تنظیم مشترک برای کل اپه، نه مال یک متن خاص. هر جا کاربر روی هر
   // 🔊ای کلیک کنه، همین تنظیم روش اعمال می‌شه. مقدار: 0 (خاموش) | 1 | 2 | "inf"
@@ -528,6 +532,111 @@ const speechController = (() => {
     try {
       window.speechSynthesis.cancel();
     } catch (e) {}
+  }
+
+  // -------------------------------------------------------------------
+  // مسیر جایگزین: وقتی گوشی صدایی برای این زبون نصب نداره، از یه سرویس
+  // آنلاین رایگان (بدون نیاز به کلید API) صدا رو می‌گیریم. سرویس‌ها به
+  // ترتیب امتحان می‌شن؛ اگه اولی جواب نداد می‌ره سراغ بعدی. متن به تکه‌های
+  // کوچیک شکسته می‌شه چون این سرویس‌ها برای متن‌های خیلی بلند خطا می‌دن.
+  // -------------------------------------------------------------------
+  let onlineAudio = null;
+  let onlineChunks = [];
+  let onlineChunkIndex = 0;
+  let onlineLangForTts = "en";
+
+  function splitForOnlineTts(text, maxLen = 180) {
+    const chunks = [];
+    let rest = (text || "").trim();
+    while (rest.length > maxLen) {
+      let cut = rest.lastIndexOf(" ", maxLen);
+      if (cut <= 0) cut = maxLen;
+      chunks.push(rest.slice(0, cut).trim());
+      rest = rest.slice(cut).trim();
+    }
+    if (rest) chunks.push(rest);
+    return chunks.length ? chunks : [text];
+  }
+
+  // چند سرویسِ رایگانِ خوانش متن (بدون کلید API)، به همون سبک translateFree
+  // بالا: هر کدوم رو امتحان می‌کنیم، اولی که یه URL صوتی معتبر بده همون
+  // استفاده می‌شه.
+  function onlineTtsUrls(chunkText, langCode) {
+    const q = encodeURIComponent(chunkText);
+    return [
+      `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}`,
+      `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}`,
+    ];
+  }
+
+  function stopOnlineAudio() {
+    if (onlineAudio) {
+      try {
+        onlineAudio.pause();
+      } catch (e) {}
+      onlineAudio.onended = null;
+      onlineAudio.onerror = null;
+      onlineAudio = null;
+    }
+  }
+
+  function playOnlineChunkUrls(urls, urlIndex, idx) {
+    if (urlIndex >= urls.length) {
+      // همه‌ی سرویس‌ها برای این تکه شکست خوردن — برو سراغ تکه‌ی بعدی تا کل
+      // متن پخش نشدنِ یه سرویس، کل خوندن رو متوقف نکنه.
+      playOnlineChunk(idx + 1);
+      return;
+    }
+    const audio = new Audio(urls[urlIndex]);
+    audio.playbackRate = rate;
+    audio.onended = () => {
+      if (status !== "playing") return;
+      playOnlineChunk(idx + 1);
+    };
+    audio.onerror = () => {
+      if (status !== "playing") return;
+      playOnlineChunkUrls(urls, urlIndex + 1, idx);
+    };
+    onlineAudio = audio;
+    audio.play().catch(() => {
+      playOnlineChunkUrls(urls, urlIndex + 1, idx);
+    });
+  }
+
+  function playOnlineChunk(idx) {
+    if (idx >= onlineChunks.length) {
+      if (globalRepeatSetting === "inf") {
+        playOnlineChunk(0);
+        return;
+      }
+      if (remaining > 0) {
+        remaining -= 1;
+        playOnlineChunk(0);
+        return;
+      }
+      status = "idle";
+      wordIndex = 0;
+      notify();
+      return;
+    }
+    onlineChunkIndex = idx;
+    wordIndex = wordIndexForCharOffset(
+      Math.min(fullText.length - 1, Math.floor((idx / Math.max(onlineChunks.length, 1)) * fullText.length))
+    );
+    status = "playing";
+    notify();
+    playOnlineChunkUrls(onlineTtsUrls(onlineChunks[idx], onlineLangForTts), 0, idx);
+  }
+
+  function speakOnline(text, langCodeForTts) {
+    stopOnlineAudio();
+    mode = "online";
+    fullText = text;
+    words = tokenize(text);
+    onlineChunks = splitForOnlineTts(text);
+    onlineLangForTts = langCodeForTts;
+    remaining = globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
+    playOnlineChunk(0);
   }
 
   function notify() {
@@ -734,11 +843,12 @@ const speechController = (() => {
     },
     toggle(text, code) {
       try {
-        if (!("speechSynthesis" in window) || !text) return "unsupported";
-        
+        if (!text) return "unsupported";
+        const hasSynthesis = "speechSynthesis" in window;
+
         let newLocale = TTS_LOCALE[code] || "en-US";
         // اگر زبان فارسی است و صدای فارسی موجود نیست، از صدای عربی استفاده کن
-        if (code === "fa") {
+        if (hasSynthesis && code === "fa") {
           const voices = window.speechSynthesis.getVoices();
           const hasPersianVoice = voices.some(v => v.lang.startsWith("fa"));
           if (!hasPersianVoice) {
@@ -751,6 +861,16 @@ const speechController = (() => {
 
         // اگر همان متن در حال پخش است و دکمه زده شده، توقف/ادامه
         if (key === newKey && status === "playing") {
+          if (mode === "online") {
+            if (onlineAudio) {
+              try {
+                onlineAudio.pause();
+              } catch (e) {}
+            }
+            status = "paused";
+            notify();
+            return "ok";
+          }
           wordIndex = estimateWordIndex();
           cancelSpeech();
           status = "paused";
@@ -760,32 +880,47 @@ const speechController = (() => {
         
         if (key === newKey && status === "paused") {
           status = "playing";
-          speakFromWord(wordIndex, false);
+          if (mode === "online") {
+            notify();
+            if (onlineAudio) {
+              onlineAudio.play().catch(() => playOnlineChunk(onlineChunkIndex));
+            } else {
+              playOnlineChunk(onlineChunkIndex);
+            }
+          } else {
+            speakFromWord(wordIndex, false);
+          }
           return "ok";
         }
 
         // متن جدید — شمارنده‌ی تکرار از روی تنظیم سراسری تازه می‌شه
-        const voices = window.speechSynthesis.getVoices();
+        const voices = hasSynthesis ? window.speechSynthesis.getVoices() : [];
         const baseLang = newLocale.split("-")[0].toLowerCase();
         const hasVoice = voices.some((v) => v.lang && v.lang.toLowerCase().startsWith(baseLang));
 
         key = newKey;
         locale = newLocale;
-        fullText = text;
-        words = tokenize(text);
-        status = "playing";
-        remaining = globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
-        // اگه اصلاً صدایی برای این زبون رو گوشی نصب نیست، همون اول متوقف
-        // می‌شیم و پیغام واضح می‌دیم — به‌جای اینکه speak رو صدا بزنیم و
-        // بی‌سروصدا هیچی پخش نشه (که برای کاربر یعنی «چرا کار نمی‌کنه؟»
-        // بدون هیچ دلیلی روی صفحه).
-        if (voices.length > 0 && !hasVoice) {
-          status = "idle";
-          notify();
-          return "no-voice";
+
+        // اول از همه: TTS خود گوشی. اگه گوشی اصلاً صدایی برای این زبون
+        // نصب نداره (مثلاً خیلی از گوشی‌ها برای ایتالیایی/هندی/ژاپنی/
+        // روسی/کره‌ای/چینی صدا ندارن)، به‌جای متوقف‌شدن، خودکار از یه
+        // سرویس رایگان آنلاین برای خوندن استفاده می‌کنیم.
+        if (hasSynthesis && (voices.length === 0 || hasVoice)) {
+          mode = "local";
+          stopOnlineAudio();
+          fullText = text;
+          words = tokenize(text);
+          status = "playing";
+          remaining = globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
+          speakFromWord(0, true);
+          return "ok";
         }
-        speakFromWord(0, true);
-        return "ok";
+
+        // مسیر جایگزین (آنلاین رایگان)
+        cancelSpeech();
+        const onlineLang = code === "zh" ? "zh-CN" : code;
+        speakOnline(text, onlineLang);
+        return "online-fallback";
       } catch (e) {
         status = "idle";
         notify();
@@ -793,7 +928,7 @@ const speechController = (() => {
       }
     },
     seek(delta) {
-      if (!key || !words.length) return;
+      if (!key || !words.length || mode === "online") return;
       const current = status === "playing" ? estimateWordIndex() : wordIndex;
       const nextIndex = Math.min(Math.max(current + delta, 0), words.length - 1);
       if (status === "playing") {
@@ -805,6 +940,8 @@ const speechController = (() => {
     },
     stop() {
       cancelSpeech();
+      stopOnlineAudio();
+      mode = "local";
       key = null;
       words = [];
       status = "idle";
@@ -822,7 +959,10 @@ const speechController = (() => {
       try {
         localStorage.setItem("phrasebook-tts-rate", String(rate));
       } catch (e) {}
-      if (status === "playing") {
+      if (status === "playing" && mode === "online") {
+        if (onlineAudio) onlineAudio.playbackRate = rate;
+        notify();
+      } else if (status === "playing") {
         speakFromWord(estimateWordIndex(), true);
       } else {
         notify();
@@ -1823,6 +1963,35 @@ const dirFor = (code) => (RTL_LANGS.includes(code) ? "rtl" : "ltr");
 // همه‌ی ۱۳ زبان الان توی خودِ لیست LANGUAGES هستن، پس این فیلتر همه رو نگه می‌داره —
 // نگه داشته شده صرفاً برای سازگاری با بقیه‌ی کدی که PHRASEBOOK_LANGUAGES رو صدا می‌زنه.
 const PHRASEBOOK_LANGUAGES = LANGUAGES;
+
+// ---------------------------------------------------------------------------
+// هماهنگ‌سازیِ دوطرفه‌ی ترتیبِ زبان‌ها بین دو جای مختلف صفحه:
+//   ۱) ردیفِ مهرهای زبان (کادر آبی بالا — زبان مادری/مقصد) که با
+//      langPickerOrder جابه‌جا می‌شه.
+//   ۲) پیل‌های سفیدِ «ترتیب نمایش ترجمه‌ها» که با targetOrder جابه‌جا می‌شه.
+// هر جفت تابع زیر یکی از این دو رو، بعد از جابه‌جایی توی اون یکی، تطبیق
+// می‌ده — بدون این‌که موقعیتِ زبان‌های غیرمرتبط رو به‌هم بریزه.
+// ---------------------------------------------------------------------------
+// وقتی پیل‌های ترتیبِ ترجمه (targetOrder) جابه‌جا شدن: همون زبان‌ها رو، تو
+// همون جایگاه‌هایی که قبلاً توی ردیفِ مهرها داشتن، به ترتیبِ تازه بچین.
+function syncLangPickerFromTargetOrder(prevLangPickerOrder, nextTargetOrder) {
+  const slots = [];
+  prevLangPickerOrder.forEach((code, idx) => {
+    if (nextTargetOrder.includes(code)) slots.push(idx);
+  });
+  if (!slots.length) return prevLangPickerOrder;
+  const next = [...prevLangPickerOrder];
+  slots.forEach((idx, i) => {
+    next[idx] = nextTargetOrder[i];
+  });
+  return next;
+}
+// وقتی مهرها (langPickerOrder) جابه‌جا شدن: زبان‌های مقصدِ انتخاب‌شده رو با
+// همون ترتیبِ تازه‌ی مهرها بازچینی کن.
+function syncTargetOrderFromLangPicker(nextLangPickerOrder, prevTargetOrder) {
+  const next = nextLangPickerOrder.filter((c) => prevTargetOrder.includes(c));
+  return next.length === prevTargetOrder.length ? next : prevTargetOrder;
+}
 
 const CATEGORIES = {
   greetings: "احوال‌پرسی",
@@ -3485,13 +3654,13 @@ function SpeakButton({ text, code, color }) {
   const handleToggle = (e) => {
     e.stopPropagation();
     const result = speechController.toggle(text, code);
-    if (result === "no-voice") {
-      const label = LANGUAGES.find((l) => l.code === code)?.label || code;
-      alert(
-        `صدای ${label} روی گوشیت نصب نیست. از تنظیمات گوشی، بخش «زبان و ورودی» ⟵ «تبدیل متن به گفتار» ⟵ تنظیمات موتور صدا (مثلاً Google)، این زبون رو دانلود/نصب کن.`
-      );
-    } else if (result === "unsupported") {
+    // "no-voice" دیگه پیش نمی‌آد چون خودکار می‌ره سراغ سرویس آنلاین رایگان
+    // (result === "online-fallback")؛ فقط وقتی هیچ راهی — نه گوشی نه آنلاین —
+    // ممکن نبود، خطا نشون می‌دیم.
+    if (result === "unsupported") {
       alert("این مرورگر از خوندن صوتی متن پشتیبانی نمی‌کنه.");
+    } else if (result === "error") {
+      alert("پخش صدا با مشکل مواجه شد. اتصال اینترنت رو چک کن و دوباره امتحان کن.");
     }
   };
 
@@ -6160,7 +6329,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
 // popover's "save for next story" button, grouped by language, so they're
 // easy to find later instead of only surfacing inside Story Builder.
 // ---------------------------------------------------------------------------
-function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel }) {
+function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel, targetOrder }) {
   const [words, setWords] = useState([]);
   // لغاتی که کاربر توی همین صفحه علامت زده تا ببره داستان‌ساز — جدا از
   // خودِ انبار دائمی؛ فقط یه انتخاب موقتیه، نه حذف/اضافه به ذخیره‌شده‌ها.
@@ -6173,27 +6342,35 @@ function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel }) {
     return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
   }, []);
 
-  // هر لغتی که هنوز ترجمه‌اش به زبان مادری کاربر ذخیره نشده (مثلاً چون از
-  // داستان‌ساز اضافه شده، نه از پاپ‌آپ لغت)، همین‌جا در پس‌زمینه ترجمه و کش
-  // می‌شه تا زیر همون کلمه نشون داده بشه.
+  // زبان‌هایی که باید معادل هر لغت رو نشون بدیم: زبان مادری + هر زبان
+  // مقصدی که کاربر بالای صفحه انتخاب کرده. اگه کاربر یه زبان مقصد تازه
+  // اضافه کنه، همین‌جا هم خودکار معادلش برای همه‌ی لغات ذخیره‌شده می‌آد.
+  const relevantLangs = Array.from(new Set([nativeLang, ...(targetOrder || [])])).filter(Boolean);
+
+  // هر لغتی که هنوز ترجمه‌اش به یکی از این زبون‌ها ذخیره نشده (مثلاً چون از
+  // داستان‌ساز اضافه شده، نه از پاپ‌آپ لغت، یا چون کاربر تازه یه زبون مقصد
+  // جدید اضافه کرده)، همین‌جا در پس‌زمینه ترجمه و کش می‌شه تا زیر همون کلمه
+  // نشون داده بشه.
   useEffect(() => {
-    if (!nativeLang) return;
+    if (!relevantLangs.length) return;
     words.forEach((e) => {
-      if (e.langCode === nativeLang) return;
-      if (e.translations && e.translations[nativeLang]) return;
-      const fetchKey = `${e.langCode}:${normalizeWord(e.word)}:${nativeLang}`;
-      if (crossTranslateInFlight.has(fetchKey)) return;
-      crossTranslateInFlight.add(fetchKey);
-      translateFree(e.word, nativeLang, e.langCode)
-        .then((result) => {
-          if (result && normalizeWord(result) !== normalizeWord(e.word)) {
-            updateSavedWordTranslation(e.word, e.langCode, nativeLang, result);
-          }
-        })
-        .catch(() => {})
-        .finally(() => crossTranslateInFlight.delete(fetchKey));
+      relevantLangs.forEach((toLang) => {
+        if (toLang === e.langCode) return;
+        if (e.translations && e.translations[toLang]) return;
+        const fetchKey = `${e.langCode}:${normalizeWord(e.word)}:${toLang}`;
+        if (crossTranslateInFlight.has(fetchKey)) return;
+        crossTranslateInFlight.add(fetchKey);
+        translateFree(e.word, toLang, e.langCode)
+          .then((result) => {
+            if (result && normalizeWord(result) !== normalizeWord(e.word)) {
+              updateSavedWordTranslation(e.word, e.langCode, toLang, result);
+            }
+          })
+          .catch(() => {})
+          .finally(() => crossTranslateInFlight.delete(fetchKey));
+      });
     });
-  }, [words, nativeLang]);
+  }, [words, relevantLangs.join(",")]);
 
   const togglePick = (code, word) => {
     setPicked((prev) => {
@@ -6255,16 +6432,19 @@ function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel }) {
               <div className="flex flex-wrap gap-2">
                 {byLang[code].map((e) => {
                   const isPicked = pickedSet.has(e.word);
-                  const translation = (e.translations && e.translations[nativeLang]) || "";
+                  // معادلِ این لغت به هر زبونی غیر از خودِ زبونِ مبدا —
+                  // زبان مادری اول، بعد هر زبان مقصدِ دیگه‌ای که کاربر
+                  // بالای صفحه فعال کرده، به همون ترتیب.
+                  const otherLangs = relevantLangs.filter((l) => l !== code);
                   return (
                     <div
                       key={e.word}
                       style={{
                         display: "flex",
                         flexDirection: "column",
-                        gap: 3,
-                        minWidth: 96,
-                        maxWidth: 190,
+                        gap: 4,
+                        minWidth: 110,
+                        maxWidth: 210,
                         borderRadius: 14,
                         border: `1px solid ${isPicked ? colors.gold : colors.cardBorder}`,
                         backgroundColor: isPicked ? colors.goldSoft : colors.paper,
@@ -6285,26 +6465,40 @@ function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel }) {
                         >
                           {e.word}
                         </button>
-                        <button
-                          onClick={() => removeSavedStoryWord(e.word, code)}
-                          style={{ color: colors.inkSoft, display: "flex", flexShrink: 0 }}
-                          title="حذف دائمی"
-                        >
-                          <X size={12} />
-                        </button>
+                        <span className="flex items-center gap-1" style={{ flexShrink: 0 }}>
+                          <SpeakButton text={e.word} code={code} color={colors.gold} />
+                          <button
+                            onClick={() => removeSavedStoryWord(e.word, code)}
+                            style={{ color: colors.inkSoft, display: "flex" }}
+                            title="حذف دائمی"
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
                       </div>
-                      <div
-                        dir={dirFor(nativeLang)}
-                        style={{
-                          fontSize: 11,
-                          color: colors.inkSoft,
-                          lineHeight: 1.6,
-                          fontFamily: nativeLang === "fa" ? fontFa : fontLatin,
-                          overflowWrap: "break-word",
-                        }}
-                      >
-                        {translation || "…"}
-                      </div>
+                      {otherLangs.map((toLang) => {
+                        const translation = (e.translations && e.translations[toLang]) || "";
+                        const toLabel = LANGUAGES.find((l) => l.code === toLang)?.label || toLang;
+                        return (
+                          <div key={toLang} className="flex items-center justify-between gap-2">
+                            <div
+                              dir={dirFor(toLang)}
+                              title={toLabel}
+                              style={{
+                                fontSize: 11,
+                                color: colors.inkSoft,
+                                lineHeight: 1.6,
+                                fontFamily: toLang === "fa" ? fontFa : fontLatin,
+                                overflowWrap: "break-word",
+                                flex: 1,
+                              }}
+                            >
+                              {translation || "…"}
+                            </div>
+                            {translation && <SpeakButton text={translation} code={toLang} color={colors.teal} />}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
@@ -7078,7 +7272,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           </p>
           <DraggableLangRow
             order={langPickerOrder}
-            setOrder={setLangPickerOrder}
+            setOrder={(next) => {
+              setLangPickerOrder(next);
+              setTargetOrder((prev) => syncTargetOrderFromLangPicker(next, prev));
+            }}
             languages={PHRASEBOOK_LANGUAGES}
             isActive={(code) => code === nativeLang}
             onClick={(code) => setNativeLang(code)}
@@ -7088,7 +7285,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           </p>
           <DraggableLangRow
             order={langPickerOrder}
-            setOrder={setLangPickerOrder}
+            setOrder={(next) => {
+              setLangPickerOrder(next);
+              setTargetOrder((prev) => syncTargetOrderFromLangPicker(next, prev));
+            }}
             languages={PHRASEBOOK_LANGUAGES}
             isActive={(code) => targetOrder.includes(code)}
             isDisabled={(code) => code === nativeLang}
@@ -7100,7 +7300,15 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               <p style={{ fontSize: 12, color: colors.paperDark, margin: "10px 0 6px" }}>
                 ترتیب نمایش ترجمه‌ها (بکش تا جابجا بشه)
               </p>
-              <OrderChips order={targetOrder} languages={PHRASEBOOK_LANGUAGES} onReorder={setTargetOrder} onRemove={toggleTargetLang} />
+              <OrderChips
+                order={targetOrder}
+                languages={PHRASEBOOK_LANGUAGES}
+                onReorder={(next) => {
+                  setTargetOrder(next);
+                  setLangPickerOrder((prev) => syncLangPickerFromTargetOrder(prev, next));
+                }}
+                onRemove={toggleTargetLang}
+              />
             </>
           )}
         </div>
@@ -7219,6 +7427,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           <SavedWordsPanel
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
+            targetOrder={targetOrder}
             onJumpToStory={(lang, words) => {
               setStoryJump({ lang, words, token: Date.now() });
               setTab("story");
