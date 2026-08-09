@@ -766,18 +766,26 @@ const speechController = (() => {
 
         // متن جدید — شمارنده‌ی تکرار از روی تنظیم سراسری تازه می‌شه
         const voices = window.speechSynthesis.getVoices();
-        const hasVoice = voices.some(
-          (v) => v.lang && v.lang.toLowerCase().startsWith(newLocale.split("-")[0])
-        );
-        
+        const baseLang = newLocale.split("-")[0].toLowerCase();
+        const hasVoice = voices.some((v) => v.lang && v.lang.toLowerCase().startsWith(baseLang));
+
         key = newKey;
         locale = newLocale;
         fullText = text;
         words = tokenize(text);
         status = "playing";
         remaining = globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
+        // اگه اصلاً صدایی برای این زبون رو گوشی نصب نیست، همون اول متوقف
+        // می‌شیم و پیغام واضح می‌دیم — به‌جای اینکه speak رو صدا بزنیم و
+        // بی‌سروصدا هیچی پخش نشه (که برای کاربر یعنی «چرا کار نمی‌کنه؟»
+        // بدون هیچ دلیلی روی صفحه).
+        if (voices.length > 0 && !hasVoice) {
+          status = "idle";
+          notify();
+          return "no-voice";
+        }
         speakFromWord(0, true);
-        return voices.length > 0 && !hasVoice ? "no-voice" : "ok";
+        return "ok";
       } catch (e) {
         status = "idle";
         notify();
@@ -1315,6 +1323,91 @@ function useActivityTimeTracker(category, isActive, langCode) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isActive, category, langCode]);
+}
+
+// ---------------------------------------------------------------------------
+// تایمرِ دستیِ مطالعه — یک دکمه‌ی روشن/خاموشِ ساده که کاملاً دستِ خودِ
+// کاربره: خودش تصمیم می‌گیره کِی بزنه روشن (شروع مطالعه) و کِی خاموش
+// (پایان مطالعه)، برخلاف useActivityTimeTracker بالا که خودکار و بر پایه‌ی
+// اینکه کدوم تب بازه کار می‌کنه. با خاموش‌کردن (یا بستن مرورگر/رفتن از
+// صفحه وسط روشن‌بودنش)، جلسه با saveReadingSession ثبت می‌شه — همراه هم
+// تاریخ میلادی هم شمسی. توی داستان‌ساز/گرامر/عبارات استفاده می‌شه.
+// ---------------------------------------------------------------------------
+function SectionTimer({ category, langCode, label, color }) {
+  const [running, setRunning] = useState(false);
+  const runningRef = useRef(false);
+  const [elapsed, setElapsed] = useState(0);
+  const startRef = useRef(null);
+  const c = color || colors.gold;
+
+  function stopAndSave() {
+    if (!startRef.current) return;
+    const startedAt = startRef.current;
+    startRef.current = null;
+    const endedAt = new Date().toISOString();
+    const durationSeconds = (new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000;
+    saveReadingSession({ category, langCode, startedAt, endedAt, durationSeconds });
+  }
+
+  useEffect(() => {
+    if (!running) return;
+    const start = Date.now();
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [running]);
+
+  // اگه وسط روشن‌بودن، صفحه بسته/رفرش بشه، جلسه به‌جای گم‌شدن همون لحظه
+  // ثبت می‌شه — فقط یه‌بار هنگام mount/unmount، نه هر بار toggle.
+  useEffect(() => {
+    function handleUnload() {
+      if (runningRef.current) stopAndSave();
+    }
+    window.addEventListener("beforeunload", handleUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleUnload);
+      if (runningRef.current) stopAndSave();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function toggle() {
+    if (running) {
+      stopAndSave();
+      runningRef.current = false;
+      setRunning(false);
+      setElapsed(0);
+    } else {
+      startRef.current = new Date().toISOString();
+      runningRef.current = true;
+      setElapsed(0);
+      setRunning(true);
+    }
+  }
+
+  return (
+    <button
+      onClick={toggle}
+      className="flex items-center gap-1.5"
+      style={{
+        fontFamily: fontFa,
+        color: running ? "white" : c,
+        backgroundColor: running ? c : "transparent",
+        border: `1px solid ${c}`,
+        borderRadius: 20,
+        padding: "5px 12px",
+        cursor: "pointer",
+        fontSize: 12,
+        fontWeight: 700,
+        flexShrink: 0,
+      }}
+      title={running ? "توقف و ذخیره‌ی تایمرِ مطالعه" : "شروع تایمرِ مطالعه"}
+    >
+      {running ? <Pause size={13} /> : <PlayCircle size={13} />}
+      {running
+        ? `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`
+        : label || "تایمر مطالعه"}
+    </button>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -3328,7 +3421,10 @@ function SpeakButton({ text, code, color }) {
     e.stopPropagation();
     const result = speechController.toggle(text, code);
     if (result === "no-voice") {
-      alert("صدای این زبون رو گوشیت نصب نیست.");
+      const label = LANGUAGES.find((l) => l.code === code)?.label || code;
+      alert(
+        `صدای ${label} روی گوشیت نصب نیست. از تنظیمات گوشی، بخش «زبان و ورودی» ⟵ «تبدیل متن به گفتار» ⟵ تنظیمات موتور صدا (مثلاً Google)، این زبون رو دانلود/نصب کن.`
+      );
     } else if (result === "unsupported") {
       alert("این مرورگر از خوندن صوتی متن پشتیبانی نمی‌کنه.");
     }
@@ -6637,12 +6733,11 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     return () => window.removeEventListener(READING_SESSIONS_CHANGED_EVENT, refresh);
   }, []);
   // اندازه‌گیری زمان: کل زمانی که نرم‌افزار جلوی چشم کاربره (همیشه فعال، تا
-  // وقتی این کامپوننت سوار/باز باشه)، بعلاوه‌ی زمانی که مشخصاً تو تبِ گرامر
-  // یا تبِ عبارات سپری می‌شه — همه‌شون جدا از تایمرِ «خواندن خودکار داستان»
-  // (که خودش تو AutoReadButton ثبت می‌شه) و همه با هم می‌رن تو یه گزارش.
+  // وقتی این کامپوننت سوار/باز باشه) خودکاره. اما زمانِ تبِ گرامر و تبِ
+  // عبارات دیگه خودکار نیست — چون کاربر می‌خواد خودش با یه دکمه‌ی روشن/
+  // خاموش (SectionTimer، پایین‌ترِ هر تب) تصمیم بگیره کِی داره واقعاً مطالعه
+  // می‌کنه، نه اینکه صرفِ بازبودنِ تب حساب بشه.
   useActivityTimeTracker("app", true);
-  useActivityTimeTracker("grammar", tab === "grammar");
-  useActivityTimeTracker("phrases", tab === "phrases");
   const [loaded, setLoaded] = useState(false);
   const [wordStats, setWordStats] = useState({});
   const [savedStories, setSavedStories] = useState([]);
@@ -6859,7 +6954,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           <p style={{ fontSize: 12, color: colors.paperDark, marginBottom: 6 }}>
             زبان مادری
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2 overflow-x-auto pb-1">
             {PHRASEBOOK_LANGUAGES.map((l) => (
               <LangStamp
                 key={l.code}
@@ -6872,7 +6967,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           <p style={{ fontSize: 12, color: colors.paperDark, margin: "10px 0 6px" }}>
             زبان‌های مقصد (چند تا رو می‌تونی هم‌زمان انتخاب کنی)
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2 overflow-x-auto pb-1">
             {PHRASEBOOK_LANGUAGES.map((l) => (
               <LangStamp
                 key={l.code}
@@ -6948,16 +7043,21 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
       <main className="px-4 py-4 pb-24">
         {tab === "phrases" && (
-          <PhraseList
-            phrases={PHRASES}
-            nativeLang={nativeLang}
-            targetLangs={targetLangList}
-            favorites={favorites}
-            toggleFavorite={toggleFavorite}
-            query={query}
-            levelFilter={levelFilter}
-            aiSettings={aiSettings}
-          />
+          <>
+            <div className="flex justify-end mb-3">
+              <SectionTimer category="phrases" label="تایمر مطالعه‌ی عبارات" color={colors.teal} />
+            </div>
+            <PhraseList
+              phrases={PHRASES}
+              nativeLang={nativeLang}
+              targetLangs={targetLangList}
+              favorites={favorites}
+              toggleFavorite={toggleFavorite}
+              query={query}
+              levelFilter={levelFilter}
+              aiSettings={aiSettings}
+            />
+          </>
         )}
 
         {tab === "favorites" && (
@@ -7016,6 +7116,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         {/* گرامر هم مثل داستان‌ساز همیشه mount شده می‌مونه، که با رفتن به تب
             دیگه، چتِ تمرین جمله‌سازی و توضیحِ در حال بارگذاری از بین نره. */}
         <div style={{ display: tab === "grammar" ? "block" : "none" }}>
+          <div className="flex justify-end mb-3">
+            <SectionTimer category="grammar" label="تایمر مطالعه‌ی گرامر" color={colors.gold} />
+          </div>
           <GrammarPanel
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
@@ -7031,6 +7134,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             می‌شد، هر بار کاربر می‌رفت لغات‌ذخیره‌شده/دیکشنری و برمی‌گشت،
             داستانِ ساخته‌شده (و لغات انتخابی) پاک می‌شد. */}
         <div style={{ display: tab === "story" ? "block" : "none" }}>
+          <div className="flex justify-end mb-3">
+            <SectionTimer category="story" label="تایمر مطالعه‌ی داستان‌ساز" color={colors.rose} />
+          </div>
           <StoryBuilder
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
@@ -7101,12 +7207,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                 <X size={20} color={colors.inkSoft} />
               </button>
             </div>
-            {readingReport && (
-              <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 8 }}>
-                ⏱ امروز {readingReport.todayMinutes} دقیقه، هفت روز اخیر {readingReport.weekMinutes} دقیقه تو اپ بودی —
-                از هوش مصنوعی بخواه گزارش کاملت (داستان، گرامر، عبارات) رو تحلیل کنه.
-              </p>
-            )}
+            <StudyStatsPanel report={readingReport} />
             <AiChat targetLabel={targetLabel} nativeLabel={nativeLabel} readingReport={readingReport} />
           </div>
         </div>
@@ -7403,6 +7504,130 @@ function ReviewBox({ phrases, boxes, setBoxes, nativeLang, targetLangs, index, s
 // ---------------------------------------------------------------------------
 // AI chat practice partner
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// نوار پیشرفتِ مطالعه — سه بخش (داستان‌ساز/گرامر/عبارات) رو با یه نوار
+// پیشرفت مقایسه می‌کنه، به‌همراه امروز/هفت‌روزِاخیر/مجموع و فهرست جلسه‌های
+// اخیر با تاریخ — با یه سوییچ کوچیک، خودِ کاربر انتخاب می‌کنه تاریخ‌ها رو
+// شمسی ببینه یا میلادی. توی همون شیتِ چتِ هوش مصنوعی نمایش داده می‌شه تا
+// «تحلیل» و «داده‌ی خام» کنار هم باشن.
+// ---------------------------------------------------------------------------
+function StudyStatsPanel({ report }) {
+  const [calendarMode, setCalendarMode] = useState(() => {
+    try {
+      return window.localStorage.getItem("phrasebook-stats-calendar") || "jalali";
+    } catch {
+      return "jalali";
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("phrasebook-stats-calendar", calendarMode);
+    } catch {}
+  }, [calendarMode]);
+
+  const sections = [
+    { key: "story", label: "داستان‌ساز", color: colors.rose },
+    { key: "grammar", label: "گرامر", color: colors.gold },
+    { key: "phrases", label: "عبارات", color: colors.teal },
+  ];
+
+  if (!report) {
+    return (
+      <p style={{ fontSize: 12, color: colors.inkSoft, textAlign: "center", padding: "10px 0" }}>
+        هنوز فعالیتی ثبت نشده — با روشن‌کردنِ «تایمر مطالعه» بالای هر بخش (داستان‌ساز/گرامر/عبارات)، آمارت اینجا نشون داده می‌شه.
+      </p>
+    );
+  }
+
+  const maxMinutes = Math.max(1, ...sections.map((s) => report.byCategoryMinutes[s.key] || 0));
+
+  return (
+    <div
+      style={{
+        backgroundColor: "white",
+        border: `1px solid ${colors.cardBorder}`,
+        borderRadius: 14,
+        padding: 12,
+        marginBottom: 10,
+      }}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <p style={{ fontWeight: 700, fontSize: 13 }}>📊 آمار مطالعه</p>
+        <div className="flex gap-1">
+          {[
+            { key: "jalali", label: "شمسی" },
+            { key: "gregorian", label: "میلادی" },
+          ].map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => setCalendarMode(opt.key)}
+              style={{
+                fontSize: 10,
+                padding: "2px 7px",
+                borderRadius: 10,
+                border: `1px solid ${calendarMode === opt.key ? colors.teal : colors.cardBorder}`,
+                backgroundColor: calendarMode === opt.key ? colors.teal : "white",
+                color: calendarMode === opt.key ? "white" : colors.ink,
+                fontWeight: 600,
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 10 }}>
+        امروز {report.todayMinutes} دقیقه · هفت روز اخیر {report.weekMinutes} دقیقه · مجموع {report.totalAppMinutes} دقیقه
+      </p>
+
+      <div className="flex flex-col gap-2 mb-3">
+        {sections.map((s) => {
+          const minutes = report.byCategoryMinutes[s.key] || 0;
+          const pct = Math.round((minutes / maxMinutes) * 100);
+          return (
+            <div key={s.key}>
+              <div className="flex items-center justify-between mb-1">
+                <span style={{ fontSize: 12, fontWeight: 600 }}>{s.label}</span>
+                <span style={{ fontSize: 11, color: colors.inkSoft }}>{minutes} دقیقه</span>
+              </div>
+              <div style={{ height: 7, borderRadius: 6, backgroundColor: colors.paperDark, overflow: "hidden" }}>
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${pct}%`,
+                    backgroundColor: s.color,
+                    borderRadius: 6,
+                    transition: "width 0.3s",
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {report.recent.length > 0 && (
+        <>
+          <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 4 }}>جلسه‌های اخیر</p>
+          <div className="flex flex-col gap-1" style={{ maxHeight: 120, overflowY: "auto" }}>
+            {report.recent.map((r, i) => (
+              <div key={i} className="flex items-center justify-between" style={{ fontSize: 11, color: colors.inkSoft }}>
+                <span>
+                  {sections.find((s) => s.key === r.category)?.label || r.category}
+                  {r.langCode ? ` (${r.langCode})` : ""}
+                </span>
+                <span>{r.minutes} دقیقه</span>
+                <span dir="ltr">{calendarMode === "jalali" ? r.jalaliDate : r.gregorianDate}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function AiChat({ targetLabel, nativeLabel, readingReport }) {
   const [messages, setMessages] = useState([
     { role: "assistant", text: `سلام! هر سوالی داری بپرس — درباره‌ی ${targetLabel || "زبانی که یاد می‌گیری"}، یا هر موضوع دیگه‌ای، هرچی دلت خواست. به ${nativeLabel} هم می‌تونی بنویسی.` },
