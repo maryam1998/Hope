@@ -1100,16 +1100,15 @@ const offlineDictionary = (() => {
 })();
 
 
-//     User → React App (this file) → Backend Server (Render) → AI provider
+//     User → React App (this file) → Cloudflare Worker (src/index.js) → AI provider
 // The frontend NEVER talks to an AI provider directly and never holds an
 // API key. It only calls this one backend endpoint (POST /api/generate).
-// Which actual AI provider answers (DeepSeek / OpenAI-ChatGPT, with
-// automatic fallback between them) is decided entirely on the server via
-// AI_PROVIDER in server/.env — see server.js.
+// Which actual AI provider answers (with automatic fallback between them)
+// is decided entirely on the Worker via AI_PROVIDER — see src/index.js.
 //
 // The backend URL is configurable per-device (Settings box in Story Builder,
 // wired through `aiSettings.backendUrl`) but defaults to DEFAULT_BACKEND_URL
-// below — replace that with your own Render URL once it's deployed.
+// below — replace that with your own Worker URL once it's deployed.
 // ---------------------------------------------------------------------------
 const DEFAULT_BACKEND_URL = "https://phrasebook-api.maryam-s-sharifiyan.workers.dev";
 
@@ -1163,7 +1162,7 @@ async function callAI({ prompt, maxTokens, retries = 2, aiSettings }) {
       if (isKnownServerError) throw e;
       throw new Error(
         isNetworkFailure
-          ? `ai-backend-error: به سرور (${base}) وصل نشد. مطمئن شو سرور Render روشنه (اگه مدتی بی‌کار بوده، بیدار شدنش تا ۵۰ ثانیه طول می‌کشه) و آدرسش درسته.`
+          ? `ai-backend-error: به سرور (${base}) وصل نشد. یعنی خودِ Cloudflare Worker جواب نداد — چک کن: ۱) آخرین دیپلوی توی داشبورد Cloudflare بدون خطا انجام شده باشه، ۲) این آدرس رو مستقیم توی مرورگر باز کن (${base}/health) و ببین یه JSON برمی‌گردونه یا خطا می‌ده، ۳) آدرس بک‌اند توی تنظیمات اپ (اگه دستی ست کردی) درست باشه.`
           : `ai-backend-error: ${msg || "خطای ناشناخته در اتصال"}`
       );
     }
