@@ -1021,85 +1021,85 @@ const speechController = (() => {
 
 // ---------------------------------------------------------------------------
 // Auto-play on scroll — used by PhraseList / WordList / VocabList. When
-// turned on, as a card scrolls to the center of the screen its audio plays
-// automatically, one card at a time (waits for the previous one to finish
-// before starting the next), like a "played once, then move on" reading mode.
-// Each list keeps its own played-ids set, so re-entering a tab starts fresh.
+// turned on, it drives the reading itself: scrolls the next card to the
+// center of the screen, plays its audio, waits for that to finish, then
+// moves to the next one — hands-free, one after another, down the whole
+// list. Toggling it off pauses (stops the audio, remembers the position);
+// toggling it back on resumes from that same spot instead of starting over.
 // ---------------------------------------------------------------------------
 function useAutoplayOnScroll(enabled, items) {
-  const playedRef = useRef(new Set());
-  const visibleRef = useRef(new Map()); // id -> top offset
   const nodeMapRef = useRef(new Map()); // id -> DOM node
-  const observerRef = useRef(null);
-  const playingRef = useRef(false);
+  const indexRef = useRef(0); // resume position, survives pause/resume
+  const genRef = useRef(0); // bumped to cancel any in-flight sequence
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
-  function maybePlayNext() {
-    if (!enabled || playingRef.current) return;
-    let bestId = null;
-    let bestTop = Infinity;
-    visibleRef.current.forEach((top, id) => {
-      if (!playedRef.current.has(id) && top < bestTop) {
-        bestTop = top;
-        bestId = id;
-      }
-    });
-    if (!bestId) return;
-    const item = itemsRef.current.find((it) => String(it.id) === bestId);
-    if (!item || !item.text) return;
-    playedRef.current.add(bestId);
-    speechController.toggle(item.text, item.code);
-  }
-
-  useEffect(() => {
-    return speechController.subscribe((state) => {
-      playingRef.current = state.status === "playing";
-      if (state.status === "idle") maybePlayNext();
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled]);
-
   useEffect(() => {
     if (!enabled) {
-      observerRef.current?.disconnect();
-      observerRef.current = null;
-      visibleRef.current.clear();
+      speechController.stop();
+      genRef.current++;
       return;
     }
-    playedRef.current = new Set();
-    const obs = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          const id = entry.target.getAttribute("data-autoplay-id");
-          if (!id) return;
-          if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
-            visibleRef.current.set(id, entry.boundingClientRect.top);
-          } else {
-            visibleRef.current.delete(id);
+    const myGen = ++genRef.current;
+    let unsub = null;
+
+    function playAt(i) {
+      if (myGen !== genRef.current) return;
+      const list = itemsRef.current;
+      if (i >= list.length) {
+        indexRef.current = 0; // reached the end — next resume starts over
+        return;
+      }
+      indexRef.current = i;
+      const item = list[i];
+      const node = nodeMapRef.current.get(String(item.id));
+      if (node && node.scrollIntoView) {
+        node.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      window.setTimeout(() => {
+        if (myGen !== genRef.current) return;
+        if (!item.text) {
+          playAt(i + 1);
+          return;
+        }
+        let started = false;
+        if (unsub) unsub();
+        unsub = speechController.subscribe((state) => {
+          if (myGen !== genRef.current) return;
+          if (state.status === "playing") started = true;
+          if (state.status === "idle" && started) {
+            if (unsub) {
+              unsub();
+              unsub = null;
+            }
+            playAt(i + 1);
           }
         });
-        maybePlayNext();
-      },
-      { threshold: [0.6] }
-    );
-    observerRef.current = obs;
-    nodeMapRef.current.forEach((node) => obs.observe(node));
-    return () => obs.disconnect();
+        speechController.toggle(item.text, item.code);
+      }, 450);
+    }
+
+    playAt(indexRef.current);
+
+    return () => {
+      genRef.current++;
+      if (unsub) unsub();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
+
+  // If the visible list itself changes (search/level filter), restart from
+  // the top next time autoplay is (re)started — the old index no longer
+  // means anything against a different list.
+  useEffect(() => {
+    indexRef.current = 0;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.length]);
 
   const registerRef = (id) => (node) => {
     const key = String(id);
-    const prevNode = nodeMapRef.current.get(key);
-    if (prevNode && observerRef.current) observerRef.current.unobserve(prevNode);
-    if (node) {
-      node.setAttribute("data-autoplay-id", key);
-      nodeMapRef.current.set(key, node);
-      if (observerRef.current) observerRef.current.observe(node);
-    } else {
-      nodeMapRef.current.delete(key);
-    }
+    if (node) nodeMapRef.current.set(key, node);
+    else nodeMapRef.current.delete(key);
   };
 
   return { registerRef };
@@ -12917,6 +12917,9 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
           className="flex items-center justify-between p-3 rounded-lg"
           style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}` }}
         >
+          <button onClick={() => toggleWordFavorite(w.id)} aria-label="افزودن به علاقه‌مندی‌ها" style={{ marginLeft: 4, flexShrink: 0 }}>
+            <Star size={20} color={colors.gold} fill={wordFavorites.has(w.id) ? colors.gold : "none"} />
+          </button>
           <div className="flex-1">
             <div className="flex items-center justify-between" style={{ direction: "ltr" }}>
               <div className="flex items-center gap-2">
@@ -12948,14 +12951,11 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-2" style={{ marginTop: 4 }}>
+            <div className="flex items-center gap-2" style={{ marginTop: 4, justifyContent: "flex-end" }}>
               <p style={{ fontSize: 14, color: colors.inkSoft }}>{w.fa}</p>
               <SpeakButton text={w.fa} code="fa" />
             </div>
           </div>
-          <button onClick={() => toggleWordFavorite(w.id)} aria-label="افزودن به علاقه‌مندی‌ها" style={{ marginRight: 4 }}>
-            <Star size={20} color={colors.gold} fill={wordFavorites.has(w.id) ? colors.gold : "none"} />
-          </button>
         </div>
       ))}
     </div>
