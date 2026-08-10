@@ -13609,7 +13609,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         position: "relative",
       }}
     >
-      <GlobalAddToStorySelection fallbackLangCode={nativeLang} />
+      <GlobalAddToStorySelection fallbackLangCode={nativeLang} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Lora:ital@0;1&display=swap');
         * { box-sizing: border-box; }
@@ -14182,9 +14182,16 @@ function VocabList({ words, nativeLang, targetLangs, levelFilter, aiSettings, au
 // می‌خونیم (هر جایی از اپ که زبانش معلومه — مثل ClickableSentence — این
 // اتریبیوت رو داره)؛ اگه پیدا نشد، زبان مادری/پیش‌فرض کاربر رو استفاده
 // می‌کنیم تا این قابلیت هیچ‌جای برنامه بی‌اثر نمونه.
-function GlobalAddToStorySelection({ fallbackLangCode = "fa" }) {
+function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, nativeLabel, aiSettings }) {
   const [popup, setPopup] = useState(null); // { top, left, text, langCode } | null
   const [added, setAdded] = useState(false);
+  // این دوتا دقیقاً معادل دکمه‌های «ذخیره برای داستان بعدی» و «افزودن به
+  // یادگیری گرامر» توی پاپ‌آپِ تک‌لغه‌ایِ ClickableSentence هستن — اینجا هم
+  // همون رفتار رو برای یک محدوده‌ی انتخاب‌شده (چند کلمه یا یک جمله‌ی کامل)
+  // فعال می‌کنیم، بدون این‌که هیچ درخواست شبکه‌ای فوری لازم باشه (معنی/
+  // ترجمه بعداً و در پس‌زمینه کامل می‌شه، دقیقاً مثل بقیه‌ی جاهای برنامه).
+  const [saved, setSaved] = useState(false);
+  const [grammarSaved, setGrammarSaved] = useState(false);
 
   useEffect(() => {
     const resolveLangCode = (node) => {
@@ -14212,6 +14219,8 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa" }) {
       if (!rect || (!rect.width && !rect.height)) return;
       const langCode = resolveLangCode(sel.anchorNode);
       setAdded(false);
+      setSaved(isWordSaved(selectedText, langCode));
+      setGrammarSaved(false);
       setPopup({ top: rect.top, left: rect.left + rect.width / 2, text: selectedText, langCode });
       // بلافاصله انتخابِ بومیِ مرورگر رو پاک می‌کنیم — دکمه‌ی شناورِ خودمون
       // (که همین الان ست شد) جایگزینش می‌شه، و نوار ابزارِ سیستم دیگه چیزی
@@ -14239,39 +14248,132 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa" }) {
   }, [fallbackLangCode]);
 
   if (!popup) return null;
+
+  // معنیِ فوریِ لغتیه که تازه ذخیره می‌شه — این‌جا لازم نیست، درست مثل بقیه‌ی
+  // جاهای برنامه که ذخیره‌ی اولیه بدون معنی انجام می‌شه و بعداً (از پنل «لغات
+  // ذخیره‌شده» یا زیرخط‌کشیِ ClickableSentence) کامل می‌شه.
+  function saveSelectionToGrammar() {
+    if (!popup) return;
+    const basicMarkdown = `## 🧩 ${popup.text}\n\n**جمله:** ${popup.text}`;
+    const entry = saveGrammarNote({ langCode: popup.langCode, word: popup.text, sentence: popup.text, markdown: basicMarkdown });
+    setGrammarSaved(true);
+    if (!entry) return;
+    lookupWordGrammarDetail({
+      word: popup.text,
+      sentence: popup.text,
+      langCode: popup.langCode,
+      nativeLang: nativeLang || fallbackLangCode,
+      nativeLabel,
+      aiSettings,
+    })
+      .then((md) => {
+        if (md) updateGrammarNoteMarkdown(entry.id, md);
+      })
+      .catch(() => {
+        // بک‌اند AI در دسترس نبود — یادداشتِ پایه که همین الان ذخیره شد سرِ جاشه.
+      });
+  }
+
   return (
     <div
       onMouseDown={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
-      onClick={(e) => {
-        e.stopPropagation();
-        addTextToStoryPicks(popup.text, popup.langCode);
-        setAdded(true);
-        setTimeout(() => setPopup(null), 700);
-      }}
       style={{
         position: "fixed",
-        top: Math.max(8, popup.top - 34),
-        left: Math.min(Math.max(60, popup.left), window.innerWidth - 60),
+        top: Math.max(8, popup.top - 40),
+        left: Math.min(Math.max(90, popup.left), window.innerWidth - 90),
         transform: "translateX(-50%)",
         display: "flex",
         alignItems: "center",
+        flexWrap: "wrap",
+        justifyContent: "center",
         gap: 4,
+        maxWidth: "92vw",
         background: colors.ink,
         color: colors.paper,
         borderRadius: 8,
-        padding: "5px 9px",
-        fontSize: 11,
-        fontWeight: 700,
+        padding: "5px 6px",
         fontFamily: fontFa,
-        whiteSpace: "nowrap",
         zIndex: 9999,
-        cursor: "pointer",
         boxShadow: "0 4px 14px rgba(0,0,0,0.28)",
       }}
     >
-      {added ? <Check size={12} color={colors.gold} /> : <Plus size={12} />}
-      {added ? "اضافه شد" : "افزودن به داستان"}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          addTextToStoryPicks(popup.text, popup.langCode);
+          setAdded(true);
+          setTimeout(() => setPopup(null), 700);
+        }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          fontSize: 11,
+          fontWeight: 700,
+          color: colors.paper,
+          background: "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(255,255,255,0.25)",
+          borderRadius: 6,
+          padding: "3px 8px",
+          cursor: "pointer",
+        }}
+      >
+        {added ? <Check size={11} color={colors.gold} /> : <Plus size={11} />}
+        {added ? "اضافه شد" : "افزودن به داستان"}
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          const nowSaved = toggleSavedStoryWord(popup.text, popup.langCode, { nativeLang: nativeLang || fallbackLangCode });
+          setSaved(nowSaved);
+          if (nowSaved) {
+            try {
+              window.dispatchEvent(
+                new CustomEvent(STORY_WORD_PICKED_EVENT, { detail: { word: popup.text, langCode: popup.langCode } })
+              );
+            } catch {}
+          }
+        }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          fontSize: 11,
+          fontWeight: 700,
+          color: saved ? colors.gold : colors.paper,
+          background: "rgba(255,255,255,0.08)",
+          border: `1px solid ${saved ? colors.gold : "rgba(255,255,255,0.25)"}`,
+          borderRadius: 6,
+          padding: "3px 8px",
+          cursor: "pointer",
+        }}
+      >
+        <Bookmark size={11} fill={saved ? colors.gold : "none"} />
+        {saved ? "ذخیره شد برای داستان بعدی" : "ذخیره برای داستان بعدی"}
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          saveSelectionToGrammar();
+        }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          fontSize: 11,
+          fontWeight: 700,
+          color: grammarSaved ? colors.gold : colors.paper,
+          background: "rgba(255,255,255,0.08)",
+          border: `1px solid ${grammarSaved ? colors.gold : "rgba(255,255,255,0.25)"}`,
+          borderRadius: 6,
+          padding: "3px 8px",
+          cursor: "pointer",
+        }}
+      >
+        <Type size={11} />
+        {grammarSaved ? "ذخیره شد در گرامر" : "افزودن به یادگیری گرامر"}
+      </button>
     </div>
   );
 }
