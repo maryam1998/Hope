@@ -1,13 +1,12 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
-import { conversation  } from "./conversation ";
-import { VOCAB } from "./VOCAB";
-import { WORDS_AZ } from "./WORDS_A_Z";
-import { NEWS_WORDS } from "./NEW_WORRS";
-import { DAILY_WORDS } from "./DAILY_WORDS";
-import { DAILY_CONVERSATIONS } from "./DAILY_CONVERSATIONS";
-import DailyConversationsTab from "./DailyConversationsTab";
+import { VOCAB } from "./VOCAB.js";
+import { WORDS_AZ } from "./WORDS_AZ.js";
+import { NEWS_WORDS } from "./NEWS_WORDS.js";
+import { DAILY_WORDS } from "./DAILY_WORDS.js";
+import { DAILY_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
+import DailyConversationsTab from "./DailyConversationsTab.jsx";
 
 // ---------------------------------------------------------------------------
 // SUPABASE — real accounts (email/password + Google) and cross-device sync.
@@ -6591,7 +6590,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       </nav>
 
       {/* Level filter — applies to conversation , words, favorites, and vocabulary */}
-      {(tab === "conversation " || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "daily") && (
+      {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "daily") && (
         <div className="px-4 pt-3">
           <LevelFilterRow levelFilter={levelFilter} setLevelFilter={setLevelFilter} />
         </div>
