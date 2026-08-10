@@ -1580,6 +1580,38 @@ function updateWordExampleTranslation(word, langCode, exampleId, targetLangCode,
   } catch {}
 }
 
+// ---------------------------------------------------------------------------
+// ترجمه‌ی هر لغتِ لیست به همه‌ی زبان‌های مقصدی که کاربر انتخاب کرده (نه فقط
+// فارسی). چون خودِ دیتای WORDS_AZ/NEWS_WORDS/DAILY_WORDS فقط انگلیسی+فارسی
+// دارن، بقیه‌ی زبان‌ها رو همین‌جا، لحظه‌ای و با همون زنجیره‌ی ترجمه‌ی رایگان
+// (translateFree) می‌گیریم و روی دستگاه کش می‌کنیم — تا هر لغت فقط یه‌بار
+// در طول عمر برنامه از سرور خواسته بشه، نه هر بار که کاربر اسکرول می‌کنه.
+const WORD_TRANSLATIONS_KEY = "phrasebook-word-translations-v1";
+
+function loadAllWordTranslations() {
+  try {
+    const raw = window.localStorage.getItem(WORD_TRANSLATIONS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+function wordTranslationKey(word, langCode) {
+  return `${langCode}::${normalizeWord(word)}`;
+}
+function loadWordTranslation(word, langCode) {
+  const all = loadAllWordTranslations();
+  return all[wordTranslationKey(word, langCode)] || "";
+}
+function saveWordTranslation(word, langCode, translatedText) {
+  if (!translatedText || !translatedText.trim()) return;
+  const all = loadAllWordTranslations();
+  all[wordTranslationKey(word, langCode)] = translatedText.trim();
+  try {
+    window.localStorage.setItem(WORD_TRANSLATIONS_KEY, JSON.stringify(all));
+  } catch {}
+}
+
 // از هوش مصنوعی یه مثالِ واقعی، امروزی و پرکاربرد برای یه لغت/اصطلاح خاص
 // می‌خواد — و صریحاً می‌گیم چه مثال‌هایی قبلاً ساخته شدن تا تکراری نسازه.
 async function generateWordExample({ word, langCode, meaningNative, nativeLabel, existingExamples, aiSettings }) {
@@ -13824,6 +13856,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             levelFilter={levelFilter}
             emptyText="لغتی برای نمایش نیست."
             nativeLang={nativeLang}
+            targetLangs={targetLangList}
             aiSettings={aiSettings}
             autoplayEnabled={tab === "words" && autoScrollPlay}
           />
@@ -13838,6 +13871,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             levelFilter={levelFilter}
             emptyText="لغتی برای نمایش نیست."
             nativeLang={nativeLang}
+            targetLangs={targetLangList}
             aiSettings={aiSettings}
             autoplayEnabled={tab === "vocab" && autoScrollPlay}
           />
@@ -13852,6 +13886,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             levelFilter={levelFilter}
             emptyText="لغتی برای نمایش نیست."
             nativeLang={nativeLang}
+            targetLangs={targetLangList}
             aiSettings={aiSettings}
             autoplayEnabled={tab === "daily" && autoScrollPlay}
           />
@@ -14202,7 +14237,15 @@ function VocabList({ words, nativeLang, targetLangs, levelFilter, aiSettings, au
 // به کتابخونه‌ی جدید).
 const WORDS_PAGE_SIZE = 60;
 
-function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, aiSettings, autoplayEnabled }) {
+function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, targetLangs, aiSettings, autoplayEnabled }) {
+  // زبان‌هایی که باید زیرِ هر لغت ترجمه‌شون نشون داده بشه: همون زبان‌های
+  // مقصدی که کاربر بالای صفحه انتخاب/مرتب کرده (targetLangs)، منهای خودِ
+  // انگلیسی (چون انگلیسی همون سرلغته که بالا نشون داده می‌شه و تکرارش
+  // بی‌فایده‌ست). اگه به‌هر دلیلی چیزی انتخاب نشده بود، حداقل فارسی رو نشون
+  // می‌دیم تا لیست هیچ‌وقت بدون معنی نمونه.
+  const displayLangs = (targetLangs && targetLangs.length ? targetLangs.filter((l) => l.code !== "en") : []);
+  const effectiveDisplayLangs = displayLangs.length ? displayLangs : [{ code: "fa", label: "فارسی", abbr: "FA" }];
+
   const q = (query || "").trim().toLowerCase();
   let filtered = levelFilter && levelFilter !== "all" ? words.filter((w) => w.level === levelFilter) : words;
   filtered = q
@@ -14292,15 +14335,89 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                 {POS_FA[w.pos] || w.pos}
               </span>
             </div>
-            <div className="flex items-center gap-2" style={{ marginTop: 4, justifyContent: "flex-end" }}>
-              <p style={{ fontSize: 14, fontWeight: 700, color: colors.teal }}>{w.fa}</p>
-              <SpeakButton text={w.fa} code="fa" />
+            {/* ترجمه‌ی این لغت به همه‌ی زبان‌های مقصدِ انتخاب‌شده — نه فقط
+                فارسی. رنگ متن‌ها مشکی و پررنگه (نه رنگ‌های کم‌کنتراست) تا
+                خوندنش چشم رو خسته نکنه. */}
+            <div className="flex flex-col gap-1" style={{ marginTop: 4 }}>
+              {effectiveDisplayLangs.map((l) => (
+                <WordTargetTranslation
+                  key={l.code}
+                  word={w.en}
+                  langCode={l.code}
+                  abbr={l.abbr}
+                  knownText={l.code === "fa" ? w.fa : ""}
+                  nativeLang={nativeLang}
+                  aiSettings={aiSettings}
+                />
+              ))}
             </div>
             <WordExamples word={w.en} langCode="en" meaningNative={w.fa} nativeLang={nativeLang} aiSettings={aiSettings} />
           </div>
         </div>
       ))}
       {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// یک ردیف ترجمه‌ی یک لغت به یک زبان مقصد. اگه ترجمه‌اش از قبل معلومه
+// (فارسی — چون تو خودِ دیتای لغت هست) همون رو مستقیم نشون می‌ده؛ وگرنه اول
+// از کش دستگاه می‌خونه و اگه نبود، لحظه‌ای با translateFree می‌گیره و کش
+// می‌کنه (تا دفعه‌ی بعد دیگه درخواستی به سرور نره). متن با رنگ مشکی‌پررنگ
+// (colors.ink) و bold نشون داده می‌شه — نه رنگ‌های کم‌کنتراست — تا خوندنِ
+// پشت‌سرهمِ چند زبان چشم رو خسته نکنه.
+function WordTargetTranslation({ word, langCode, abbr, knownText, nativeLang, aiSettings }) {
+  const [text, setText] = useState(knownText || (() => loadWordTranslation(word, langCode)));
+
+  useEffect(() => {
+    if (knownText) {
+      setText(knownText);
+      return;
+    }
+    const cached = loadWordTranslation(word, langCode);
+    if (cached) {
+      setText(cached);
+      return;
+    }
+    let cancelled = false;
+    translateFree(word, langCode, "en", aiSettings)
+      .then((t) => {
+        if (cancelled || !t) return;
+        setText(t);
+        saveWordTranslation(word, langCode, t);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [word, langCode, knownText]);
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+      {text ? (
+        <>
+          <p style={{ fontSize: 14, fontWeight: 800, color: colors.ink }}>{text}</p>
+          <SpeakButton text={text} code={langCode} color={colors.teal} />
+        </>
+      ) : (
+        <p style={{ fontSize: 12, color: colors.inkSoft }}>در حال ترجمه...</p>
+      )}
+      <span
+        style={{
+          fontFamily: fontFa,
+          fontSize: 10,
+          fontWeight: 700,
+          color: colors.gold,
+          border: `1px solid ${colors.goldSoft}`,
+          borderRadius: 6,
+          padding: "1px 5px",
+          flexShrink: 0,
+        }}
+      >
+        {abbr}
+      </span>
     </div>
   );
 }
@@ -14403,18 +14520,28 @@ function WordExampleRow({ example, word, langCode, nativeLang, aiSettings }) {
         padding: 8,
         borderRadius: 8,
         background: colors.paperDark,
-        border: `1px dashed ${colors.cardBorder}`,
+        border: `1px solid ${colors.cardBorder}`,
       }}
     >
+      {/* متن مثال و ترجمه‌اش هر دو مشکی و bold‌ان (نه رنگ‌های کم‌کنتراست)
+          تا خوندن‌شون تو کادرِ کرم‌رنگ چشم رو خسته نکنه. */}
       <div className="flex items-center gap-2" style={{ direction: "ltr" }}>
         <div style={{ flex: 1 }}>
-          <ClickableSentence text={example.text} langCode={langCode} nativeLang={nativeLang} aiSettings={aiSettings} fontSize={13} />
+          <ClickableSentence
+            text={example.text}
+            langCode={langCode}
+            nativeLang={nativeLang}
+            aiSettings={aiSettings}
+            color={colors.ink}
+            fontWeight={700}
+            fontSize={13}
+          />
         </div>
         <SpeakButton text={example.text} code={langCode} color={colors.teal} />
       </div>
       {translation ? (
         <div className="flex items-center gap-2" style={{ marginTop: 4 }}>
-          <p style={{ flex: 1, fontSize: 12, color: colors.inkSoft }}>{translation}</p>
+          <p style={{ flex: 1, fontSize: 12, fontWeight: 700, color: colors.ink }}>{translation}</p>
           <SpeakButton text={translation} code={nativeLang} />
         </div>
       ) : (
