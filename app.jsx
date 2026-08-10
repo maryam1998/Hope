@@ -9080,12 +9080,46 @@ function SpeedControl({ color }) {
     []
   );
   const c = color || colors.gold;
+  // با انگشت روی اسلایدر تنظیم دقیق سخته؛ برای همین دو تا دکمه‌ی +/- هم
+  // اضافه شده که با هر بار لمس، ۰.۱ واحد سرعت رو کم/زیاد می‌کنن. چون این
+  // کامپوننت مشترکه و همه‌ی پلیرهای اپ از همین یه SpeedControl استفاده
+  // می‌کنن، این تغییر خودکار روی همه‌شون اعمال می‌شه.
+  const step = (delta) => {
+    const next = Math.round((rate + delta) * 10) / 10;
+    speechController.setRate(next);
+  };
+  const btnStyle = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 20,
+    height: 20,
+    borderRadius: 999,
+    border: `1px solid ${colors.cardBorder}`,
+    background: "white",
+    color: c,
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1,
+    cursor: "pointer",
+    flexShrink: 0,
+    padding: 0,
+  };
   return (
     <span
       title={`سرعت پخش: ${rate.toFixed(1)}×`}
       style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}
     >
       <Gauge size={15} color={colors.inkSoft} />
+      <button
+        type="button"
+        onClick={() => step(-0.1)}
+        disabled={rate <= 0.5}
+        style={{ ...btnStyle, opacity: rate <= 0.5 ? 0.4 : 1 }}
+        aria-label="کم کردن سرعت پخش"
+      >
+        −
+      </button>
       <input
         type="range"
         min={0.5}
@@ -9096,6 +9130,15 @@ function SpeedControl({ color }) {
         style={{ width: 44, accentColor: c }}
         aria-label="سرعت پخش صدا"
       />
+      <button
+        type="button"
+        onClick={() => step(0.1)}
+        disabled={rate >= 2}
+        style={{ ...btnStyle, opacity: rate >= 2 ? 0.4 : 1 }}
+        aria-label="زیاد کردن سرعت پخش"
+      >
+        +
+      </button>
       <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap", minWidth: 24 }}>
         {rate.toFixed(1)}×
       </span>
@@ -9108,7 +9151,7 @@ function SpeedControl({ color }) {
 // a small popover with its part of speech + Persian meaning, looked up first
 // from the local VOCAB list, then (if not found) from the AI backend.
 // ---------------------------------------------------------------------------
-function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabelProp, aiSettings, color, fontFamily, alignSourceText, alignSourceLang }) {
+function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabelProp, aiSettings, color, fontFamily, fontWeight, alignSourceText, alignSourceLang }) {
   const [openKey, setOpenKey] = useState(null); // `${startTokenIdx}-${endTokenIdx}` of the word/expression with popover open
   const [info, setInfo] = useState(null); // { pos, meaning } | "loading" | "error"
   const [anchorRect, setAnchorRect] = useState(null); // clicked word's screen position
@@ -9360,6 +9403,7 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
               style={{
                 fontFamily: fontFamily || fontLatin,
                 color: color || colors.teal,
+                fontWeight: fontWeight || undefined,
                 fontSize: 14,
                 cursor: "pointer",
                 textDecorationLine: isUnderlined ? "underline" : "none",
@@ -12231,47 +12275,68 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   }, []);
 
   // --- Load saved progress once, on first mount ---------------------------
-  // Firestore (this Google account, any device) wins over the local copy
-  // (this browser only) when both exist, since it's the more current source
-  // once more than one device is involved.
-  useEffect(() => {
-    (async () => {
+  // قبلاً اینجا هم‌زمان منتظر جواب localStorage و Supabase (Promise.all)
+  // می‌موندیم و تا هر دو برنمی‌گشتن صفحه‌ی «در حال بارگذاری...» می‌موند —
+  // یعنی هر بار ورود به برنامه، یه رفت‌وبرگشتِ شبکه‌ای کامل به Supabase
+  // (که خودش بعد از چک‌کردن سشن تو App، دومین رفت‌وبرگشته) قبل از نمایش
+  // برنامه لازم بود. حالا اول نسخه‌ی محلی (که تقریباً آنی آماده‌ست) اعمال
+  // می‌شه و صفحه باز می‌شه؛ نسخه‌ی ابری (Supabase) در پس‌زمینه لود می‌شه و
+  // هروقت رسید — اگه واقعاً چیزی داشت — جایگزین می‌شه. کاربر تقریباً فوری
+  // وارد برنامه می‌شه، بدون این‌که دیتای ابری از دست بره.
+  const applySavedState = (saved) => {
+    if (!saved) return;
+    if (saved.nativeLang) setNativeLang(saved.nativeLang);
+    if (Array.isArray(saved.targetOrder) && saved.targetOrder.length) setTargetOrder(saved.targetOrder);
+    if (Array.isArray(saved.langPickerOrder) && saved.langPickerOrder.length) setLangPickerOrder(saved.langPickerOrder);
+    if (Array.isArray(saved.favorites)) setFavorites(new Set(saved.favorites));
+    if (Array.isArray(saved.wordFavorites)) setWordFavorites(new Set(saved.wordFavorites));
+    if (saved.boxes) setBoxes((prev) => ({ ...prev, ...saved.boxes }));
+    if (saved.wordStats) setWordStats(saved.wordStats);
+    if (saved.savedStories) setSavedStories(saved.savedStories);
+    if (saved.dictHistory) setDictHistory(saved.dictHistory);
+    if (saved.backendUrl) setBackendUrl(saved.backendUrl);
+    if (Array.isArray(saved.savedStoryWords)) {
       try {
-        const [local, cloud] = await Promise.all([
-          storage.get(userStorageKey, false),
-          user?.uid ? supabaseLoadState(user.uid) : Promise.resolve(null),
-        ]);
-        const saved = cloud || (local && local.value ? JSON.parse(local.value) : null);
-        if (saved) {
-          if (saved.nativeLang) setNativeLang(saved.nativeLang);
-          if (Array.isArray(saved.targetOrder) && saved.targetOrder.length) setTargetOrder(saved.targetOrder);
-          if (Array.isArray(saved.langPickerOrder) && saved.langPickerOrder.length) setLangPickerOrder(saved.langPickerOrder);
-          if (Array.isArray(saved.favorites)) setFavorites(new Set(saved.favorites));
-          if (Array.isArray(saved.wordFavorites)) setWordFavorites(new Set(saved.wordFavorites));
-          if (saved.boxes) setBoxes((prev) => ({ ...prev, ...saved.boxes }));
-          if (saved.wordStats) setWordStats(saved.wordStats);
-          if (saved.savedStories) setSavedStories(saved.savedStories);
-          if (saved.dictHistory) setDictHistory(saved.dictHistory);
-          if (saved.backendUrl) setBackendUrl(saved.backendUrl);
-          if (Array.isArray(saved.savedStoryWords)) {
-            try {
-              window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(saved.savedStoryWords));
-              window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
-            } catch {}
-          }
-          if (Array.isArray(saved.grammarNotes)) {
-            try {
-              window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(saved.grammarNotes));
-              window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
-            } catch {}
-          }
-        }
+        window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(saved.savedStoryWords));
+        window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
+      } catch {}
+    }
+    if (Array.isArray(saved.grammarNotes)) {
+      try {
+        window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(saved.grammarNotes));
+        window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+      } catch {}
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // مرحله‌ی ۱ (سریع): نسخه‌ی محلی رو بخون، اعمال کن، و فوراً صفحه رو باز کن.
+      try {
+        const local = await storage.get(userStorageKey, false);
+        const savedLocal = local && local.value ? JSON.parse(local.value) : null;
+        if (!cancelled) applySavedState(savedLocal);
       } catch (e) {
-        // no saved data yet, or storage unavailable — start fresh
+        // نسخه‌ی محلی‌ای در کار نبود — مشکلی نیست، از خالی شروع می‌کنیم
       } finally {
-        setLoaded(true);
+        if (!cancelled) setLoaded(true);
+      }
+
+      // مرحله‌ی ۲ (در پس‌زمینه): نسخه‌ی ابری Supabase — اگه معتبرتر/جدیدتر
+      // بود، بی‌سروصدا جایگزین می‌شه؛ دیگه چیزی رو معطلش نمی‌کنیم.
+      if (user?.uid) {
+        try {
+          const cloud = await supabaseLoadState(user.uid);
+          if (!cancelled && cloud) applySavedState(cloud);
+        } catch (e) {
+          // آفلاین یا خطای شبکه — نسخه‌ی محلی همچنان سرِ جاشه
+        }
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [user?.uid]);
 
   // --- Save progress whenever it changes (debounced) -----------------------
@@ -12890,12 +12955,47 @@ function VocabList({ words, nativeLang, targetLangs, levelFilter, aiSettings, au
 // A–Z word dictionary, grouped by CEFR level — same card language as
 // PhraseList (word + audio + star) plus a part-of-speech tag like VocabList.
 // ---------------------------------------------------------------------------
+// تعداد لغتی که در هر «بخش» رندر می‌شه. رندر کردن هزاران لغت با هم (کل
+// WORDS_AZ، حدود چند هزار ردیف) همون چیزیه که تب «لغات» رو کند می‌کرد —
+// هر ردیف یه ClickableSentence کامل با چند useEffect خودشه، و چند هزارتاش
+// با هم خیلی سنگینه. اینجا فقط WORDS_PAGE_SIZE تا رندر می‌شه و با رسیدن
+// اسکرول به ته لیست، بخش بعدی اضافه می‌شه (اسکرول‌بی‌نهایتِ ساده، بدون نیاز
+// به کتابخونه‌ی جدید).
+const WORDS_PAGE_SIZE = 60;
+
 function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, aiSettings, autoplayEnabled }) {
   const q = (query || "").trim().toLowerCase();
   let filtered = levelFilter && levelFilter !== "all" ? words.filter((w) => w.level === levelFilter) : words;
   filtered = q
     ? filtered.filter((w) => w.en.toLowerCase().includes(q) || w.fa.includes(q))
     : filtered;
+
+  // با هر تغییر جستجو/سطح، دوباره از همون بخش اول شروع می‌کنیم.
+  const [visibleCount, setVisibleCount] = useState(WORDS_PAGE_SIZE);
+  useEffect(() => {
+    setVisibleCount(WORDS_PAGE_SIZE);
+  }, [q, levelFilter, words]);
+
+  const visible = filtered.slice(0, visibleCount);
+  const hasMore = visibleCount < filtered.length;
+
+  // وقتی سنسورِ ته لیست دیده بشه، بخش بعدی رو اضافه می‌کنیم.
+  const sentinelRef = useRef(null);
+  useEffect(() => {
+    if (!hasMore) return;
+    const node = sentinelRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((c) => Math.min(c + WORDS_PAGE_SIZE, filtered.length));
+        }
+      },
+      { rootMargin: "600px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, filtered.length]);
 
   const autoplayItems = filtered.map((w) => ({ id: w.id, text: w.en, code: "en" }));
   const { registerRef } = useAutoplayOnScroll(autoplayEnabled, autoplayItems);
@@ -12910,7 +13010,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
 
   return (
     <div className="flex flex-col gap-2">
-      {filtered.map((w) => (
+      {visible.map((w) => (
         <div
           key={w.id}
           ref={registerRef(w.id)}
@@ -12930,6 +13030,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                   aiSettings={aiSettings}
                   color={colors.ink}
                   fontFamily={fontLatin}
+                  fontWeight={800}
                 />
                 <SpeakButton text={w.en} code="en" color={colors.teal} />
               </div>
@@ -12952,12 +13053,13 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
               </div>
             </div>
             <div className="flex items-center gap-2" style={{ marginTop: 4, justifyContent: "flex-end" }}>
-              <p style={{ fontSize: 14, color: colors.inkSoft }}>{w.fa}</p>
+              <p style={{ fontSize: 14, fontWeight: 700, color: colors.teal }}>{w.fa}</p>
               <SpeakButton text={w.fa} code="fa" />
             </div>
           </div>
         </div>
       ))}
+      {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
     </div>
   );
 }
