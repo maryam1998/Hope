@@ -55,6 +55,24 @@
 <body>
   <div id="root"><div id="splash">در حال بارگذاری…</div></div>
 
+  <!-- Error overlay: اگه اسکریپت خطا بده، به‌جای صفحه‌ی سفید/بارگذاری،
+       خودِ متن خطا رو مستقیم روی صفحه نشون می‌ده تا بدون نیاز به
+       Console گوشی، بشه ارور رو دید. -->
+  <script>
+    function showErr(msg) {
+      var el = document.getElementById("splash");
+      if (!el) { el = document.createElement("div"); el.id = "splash"; document.body.prepend(el); }
+      el.style.cssText = "position:fixed;inset:0;background:#F1E8D6;z-index:9999;display:block;padding:16px;font-family:monospace;color:#b00020;font-size:13px;white-space:pre-wrap;overflow:auto;direction:ltr;text-align:left;";
+      el.textContent = "خطا:\n" + msg;
+    }
+    window.addEventListener("error", function (e) {
+      showErr((e.message || "") + "\n" + (e.filename || "") + ":" + (e.lineno || "") + ":" + (e.colno || "") + "\n" + (e.error && e.error.stack ? e.error.stack : ""));
+    });
+    window.addEventListener("unhandledrejection", function (e) {
+      showErr("Promise rejection: " + (e.reason && e.reason.stack ? e.reason.stack : e.reason));
+    });
+  </script>
+
   <script type="text/babel" data-type="module" data-presets="react" src="app.jsx"></script>
 
   <script>
