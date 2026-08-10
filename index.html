@@ -8,104 +8,72 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="کتاب مکالمه" />
-<title>کتاب مکالمه — Phrasebook (debug)</title>
+<title>کتاب مکالمه — Phrasebook</title>
 
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
 
 <style>
   html, body, #root { height: 100%; margin: 0; padding: 0; }
   body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
   #splash {
     position: fixed; inset: 0; background: #F1E8D6; z-index: 9999;
-    padding: 16px; font-family: monospace; color: #1C2541; font-size: 13px;
-    white-space: pre-wrap; overflow: auto; direction: ltr; text-align: left;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Vazirmatn', sans-serif; color: #1C2541; font-size: 15px;
   }
-  #splash .err { color: #b00020; font-weight: bold; }
-  #splash .ok { color: #1a7f37; }
 </style>
+
+<!-- Import map: only the CDN packages the bundle imports as bare specifiers. -->
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react-dom": "https://esm.sh/react-dom@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "lucide-react": "https://esm.sh/lucide-react@0.383.0?deps=react@18.3.1",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.0"
+  }
+}
+</script>
+
+<!-- Tailwind utility classes used throughout the bundled app. -->
+<script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body>
-  <div id="root"><div id="splash">شروع لاگ...\n</div></div>
+  <div id="root"><div id="splash">در حال بارگذاری…</div></div>
 
+  <!-- Error overlay: shows uncaught errors directly on the page. -->
   <script>
-    var t0 = Date.now();
-    function log(msg, cls) {
+    function showErr(msg) {
       var el = document.getElementById("splash");
-      var line = document.createElement("div");
-      if (cls) line.className = cls;
-      line.textContent = "[" + (Date.now() - t0) + "ms] " + msg;
-      el.appendChild(line);
+      if (!el) { el = document.createElement("div"); el.id = "splash"; document.body.prepend(el); }
+      el.style.cssText = "position:fixed;inset:0;background:#F1E8D6;z-index:9999;display:block;padding:16px;font-family:monospace;color:#b00020;font-size:13px;white-space:pre-wrap;overflow:auto;direction:ltr;text-align:left;";
+      el.textContent = "خطا:\n" + msg;
     }
-    log("HTML شروع شد");
-
     window.addEventListener("error", function (e) {
-      log("خطای سراسری: " + (e.message || "") + " @ " + (e.filename || "") + ":" + (e.lineno || "") + ":" + (e.colno || "") + "\n" + (e.error && e.error.stack ? e.error.stack : ""), "err");
+      showErr((e.message || "") + "\n" + (e.filename || "") + ":" + (e.lineno || "") + ":" + (e.colno || "") + "\n" + (e.error && e.error.stack ? e.error.stack : ""));
     });
     window.addEventListener("unhandledrejection", function (e) {
-      log("Promise rejection: " + (e.reason && e.reason.stack ? e.reason.stack : e.reason), "err");
+      showErr("Promise rejection: " + (e.reason && e.reason.stack ? e.reason.stack : e.reason));
     });
+  </script>
 
-    function loadScript(src, label) {
-      return new Promise(function (resolve, reject) {
-        log("شروع لود: " + label + " (" + src + ")");
-        var s = document.createElement("script");
-        s.src = src;
-        s.onload = function () { log("لود شد: " + label, "ok"); resolve(); };
-        s.onerror = function () { log("خطا در لود: " + label, "err"); reject(new Error("failed to load " + src)); };
-        document.head.appendChild(s);
+  <!-- Pre-bundled app: everything (app.jsx + all data files + DailyConversationsTab)
+       compiled ahead of time with esbuild, so no in-browser Babel/JSX transform
+       and no relative-import resolution needed at runtime. -->
+  <script type="module" src="app.bundle.min.js"></script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("sw.js").catch(() => {});
       });
     }
-
-    // importmap must be added as a real tag, not fetched dynamically
-    var im = document.createElement("script");
-    im.type = "importmap";
-    im.textContent = JSON.stringify({
-      imports: {
-        "react": "https://esm.sh/react@18.3.1",
-        "react-dom": "https://esm.sh/react-dom@18.3.1",
-        "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
-        "lucide-react": "https://esm.sh/lucide-react@0.383.0?deps=react@18.3.1",
-        "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.0"
-      }
-    });
-    document.head.appendChild(im);
-    log("importmap اضافه شد");
-
-    loadScript("https://cdn.tailwindcss.com", "Tailwind")
-      .then(function () { return loadScript("https://unpkg.com/@babel/standalone@7.24.7/babel.min.js", "Babel"); })
-      .then(function () {
-        log("در حال fetch کردن app.jsx ...");
-        return fetch("app.jsx");
-      })
-      .then(function (res) {
-        log("app.jsx دریافت شد، status=" + res.status);
-        return res.text();
-      })
-      .then(function (code) {
-        log("طول فایل app.jsx: " + code.length + " کاراکتر. شروع transform با Babel...");
-        var out;
-        try {
-          out = Babel.transform(code, { presets: ["react"], filename: "app.jsx", sourceType: "module" }).code;
-        } catch (transformErr) {
-          log("خطای Babel transform: " + transformErr.message, "err");
-          throw transformErr;
-        }
-        log("Babel transform تموم شد. طول خروجی: " + out.length, "ok");
-        log("در حال اجرای کد به‌عنوان ماژول...");
-        var blob = new Blob([out], { type: "text/javascript" });
-        var url = URL.createObjectURL(blob);
-        var s = document.createElement("script");
-        s.type = "module";
-        s.src = url;
-        s.onload = function () { log("app.jsx اجرا شد (module loaded)", "ok"); };
-        s.onerror = function (ev) { log("خطا در اجرای ماژول (جزئیات ممکنه opaque باشه)", "err"); };
-        document.head.appendChild(s);
-      })
-      .catch(function (err) {
-        log("خطای کلی در زنجیره‌ی لود: " + (err && err.message ? err.message : err), "err");
-      });
   </script>
 </body>
 </html>
