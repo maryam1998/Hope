@@ -1472,6 +1472,137 @@ function removeSavedStoryWord(word, langCode) {
   } catch {}
 }
 
+// وقتی نسخه‌ی ابری (Supabase) لود می‌شه، قبلاً کاملاً جای نسخه‌ی محلی رو
+// می‌گرفت (overwrite) — یعنی اگه به هر دلیلی (ردیفِ ابری قدیمی‌تر بود، یا
+// هنوز کامل sync نشده بود) نسخه‌ی ابری چیزِ کمتری داشت، لغاتی که محلی
+// داشت ولی ابری نداشت، همون لحظه پاک می‌شدن؛ و بدتر، دفعه‌ی بعد که ذخیره
+// (debounced save) اجرا می‌شد، همین نسخه‌ی ناقص دوباره به ابری هم می‌رفت —
+// یعنی گم‌شدنِ دائمی. این تابع به‌جاش دو لیست رو ادغام می‌کنه: هرچی توی
+// یکی از دوتا بود (محلی یا ابری) نگه داشته می‌شه، هیچی دور ریخته نمی‌شه.
+function mergeSavedStoryWordsFromCloud(cloudList) {
+  if (!Array.isArray(cloudList) || !cloudList.length) return;
+  const local = loadSavedStoryWords();
+  const keyOf = (e) => `${e.langCode}::${normalizeWord(e.word)}`;
+  const localMap = new Map(local.map((e) => [keyOf(e), e]));
+  let changed = false;
+  cloudList.forEach((cloudEntry) => {
+    if (!cloudEntry || !cloudEntry.word || !cloudEntry.langCode) return;
+    const key = keyOf(cloudEntry);
+    const existing = localMap.get(key);
+    if (!existing) {
+      localMap.set(key, cloudEntry);
+      changed = true;
+    } else {
+      // خودِ لغت هر دوجا هست — فقط ترجمه‌هایی که ابری داشت و محلی نداشت
+      // رو اضافه می‌کنیم، بدون این‌که چیزی که محلی از قبل داشت رو عوض کنیم.
+      const mergedTranslations = { ...(cloudEntry.translations || {}), ...(existing.translations || {}) };
+      if (JSON.stringify(mergedTranslations) !== JSON.stringify(existing.translations || {})) {
+        localMap.set(key, { ...existing, translations: mergedTranslations });
+        changed = true;
+      }
+    }
+  });
+  if (!changed) return;
+  const merged = Array.from(localMap.values()).sort(
+    (a, b) => new Date(b.savedAt || 0) - new Date(a.savedAt || 0)
+  );
+  try {
+    window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(merged));
+    window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
+  } catch {}
+}
+
+// یه تکه متن (یه کلمه، یه اصطلاح، یا حتی یه جمله‌ی کامل که کاربر انتخابش
+// کرده) رو هم به انبار دائمیِ «لغات ذخیره‌شده» اضافه می‌کنه، هم — اگه
+// داستان‌سازی همون لحظه باز باشه — به لیستِ انتخاب‌شده‌ی همون داستان.
+// هم اون تابعیه که دکمه‌ی «افزودن به داستان‌ساز» زیرِ هر مثال، و هم
+// انتخابِ آزادِ یه محدوده از متن (نگاه کن به ClickableSentence) صداش می‌زنن.
+function addTextToStoryPicks(text, langCode) {
+  const clean = (text || "").trim();
+  if (!clean) return;
+  ensureSavedStoryWord(clean, langCode);
+  try {
+    window.dispatchEvent(new CustomEvent(STORY_WORD_PICKED_EVENT, { detail: { word: clean, langCode } }));
+  } catch {}
+}
+
+// ---------------------------------------------------------------------------
+// مثال‌های ساخته‌شده‌ی هوش مصنوعی برای هر لغت/اصطلاح — کش می‌شن روی دستگاه
+// تا هم دوباره از سرور خواسته نشن، هم وقتی مثالِ تازه‌ای ساخته می‌شه، لیستِ
+// مثال‌های قبلی به AI داده بشه تا از تکرار پرهیز کنه. کلید هر ورودی، ترکیبِ
+// زبان + خودِ لغت (نرمال‌شده) است؛ هر ورودی می‌تونه چند مثال و ترجمه‌ی
+// هرکدوم به زبان‌های مختلف رو نگه داره.
+const WORD_EXAMPLES_KEY = "phrasebook-word-examples-v1";
+
+function loadAllWordExamples() {
+  try {
+    const raw = window.localStorage.getItem(WORD_EXAMPLES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+function wordExamplesKey(word, langCode) {
+  return `${langCode}::${normalizeWord(word)}`;
+}
+function loadWordExamples(word, langCode) {
+  const all = loadAllWordExamples();
+  return all[wordExamplesKey(word, langCode)] || [];
+}
+function saveWordExample(word, langCode, exampleText) {
+  const all = loadAllWordExamples();
+  const key = wordExamplesKey(word, langCode);
+  const list = all[key] || [];
+  const entry = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    text: exampleText,
+    translations: {},
+    createdAt: new Date().toISOString(),
+  };
+  list.unshift(entry);
+  all[key] = list;
+  try {
+    window.localStorage.setItem(WORD_EXAMPLES_KEY, JSON.stringify(all));
+  } catch {}
+  return entry;
+}
+function updateWordExampleTranslation(word, langCode, exampleId, targetLangCode, translatedText) {
+  if (!translatedText || !translatedText.trim()) return;
+  const all = loadAllWordExamples();
+  const key = wordExamplesKey(word, langCode);
+  const list = all[key] || [];
+  const idx = list.findIndex((e) => e.id === exampleId);
+  if (idx === -1) return;
+  list[idx] = { ...list[idx], translations: { ...(list[idx].translations || {}), [targetLangCode]: translatedText.trim() } };
+  all[key] = list;
+  try {
+    window.localStorage.setItem(WORD_EXAMPLES_KEY, JSON.stringify(all));
+  } catch {}
+}
+
+// از هوش مصنوعی یه مثالِ واقعی، امروزی و پرکاربرد برای یه لغت/اصطلاح خاص
+// می‌خواد — و صریحاً می‌گیم چه مثال‌هایی قبلاً ساخته شدن تا تکراری نسازه.
+async function generateWordExample({ word, langCode, meaningNative, nativeLabel, existingExamples, aiSettings }) {
+  const langLabel = (typeof LANGUAGES !== "undefined" && LANGUAGES.find((l) => l.code === langCode)?.label) || langCode;
+  const avoidBlock = existingExamples && existingExamples.length
+    ? `Do NOT reuse or closely paraphrase any of these already-used examples for this same word:\n${existingExamples
+        .map((e, i) => `${i + 1}. ${e}`)
+        .join("\n")}\n\n`
+    : "";
+  const prompt =
+    `Write exactly ONE natural example sentence in ${langLabel} that uses the word/expression "${word}"` +
+    (meaningNative ? ` (its ${nativeLabel || "native-language"} meaning is: "${meaningNative}")` : "") +
+    ` in a way that reflects REAL, current, everyday usage — the kind of sentence a native speaker might actually say or write today, ` +
+    `optionally touching on everyday life, technology, or something plausibly connected to current news/world events. Avoid textbook-sounding, generic sentences. ` +
+    `Keep it natural length (roughly 8-20 words), grammatically correct, and appropriate for a language learner to study.\n\n` +
+    avoidBlock +
+    `Respond with ONLY the example sentence itself in ${langLabel} — no quotes, no translation, no numbering, no explanation, nothing else.`;
+  const result = await callAI({ prompt, maxTokens: 150, retries: 1, aiSettings });
+  return String(result || "")
+    .replace(/^["'«»]+|["'«».\s]+$/g, "")
+    .trim();
+}
+
 // ---------------------------------------------------------------------------
 // Reading-time tracking — هر بار که «خواندن خودکار» داستان روشن/خاموش می‌شه
 // (چه با دست، چه خودش با تمومِ داستان)، یه رکورد ثبت می‌شه: چقدر طول کشید،
@@ -1667,6 +1798,11 @@ function saveGrammarNote({ langCode, word, sentence, markdown }) {
   } catch {}
   return entry;
 }
+
+// Replaces a saved note's markdown in place — used to quietly upgrade a
+// basic, offline-built note (word + translation + sentence, saved
+// instantly with no AI/internet needed) into the AI's fuller grammar
+// breakdown once/if that finishes loading in the background. The note is
 function removeGrammarNote(id) {
   const list = loadGrammarNotes().filter((n) => n.id !== id);
   try {
@@ -1674,10 +1810,23 @@ function removeGrammarNote(id) {
     window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
   } catch {}
 }
-// Replaces a saved note's markdown in place — used to quietly upgrade a
-// basic, offline-built note (word + translation + sentence, saved
-// instantly with no AI/internet needed) into the AI's fuller grammar
-// breakdown once/if that finishes loading in the background. The note is
+// همون منطقِ ادغامِ mergeSavedStoryWordsFromCloud بالا، برای یادداشت‌های
+// گرامری — چیزی که ابری داشت و محلی نداشت اضافه می‌شه، چیزی که محلی داشت
+// دست‌نخورده می‌مونه؛ هیچ‌وقت overwrite کامل نمی‌شه.
+function mergeGrammarNotesFromCloud(cloudList) {
+  if (!Array.isArray(cloudList) || !cloudList.length) return;
+  const local = loadGrammarNotes();
+  const localIds = new Set(local.map((n) => n.id));
+  const additions = cloudList.filter((n) => n && n.id && !localIds.has(n.id));
+  if (!additions.length) return;
+  const merged = [...additions, ...local].sort(
+    (a, b) => new Date(b.savedAt || 0) - new Date(a.savedAt || 0)
+  );
+  try {
+    window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(merged));
+    window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+  } catch {}
+}
 // never lost or left unsaved just because the AI backend is slow or down.
 function updateGrammarNoteMarkdown(id, markdown) {
   if (!markdown) return;
@@ -10111,6 +10260,11 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
   // هم مثل خودِ لغتِ اصلی زیرخط بخوره.
   const [crossTerms, setCrossTerms] = useState([]);
   const popupRef = useRef(null);
+  // انتخابِ آزادِ یه محدوده از جمله (یا کل جمله) با درگ/لانگ‌پرس، برای
+  // افزودنِ همون محدوده به داستان‌ساز — جدا از کلیکِ تک‌کلمه‌ای بالا.
+  const containerRef = useRef(null);
+  const [selPopup, setSelPopup] = useState(null); // { top, left, text } | null
+  const [selAdded, setSelAdded] = useState(false);
 
   const isFa = nativeLang === "fa";
   const nativeLabel = nativeLabelProp || LANGUAGES.find((l) => l.code === nativeLang)?.label || "Persian";
@@ -10167,6 +10321,45 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
       window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
     };
   }, [langCode, alignSourceText, alignSourceLang]);
+
+  // بعد از پایانِ یه انتخابِ متنی (درگ با ماوس، یا لانگ‌پرس/درگ رو موبایل)
+  // که داخلِ همین جمله اتفاق افتاده، یه دکمه‌ی شناور «افزودن به داستان»
+  // نشون می‌دیم؛ زدنش کل تکه‌ی انتخاب‌شده (یه کلمه، چند کلمه، یا کل جمله)
+  // رو به لیستِ داستان‌ساز اضافه می‌کنه — نه فقط تک‌کلمه‌های زیرخط‌دار.
+  useEffect(() => {
+    const handleUp = () => {
+      const sel = window.getSelection && window.getSelection();
+      const selectedText = sel ? sel.toString().trim() : "";
+      if (!selectedText || !sel.rangeCount || !containerRef.current) {
+        return;
+      }
+      const anchor = sel.anchorNode;
+      const focus = sel.focusNode;
+      const withinContainer =
+        anchor && focus && containerRef.current.contains(anchor) && containerRef.current.contains(focus);
+      if (!withinContainer) return;
+      try {
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        if (!rect || (!rect.width && !rect.height)) return;
+        setSelAdded(false);
+        setSelPopup({ top: rect.top, left: rect.left + rect.width / 2, text: selectedText });
+      } catch {}
+    };
+    const clearIfCollapsed = () => {
+      const sel = window.getSelection && window.getSelection();
+      if (!sel || sel.isCollapsed) setSelPopup(null);
+    };
+    document.addEventListener("mouseup", handleUp);
+    document.addEventListener("touchend", handleUp);
+    document.addEventListener("selectionchange", clearIfCollapsed);
+    window.addEventListener("scroll", () => setSelPopup(null), true);
+    return () => {
+      document.removeEventListener("mouseup", handleUp);
+      document.removeEventListener("touchend", handleUp);
+      document.removeEventListener("selectionchange", clearIfCollapsed);
+    };
+  }, []);
 
   // Keep the popup inside the visible viewport (crucial on phones, where a
   // long explanation used to spill off the right/left edge or bottom of
@@ -10318,7 +10511,45 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
   }
 
   return (
-    <span style={{ position: "relative", display: "inline" }}>
+    <span ref={containerRef} style={{ position: "relative", display: "inline" }}>
+      {selPopup && (
+        <div
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            addTextToStoryPicks(selPopup.text, langCode);
+            setSelAdded(true);
+            try {
+              window.getSelection()?.removeAllRanges?.();
+            } catch {}
+            setTimeout(() => setSelPopup(null), 700);
+          }}
+          style={{
+            position: "fixed",
+            top: Math.max(8, selPopup.top - 34),
+            left: Math.min(Math.max(60, selPopup.left), window.innerWidth - 60),
+            transform: "translateX(-50%)",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            background: colors.ink,
+            color: colors.paper,
+            borderRadius: 8,
+            padding: "5px 9px",
+            fontSize: 11,
+            fontWeight: 700,
+            fontFamily: fontFa,
+            whiteSpace: "nowrap",
+            zIndex: 120,
+            cursor: "pointer",
+            boxShadow: "0 4px 14px rgba(0,0,0,0.28)",
+          }}
+        >
+          {selAdded ? <Check size={12} color={colors.gold} /> : <Plus size={12} />}
+          {selAdded ? "اضافه شد" : "افزودن به داستان"}
+        </div>
+      )}
       {tokens.map((tok, idx) => {
         if (/^\s+$/.test(tok) || tok === "") return <React.Fragment key={idx}>{tok}</React.Fragment>;
         if (groupSkip.has(idx)) return null; // already rendered as part of its group's combined span
@@ -13162,6 +13393,17 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // روشن/خاموشِ دستی‌ای.
   useActivityTimeTracker("app", true);
   const [loaded, setLoaded] = useState(false);
+  // «loaded» فقط یعنی نسخه‌ی محلی (localStorage) لود شده و صفحه می‌تونه باز
+  // بشه — ولی نسخه‌ی ابری (Supabase) ممکنه هنوز در راه باشه (مخصوصاً
+  // اولین‌بار روی یه دستگاه/مرورگر تازه که چیزی توی localStorage نیست).
+  // اگه ذخیره‌ی خودکار (افکتِ پایین) فقط به «loaded» گوش می‌داد، ممکن بود
+  // ۵۰۰ میلی‌ثانیه بعد از باز شدنِ برنامه — قبل از این‌که جوابِ ابری برسه —
+  // همون حالتِ خالی/پیش‌فرض رو به‌عنوانِ «آخرین نسخه» به Supabase بفرسته و
+  // داستان‌ها/لغاتِ ذخیره‌شده‌ی واقعی که آنجا بودن رو برای همیشه پاک کنه.
+  // «cloudChecked» دقیقاً همین مسابقه (race) رو می‌بنده: تا وقتی جوابِ ابری
+  // (چه موفق چه ناموفق) نرسیده، یا اصلاً کاربری لاگین نیست، ذخیره‌ی خودکار
+  // منتظر می‌مونه.
+  const [cloudChecked, setCloudChecked] = useState(false);
   const [wordStats, setWordStats] = useState({});
   const [savedStories, setSavedStories] = useState([]);
   const [dictHistory, setDictHistory] = useState([]);
@@ -13218,8 +13460,15 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // می‌شه و صفحه باز می‌شه؛ نسخه‌ی ابری (Supabase) در پس‌زمینه لود می‌شه و
   // هروقت رسید — اگه واقعاً چیزی داشت — جایگزین می‌شه. کاربر تقریباً فوری
   // وارد برنامه می‌شه، بدون این‌که دیتای ابری از دست بره.
-  const applySavedState = (saved) => {
+  // opts.merge = true یعنی این «saved» از منبعِ دوم (ابری) می‌آد و باید با
+  // چیزی که همین الان روی صفحه/محلی هست ادغام بشه، نه جایگزینش بشه — برای
+  // سه مجموعه‌ای که گم‌شدن‌شون واقعاً مهمه (داستان‌های ذخیره‌شده، لغات
+  // ذخیره‌شده، یادداشت‌های گرامر) از توابع merge بالا استفاده می‌کنیم؛ بقیه‌ی
+  // تنظیمات (زبان، ترتیب زبان‌ها و...) مثل قبل مستقیم اعمال می‌شن چون از
+  // دست‌رفتن‌شون به این شدت آسیب‌زننده نیست.
+  const applySavedState = (saved, opts) => {
     if (!saved) return;
+    const merge = !!(opts && opts.merge);
     if (saved.nativeLang) setNativeLang(saved.nativeLang);
     if (Array.isArray(saved.targetOrder) && saved.targetOrder.length) setTargetOrder(saved.targetOrder);
     if (Array.isArray(saved.langPickerOrder) && saved.langPickerOrder.length) setLangPickerOrder(saved.langPickerOrder);
@@ -13227,25 +13476,44 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     if (Array.isArray(saved.wordFavorites)) setWordFavorites(new Set(saved.wordFavorites));
     if (saved.boxes) setBoxes((prev) => ({ ...prev, ...saved.boxes }));
     if (saved.wordStats) setWordStats(saved.wordStats);
-    if (saved.savedStories) setSavedStories(saved.savedStories);
+    if (saved.savedStories) {
+      if (merge) {
+        setSavedStories((prev) => {
+          const prevIds = new Set((prev || []).map((s) => s.id));
+          const additions = (saved.savedStories || []).filter((s) => s && !prevIds.has(s.id));
+          return additions.length ? [...additions, ...prev] : prev;
+        });
+      } else {
+        setSavedStories(saved.savedStories);
+      }
+    }
     if (saved.dictHistory) setDictHistory(saved.dictHistory);
     if (saved.backendUrl) setBackendUrl(saved.backendUrl);
     if (Array.isArray(saved.savedStoryWords)) {
-      try {
-        window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(saved.savedStoryWords));
-        window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
-      } catch {}
+      if (merge) {
+        mergeSavedStoryWordsFromCloud(saved.savedStoryWords);
+      } else {
+        try {
+          window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(saved.savedStoryWords));
+          window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
+        } catch {}
+      }
     }
     if (Array.isArray(saved.grammarNotes)) {
-      try {
-        window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(saved.grammarNotes));
-        window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
-      } catch {}
+      if (merge) {
+        mergeGrammarNotesFromCloud(saved.grammarNotes);
+      } else {
+        try {
+          window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(saved.grammarNotes));
+          window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+        } catch {}
+      }
     }
   };
 
   useEffect(() => {
     let cancelled = false;
+    setCloudChecked(false);
     (async () => {
       // مرحله‌ی ۱ (سریع): نسخه‌ی محلی رو بخون، اعمال کن، و فوراً صفحه رو باز کن.
       try {
@@ -13258,15 +13526,23 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         if (!cancelled) setLoaded(true);
       }
 
-      // مرحله‌ی ۲ (در پس‌زمینه): نسخه‌ی ابری Supabase — اگه معتبرتر/جدیدتر
-      // بود، بی‌سروصدا جایگزین می‌شه؛ دیگه چیزی رو معطلش نمی‌کنیم.
+      // مرحله‌ی ۲ (در پس‌زمینه): نسخه‌ی ابری Supabase — با نسخه‌ی محلی/فعلی
+      // ادغام می‌شه (نه جایگزینش)، پس هیچ‌وقت چیزی که یکی از این دوتا داشت
+      // و اون‌یکی نداشت، گم نمی‌شه.
       if (user?.uid) {
         try {
           const cloud = await supabaseLoadState(user.uid);
-          if (!cancelled && cloud) applySavedState(cloud);
+          if (!cancelled && cloud) applySavedState(cloud, { merge: true });
         } catch (e) {
           // آفلاین یا خطای شبکه — نسخه‌ی محلی همچنان سرِ جاشه
+        } finally {
+          // چه موفق چه ناموفق، همین‌که جوابِ ابری (یا خطاش) رسید، ذخیره‌ی
+          // خودکار می‌تونه شروع بشه — قبل از این لحظه اجازه نمی‌دیم.
+          if (!cancelled) setCloudChecked(true);
         }
+      } else {
+        // کاربر مهمونه، ابری‌ای در کار نیست — منتظر نمی‌مونیم.
+        if (!cancelled) setCloudChecked(true);
       }
     })();
     return () => {
@@ -13276,7 +13552,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
   // --- Save progress whenever it changes (debounced) -----------------------
   useEffect(() => {
-    if (!loaded) return; // don't overwrite saved data with initial defaults
+    // تا وقتی هم نسخه‌ی محلی لود نشده («loaded»)، هم جوابِ ابری (چه موفق چه
+    // ناموفق) نرسیده («cloudChecked»)، ذخیره‌ی خودکار رو شروع نمی‌کنیم — وگرنه
+    // ممکنه حالتِ خالی/پیش‌فرضِ اولیه به‌جای نسخه‌ی واقعی روی ابری بشینه.
+    if (!loaded || !cloudChecked) return;
     const timeout = setTimeout(async () => {
       const payload = {
         nativeLang,
@@ -13300,7 +13579,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       if (user?.uid) supabaseSaveState(user.uid, payload);
     }, 500);
     return () => clearTimeout(timeout);
-  }, [nativeLang, targetOrder, langPickerOrder, favorites, wordFavorites, boxes, wordStats, savedStories, dictHistory, backendUrl, loaded, userStorageKey, user?.uid, savedWordsVersion, grammarNotesVersion]);
+  }, [nativeLang, targetOrder, langPickerOrder, favorites, wordFavorites, boxes, wordStats, savedStories, dictHistory, backendUrl, loaded, cloudChecked, userStorageKey, user?.uid, savedWordsVersion, grammarNotesVersion]);
 
   const toggleTargetLang = (code) => {
     setTargetOrder((prev) => {
@@ -13981,46 +14260,188 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
             <Star size={20} color={colors.gold} fill={wordFavorites.has(w.id) ? colors.gold : "none"} />
           </button>
           <div className="flex-1">
-            <div className="flex items-center justify-between" style={{ direction: "ltr" }}>
-              <div className="flex items-center gap-2">
-                <ClickableSentence
-                  text={w.en}
-                  langCode="en"
-                  nativeLang={nativeLang}
-                  aiSettings={aiSettings}
-                  color={colors.ink}
-                  fontFamily={fontLatin}
-                  fontWeight={800}
-                  fontSize={19}
-                />
-                <SpeakButton text={w.en} code="en" color={colors.teal} />
-              </div>
-              <div className="flex items-center gap-2">
-                <LevelBadge level={w.level} />
-                <span
-                  style={{
-                    fontFamily: fontFa,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    color: colors.teal,
-                    border: `1px solid ${colors.cardBorder}`,
-                    borderRadius: 6,
-                    padding: "1px 6px",
-                    flexShrink: 0,
-                  }}
-                >
-                  {POS_FA[w.pos] || w.pos}
-                </span>
-              </div>
+            {/* لغت + بلندگو + نشان‌های سطح/نوع همه توی یه گروهِ چسبیده و
+                flex-wrap هستن (نه دو گروهِ جدا با justify-between) — این‌جوری
+                بلندگو همیشه دقیقاً کنارِ خودِ لغت می‌مونه، چه لغت کوتاه باشه
+                چه بلند و چندخطی، و کاربر مجبور نیست دنبالش روی صفحه بگرده. */}
+            <div className="flex items-center flex-wrap gap-2" style={{ direction: "ltr" }}>
+              <ClickableSentence
+                text={w.en}
+                langCode="en"
+                nativeLang={nativeLang}
+                aiSettings={aiSettings}
+                color={colors.ink}
+                fontFamily={fontLatin}
+                fontWeight={800}
+                fontSize={19}
+              />
+              <SpeakButton text={w.en} code="en" color={colors.teal} />
+              <LevelBadge level={w.level} />
+              <span
+                style={{
+                  fontFamily: fontFa,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: colors.teal,
+                  border: `1px solid ${colors.cardBorder}`,
+                  borderRadius: 6,
+                  padding: "1px 6px",
+                  flexShrink: 0,
+                }}
+              >
+                {POS_FA[w.pos] || w.pos}
+              </span>
             </div>
             <div className="flex items-center gap-2" style={{ marginTop: 4, justifyContent: "flex-end" }}>
               <p style={{ fontSize: 14, fontWeight: 700, color: colors.teal }}>{w.fa}</p>
               <SpeakButton text={w.fa} code="fa" />
             </div>
+            <WordExamples word={w.en} langCode="en" meaningNative={w.fa} nativeLang={nativeLang} aiSettings={aiSettings} />
           </div>
         </div>
       ))}
       {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// دکمه‌ی «مثال» زیرِ ترجمه‌ی هر لغت (فقط توی تب‌های لغات/مکالمه/اخبار، نه
+// عبارات) — با هوش مصنوعی یه مثالِ واقعی و امروزی برای همون لغت می‌سازه،
+// زیرش نگه‌ داشته (کش) می‌شه، و ترجمه‌ی خودش رو هم با همون زنجیره‌ی رایگانِ
+// ترجمه‌ای که برای داستان‌سازی استفاده می‌شه می‌گیره. هر مثال، یه دکمه‌ی
+// «افزودن به داستان‌ساز» جدا داره؛ و چون خودِ متنِ مثال با ClickableSentence
+// رندر می‌شه، انتخابِ آزادِ یه تکه از همون مثال هم (نگاه کن به ClickableSentence)
+// همون‌جا قابل افزودن به داستانه.
+function WordExamples({ word, langCode, meaningNative, nativeLang, aiSettings }) {
+  const [examples, setExamples] = useState(() => loadWordExamples(word, langCode));
+  const [generating, setGenerating] = useState(false);
+  const [err, setErr] = useState("");
+  const nativeLabel = LANGUAGES.find((l) => l.code === nativeLang)?.label || nativeLang;
+
+  async function handleGenerate(e) {
+    e.stopPropagation();
+    if (generating) return;
+    setGenerating(true);
+    setErr("");
+    try {
+      const text = await generateWordExample({
+        word,
+        langCode,
+        meaningNative,
+        nativeLabel,
+        existingExamples: examples.map((ex) => ex.text),
+        aiSettings,
+      });
+      if (!text) throw new Error("empty");
+      saveWordExample(word, langCode, text);
+      setExamples(loadWordExamples(word, langCode));
+    } catch {
+      setErr("مثال ساخته نشد — دوباره امتحان کن.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={handleGenerate}
+        disabled={generating}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          fontSize: 11,
+          fontWeight: 700,
+          color: colors.gold,
+          background: "transparent",
+          border: `1px solid ${colors.goldSoft}`,
+          borderRadius: 6,
+          padding: "3px 8px",
+          opacity: generating ? 0.6 : 1,
+        }}
+      >
+        {generating ? <Loader2 size={12} className="spin" /> : <Sparkles size={12} />}
+        {examples.length ? "مثال دیگر" : "مثال (با هوش مصنوعی)"}
+      </button>
+      {err && <p style={{ color: colors.rose, fontSize: 11, marginTop: 4 }}>{err}</p>}
+      {examples.map((ex) => (
+        <WordExampleRow key={ex.id} example={ex} word={word} langCode={langCode} nativeLang={nativeLang} aiSettings={aiSettings} />
+      ))}
+    </div>
+  );
+}
+
+function WordExampleRow({ example, word, langCode, nativeLang, aiSettings }) {
+  const [translation, setTranslation] = useState(example.translations?.[nativeLang] || "");
+  const [added, setAdded] = useState(false);
+
+  useEffect(() => {
+    if (example.translations?.[nativeLang]) {
+      setTranslation(example.translations[nativeLang]);
+      return;
+    }
+    let cancelled = false;
+    translateFree(example.text, nativeLang, langCode, aiSettings)
+      .then((t) => {
+        if (cancelled || !t) return;
+        setTranslation(t);
+        updateWordExampleTranslation(word, langCode, example.id, nativeLang, t);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [example.id, nativeLang]);
+
+  return (
+    <div
+      style={{
+        marginTop: 6,
+        padding: 8,
+        borderRadius: 8,
+        background: colors.paperDark,
+        border: `1px dashed ${colors.cardBorder}`,
+      }}
+    >
+      <div className="flex items-center gap-2" style={{ direction: "ltr" }}>
+        <div style={{ flex: 1 }}>
+          <ClickableSentence text={example.text} langCode={langCode} nativeLang={nativeLang} aiSettings={aiSettings} fontSize={13} />
+        </div>
+        <SpeakButton text={example.text} code={langCode} color={colors.teal} />
+      </div>
+      {translation ? (
+        <div className="flex items-center gap-2" style={{ marginTop: 4 }}>
+          <p style={{ flex: 1, fontSize: 12, color: colors.inkSoft }}>{translation}</p>
+          <SpeakButton text={translation} code={nativeLang} />
+        </div>
+      ) : (
+        <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 4 }}>در حال ترجمه...</p>
+      )}
+      <button
+        onClick={() => {
+          addTextToStoryPicks(example.text, langCode);
+          setAdded(true);
+        }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          fontSize: 11,
+          fontWeight: 700,
+          color: added ? colors.gold : colors.teal,
+          background: "transparent",
+          border: `1px solid ${added ? colors.gold : colors.cardBorder}`,
+          borderRadius: 6,
+          padding: "3px 8px",
+          marginTop: 6,
+        }}
+      >
+        {added ? <Check size={11} /> : <Plus size={11} />}
+        {added ? "اضافه شد به داستان‌ساز" : "افزودن این مثال به داستان‌ساز"}
+      </button>
     </div>
   );
 }
