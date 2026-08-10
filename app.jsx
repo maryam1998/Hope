@@ -493,7 +493,7 @@ function downloadTextFile(filename, content, mime = "text/markdown;charset=utf-8
   URL.revokeObjectURL(url);
 }
 
-function conversation ToMarkdown(nativeLang, targetOrder) {
+function conversationToMarkdown(nativeLang, targetOrder) {
   const langs = [nativeLang, ...targetOrder.filter((c) => c !== nativeLang)];
   const langLabels = langs.map((c) => LANGUAGES.find((l) => l.code === c)?.label || c);
   let md = `# کتاب مکالمه — عبارات\n\nزبان‌ها: ${langLabels.join(" / ")}\n\n`;
@@ -2402,39 +2402,8 @@ const CATEGORIES = {
   repair: "تعمیر ماشین",
 };
 
-export const conversation  = [
+export const conversation = [
   ];
-
-// Sample "vocabulary & news" word bank — click a word to reveal its meaning,
-// part of speech, and translations. Small starter set; easy to extend.
-export const VOCAB = [
-  ];
-
-// ---------------------------------------------------------------------------
-// Word list by CEFR level (A1–C2) — English↔Persian, shown in the "لغات" tab.
-// NOTE: currently covers a–curve only (demo set); more will be appended later.
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Word list by CEFR level (A1-C2) -- English<->Persian, shown in the "لغات" tab.
-export const WORDS_AZ = [
-  ];
-
-// ---------------------------------------------------------------------------
-// News-vocabulary subset — every entry here is copied from WORDS_AZ above
-// (same id/level/pos/en/fa), filtered down to the words that actually show
-// up in news writing (politics, economy, conflict, disaster, health, etc.).
-// Kept in WORDS_AZ too — this is a copy for the "لغات و اخبار" tab, not a move.
-// ---------------------------------------------------------------------------
-export const NEWS_WORDS = [
-  ];
-
-// ---------------------------------------------------------------------------
-// Everyday-conversation subset — also copied from WORDS_AZ (same id/level/
-// pos/en/fa), filtered down to common daily-life & small-talk words
-// (greetings, family, food, home, time, feelings, shopping, transport...).
-// ---------------------------------------------------------------------------
-export const DAILY_WORDS = [
- ];
 
 // ---------------------------------------------------------------------------
 // UI helpers
