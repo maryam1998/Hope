@@ -1899,26 +1899,37 @@ async function lookupWordGrammarDetail({ word, sentence, langCode, nativeLang, n
   const label = nativeLabel || "فارسی";
   const langLabel = LANGUAGES.find((l) => l.code === langCode)?.label || langCode;
   const prompt =
-    `این جمله‌ی ${langLabel} را مثل یک معلم حرفه‌ای زبان که چیزهای پیچیده رو به ساده‌ترین و قابل‌فهم‌ترین روش توضیح می‌ده، برای یک زبان‌آموز مبتدی توضیح بده.\n\n` +
-    `جمله: "${sentence}"\n` +
-    `(کلمه‌ای که روش دست گذاشتم و می‌خوام بیشتر روش تمرکز کنی: "${word}")\n\n` +
-    `دقیقاً همین ساختار رو رعایت کن، به زبان ${label}:\n\n` +
-    `## ۱. معنی ساده\n` +
-    `معنی روان جمله به ${label} رو بگو (جمله‌ی اصلی به ${langLabel} رو هم **بولد** بیار).\n\n` +
-    `## ۲. ساختار جمله\n` +
-    `در ۱-۲ خط کوتاه، اجزای اصلی جمله رو بگو (فاعل، فعل، مفعول یا عبارت‌های مهم) — ساده و بدون اصطلاح فنیِ توضیح‌نداده.\n\n` +
-    `## ۳. کلمه‌های مهم\n` +
-    `فقط کلمات واقعاً مهم جمله (نه کلمات بی‌اهمیت) رو با این فرمت بولت کن: **کلمه** — معنی، و نقش دستوریش به زبان ساده. روی کلمه‌ی "${word}" حتماً تمرکز کن.\n\n` +
-    `## ۴. نکته‌ی گرامری\n` +
-    `مهم‌ترین نکته‌ی گرامری این جمله رو مثل یک معلم خوب، ساده و با یه مثال کوچیک روزمره توضیح بده.\n\n` +
-    `## ۵. ترکیب یا عبارت مهم\n` +
-    `اگر جمله یک ترکیب یا عبارت ثابت مهم داره، معنیش و دقیقاً ۲ مثال ساده (با ترجمه‌ی ${label}) بده. اگر واقعاً همچین چیزی نیست، این بخش رو کلاً حذف کن.\n\n` +
-    `## ۶. تمرین کن\n` +
-    `۱ یا ۲ جمله‌ی مشابه و ساده به ${langLabel} برای تمرین بساز، هرکدوم با ترجمه‌ی ${label} بعدش.\n\n` +
-    `توضیحات باید کوتاه و مفید باشن، از اصطلاحات پیچیده‌ی گرامری بدون توضیح استفاده نکنی، و فقط نکات کاربردی برای مکالمه‌ی روزمره رو بگی — نه توضیح اضافه.\n\n` +
-    `🚨 کل پاسخ باید به زبان ${label} نوشته بشه (فقط خودِ کلمات/جمله‌های نمونه به زبان ${langLabel} باشن، هیچ‌وقت دو زبان تو یه خط قاطی نشن). پاسخ رو با فرمت Markdown بده و فقط همون تحلیل رو برگردون، بدون مقدمه یا توضیح اضافه قبل/بعدش.`;
+    `تو یک معلم حرفه‌ای زبان ${langLabel} هستی که برای یک زبان‌آموز مبتدیِ فارسی‌زبان (یا ${label}‌زبان) درس خصوصی می‌دی. کارت اینه که این جمله رو طوری تجزیه و توضیح بدی که زبان‌آموز واقعاً ساختار گرامری‌ش رو یاد بگیره — نه فقط یه ترجمه‌ی خشک ببینه.\n\n` +
+    `جمله‌ی ${langLabel}: "${sentence}"\n` +
+    `کلمه‌ای که زبان‌آموز روش دست گذاشته و می‌خواد بیشتر روش تمرکز کنی: "${word}"\n\n` +
 
-  const text = await callAI({ prompt, maxTokens: 900, aiSettings });
+    `⛔️ مهم‌ترین قانون، قبل از هر چیز: هیچ‌وقت یک کلمه یا عبارتِ ${langLabel} رو وسطِ یک جمله‌ی ${label} ول نکن (مثلاً ننویس «او afraid به خفه شدن» یا «این فیلم afraid است» — این‌ها جمله‌ی خراب و نادرست‌ان). هر جمله باید یا کاملاً و تمیز به ${langLabel} باشه، یا کاملاً و تمیز و درست به ${label} — هیچ‌وقت این دو قاطی نشن. تنها استثنا: وقتی داری خودِ یک کلمه رو به‌عنوان مدخل لغوی معرفی می‌کنی، اون‌وقت با **بولد** بنویسش و بعدش با یک خط تیره معنیش رو بگو (مثلاً: **afraid** — ترسیده)، نه داخل یک جمله‌ی روون.\n\n` +
+
+    `دقیقاً همین ساختار رو رعایت کن، به زبان ${label}:\n\n` +
+
+    `## ۱. معنی ساده\n` +
+    `جمله‌ی اصلی رو اول با **بولد** به همون زبان ${langLabel} بیار، زیرش معنی روان و طبیعی‌ش رو به ${label} بگو — یک جمله‌ی کامل و درست، نه تحت‌اللفظی و نه ناقص.\n\n` +
+
+    `## ۲. ساختار جمله\n` +
+    `اجزای اصلی جمله رو دقیقاً با ذکرِ خودِ کلمه‌ی ${langLabel} مشخص کن، این‌جوری: «فاعل: **[کلمه‌ی واقعیِ جمله]** (به ${label}: ...) — فعل: **[کلمه‌ی واقعیِ جمله]** (به ${label}: ...)» و اگه مفعول یا عبارت مهم دیگه‌ای هست همون‌طوری اضافه کن. هر جمله‌ی این بخش هم باید تمیز و بدون قاطی‌کردن دو زبان باشه (کلمه‌ی ${langLabel} همیشه **بولد** و جدا از توضیح فارسی).\n\n` +
+
+    `## ۳. کلمه‌های مهم\n` +
+    `فقط کلمات واقعاً مهم جمله (نه حروف‌اضافه یا کلمات بی‌اهمیت) رو با این فرمت بولت کن: **کلمه** — معنی به ${label}، و نقش دستوریش به زبان ساده (مثلاً «فعل کمکی»، «صفت»، نه اصطلاح فنی بی‌توضیح). روی کلمه‌ی "${word}" حتماً و با جزئیات بیشتر تمرکز کن: دقیقاً چه نقشی توی این جمله‌ی خاص داره.\n\n` +
+
+    `## ۴. نکته‌ی گرامری\n` +
+    `مهم‌ترین نکته‌ی گرامری این جمله (اونی که یادگیریش بیشترین کمک رو به زبان‌آموز می‌کنه) رو مثل یک معلم خوب و صبور، قدم‌به‌قدم و ساده توضیح بده — چرا این ساختار این‌شکلیه، چه فرقی با حالت‌های مشابه داره. بعدش یک مثال کوچیکِ روزمره‌ی دیگه (متفاوت از جمله‌ی اصلی) بزن که همین نکته رو نشون بده: مثال باید یک جمله‌ی کامل و درست به ${langLabel} باشه، خط بعدش هم ترجمه‌ی کامل و درستش به ${label} — این دو خط رو هیچ‌وقت قاطی نکن.\n\n` +
+
+    `## ۵. ترکیب یا عبارت مهم\n` +
+    `اگر جمله یک ترکیب یا عبارت ثابت واقعاً مهم داره، معنیش رو بگو و دقیقاً ۲ مثالِ ساده و کاملاً روزمره بزن؛ هر مثال روی یک خط کامل به ${langLabel}، و بلافاصله زیرش یک خط جداگانه با ترجمه‌ی کامل و درست به ${label}. اگر واقعاً همچین چیزی توی این جمله نیست، این بخش رو کلاً حذف کن — الکی چیزی نساز.\n\n` +
+
+    `## ۶. تمرین کن\n` +
+    `۲ جمله‌ی جدید، ساده، کاملاً روزمره و طبیعی به ${langLabel} بساز که همون نکته‌ی گرامری/کلمه رو تمرین کنن (نه کپیِ عین جمله‌ی اصلی). هر جمله رو کامل و درست بنویس، دقیقاً زیرش هم روی یک خط جداگانه ترجمه‌ی کامل و طبیعی‌ش به ${label} رو بیار. هیچ‌وقت جمله‌ی تمرین و ترجمه‌ش رو تو یک خط قاطی نکن، و هیچ‌وقت وسط جمله‌ی ${langLabel} یک کلمه‌ی ${label} یا برعکس نندازی.\n\n` +
+
+    `قوانین کلی: هر بخش کوتاه و پرمحتوا باشه (نه پرحرفی)، از اصطلاح گرامریِ توضیح‌نداده استفاده نکن، فقط نکات واقعاً کاربردی برای مکالمه‌ی روزمره بگو. قبل از فرستادن جواب، خودت یه بار همه‌ی جمله‌های ${langLabel} و ${label} رو مرور کن و مطمئن شو که هیچ‌کدوم ناقص، بی‌معنی، یا قاطیِ دو زبان نیستن — اگه بودن، دوباره بنویسشون.\n\n` +
+
+    `🚨 کل متنِ توضیحی (هدرها، جمله‌بندی توضیح‌ها) باید به زبان ${label} نوشته بشه؛ فقط خودِ جمله‌ها/کلمات نمونه به ${langLabel} باشن، و همیشه در یک خطِ کاملاً جدا از ترجمه‌شون. پاسخ رو با فرمت Markdown بده و فقط همون تحلیل رو برگردون، بدون مقدمه یا توضیح اضافه قبل/بعدش.`;
+
+  const text = await callAI({ prompt, maxTokens: 1100, aiSettings });
   return text.trim();
 }
 
@@ -1957,23 +1968,23 @@ async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLab
     `One simple, natural ${label} translation of the whole sentence, in a single line (bold the original ${langLabel} sentence first, then the translation).\n\n` +
 
     `## ۲. ساختار جمله\n` +
-    `In 1-2 short lines, point out the main structural pieces (فاعل / فعل / مفعول یا عبارت‌های مهم) — plain and short, no grammar-textbook jargon.\n\n` +
+    `Point out the main structural pieces by literally quoting the actual word(s) from the sentence, like this pattern: «فاعل: **[actual word]** (${label}: ...) — فعل: **[actual word]** (${label}: ...)» plus مفعول/عبارت‌های مهم if relevant. Keep every line of this section clean — the ${langLabel} word always **bold** and separate from its ${label} gloss, never blended into one running sentence.\n\n` +
 
     `## ۳. کلمه‌های مهم\n` +
     `Bullet each genuinely important word (skip trivial ones like "the"/"a"): **word** — meaning, and its role in plain language (نه اصطلاح فنی بدون توضیح — اگه یه اصطلاح دستوری لازمه، همون‌جا با یه مثال ساده توضیحش بده).\n\n` +
 
     `## ۴. نکته‌ی گرامری\n` +
-    `The ONE main grammar point in this sentence, explained the way a great teacher would — simply, with a tiny everyday example, never with unexplained jargon.\n\n` +
+    `The ONE main grammar point in this sentence, explained the way a great teacher would — simply, step by step, never with unexplained jargon. Then give one small everyday example (different from the main sentence) that shows this same point: a full, correct ${langLabel} sentence on its own line, and immediately below it, on a separate line, its full correct ${label} translation — never merge these two lines.\n\n` +
 
     `## ۵. ترکیب یا عبارت مهم\n` +
-    `If there's a meaningful fixed phrase/collocation in the sentence, give its meaning + exactly 2 short example sentences (with ${label} translations). If there genuinely isn't one, skip this whole section entirely (don't force it).\n\n` +
+    `If there's a meaningful fixed phrase/collocation, give its meaning + exactly 2 short everyday example sentences — each a complete ${langLabel} sentence on its own line, immediately followed by a separate line with its full ${label} translation. If there genuinely isn't one, skip this whole section entirely (don't force it).\n\n` +
 
     `## ۶. تمرین کن\n` +
-    `1-2 short similar practice sentences in ${langLabel}, each with its ${label} translation right after it.\n\n` +
+    `2 new, simple, genuinely everyday practice sentences in ${langLabel} that drill the same grammar point/word (not a copy of the main sentence) — each a complete, correct sentence on its own line, immediately followed by a separate line with its full, natural ${label} translation.\n\n` +
 
     `Keep every section SHORT — a couple of lines each, not paragraphs. No filler, no repeating yourself, no unexplained technical terms.\n\n` +
 
-    `IMPORTANT: never put two different languages on the same line (a bolded single word/sentence being quoted is fine). Keep everything short, warm, and genuinely engaging — like a great teacher, not a manual. Use headers (##) and bold (**) exactly like Markdown. Return ONLY the markdown, for whichever case (A or B) applies.`;
+    `⛔️ CRITICAL: never drop a ${langLabel} word or phrase in the middle of a ${label} sentence, or vice versa (e.g. never write something like «او afraid به خفه شدن» — that is broken and wrong). Every sentence must be entirely in ONE language; the only exception is a single word/phrase being introduced with **bold** immediately followed by its gloss (e.g. **afraid** — ترسیده), never woven into a flowing sentence. Before you output anything, silently re-check every ${langLabel} and every ${label} line for this — if any line is broken, incomplete, or mixes languages, rewrite it. Keep everything short, warm, and genuinely engaging — like a great teacher, not a manual. Use headers (##) and bold (**) exactly like Markdown. Return ONLY the markdown, for whichever case (A or B) applies.`;
 
   const text = await callAI({ prompt, maxTokens: 1700, aiSettings });
   return text.trim();
@@ -10295,8 +10306,6 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
   // انتخابِ آزادِ یه محدوده از جمله (یا کل جمله) با درگ/لانگ‌پرس، برای
   // افزودنِ همون محدوده به داستان‌ساز — جدا از کلیکِ تک‌کلمه‌ای بالا.
   const containerRef = useRef(null);
-  const [selPopup, setSelPopup] = useState(null); // { top, left, text } | null
-  const [selAdded, setSelAdded] = useState(false);
 
   const isFa = nativeLang === "fa";
   const nativeLabel = nativeLabelProp || LANGUAGES.find((l) => l.code === nativeLang)?.label || "Persian";
@@ -10354,44 +10363,12 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     };
   }, [langCode, alignSourceText, alignSourceLang]);
 
-  // بعد از پایانِ یه انتخابِ متنی (درگ با ماوس، یا لانگ‌پرس/درگ رو موبایل)
-  // که داخلِ همین جمله اتفاق افتاده، یه دکمه‌ی شناور «افزودن به داستان»
-  // نشون می‌دیم؛ زدنش کل تکه‌ی انتخاب‌شده (یه کلمه، چند کلمه، یا کل جمله)
-  // رو به لیستِ داستان‌ساز اضافه می‌کنه — نه فقط تک‌کلمه‌های زیرخط‌دار.
-  useEffect(() => {
-    const handleUp = () => {
-      const sel = window.getSelection && window.getSelection();
-      const selectedText = sel ? sel.toString().trim() : "";
-      if (!selectedText || !sel.rangeCount || !containerRef.current) {
-        return;
-      }
-      const anchor = sel.anchorNode;
-      const focus = sel.focusNode;
-      const withinContainer =
-        anchor && focus && containerRef.current.contains(anchor) && containerRef.current.contains(focus);
-      if (!withinContainer) return;
-      try {
-        const range = sel.getRangeAt(0);
-        const rect = range.getBoundingClientRect();
-        if (!rect || (!rect.width && !rect.height)) return;
-        setSelAdded(false);
-        setSelPopup({ top: rect.top, left: rect.left + rect.width / 2, text: selectedText });
-      } catch {}
-    };
-    const clearIfCollapsed = () => {
-      const sel = window.getSelection && window.getSelection();
-      if (!sel || sel.isCollapsed) setSelPopup(null);
-    };
-    document.addEventListener("mouseup", handleUp);
-    document.addEventListener("touchend", handleUp);
-    document.addEventListener("selectionchange", clearIfCollapsed);
-    window.addEventListener("scroll", () => setSelPopup(null), true);
-    return () => {
-      document.removeEventListener("mouseup", handleUp);
-      document.removeEventListener("touchend", handleUp);
-      document.removeEventListener("selectionchange", clearIfCollapsed);
-    };
-  }, []);
+  // انتخابِ آزادِ یه محدوده از متن (درگ با ماوس، یا لانگ‌پرس/درگ روی موبایل)
+  // دیگه این‌جا محلی مدیریت نمی‌شه — یه مدیرِ سراسری (GlobalAddToStorySelection،
+  // سوار شده توی ریشه‌ی برنامه) کل document رو زیر نظر داره و زبانِ متنِ
+  // انتخاب‌شده رو از همون data-lang-code زیر می‌خونه. این یعنی این قابلیت
+  // (و پاک‌کردنِ خودکارِ انتخاب برای جلوگیری از نوار ابزار بومیِ گوشی) توی
+  // همه‌ی برنامه یکسانه، نه فقط این‌جا.
 
   // Keep the popup inside the visible viewport (crucial on phones, where a
   // long explanation used to spill off the right/left edge or bottom of
@@ -10543,45 +10520,7 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
   }
 
   return (
-    <span ref={containerRef} style={{ position: "relative", display: "inline" }}>
-      {selPopup && (
-        <div
-          onMouseDown={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            addTextToStoryPicks(selPopup.text, langCode);
-            setSelAdded(true);
-            try {
-              window.getSelection()?.removeAllRanges?.();
-            } catch {}
-            setTimeout(() => setSelPopup(null), 700);
-          }}
-          style={{
-            position: "fixed",
-            top: Math.max(8, selPopup.top - 34),
-            left: Math.min(Math.max(60, selPopup.left), window.innerWidth - 60),
-            transform: "translateX(-50%)",
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            background: colors.ink,
-            color: colors.paper,
-            borderRadius: 8,
-            padding: "5px 9px",
-            fontSize: 11,
-            fontWeight: 700,
-            fontFamily: fontFa,
-            whiteSpace: "nowrap",
-            zIndex: 120,
-            cursor: "pointer",
-            boxShadow: "0 4px 14px rgba(0,0,0,0.28)",
-          }}
-        >
-          {selAdded ? <Check size={12} color={colors.gold} /> : <Plus size={12} />}
-          {selAdded ? "اضافه شد" : "افزودن به داستان"}
-        </div>
-      )}
+    <span ref={containerRef} data-lang-code={langCode} style={{ position: "relative", display: "inline" }}>
       {tokens.map((tok, idx) => {
         if (/^\s+$/.test(tok) || tok === "") return <React.Fragment key={idx}>{tok}</React.Fragment>;
         if (groupSkip.has(idx)) return null; // already rendered as part of its group's combined span
@@ -13670,9 +13609,14 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         position: "relative",
       }}
     >
+      <GlobalAddToStorySelection fallbackLangCode={nativeLang} />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Lora:ital@0;1&display=swap');
         * { box-sizing: border-box; }
+        /* منوی بومیِ گوشی/مرورگر (کپی، اشتراک‌گذاری، انتخاب همه، جستجوی وب)
+           هیچ‌جای این برنامه لازم نیست — همه‌جا به‌جاش دکمه‌ی «افزودن به
+           داستان» خودمون (GlobalAddToStorySelection) هست. */
+        * { -webkit-touch-callout: none; }
         ::selection { background: ${colors.goldSoft}; }
         .spin { animation: pb-spin 0.8s linear infinite; }
         @keyframes pb-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -13738,7 +13682,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             }}
             languages={PHRASEBOOK_LANGUAGES}
             isActive={(code) => targetOrder.includes(code)}
-            isDisabled={(code) => code === nativeLang}
             onClick={(code) => toggleTargetLang(code)}
           />
 
@@ -14226,6 +14169,114 @@ function VocabList({ words, nativeLang, targetLangs, levelFilter, aiSettings, au
 }
 
 // ---------------------------------------------------------------------------
+// یک مدیرِ سراسریِ «انتخابِ متن → افزودن به داستان» برای کل نرم‌افزار.
+// جای اینکه هر تکه متن (ClickableSentence، توضیح گرامری، معنیِ دیکشنری،
+// هرجای دیگه) خودش یه پاپ‌آپ جدا برای انتخاب متن داشته باشه، این یکی —
+// فقط یه بار توی ریشه‌ی برنامه سوار می‌شه — کل document رو زیر نظر داره:
+// هر جا کاربر یه محدوده از متن رو (درگ با ماوس یا لانگ‌پرس/درگ روی موبایل)
+// انتخاب کنه، بلافاصله بعد از گرفتنِ متنِ انتخاب‌شده، خودِ انتخابِ مرورگر
+// رو پاک می‌کنیم (removeAllRanges) تا نوار ابزار بومیِ گوشی/مرورگر
+// (Copy / Share / Select all / Web search) اصلاً فرصت نکنه ظاهر بشه یا
+// بمونه — و به‌جاش دکمه‌ی شناور خودمون «افزودن به داستان» رو نشون می‌دیم.
+// زبانِ متنِ انتخاب‌شده رو از نزدیک‌ترین والدی که data-lang-code داره
+// می‌خونیم (هر جایی از اپ که زبانش معلومه — مثل ClickableSentence — این
+// اتریبیوت رو داره)؛ اگه پیدا نشد، زبان مادری/پیش‌فرض کاربر رو استفاده
+// می‌کنیم تا این قابلیت هیچ‌جای برنامه بی‌اثر نمونه.
+function GlobalAddToStorySelection({ fallbackLangCode = "fa" }) {
+  const [popup, setPopup] = useState(null); // { top, left, text, langCode } | null
+  const [added, setAdded] = useState(false);
+
+  useEffect(() => {
+    const resolveLangCode = (node) => {
+      const el = node && node.nodeType === 1 ? node : node?.parentElement;
+      const host = el && el.closest ? el.closest("[data-lang-code]") : null;
+      return (host && host.getAttribute("data-lang-code")) || fallbackLangCode;
+    };
+
+    const handleUp = () => {
+      const sel = window.getSelection && window.getSelection();
+      const selectedText = sel ? sel.toString().trim() : "";
+      if (!selectedText || !sel.rangeCount) return;
+      // فیلدهای ورودی/قابل‌ویرایش (مثلاً جستجو، ورودی چت) از این قابلیت
+      // مستثنی‌ان — همون‌جا انتخابِ عادیِ متن (برای کپی/پیست خودِ کاربر تو
+      // فرم‌ها) باید دست‌نخورده بمونه.
+      const active = document.activeElement;
+      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) return;
+      let rect;
+      try {
+        const range = sel.getRangeAt(0);
+        rect = range.getBoundingClientRect();
+      } catch {
+        return;
+      }
+      if (!rect || (!rect.width && !rect.height)) return;
+      const langCode = resolveLangCode(sel.anchorNode);
+      setAdded(false);
+      setPopup({ top: rect.top, left: rect.left + rect.width / 2, text: selectedText, langCode });
+      // بلافاصله انتخابِ بومیِ مرورگر رو پاک می‌کنیم — دکمه‌ی شناورِ خودمون
+      // (که همین الان ست شد) جایگزینش می‌شه، و نوار ابزارِ سیستم دیگه چیزی
+      // برای نشون‌دادن نداره.
+      try {
+        window.getSelection()?.removeAllRanges?.();
+      } catch {}
+    };
+
+    const handleContextMenu = (e) => {
+      // منوی راست‌کلیک/لانگ‌پرسِ پیش‌فرض هیچ‌جای برنامه لازم نیست — همه‌جا
+      // به‌جاش دکمه‌ی «افزودن به داستان» خودمون داریم.
+      e.preventDefault();
+    };
+
+    document.addEventListener("mouseup", handleUp);
+    document.addEventListener("touchend", handleUp);
+    document.addEventListener("contextmenu", handleContextMenu);
+    window.addEventListener("scroll", () => setPopup(null), true);
+    return () => {
+      document.removeEventListener("mouseup", handleUp);
+      document.removeEventListener("touchend", handleUp);
+      document.removeEventListener("contextmenu", handleContextMenu);
+    };
+  }, [fallbackLangCode]);
+
+  if (!popup) return null;
+  return (
+    <div
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        addTextToStoryPicks(popup.text, popup.langCode);
+        setAdded(true);
+        setTimeout(() => setPopup(null), 700);
+      }}
+      style={{
+        position: "fixed",
+        top: Math.max(8, popup.top - 34),
+        left: Math.min(Math.max(60, popup.left), window.innerWidth - 60),
+        transform: "translateX(-50%)",
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        background: colors.ink,
+        color: colors.paper,
+        borderRadius: 8,
+        padding: "5px 9px",
+        fontSize: 11,
+        fontWeight: 700,
+        fontFamily: fontFa,
+        whiteSpace: "nowrap",
+        zIndex: 9999,
+        cursor: "pointer",
+        boxShadow: "0 4px 14px rgba(0,0,0,0.28)",
+      }}
+    >
+      {added ? <Check size={12} color={colors.gold} /> : <Plus size={12} />}
+      {added ? "اضافه شد" : "افزودن به داستان"}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // A–Z word dictionary, grouped by CEFR level — same card language as
 // PhraseList (word + audio + star) plus a part-of-speech tag like VocabList.
 // ---------------------------------------------------------------------------
@@ -14398,7 +14449,7 @@ function WordTargetTranslation({ word, langCode, abbr, knownText, nativeLang, ai
     <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
       {text ? (
         <>
-          <p style={{ fontSize: 14, fontWeight: 800, color: colors.ink }}>{text}</p>
+          <p style={{ fontSize: 14, fontWeight: 700, color: colors.inkSoft }}>{text}</p>
           <SpeakButton text={text} code={langCode} color={colors.teal} />
         </>
       ) : (
