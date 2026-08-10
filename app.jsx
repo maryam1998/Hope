@@ -13618,6 +13618,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
            داستان» خودمون (GlobalAddToStorySelection) هست. */
         * { -webkit-touch-callout: none; }
         ::selection { background: ${colors.goldSoft}; }
+        /* هایلایتِ محدوده‌ی انتخاب‌شده برای «افزودن به داستان» —
+           جایگزینِ انتخابِ بومیِ مرورگر (که فوراً پاک می‌شه)، تا رنگش
+           تا وقتی پاپ‌آپِ «ذخیره / گرامر» بازه سرِ جاش بمونه. */
+        ::highlight(hope-story-sel) { background-color: ${colors.goldSoft}; color: ${colors.ink}; }
         .spin { animation: pb-spin 0.8s linear infinite; }
         @keyframes pb-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
@@ -14182,9 +14186,32 @@ function VocabList({ words, nativeLang, targetLangs, levelFilter, aiSettings, au
 // می‌خونیم (هر جایی از اپ که زبانش معلومه — مثل ClickableSentence — این
 // اتریبیوت رو داره)؛ اگه پیدا نشد، زبان مادری/پیش‌فرض کاربر رو استفاده
 // می‌کنیم تا این قابلیت هیچ‌جای برنامه بی‌اثر نمونه.
+// نامِ هایلایتِ CSS Custom Highlight API — با این، محدوده‌ی انتخاب‌شده رو
+// بدون دست‌کاریِ DOM (بدون wrap کردن با <span>) رنگ می‌کنیم؛ چون محدوده
+// معمولاً از وسطِ چند تا کلمه/span مختلف رد می‌شه و روش‌های مبتنی بر
+// surroundContents برای همچین محدوده‌ای کار نمی‌کنن. مرورگرهایی که این API
+// رو ندارن (خیلی قدیمی) فقط این جلوه‌ی بصری رو نمی‌بینن؛ بقیه‌ی قابلیت
+// (پاپ‌آپ ذخیره/گرامر) دست‌نخورده کار می‌کنه.
+const STORY_SELECTION_HIGHLIGHT = "hope-story-sel";
+
 function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, nativeLabel, aiSettings }) {
   const [popup, setPopup] = useState(null); // { top, left, text, langCode } | null
   const [added, setAdded] = useState(false);
+  // مرجعِ خودِ عنصر پاپ‌آپِ شناور — برای تشخیصِ «لمس/کلیک بیرون از پاپ‌آپ».
+  const popupElRef = useRef(null);
+
+  const clearSelectionHighlight = () => {
+    try {
+      if (typeof CSS !== "undefined" && CSS.highlights) {
+        CSS.highlights.delete(STORY_SELECTION_HIGHLIGHT);
+      }
+    } catch {}
+  };
+
+  const closePopup = () => {
+    setPopup(null);
+    clearSelectionHighlight();
+  };
   // این دوتا دقیقاً معادل دکمه‌های «ذخیره برای داستان بعدی» و «افزودن به
   // یادگیری گرامر» توی پاپ‌آپِ تک‌لغه‌ایِ ClickableSentence هستن — اینجا هم
   // همون رفتار رو برای یک محدوده‌ی انتخاب‌شده (چند کلمه یا یک جمله‌ی کامل)
@@ -14218,13 +14245,24 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       }
       if (!rect || (!rect.width && !rect.height)) return;
       const langCode = resolveLangCode(sel.anchorNode);
+      // قبل از پاک‌کردنِ انتخابِ بومی، خودِ محدوده رو با CSS Custom
+      // Highlight API رنگ می‌کنیم — این هایلایت مستقل از Selection مرورگره،
+      // پس پاک‌کردنِ Selection (چند خط پایین‌تر) روش اثری نداره و تا وقتی
+      // خودمون clearSelectionHighlight رو صدا نزنیم (پاپ‌آپ بسته بشه) سرِ
+      // جاش می‌مونه.
+      try {
+        if (typeof CSS !== "undefined" && CSS.highlights && typeof Highlight === "function") {
+          const range = sel.getRangeAt(0).cloneRange();
+          CSS.highlights.set(STORY_SELECTION_HIGHLIGHT, new Highlight(range));
+        }
+      } catch {}
       setAdded(false);
       setSaved(isWordSaved(selectedText, langCode));
       setGrammarSaved(false);
       setPopup({ top: rect.top, left: rect.left + rect.width / 2, text: selectedText, langCode });
       // بلافاصله انتخابِ بومیِ مرورگر رو پاک می‌کنیم — دکمه‌ی شناورِ خودمون
       // (که همین الان ست شد) جایگزینش می‌شه، و نوار ابزارِ سیستم دیگه چیزی
-      // برای نشون‌دادن نداره.
+      // برای نشون‌دادن نداره. هایلایتِ سفارشیِ بالا از این کار متأثر نمی‌شه.
       try {
         window.getSelection()?.removeAllRanges?.();
       } catch {}
@@ -14236,16 +14274,37 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       e.preventDefault();
     };
 
+    const handleScroll = () => closePopup();
+
     document.addEventListener("mouseup", handleUp);
     document.addEventListener("touchend", handleUp);
     document.addEventListener("contextmenu", handleContextMenu);
-    window.addEventListener("scroll", () => setPopup(null), true);
+    window.addEventListener("scroll", handleScroll, true);
     return () => {
       document.removeEventListener("mouseup", handleUp);
       document.removeEventListener("touchend", handleUp);
       document.removeEventListener("contextmenu", handleContextMenu);
+      window.removeEventListener("scroll", handleScroll, true);
+      clearSelectionHighlight();
     };
   }, [fallbackLangCode]);
+
+  // لمس/کلیک بیرون از پاپ‌آپ (بدون این‌که متن جدیدی انتخاب بشه) هم باید
+  // هم پاپ‌آپ و هم هایلایتِ همراهش رو ببنده — وگرنه هایلایت تا ابد (یا تا
+  // اسکرول بعدی) روی صفحه می‌مونه.
+  useEffect(() => {
+    if (!popup) return;
+    const onOutside = (e) => {
+      if (popupElRef.current && popupElRef.current.contains(e.target)) return;
+      closePopup();
+    };
+    document.addEventListener("mousedown", onOutside);
+    document.addEventListener("touchstart", onOutside);
+    return () => {
+      document.removeEventListener("mousedown", onOutside);
+      document.removeEventListener("touchstart", onOutside);
+    };
+  }, [popup]);
 
   if (!popup) return null;
 
@@ -14276,6 +14335,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
 
   return (
     <div
+      ref={popupElRef}
       onMouseDown={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
       style={{
@@ -14303,7 +14363,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
           e.stopPropagation();
           addTextToStoryPicks(popup.text, popup.langCode);
           setAdded(true);
-          setTimeout(() => setPopup(null), 700);
+          setTimeout(() => closePopup(), 700);
         }}
         style={{
           display: "flex",
