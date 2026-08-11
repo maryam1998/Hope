@@ -9,6 +9,25 @@ import { DAILY_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
 import DailyConversationsTab from "./DailyConversationsTab.jsx";
 
 // ---------------------------------------------------------------------------
+// جستجوی یکپارچه‌ی «یا از دیکشنری جستجو کن...» توی داستان‌ساز — به‌جای
+// این‌که فقط تو VOCAB (لیست محدودِ چندزبانه) بگرده، باید بتونه از تبِ
+// «لغات» (WORDS_AZ)، «لغات و اخبار» (NEWS_WORDS)، «مکالمه و روزمره»
+// (DAILY_WORDS) و «مکالمات روزمره» (DAILY_CONVERSATIONS) هم لغت/عبارت پیدا
+// کنه. این آرایه‌های مسطح‌شده فقط یه‌بار موقع بارگذاریِ اپ ساخته می‌شن (نه
+// هر رندرِ داستان‌ساز) تا جستجو سنگین نشه.
+const STORY_SEARCH_WORD_POOL = [
+  ...WORDS_AZ.map((w) => ({ term: w.en, fa: w.fa, source: "لغات" })),
+  ...NEWS_WORDS.map((w) => ({ term: w.en, fa: w.fa, source: "لغات و اخبار" })),
+  ...DAILY_WORDS.map((w) => ({ term: w.en, fa: w.fa, source: "مکالمه و روزمره" })),
+];
+// همه‌ی خط‌های دوطرفِ مکالمه‌های روزمره، مسطح‌شده به یه آرایه‌ی ساده — تا
+// کاربر بتونه یه عبارتِ کاملِ یه مکالمه رو هم به‌عنوان لغتِ هدفِ داستان
+// انتخاب کنه، نه فقط تک‌کلمه‌ها.
+const STORY_SEARCH_CONVERSATION_POOL = DAILY_CONVERSATIONS.flatMap((tp) =>
+  tp.scenarios.flatMap((sc) => [...(sc.speakerA || []), ...(sc.speakerB || [])])
+).map((it) => ({ term: it.en, fa: it.fa || "", source: "مکالمات روزمره" }));
+
+// ---------------------------------------------------------------------------
 // SUPABASE — real accounts (email/password + Google) and cross-device sync.
 // این‌جا واقعاً به پروژه‌ی Supabase وصل می‌شیم؛ دیگه هیچ حساب یا داده‌ای فقط
 // محلی/ساختگی نیست. برای فعال‌سازی ورود با گوگل هم باید تو داشبورد Supabase
@@ -2009,45 +2028,94 @@ function appendGrammarNoteThread(id, { question, answer }) {
 // escape hatch style as the SAVED_WORDS_CHANGED_EVENT plumbing above.
 let requestGrammarJump = null;
 
-// Asks the AI backend for a full, beginner-friendly grammar breakdown of one
-// word as used in a specific sentence (role, usage formula, simple examples,
-// a common-mistake note). Written entirely in the learner's native language.
+// Grammar-detail lookup (word popover → "Add to grammar learning"), rewritten so this ONE spot no
+// longer depends on the AI knowing how to write fluently in the learner's native language:
+// the AI always analyzes the sentence in fixed English, wrapping every real ${langLabel} example
+// sentence in §§...§§ sentinels so it's protected; then localizeGrammarDetailMarkdown() below runs
+// the English explanatory text (and only that) through the app's existing free online translation
+// pipeline (translateFree — Google/MyMemory/Lingva/LibreTranslate, the same one lookupWordMeaning
+// already uses) to turn it into whatever language the learner picked as nativeLang. No AI call is
+// used for the localization step itself; askGrammarTeacher (the practice chat) is unrelated and
+// intentionally left as-is.
 async function lookupWordGrammarDetail({ word, sentence, langCode, nativeLang, nativeLabel, aiSettings }) {
-  const label = nativeLabel || "فارسی";
   const langLabel = LANGUAGES.find((l) => l.code === langCode)?.label || langCode;
   const prompt =
-    `تو یک معلم حرفه‌ای زبان ${langLabel} هستی که برای یک زبان‌آموز مبتدیِ فارسی‌زبان (یا ${label}‌زبان) درس خصوصی می‌دی. کارت اینه که این جمله رو طوری تجزیه و توضیح بدی که زبان‌آموز واقعاً ساختار گرامری‌ش رو یاد بگیره — نه فقط یه ترجمه‌ی خشک ببینه.\n\n` +
-    `جمله‌ی ${langLabel}: "${sentence}"\n` +
-    `کلمه‌ای که زبان‌آموز روش دست گذاشته و می‌خواد بیشتر روش تمرکز کنی: "${word}"\n\n` +
+    `You are an expert ${langLabel} teacher preparing a beginner-friendly grammar breakdown of one sentence, for internal use only. Your ENTIRE reply must be plain ENGLISH — headers, explanations, everything — no matter what ${langLabel} is or what the learner's native language is. A separate step (not you) will translate the English explanatory text afterward, so you never need to translate anything into another language yourself.\n\n` +
+    `Sentence in ${langLabel}: "${sentence}"\n` +
+    `Word the learner tapped on, to focus on especially: "${word}"\n\n` +
 
-    `⛔️ مهم‌ترین قانون، قبل از هر چیز: هیچ‌وقت یک کلمه یا عبارتِ ${langLabel} رو وسطِ یک جمله‌ی ${label} ول نکن (مثلاً ننویس «او afraid به خفه شدن» یا «این فیلم afraid است» — این‌ها جمله‌ی خراب و نادرست‌ان). هر جمله باید یا کاملاً و تمیز به ${langLabel} باشه، یا کاملاً و تمیز و درست به ${label} — هیچ‌وقت این دو قاطی نشن. تنها استثنا: وقتی داری خودِ یک کلمه رو به‌عنوان مدخل لغوی معرفی می‌کنی، اون‌وقت با **بولد** بنویسش و بعدش با یک خط تیره معنیش رو بگو (مثلاً: **afraid** — ترسیده)، نه داخل یک جمله‌ی روون.\n\n` +
+    `⛔️ CRITICAL FORMAT RULE, before anything else: every time you write a full example sentence in ${langLabel} (the main sentence itself, or a new example/practice sentence), wrap that entire sentence — and ONLY that ${langLabel} sentence — on its own line between double section-marks, exactly like this: §§Sentence in ${langLabel} here§§. Never wrap English text in §§. Never put an ${langLabel} sentence and English commentary on the same line. Introducing a single ${langLabel} vocabulary word (not a full sentence) with **bold** followed by its English gloss (e.g. **word** — meaning) does NOT need §§ around it — §§ is only for full sentences.\n\n` +
 
-    `دقیقاً همین ساختار رو رعایت کن، به زبان ${label}:\n\n` +
+    `Follow EXACTLY this structure:\n\n` +
 
-    `## ۱. معنی ساده\n` +
-    `جمله‌ی اصلی رو اول با **بولد** به همون زبان ${langLabel} بیار، زیرش معنی روان و طبیعی‌ش رو به ${label} بگو — یک جمله‌ی کامل و درست، نه تحت‌اللفظی و نه ناقص.\n\n` +
+    `## 1. Simple meaning\n` +
+    `Give the ${langLabel} sentence wrapped in §§...§§ on its own bolded line, then on the next line a natural, complete English translation of it — never literal/word-for-word, never incomplete.\n\n` +
 
-    `## ۲. ساختار جمله\n` +
-    `اجزای اصلی جمله رو دقیقاً با ذکرِ خودِ کلمه‌ی ${langLabel} مشخص کن، این‌جوری: «فاعل: **[کلمه‌ی واقعیِ جمله]** (به ${label}: ...) — فعل: **[کلمه‌ی واقعیِ جمله]** (به ${label}: ...)» و اگه مفعول یا عبارت مهم دیگه‌ای هست همون‌طوری اضافه کن. هر جمله‌ی این بخش هم باید تمیز و بدون قاطی‌کردن دو زبان باشه (کلمه‌ی ${langLabel} همیشه **بولد** و جدا از توضیح فارسی).\n\n` +
+    `## 2. Sentence structure\n` +
+    `Point out the main pieces by quoting the actual ${langLabel} words, like this pattern: "Subject: **[actual word]** (meaning: ...) — Verb: **[actual word]** (meaning: ...)", plus object or other key parts if relevant. Every line here stays clean English with the quoted ${langLabel} word always **bold**, never blended into a running sentence.\n\n` +
 
-    `## ۳. کلمه‌های مهم\n` +
-    `فقط کلمات واقعاً مهم جمله (نه حروف‌اضافه یا کلمات بی‌اهمیت) رو با این فرمت بولت کن: **کلمه** — معنی به ${label}، و نقش دستوریش به زبان ساده (مثلاً «فعل کمکی»، «صفت»، نه اصطلاح فنی بی‌توضیح). روی کلمه‌ی "${word}" حتماً و با جزئیات بیشتر تمرکز کن: دقیقاً چه نقشی توی این جمله‌ی خاص داره.\n\n` +
+    `## 3. Key words\n` +
+    `Bullet only the genuinely important words (skip trivial ones like articles/prepositions) in this format: **word** — meaning, and its grammatical role in plain English (e.g. "auxiliary verb", "adjective" — never unexplained jargon). Give "${word}" extra detail: exactly what role it plays in this specific sentence.\n\n` +
 
-    `## ۴. نکته‌ی گرامری\n` +
-    `مهم‌ترین نکته‌ی گرامری این جمله (اونی که یادگیریش بیشترین کمک رو به زبان‌آموز می‌کنه) رو مثل یک معلم خوب و صبور، قدم‌به‌قدم و ساده توضیح بده — چرا این ساختار این‌شکلیه، چه فرقی با حالت‌های مشابه داره. بعدش یک مثال کوچیکِ روزمره‌ی دیگه (متفاوت از جمله‌ی اصلی) بزن که همین نکته رو نشون بده: مثال باید یک جمله‌ی کامل و درست به ${langLabel} باشه، خط بعدش هم ترجمه‌ی کامل و درستش به ${label} — این دو خط رو هیچ‌وقت قاطی نکن.\n\n` +
+    `## 4. Grammar note\n` +
+    `Explain the ONE main grammar point in this sentence like a patient, great teacher — step by step, in plain English, why it works this way and how it differs from similar structures. Then give one small everyday example (different from the main sentence) that shows the same point: a full, correct ${langLabel} sentence wrapped in §§...§§ on its own line, immediately followed on the next line by its full English translation — never merge these two lines.\n\n` +
 
-    `## ۵. ترکیب یا عبارت مهم\n` +
-    `اگر جمله یک ترکیب یا عبارت ثابت واقعاً مهم داره، معنیش رو بگو و دقیقاً ۲ مثالِ ساده و کاملاً روزمره بزن؛ هر مثال روی یک خط کامل به ${langLabel}، و بلافاصله زیرش یک خط جداگانه با ترجمه‌ی کامل و درست به ${label}. اگر واقعاً همچین چیزی توی این جمله نیست، این بخش رو کلاً حذف کن — الکی چیزی نساز.\n\n` +
+    `## 5. Key phrase or expression\n` +
+    `If the sentence has a genuinely important fixed phrase/collocation, explain its meaning and give exactly 2 short, everyday example sentences — each a complete ${langLabel} sentence wrapped in §§...§§ on its own line, immediately followed by its English translation on the next line. If there truly isn't one, omit this whole section — don't force it.\n\n` +
 
-    `## ۶. تمرین کن\n` +
-    `۲ جمله‌ی جدید، ساده، کاملاً روزمره و طبیعی به ${langLabel} بساز که همون نکته‌ی گرامری/کلمه رو تمرین کنن (نه کپیِ عین جمله‌ی اصلی). هر جمله رو کامل و درست بنویس، دقیقاً زیرش هم روی یک خط جداگانه ترجمه‌ی کامل و طبیعی‌ش به ${label} رو بیار. هیچ‌وقت جمله‌ی تمرین و ترجمه‌ش رو تو یک خط قاطی نکن، و هیچ‌وقت وسط جمله‌ی ${langLabel} یک کلمه‌ی ${label} یا برعکس نندازی.\n\n` +
+    `## 6. Practice\n` +
+    `Write 2 new, simple, genuinely everyday practice sentences in ${langLabel} that drill the same grammar point/word (not copies of the main sentence) — each wrapped in §§...§§ on its own line, immediately followed on the next line by its full English translation. Never merge a practice sentence and its translation onto one line.\n\n` +
 
-    `قوانین کلی: هر بخش کوتاه و پرمحتوا باشه (نه پرحرفی)، از اصطلاح گرامریِ توضیح‌نداده استفاده نکن، فقط نکات واقعاً کاربردی برای مکالمه‌ی روزمره بگو. قبل از فرستادن جواب، خودت یه بار همه‌ی جمله‌های ${langLabel} و ${label} رو مرور کن و مطمئن شو که هیچ‌کدوم ناقص، بی‌معنی، یا قاطیِ دو زبان نیستن — اگه بودن، دوباره بنویسشون.\n\n` +
+    `General rules: keep every section short and useful (no padding), never use unexplained grammar jargon, only mention what's genuinely useful for everyday conversation. Before answering, re-check every ${langLabel} sentence is wrapped in §§...§§ and every other line is plain English with no ${langLabel} words dropped in unmarked. Return ONLY the markdown, nothing before or after.`;
 
-    `🚨 کل متنِ توضیحی (هدرها، جمله‌بندی توضیح‌ها) باید به زبان ${label} نوشته بشه؛ فقط خودِ جمله‌ها/کلمات نمونه به ${langLabel} باشن، و همیشه در یک خطِ کاملاً جدا از ترجمه‌شون. پاسخ رو با فرمت Markdown بده و فقط همون تحلیل رو برگردون، بدون مقدمه یا توضیح اضافه قبل/بعدش.`;
+  const englishText = await callAI({ prompt, maxTokens: 1100, aiSettings });
+  return await localizeGrammarDetailMarkdown(englishText.trim(), nativeLang, aiSettings);
+}
 
-  const text = await callAI({ prompt, maxTokens: 1100, aiSettings });
-  return text.trim();
+// Localizes lookupWordGrammarDetail()'s fixed-English markdown into `nativeLang` using free online
+// translation (translateFree) — no AI call. §§-wrapped ${langLabel} example sentences are left
+// completely untouched (unwrapped, not translated); markdown headers keep their "## N." numbering
+// and only the title text is translated; "**word** — meaning" bullets keep the bolded word as-is
+// and translate only the meaning/role text after the dash; everything else is translated as a whole
+// line. If nativeLang is English (or missing), no translation calls are made at all.
+async function localizeGrammarDetailMarkdown(englishText, nativeLang, aiSettings) {
+  const text = String(englishText || "");
+  if (!nativeLang || nativeLang === "en") return text.replace(/§§/g, "");
+
+  const lines = text.split(/\r?\n/);
+  const translatedLines = await Promise.all(
+    lines.map(async (raw) => {
+      const line = raw.trim();
+      if (!line) return raw;
+
+      // A full ${langLabel} example sentence, protected by the AI — unwrap, never translate.
+      const wrapped = line.match(/^§§(.+)§§$/);
+      if (wrapped) return wrapped[1];
+
+      // "## N. Title" — keep the "## N." numbering, translate just the title.
+      const headerMatch = line.match(/^(#{1,3}\s*\d*\.?\s*)(.+)$/);
+      if (headerMatch) {
+        const [, prefix, title] = headerMatch;
+        const translatedTitle = await translateFree(title, nativeLang, "en", aiSettings);
+        return prefix + (translatedTitle || title);
+      }
+
+      // "- **word** — meaning, role" — keep the bolded ${langLabel} word untouched, translate
+      // only the meaning/role text that follows the dash.
+      const bulletMatch = line.match(/^(-\s*\*\*.+?\*\*\s*[—-]\s*)(.+)$/);
+      if (bulletMatch) {
+        const [, prefix, rest] = bulletMatch;
+        const translatedRest = await translateFree(rest, nativeLang, "en", aiSettings);
+        return prefix + (translatedRest || rest);
+      }
+
+      // Plain English commentary line — translate the whole thing.
+      const translated = await translateFree(line, nativeLang, "en", aiSettings);
+      return translated || line;
+    })
+  );
+
+  return translatedLines.join("\n").replace(/§§/g, "");
 }
 
 // Acts as the AI "teacher" in the Grammar tab's practice chat. Two modes,
@@ -4817,6 +4885,64 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     return !vocabQuery || w.includes(vocabQuery.toLowerCase()) || v.meaningFa.includes(vocabQuery);
   });
 
+  // نتایجِ جستجو از تب‌های «لغات»، «لغات و اخبار»، «مکالمه و روزمره» و
+  // «مکالمات روزمره» — فقط وقتی کاربر واقعاً چیزی تایپ کرده (چون این
+  // منبع‌ها هزاران ردیف دارن و نشون‌دادنِ همه‌شون بدون جستجو هم کند می‌شه
+  // هم بی‌فایده). حداکثر ۳۰ تا نتیجه، برای اینکه چیپ‌ها از صفحه بیرون نزنن.
+  const otherTabMatches = useMemo(() => {
+    const qRaw = vocabQuery.trim();
+    if (!qRaw) return [];
+    const q = qRaw.toLowerCase();
+    const seen = new Set();
+    const results = [];
+    for (const pool of [STORY_SEARCH_WORD_POOL, STORY_SEARCH_CONVERSATION_POOL]) {
+      for (const item of pool) {
+        if (results.length >= 30) break;
+        const key = item.term.toLowerCase();
+        if (seen.has(key)) continue;
+        if (key.includes(q) || (item.fa && item.fa.includes(qRaw))) {
+          seen.add(key);
+          results.push(item);
+        }
+      }
+      if (results.length >= 30) break;
+    }
+    return results;
+  }, [vocabQuery]);
+
+  // لغاتِ ذخیره‌شده‌ی همین زبانِ داستان — همیشه (نه فقط موقعِ جستجو) به‌شکلِ
+  // چیپ نشون داده می‌شن تا کاربر لازم نباشه برای استفاده‌ی دوباره از یه
+  // لغتِ قبلاً ذخیره‌شده به تبِ «لغات ذخیره‌شده» بره؛ با تایپ‌کردن هم فیلتر
+  // می‌شن، درست مثل بقیه‌ی منبع‌ها.
+  const matchingSavedWords = useMemo(() => {
+    const qRaw = vocabQuery.trim();
+    const q = qRaw.toLowerCase();
+    return savedWordsForLang.filter(
+      (e) => !qRaw || e.word.toLowerCase().includes(q) || (e.meaning && e.meaning.includes(qRaw))
+    );
+  }, [vocabQuery, savedWordsForLang]);
+
+  // لغتی که از یه منبعِ فقط-انگلیسی (لغات/اخبار/مکالمه‌ی روزمره) انتخاب
+  // شده رو، اگه زبانِ داستان انگلیسی نیست، اول به زبانِ داستان ترجمه می‌کنه
+  // (دقیقاً همون مسیرِ addCustomWord)، بعد به لیستِ انتخاب‌شده‌ها اضافه می‌کنه.
+  const [translatingPick, setTranslatingPick] = useState(null); // term در حال ترجمه
+  const pickForeignWord = async (term) => {
+    if (storyLang === "en") {
+      toggleWord(term);
+      return;
+    }
+    setTranslatingPick(term);
+    try {
+      const res = await translateFree(term, storyLang, "en", aiSettings);
+      const translated = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim() || term;
+      toggleWord(translated);
+    } catch (e) {
+      toggleWord(term);
+    } finally {
+      setTranslatingPick(null);
+    }
+  };
+
   const toggleWord = (word) => {
     setSelectedWords((prev) => {
       const already = prev.includes(word);
@@ -5452,7 +5578,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
         <input
           value={vocabQuery}
           onChange={(e) => setVocabQuery(e.target.value)}
-          placeholder="یا از دیکشنری جستجو کن..."
+          placeholder="یا از لغات، مکالمات روزمره، لغات و اخبار، لغات ذخیره‌شده جستجو کن..."
           style={{
             width: "100%",
             border: `1px solid ${colors.cardBorder}`,
@@ -5480,6 +5606,58 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                 }}
               >
                 {w}
+              </button>
+            );
+          })}
+
+          {/* لغاتِ ذخیره‌شده‌ی همین زبان — چه با جستجو، چه بدون جستجو (برای
+              استفاده‌ی سریعِ دوباره) */}
+          {matchingSavedWords.map((e) => {
+            const active = selectedWords.includes(e.word);
+            return (
+              <button
+                key={`saved-${e.word}`}
+                onClick={() => toggleWord(e.word)}
+                title="از لغات ذخیره‌شده"
+                className="flex items-center gap-1"
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 20,
+                  fontSize: 12,
+                  border: `1px solid ${active ? colors.gold : colors.teal}`,
+                  backgroundColor: active ? colors.goldSoft : "white",
+                }}
+              >
+                <Bookmark size={11} color={colors.teal} />
+                {e.word}
+              </button>
+            );
+          })}
+
+          {/* نتایجِ جستجو از تب‌های لغات / لغات و اخبار / مکالمه‌ی روزمره /
+              مکالمات روزمره — فقط وقتی کاربر تایپ کرده. چون این‌ها فقط به
+              انگلیسی‌ان، اگه زبانِ داستان چیز دیگه‌ای باشه، اول ترجمه می‌شن. */}
+          {otherTabMatches.map((item) => {
+            const busy = translatingPick === item.term;
+            return (
+              <button
+                key={`other-${item.source}-${item.term}`}
+                onClick={() => pickForeignWord(item.term)}
+                disabled={busy}
+                title={item.source}
+                className="flex items-center gap-1"
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 20,
+                  fontSize: 12,
+                  border: `1px solid ${colors.cardBorder}`,
+                  backgroundColor: colors.paper,
+                  opacity: busy ? 0.6 : 1,
+                }}
+              >
+                {busy && <Loader2 size={11} className="spin" />}
+                {item.term}
+                <span style={{ fontSize: 9, color: colors.inkSoft }}>({item.source})</span>
               </button>
             );
           })}
@@ -5684,7 +5862,20 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                         <div key={si} ref={(el) => (sentenceElsRef.current[`${pi}-${si}`] = el)}>
                           <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                             <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
-                            <p style={{ fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, fontSize: 15, lineHeight: 1.8, textAlign: "justify" }}>
+                            <p
+                              style={{
+                                fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin,
+                                fontSize: 15,
+                                lineHeight: 1.8,
+                                textAlign: "justify",
+                                fontWeight: 900,
+                                // برخی فونت‌های سریف بارگذاری‌شده (مثل Lora) وزن ۸۰۰/۹۰۰ واقعی
+                                // ندارن و مرورگر بی‌سروصدا همون رگولار رو نشون می‌ده؛ این
+                                // text-stroke تضمین می‌کنه متن اصلیِ داستان همیشه پررنگ دیده
+                                // بشه، صرف‌نظر از اینکه فونت خودش وزن سنگین داره یا نه.
+                                WebkitTextStroke: `0.4px ${mainTextColor}`,
+                              }}
+                            >
                               <ClickableSentence
                                 text={s.text}
                                 langCode={storyLang}
@@ -5692,7 +5883,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                 nativeLabel={nativeLabel}
                                 aiSettings={aiSettings}
                                 color={mainTextColor}
-                                fontWeight={800}
+                                fontWeight={900}
                               />
                             </p>
                           </div>
@@ -5746,7 +5937,16 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                     <div ref={(el) => (paragraphElsRef.current[pi] = el)}>
                       <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                         <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
-                        <p style={{ fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, fontSize: 15, lineHeight: 1.8, textAlign: "justify" }}>
+                        <p
+                          style={{
+                            fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin,
+                            fontSize: 15,
+                            lineHeight: 1.8,
+                            textAlign: "justify",
+                            fontWeight: 900,
+                            WebkitTextStroke: `0.4px ${mainTextColor}`,
+                          }}
+                        >
                           <ClickableSentence
                             text={paragraphText}
                             langCode={storyLang}
@@ -5754,7 +5954,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                             nativeLabel={nativeLabel}
                             aiSettings={aiSettings}
                             color={mainTextColor}
-                            fontWeight={800}
+                            fontWeight={900}
                           />
                         </p>
                       </div>
