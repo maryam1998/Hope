@@ -2465,6 +2465,42 @@ function removeWordFromCollectionEntry(id, term) {
   return list[idx];
 }
 
+// ---------------------------------------------------------------------------
+// نگاشتِ لغت → سطح (A1..C2)، برای نشون‌دادنِ سطح توی پنل «لغات ذخیره‌شده».
+// این نگاشت‌ها فقط یه‌بار (موقع لود شدنِ ماژول) از روی دیتای موجود ساخته
+// می‌شن، نه هر بار که پنل رندر می‌شه — چون WORDS_AZ چند هزار ردیفه.
+//   ۱) WORDS_AZ / NEWS_WORDS / DAILY_WORDS: هر سه فقط انگلیسی‌ان (فیلد en)،
+//      پس کلیدشون صرفاً خودِ لغتِ نرمال‌شده‌ست (زبان همیشه en).
+//   ۲) VOCAB: چندزبانه‌ست (t.fa, t.en, t.es, ...)، پس کلید ترکیبیِ
+//      «langCode:لغتِ نرمال‌شده» لازمه.
+// اگه یه لغت تو چندجا با سطح‌های متفاوت باشه، اولین موردی که پیدا می‌شه
+// می‌مونه (کافیه، چون هدف فقط راهنماییِ تقریبیه نه مرجعِ رسمی).
+// ---------------------------------------------------------------------------
+const LEVEL_BY_EN_WORD = new Map();
+[...WORDS_AZ, ...NEWS_WORDS, ...DAILY_WORDS].forEach((w) => {
+  const key = normalizeWord(w.en);
+  if (key && !LEVEL_BY_EN_WORD.has(key)) LEVEL_BY_EN_WORD.set(key, w.level);
+});
+const LEVEL_BY_LANG_WORD = new Map();
+VOCAB.forEach((v) => {
+  Object.entries(v.t || {}).forEach(([code, text]) => {
+    const key = `${code}:${normalizeWord(text)}`;
+    if (text && !LEVEL_BY_LANG_WORD.has(key)) LEVEL_BY_LANG_WORD.set(key, v.level);
+  });
+});
+// سطحِ یک لغتِ ذخیره‌شده رو از روی دیتای محلی پیدا می‌کنه — کاملاً افلاین و
+// آنی، بدون نیاز به AI یا شبکه. اگه لغت تو هیچ‌کدوم از دیتاست‌های محلی
+// نبود (مثلاً یه عبارتِ چندکلمه‌ای یا لغتی که کاربر خودش تایپ کرده)،
+// null برمی‌گردونه و پنل به‌جای بج سطح، چیزی نشون نمی‌ده.
+function lookupSavedWordLevel(word, langCode) {
+  const w = normalizeWord(word);
+  if (!w) return null;
+  if (langCode === "en" && LEVEL_BY_EN_WORD.has(w)) return LEVEL_BY_EN_WORD.get(w);
+  const key = `${langCode}:${w}`;
+  if (LEVEL_BY_LANG_WORD.has(key)) return LEVEL_BY_LANG_WORD.get(key);
+  return null;
+}
+
 function findInVocab(word, langCode) {
   const w = normalizeWord(word);
   if (!w) return null;
@@ -6405,6 +6441,7 @@ function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel, targetOrder, 
                   // زبان مادری اول، بعد هر زبان مقصدِ دیگه‌ای که کاربر
                   // بالای صفحه فعال کرده، به همون ترتیب.
                   const otherLangs = relevantLangs.filter((l) => l !== code);
+                  const level = lookupSavedWordLevel(e.word, code);
                   return (
                     <div
                       key={e.word}
@@ -6445,6 +6482,11 @@ function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel, targetOrder, 
                           </button>
                         </span>
                       </div>
+                      {level && (
+                        <div>
+                          <LevelBadge level={level} />
+                        </div>
+                      )}
                       {otherLangs.map((toLang) => {
                         const translation = (e.translations && e.translations[toLang]) || "";
                         const toLabel = LANGUAGES.find((l) => l.code === toLang)?.label || toLang;
