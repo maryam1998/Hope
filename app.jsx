@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from "react";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -6113,11 +6113,17 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
 // popover's "save for next story" button, grouped by language, so they're
 // easy to find later instead of only surfacing inside Story Builder.
 // ---------------------------------------------------------------------------
-function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel, targetOrder }) {
+function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel, targetOrder, dictHistory, setDictHistory, onGoToDictionary }) {
   const [words, setWords] = useState([]);
   // لغاتی که کاربر توی همین صفحه علامت زده تا ببره داستان‌ساز — جدا از
   // خودِ انبار دائمی؛ فقط یه انتخاب موقتیه، نه حذف/اضافه به ذخیره‌شده‌ها.
+  // همین انتخاب برای «حذف انتخاب‌شده‌ها» و «کپی در دیکشنری» هم استفاده می‌شه.
   const [picked, setPicked] = useState({}); // { [langCode]: Set(word) }
+  // متن جستجو برای فیلترکردن لغات ذخیره‌شده (روی خودِ لغت یا هر کدوم از
+  // معادل‌هاش) — روی «انتخاب همه» و «پاک کردن همه» هم اثر می‌ذاره، یعنی
+  // فقط لغاتِ در حال نمایش رو در برمی‌گیرن.
+  const [query, setQuery] = useState("");
+  const [actionMsg, setActionMsg] = useState("");
 
   useEffect(() => {
     const refresh = () => setWords(loadSavedStoryWords());
@@ -6165,12 +6171,122 @@ function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel, targetOrder }
     });
   };
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const matchesQuery = (e) => {
+    if (!normalizedQuery) return true;
+    if ((e.word || "").toLowerCase().includes(normalizedQuery)) return true;
+    if (e.translations) {
+      return Object.values(e.translations).some((t) => (t || "").toLowerCase().includes(normalizedQuery));
+    }
+    return false;
+  };
+  // فقط لغاتی که با متن جستجو مچ می‌شن نمایش داده می‌شن؛ «انتخاب همه» و
+  // «پاک کردن همه» هم روی همین لیستِ فیلترشده عمل می‌کنن، نه کل انبار.
+  const filteredWords = words.filter(matchesQuery);
+
   const byLang = {};
-  words.forEach((w) => {
+  filteredWords.forEach((w) => {
     if (!byLang[w.langCode]) byLang[w.langCode] = [];
     byLang[w.langCode].push(w);
   });
   const langCodes = Object.keys(byLang);
+
+  const totalPicked = Object.values(picked).reduce((sum, set) => sum + (set ? set.size : 0), 0);
+  const allVisibleSelected =
+    filteredWords.length > 0 && filteredWords.every((e) => (picked[e.langCode] || new Set()).has(e.word));
+
+  const toggleSelectAll = () => {
+    setPicked((prev) => {
+      const next = { ...prev };
+      filteredWords.forEach((e) => {
+        const set = new Set(next[e.langCode] || []);
+        if (allVisibleSelected) set.delete(e.word);
+        else set.add(e.word);
+        next[e.langCode] = set;
+      });
+      return next;
+    });
+  };
+
+  const deleteSelected = () => {
+    if (!totalPicked) return;
+    if (!window.confirm(`حذف دائمی ${totalPicked} لغت انتخاب‌شده؟`)) return;
+    Object.entries(picked).forEach(([code, set]) => {
+      (set || new Set()).forEach((word) => removeSavedStoryWord(word, code));
+    });
+    setPicked({});
+    setActionMsg(`${totalPicked} لغت حذف شد`);
+  };
+
+  const clearAll = () => {
+    if (!filteredWords.length) return;
+    const msg = normalizedQuery
+      ? `${filteredWords.length} لغتِ در حال نمایش برای همیشه پاک بشن؟`
+      : `همه‌ی ${filteredWords.length} لغت ذخیره‌شده برای همیشه پاک بشن؟`;
+    if (!window.confirm(msg)) return;
+    filteredWords.forEach((e) => removeSavedStoryWord(e.word, e.langCode));
+    setPicked({});
+    setActionMsg(`${filteredWords.length} لغت پاک شد`);
+  };
+
+  // معادل‌های هر لغتِ انتخاب‌شده (که قبلاً توی همین پنل جمع شده) رو مستقیم
+  // به تاریخچه‌ی دیکشنری اضافه می‌کنه — بدون نیاز به جستجوی دوباره از AI.
+  // لغاتی که از قبل توی دیکشنری بودن (بر اساس خودِ کلمه) رد می‌شن تا داده‌ی
+  // کامل‌تری که قبلاً از AI گرفته شده بود دست‌نخورده بمونه.
+  const copySelectedToDictionary = () => {
+    if (!totalPicked || !setDictHistory) return;
+    const toCopy = [];
+    Object.entries(picked).forEach(([code, set]) => {
+      (set || new Set()).forEach((word) => {
+        const entry = words.find((w) => w.langCode === code && w.word === word);
+        if (entry) toCopy.push(entry);
+      });
+    });
+    if (!toCopy.length) return;
+    const existingKeys = new Set((dictHistory || []).map((h) => (h.word || "").toLowerCase()));
+    const additions = [];
+    toCopy.forEach((e) => {
+      const key = (e.word || "").toLowerCase();
+      if (!key || existingKeys.has(key)) return;
+      existingKeys.add(key);
+      additions.push({
+        word: e.word,
+        detectedLang: e.langCode,
+        pos: "",
+        ipa: "",
+        meaningFa: e.langCode !== nativeLang ? (e.translations && e.translations[nativeLang]) || "" : "",
+        translations: { ...(e.translations || {}) },
+        examples: [],
+        lookedUpAt: Date.now(),
+      });
+    });
+    if (additions.length) {
+      setDictHistory((prev) => [...additions, ...prev].slice(0, 50));
+    }
+    const skipped = toCopy.length - additions.length;
+    setActionMsg(
+      additions.length && skipped
+        ? `${additions.length} لغت به دیکشنری اضافه شد (${skipped} تا قبلاً بود)`
+        : additions.length
+        ? `${additions.length} لغت به دیکشنری اضافه شد`
+        : "همه‌ی لغات انتخاب‌شده قبلاً توی دیکشنری بودن"
+    );
+  };
+
+  useEffect(() => {
+    if (!actionMsg) return;
+    const t = setTimeout(() => setActionMsg(""), 4000);
+    return () => clearTimeout(t);
+  }, [actionMsg]);
+
+  const toolbarButtonStyle = {
+    fontSize: 12,
+    padding: "6px 12px",
+    borderRadius: 20,
+    border: `1px solid ${colors.cardBorder}`,
+    backgroundColor: "white",
+    whiteSpace: "nowrap",
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -6181,9 +6297,78 @@ function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel, targetOrder }
         </p>
       </div>
 
+      {words.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div
+            className="flex items-center gap-2 px-3"
+            style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 20, height: 40 }}
+          >
+            <Search size={15} color={colors.inkSoft} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="جستجو در لغات ذخیره‌شده..."
+              dir="auto"
+              style={{ flex: 1, fontFamily: fontFa, border: "none", outline: "none", fontSize: 13, backgroundColor: "transparent" }}
+            />
+            {query && (
+              <button onClick={() => setQuery("")} aria-label="پاک کردن جستجو" style={{ display: "flex" }}>
+                <X size={15} color={colors.inkSoft} />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center flex-wrap gap-2">
+            <button
+              onClick={toggleSelectAll}
+              disabled={filteredWords.length === 0}
+              className="flex items-center gap-1"
+              style={{ ...toolbarButtonStyle, color: colors.ink, opacity: filteredWords.length ? 1 : 0.5 }}
+            >
+              <CheckSquare size={13} />
+              {allVisibleSelected ? "لغو انتخاب همه" : "انتخاب همه"}
+            </button>
+            <button
+              onClick={clearAll}
+              disabled={filteredWords.length === 0}
+              className="flex items-center gap-1"
+              style={{ ...toolbarButtonStyle, color: colors.rose, opacity: filteredWords.length ? 1 : 0.5 }}
+            >
+              <Trash2 size={13} />
+              پاک کردن همه
+            </button>
+            {totalPicked > 0 && (
+              <>
+                <button onClick={deleteSelected} className="flex items-center gap-1" style={{ ...toolbarButtonStyle, color: colors.rose }}>
+                  <X size={13} />
+                  حذف {totalPicked} انتخاب‌شده
+                </button>
+                <button onClick={copySelectedToDictionary} className="flex items-center gap-1" style={{ ...toolbarButtonStyle, color: colors.teal }}>
+                  <Copy size={13} />
+                  کپی در دیکشنری
+                </button>
+              </>
+            )}
+          </div>
+
+          {actionMsg && (
+            <p className="flex items-center gap-2" style={{ fontSize: 12, color: colors.teal }}>
+              {actionMsg}
+              {onGoToDictionary && actionMsg.includes("دیکشنری") && (
+                <button onClick={onGoToDictionary} style={{ textDecoration: "underline", color: colors.teal }}>
+                  مشاهده در دیکشنری
+                </button>
+              )}
+            </p>
+          )}
+        </div>
+      )}
+
       {langCodes.length === 0 ? (
         <p style={{ fontSize: 13, color: colors.inkSoft }}>
-          هنوز لغتی ذخیره نکردی. روی هر کلمه‌ی داخل متن‌ها بزن و از پاپ‌آپش «ذخیره برای داستان بعدی» رو انتخاب کن، یا موقع ساخت داستان لغت انتخاب کن.
+          {words.length === 0
+            ? "هنوز لغتی ذخیره نکردی. روی هر کلمه‌ی داخل متن‌ها بزن و از پاپ‌آپش «ذخیره برای داستان بعدی» رو انتخاب کن، یا موقع ساخت داستان لغت انتخاب کن."
+            : "با این جستجو لغتی پیدا نشد."}
         </p>
       ) : (
         langCodes.map((code) => {
@@ -7345,6 +7530,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
             targetOrder={targetOrder}
+            dictHistory={dictHistory}
+            setDictHistory={setDictHistory}
+            onGoToDictionary={() => setTab("dictionary")}
             onJumpToStory={(lang, words) => {
               setStoryJump({ lang, words, token: Date.now() });
               setTab("story");
