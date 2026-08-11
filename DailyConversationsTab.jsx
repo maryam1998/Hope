@@ -88,6 +88,11 @@ const colors = {
   rose: "var(--c-rose)",
   cardBorder: "var(--c-cardBorder)",
 };
+// طبق درخواست: متن اصلی (جمله‌ی انگلیسی) مشکی/سورمه‌ای پررنگ و بولد،
+// و متنِ ترجمه‌ها سبزِ پررنگ و بولد — این دو تا رنگ ثابتن (نه وابسته به
+// تم انتخابی) چون خودِ کاربر رنگ مشخص خواسته.
+const mainTextColor = "#0B1220";
+const translationColor = "#0F5C34";
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
 
@@ -168,9 +173,9 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
       {loading ? (
         <span style={{ fontSize: 12, color: colors.inkSoft }}>...</span>
       ) : (
-        <span style={{ fontSize: 12.5, color: colors.inkSoft, fontWeight: 600, fontFamily: fontFa }}>{value}</span>
+        <span style={{ fontSize: 12.5, color: translationColor, fontWeight: 800, fontFamily: fontFa }}>{value}</span>
       )}
-      {value && SpeakButton && <SpeakButton text={value} code={langCode} color={colors.teal} />}
+      {value && SpeakButton && <SpeakButton text={value} code={langCode} color={translationColor} />}
     </div>
   );
 }
@@ -218,7 +223,7 @@ function ConversationBox({ items, variant, label, nativeLang, aiSettings, Clicka
             }}
           >
             <div style={{ direction: "ltr", textAlign: "left", flex: 1 }}>
-              <div style={{ fontSize: 16, fontWeight: 600, color: colors.ink, fontFamily: fontLatin }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: mainTextColor, fontFamily: fontLatin }}>
                 {ClickableSentence ? (
                   <ClickableSentence text={it.en} langCode="en" nativeLang={nativeLang} aiSettings={aiSettings} />
                 ) : (

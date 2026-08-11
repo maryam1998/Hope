@@ -318,6 +318,11 @@ const colors = {
   rose: "var(--c-rose)",
   cardBorder: "var(--c-cardBorder)",
 };
+// طبق درخواست: متن اصلیِ لغت/جمله مشکی-سورمه‌ای پررنگ و بولد، و متنِ
+// ترجمه‌ها سبزِ پررنگ و بولد. این دو ثابتن (نه وابسته به تم رنگی
+// انتخابی کاربر توی تنظیمات) چون خودِ کاربر رنگ مشخص خواسته.
+const mainTextColor = "#0B1220";
+const translationColor = "#0F5C34";
 
 // Theme presets — each is a full set of the 9 tokens above. "vintage" is the
 // original look; the rest are alternate moods, all still checked for
@@ -3030,7 +3035,7 @@ function TabButton({ label, icon: Icon, active, onClick }) {
   );
 }
 
-function SpeakButton({ text, code, color }) {
+function SpeakButton({ text, code, color, edge }) {
   const locale = TTS_LOCALE[code] || "en-US";
   const myKey = `${locale}::${text}`;
   const [state, setState] = useState(() => speechController.getState());
@@ -3054,8 +3059,15 @@ function SpeakButton({ text, code, color }) {
     }
   };
 
+  // این آیکون همیشه باید سمت راستِ ردیف بشینه، صرف‌نظر از اینکه توی JSX
+  // کجا نوشته شده. توی یه ردیفِ راست‌چین (که پیش‌فرضِ کل اپه) «سمت راست»
+  // یعنی اولِ محور اصلی، پس order: -1 کافیه. اما چند جای خاص از اپ
+  // (مثلاً ردیف کلمه‌ی دیکشنری یا جمله‌های داستان به زبان خارجی) به‌خاطر
+  // محتوای لاتین، خودِ ردیف رو dir="ltr" می‌کنن؛ اونجا «سمت راست» یعنی
+  // آخرِ محور اصلی، پس با پراپ edge="end" یه order خیلی بزرگ می‌گیره.
+  const orderStyle = edge === "end" ? 999 : -1;
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, order: orderStyle }}>
       <button
         onClick={handleToggle}
         aria-label={isPlaying ? "توقف موقت" : "تلفظ"}
@@ -4339,8 +4351,8 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
       {!showHistory && result && (
         <div className="flex flex-col gap-3 p-4 rounded-lg" style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}` }}>
           <div className="flex items-center gap-2" style={{ direction: "ltr" }}>
-            <p style={{ fontFamily: fontLatin, fontWeight: 700, fontSize: 20, color: colors.ink }}>{result.word}</p>
-            <SpeakButton text={result.word} code={result.detectedLang || "en"} />
+            <p style={{ fontFamily: fontLatin, fontWeight: 800, fontSize: 20, color: mainTextColor }}>{result.word}</p>
+            <SpeakButton text={result.word} code={result.detectedLang || "en"} edge="end" />
             {result.pos && (
               <span
                 style={{
@@ -4360,7 +4372,7 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
             <p style={{ fontFamily: fontLatin, fontSize: 13, color: colors.inkSoft, direction: "ltr" }}>/{result.ipa}/</p>
           )}
           {result.meaningFa && (
-            <p style={{ fontFamily: fontFa, fontSize: 14, color: colors.ink }}>{result.meaningFa}</p>
+            <p style={{ fontFamily: fontFa, fontSize: 14, fontWeight: 800, color: translationColor }}>{result.meaningFa}</p>
           )}
 
           {result.translations && (
@@ -4383,10 +4395,10 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
                     >
                       {l.abbr}
                     </span>
-                    <p style={{ fontFamily: fontLatin, color: colors.teal, fontSize: 14, flex: 1 }}>
+                    <p style={{ fontFamily: fontLatin, color: translationColor, fontWeight: 800, fontSize: 14, flex: 1 }}>
                       {result.translations[l.code]}
                     </p>
-                    <SpeakButton text={result.translations[l.code]} code={l.code} color={colors.teal} />
+                    <SpeakButton text={result.translations[l.code]} code={l.code} color={translationColor} edge="end" />
                   </div>
                 ) : null
               ))}
@@ -5546,7 +5558,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                       {p.sentences.map((s, si) => (
                         <div key={si} ref={(el) => (sentenceElsRef.current[`${pi}-${si}`] = el)}>
                           <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
-                            <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} />
+                            <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
                             <p style={{ fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, fontSize: 15, lineHeight: 1.8, textAlign: "justify" }}>
                               <ClickableSentence
                                 text={s.text}
@@ -5554,7 +5566,8 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                 nativeLang={nativeLang}
                                 nativeLabel={nativeLabel}
                                 aiSettings={aiSettings}
-                                color={colors.ink}
+                                color={mainTextColor}
+                                fontWeight={800}
                               />
                             </p>
                           </div>
@@ -5571,11 +5584,12 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                     marginInlineStart: 26,
                                   }}
                                 >
-                                  {translated && <SpeakButton text={translated} code={code} color={colors.teal} />}
+                                  {translated && <SpeakButton text={translated} code={code} color={translationColor} edge={dirFor(code) === "ltr" ? "end" : undefined} />}
                                   <p
                                     style={{
                                       fontSize: 13,
-                                      color: colors.inkSoft,
+                                      color: translationColor,
+                                      fontWeight: 800,
                                       textAlign: "justify",
                                       fontFamily: code === "fa" ? fontFa : fontLatin,
                                     }}
@@ -5588,7 +5602,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                         nativeLang={nativeLang}
                                         nativeLabel={nativeLabel}
                                         aiSettings={aiSettings}
-                                        color={colors.inkSoft}
+                                        color={translationColor}
                                         fontFamily={code === "fa" ? fontFa : fontLatin}
                                         alignSourceText={s.text}
                                         alignSourceLang={storyLang}
@@ -5606,7 +5620,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                   ) : (
                     <div ref={(el) => (paragraphElsRef.current[pi] = el)}>
                       <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
-                        <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} />
+                        <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
                         <p style={{ fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin, fontSize: 15, lineHeight: 1.8, textAlign: "justify" }}>
                           <ClickableSentence
                             text={paragraphText}
@@ -5614,7 +5628,8 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                             nativeLang={nativeLang}
                             nativeLabel={nativeLabel}
                             aiSettings={aiSettings}
-                            color={colors.ink}
+                            color={mainTextColor}
+                            fontWeight={800}
                           />
                         </p>
                       </div>
@@ -5630,11 +5645,12 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                               dir={dirFor(code)}
                               style={{ marginTop: 4, marginInlineStart: 26 }}
                             >
-                              {translated && <SpeakButton text={translated} code={code} color={colors.teal} />}
+                              {translated && <SpeakButton text={translated} code={code} color={translationColor} edge={dirFor(code) === "ltr" ? "end" : undefined} />}
                               <p
                                 style={{
                                   fontSize: 13,
-                                  color: colors.inkSoft,
+                                  color: translationColor,
+                                  fontWeight: 800,
                                   textAlign: "justify",
                                   fontFamily: code === "fa" ? fontFa : fontLatin,
                                 }}
@@ -5647,7 +5663,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                     nativeLang={nativeLang}
                                     nativeLabel={nativeLabel}
                                     aiSettings={aiSettings}
-                                    color={colors.inkSoft}
+                                    color={translationColor}
                                     fontFamily={code === "fa" ? fontFa : fontLatin}
                                     alignSourceText={paragraphText}
                                     alignSourceLang={storyLang}
@@ -7137,7 +7153,7 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
               >
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <p style={{ fontWeight: 600, fontSize: 15, color: colors.ink }}>{p.t[nativeLang]}</p>
+                    <p style={{ fontWeight: 800, fontSize: 15, color: mainTextColor }}>{p.t[nativeLang]}</p>
                     <SpeakButton text={p.t[nativeLang]} code={nativeLang} />
                     {p.level && <LevelBadge level={p.level} />}
                   </div>
@@ -7158,19 +7174,20 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
                         >
                           {l.abbr}
                         </span>
-                        <p style={{ flex: 1 }}>
+                        <p style={{ flex: 1, fontWeight: 800, color: translationColor }}>
                           {p.t[l.code] ? (
                             <ClickableSentence
                               text={p.t[l.code]}
                               langCode={l.code}
                               nativeLang={nativeLang}
                               aiSettings={aiSettings}
+                              color={translationColor}
                             />
                           ) : (
                             "—"
                           )}
                         </p>
-                        {p.t[l.code] && <SpeakButton text={p.t[l.code]} code={l.code} color={colors.teal} />}
+                        {p.t[l.code] && <SpeakButton text={p.t[l.code]} code={l.code} color={translationColor} edge="end" />}
                       </div>
                     ))}
                   </div>
@@ -7231,7 +7248,7 @@ function VocabList({ words, nativeLang, targetLangs, levelFilter, aiSettings, au
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <p style={{ fontWeight: 700, fontSize: 16 }}>{w.t[nativeLang] ?? w.t.fa}</p>
+                <p style={{ fontWeight: 800, fontSize: 16, color: mainTextColor }}>{w.t[nativeLang] ?? w.t.fa}</p>
                 <SpeakButton text={w.t[nativeLang] ?? w.t.fa} code={nativeLang} />
               </div>
               <LevelBadge level={w.level} />
@@ -7260,19 +7277,20 @@ function VocabList({ words, nativeLang, targetLangs, levelFilter, aiSettings, au
                       >
                         {l.abbr}
                       </span>
-                      <p style={{ flex: 1 }}>
+                      <p style={{ flex: 1, fontWeight: 800, color: translationColor }}>
                         {w.t[l.code] ? (
                           <ClickableSentence
                             text={w.t[l.code]}
                             langCode={l.code}
                             nativeLang={nativeLang}
                             aiSettings={aiSettings}
+                            color={translationColor}
                           />
                         ) : (
                           "—"
                         )}
                       </p>
-                      {w.t[l.code] && <SpeakButton text={w.t[l.code]} code={l.code} color={colors.teal} />}
+                      {w.t[l.code] && <SpeakButton text={w.t[l.code]} code={l.code} color={translationColor} edge="end" />}
                     </div>
                   ))}
                 </div>
@@ -7642,7 +7660,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                 langCode="en"
                 nativeLang={nativeLang}
                 aiSettings={aiSettings}
-                color={colors.ink}
+                color={mainTextColor}
                 fontFamily={fontLatin}
                 fontWeight={800}
                 fontSize={19}
@@ -7852,8 +7870,9 @@ function WordExampleRow({ example, word, langCode, nativeLang, aiSettings }) {
         border: `1px solid ${colors.cardBorder}`,
       }}
     >
-      {/* متن مثال و ترجمه‌اش هر دو مشکی و bold‌ان (نه رنگ‌های کم‌کنتراست)
-          تا خوندن‌شون تو کادرِ کرم‌رنگ چشم رو خسته نکنه. */}
+      {/* متن مثال مشکی/سورمه‌ای پررنگ و bold، ترجمه‌اش سبز پررنگ و bold —
+          تا هم خوندن‌شون تو کادرِ کرم‌رنگ چشم رو خسته نکنه، هم متن اصلی
+          از ترجمه به‌وضوح جدا باشه. */}
       <div className="flex items-center gap-2" style={{ direction: "ltr" }}>
         <div style={{ flex: 1 }}>
           <ClickableSentence
@@ -7861,17 +7880,17 @@ function WordExampleRow({ example, word, langCode, nativeLang, aiSettings }) {
             langCode={langCode}
             nativeLang={nativeLang}
             aiSettings={aiSettings}
-            color={colors.ink}
-            fontWeight={700}
+            color={mainTextColor}
+            fontWeight={800}
             fontSize={13}
           />
         </div>
-        <SpeakButton text={example.text} code={langCode} color={colors.teal} />
+        <SpeakButton text={example.text} code={langCode} color={colors.teal} edge="end" />
       </div>
       {translation ? (
         <div className="flex items-center gap-2" style={{ marginTop: 4 }}>
-          <p style={{ flex: 1, fontSize: 12, fontWeight: 700, color: colors.ink }}>{translation}</p>
-          <SpeakButton text={translation} code={nativeLang} />
+          <p style={{ flex: 1, fontSize: 12, fontWeight: 800, color: translationColor }}>{translation}</p>
+          <SpeakButton text={translation} code={nativeLang} color={translationColor} />
         </div>
       ) : (
         <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 4 }}>در حال ترجمه...</p>
@@ -7936,7 +7955,7 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
       >
         <div onClick={() => setShowAnswer((s) => !s)} style={{ cursor: "pointer" }}>
           <div className="flex items-center justify-center gap-2">
-            <p style={{ fontWeight: 700, fontSize: 18 }}>{current.t[nativeLang]}</p>
+            <p style={{ fontWeight: 800, fontSize: 18, color: mainTextColor }}>{current.t[nativeLang]}</p>
             <SpeakButton text={current.t[nativeLang]} code={nativeLang} />
             {current.level && <LevelBadge level={current.level} />}
           </div>
@@ -7964,10 +7983,10 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
                 >
                   {l.abbr}
                 </span>
-                <p style={{ fontFamily: fontLatin, color: colors.teal, fontSize: 16 }}>
+                <p style={{ fontFamily: fontLatin, color: translationColor, fontWeight: 800, fontSize: 16 }}>
                   {current.t[l.code] ?? "—"}
                 </p>
-                {current.t[l.code] && <SpeakButton text={current.t[l.code]} code={l.code} color={colors.teal} />}
+                {current.t[l.code] && <SpeakButton text={current.t[l.code]} code={l.code} color={translationColor} edge="end" />}
               </div>
             ))}
           </div>
