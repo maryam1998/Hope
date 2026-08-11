@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
@@ -75,6 +75,77 @@ async function supabaseSaveState(uid, data) {
 // changing the variables on the root element (see ThemeStyle/APP_THEMES)
 // re-colors everything at once, no per-component edits needed.
 // ---------------------------------------------------------------------------
+// ============================================================
+// کش دائمی ترجمه‌ها در IndexedDB — یک‌بار که کلمه‌ای ترجمه شد، برای همیشه
+// (حتی بعد از بستن مرورگر/آفلاین‌شدن) روی خودِ گوشی ذخیره می‌مونه.
+// translateFree پایین همین کش رو خودکار چک/پر می‌کنه، پس هرجای اپ که از
+// translateFree استفاده می‌کنه (پاپ‌آپ کلمه، دیکشنری، استوری‌بیلدر و...)
+// خودبه‌خود از این کش بهره می‌بره، بدون نیاز به تغییر جای دیگه‌ای.
+// ============================================================
+const TRANSLATION_DB_NAME = "phrasebook-translations";
+const TRANSLATION_STORE = "translations";
+
+function openTranslationDB() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") { reject(new Error("indexeddb-unavailable")); return; }
+    const req = indexedDB.open(TRANSLATION_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(TRANSLATION_STORE)) {
+        db.createObjectStore(TRANSLATION_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function translationCacheKey(text, targetLang, sourceLang) {
+  return `${sourceLang || "auto"}::${targetLang}::${text}`;
+}
+
+async function getCachedTranslation(text, targetLang, sourceLang = "auto") {
+  try {
+    const db = await openTranslationDB();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(TRANSLATION_STORE, "readonly");
+      const req = tx.objectStore(TRANSLATION_STORE).get(translationCacheKey(text, targetLang, sourceLang));
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function setCachedTranslation(text, targetLang, sourceLang, translation) {
+  try {
+    const db = await openTranslationDB();
+    await new Promise((resolve) => {
+      const tx = db.transaction(TRANSLATION_STORE, "readwrite");
+      tx.objectStore(TRANSLATION_STORE).put(translation, translationCacheKey(text, targetLang, sourceLang));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch {
+    // IndexedDB در دسترس نبود (مثلاً حالت خصوصی مرورگر) — بی‌خیال کش می‌شیم، مشکلی نیست
+  }
+}
+
+async function getTranslationCacheCount() {
+  try {
+    const db = await openTranslationDB();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(TRANSLATION_STORE, "readonly");
+      const req = tx.objectStore(TRANSLATION_STORE).count();
+      req.onsuccess = () => resolve(req.result || 0);
+      req.onerror = () => resolve(0);
+    });
+  } catch {
+    return 0;
+  }
+}
+
 // ============================================================
 // ترجمه رایگان با چند سرویس پشت‌سرهم (بدون نیاز به کلید API)
 // اگه سرویس اول جواب نده یا خطا بده، خودکار میره سراغ سرویس بعدی.
@@ -161,11 +232,21 @@ async function translateFree(text, targetLang, sourceLang = "auto", aiSettings =
   // خطا، یه پیام متنی برمی‌گردونن که اشتباهی به‌عنوان "ترجمه" ذخیره می‌شد) —
   // پس همون متن اصلی رو بدون درخواست شبکه برمی‌گردونیم.
   if (sourceLang && sourceLang !== "auto" && sourceLang === targetLang) return text;
+
+  // اول کشِ آفلاینِ IndexedDB رو چک کن — اگه این کلمه قبلاً (مثلاً از طریق
+  // «دانلود آفلاین لغات» توی تنظیمات) ترجمه و ذخیره شده، بدون هیچ درخواست
+  // شبکه‌ای همون رو برگردون. این دقیقاً همونیه که آفلاین‌بودن رو ممکن می‌کنه.
+  const cached = await getCachedTranslation(text, targetLang, sourceLang);
+  if (cached) return cached;
+
   const providers = [translateViaGoogle, translateViaMyMemory, translateViaLingva, translateViaLibre];
   for (const provider of providers) {
     try {
       const result = await provider(text, targetLang, sourceLang);
-      if (result && result.trim()) return result;
+      if (result && result.trim()) {
+        setCachedTranslation(text, targetLang, sourceLang, result); // fire-and-forget
+        return result;
+      }
     } catch (error) {
       console.warn(`ترجمه با ${provider.name} ناموفق بود، رفتن سراغ سرویس بعدی:`, error?.message || error);
     }
@@ -176,7 +257,10 @@ async function translateFree(text, targetLang, sourceLang = "auto", aiSettings =
   if (aiSettings) {
     try {
       const result = await translateViaAI(text, targetLang, sourceLang, aiSettings);
-      if (result && result.trim()) return result;
+      if (result && result.trim()) {
+        setCachedTranslation(text, targetLang, sourceLang, result);
+        return result;
+      }
     } catch (error) {
       console.warn("ترجمه با بک‌اند AI هم ناموفق بود:", error?.message || error);
     }
@@ -2589,7 +2673,194 @@ function DraggableLangRow({ order, setOrder, languages, isActive, isDisabled, on
 // (appPrefs/setAppPrefs, persisted via APP_PREFS_KEY) so they apply
 // immediately across the whole app, including the login screen.
 // ---------------------------------------------------------------------------
-function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout }) {
+// ============================================================
+// دانلود آفلاین لغات — زبان(ها) رو انتخاب می‌کنی، همه‌ی لغات لیست‌های
+// VOCAB / WORDS_AZ / NEWS_WORDS / DAILY_WORDS رو یکی‌یکی با همون زنجیره‌ی
+// سرویس‌های رایگان (translateFree) ترجمه می‌کنه و توی IndexedDB ذخیره
+// می‌کنه. بعد از اون، همون کلمات کاملاً آفلاین در دسترسن (چون translateFree
+// اول کش رو چک می‌کنه). اگه وسط کار قطع بشه، دفعه‌ی بعد فقط لغاتِ باقی‌مونده
+// رو ادامه می‌ده (لغاتی که قبلاً کش شدن رد می‌شن، پس منابع رو هدر نمی‌ده).
+// ============================================================
+function OfflineWordsModal({ open, onClose, aiSettings }) {
+  const [selectedLangs, setSelectedLangs] = useState([]);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [currentWord, setCurrentWord] = useState("");
+  const [cachedCount, setCachedCount] = useState(null);
+  const [finished, setFinished] = useState(false);
+  const cancelRef = useRef(false);
+
+  useEffect(() => {
+    if (open) {
+      getTranslationCacheCount().then(setCachedCount);
+      setFinished(false);
+    }
+  }, [open]);
+
+  const allWords = useMemo(() => {
+    const map = new Map();
+    [VOCAB, WORDS_AZ, NEWS_WORDS, DAILY_WORDS].forEach((list) => {
+      (list || []).forEach((w) => {
+        if (w?.en && !map.has(w.en)) map.set(w.en, true);
+      });
+    });
+    return Array.from(map.keys());
+  }, []);
+
+  if (!open) return null;
+
+  const toggleLang = (code) => {
+    setSelectedLangs((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
+  };
+
+  const startDownload = async () => {
+    if (selectedLangs.length === 0 || running) return;
+    setRunning(true);
+    setFinished(false);
+    cancelRef.current = false;
+
+    const jobs = [];
+    selectedLangs.forEach((lang) => allWords.forEach((word) => jobs.push({ word, lang })));
+    setProgress({ done: 0, total: jobs.length });
+
+    let doneCount = 0;
+    const CONCURRENCY = 4;
+    let cursor = 0;
+
+    async function worker() {
+      while (cursor < jobs.length) {
+        if (cancelRef.current) return;
+        const job = jobs[cursor++];
+        setCurrentWord(job.word);
+        try {
+          await translateFree(job.word, job.lang, "en", aiSettings);
+        } catch {
+          // اگه یه کلمه شکست خورد، بی‌خیالش می‌شیم و می‌ریم سراغ بعدی
+        }
+        doneCount++;
+        setProgress({ done: doneCount, total: jobs.length });
+      }
+    }
+
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    setRunning(false);
+    setFinished(!cancelRef.current);
+    getTranslationCacheCount().then(setCachedCount);
+  };
+
+  const cancelDownload = () => {
+    cancelRef.current = true;
+    setRunning(false);
+  };
+
+  const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
+
+  return (
+    <div
+      onClick={() => !running && onClose()}
+      style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+    >
+      <div
+        dir="rtl"
+        onClick={(e) => e.stopPropagation()}
+        style={{ backgroundColor: colors.paper, borderRadius: 18, padding: 20, width: "100%", maxWidth: 380, maxHeight: "85vh", overflowY: "auto", boxShadow: "0 16px 40px rgba(0,0,0,0.3)" }}
+      >
+        <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
+          <p style={{ fontSize: 15, fontWeight: 800, color: colors.ink }}>دانلود آفلاین لغات</p>
+          {!running && (
+            <button onClick={onClose} aria-label="بستن">
+              <X size={18} color={colors.inkSoft} />
+            </button>
+          )}
+        </div>
+        <p style={{ fontSize: 12, color: colors.inkSoft, lineHeight: 1.8, marginBottom: 14 }}>
+          زبان‌های موردنظرت رو انتخاب کن. برنامه {allWords.length.toLocaleString("fa-IR")} لغت رو یکی‌یکی با سرویس‌های ترجمه‌ی رایگان ترجمه و روی گوشی ذخیره می‌کنه — فقط همین یک‌بار به اینترنت نیاز داره؛ بعدش این لغات کاملاً آفلاین در دسترسن.
+        </p>
+
+        {!running && !finished && (
+          <>
+            <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
+              {LANGUAGES.filter((l) => l.code !== "en").map((l) => (
+                <button
+                  key={l.code}
+                  onClick={() => toggleLang(l.code)}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 20,
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    border: `1.5px solid ${selectedLangs.includes(l.code) ? colors.gold : colors.cardBorder}`,
+                    backgroundColor: selectedLangs.includes(l.code) ? colors.goldSoft : "white",
+                    color: colors.ink,
+                  }}
+                >
+                  {l.label}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={startDownload}
+              disabled={selectedLangs.length === 0}
+              style={{
+                width: "100%",
+                padding: "11px",
+                borderRadius: 12,
+                fontSize: 14,
+                fontWeight: 700,
+                backgroundColor: selectedLangs.length ? colors.ink : "#ccc",
+                color: colors.paper,
+              }}
+            >
+              شروع دانلود
+              {selectedLangs.length > 0 && ` (${(allWords.length * selectedLangs.length).toLocaleString("fa-IR")} ترجمه)`}
+            </button>
+          </>
+        )}
+
+        {running && (
+          <>
+            <div style={{ height: 10, borderRadius: 6, backgroundColor: "#eee", overflow: "hidden", marginBottom: 8 }}>
+              <div style={{ height: "100%", width: `${pct}%`, backgroundColor: colors.gold, transition: "width .2s" }} />
+            </div>
+            <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 4 }}>
+              {progress.done.toLocaleString("fa-IR")} از {progress.total.toLocaleString("fa-IR")} ({pct}٪)
+            </p>
+            <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 16, direction: "ltr", textAlign: "left", opacity: 0.7 }}>
+              {currentWord}
+            </p>
+            <button
+              onClick={cancelDownload}
+              style={{ width: "100%", padding: "10px", borderRadius: 12, fontSize: 13, fontWeight: 600, border: `1.5px solid ${colors.rose}`, color: colors.rose }}
+            >
+              لغو
+            </button>
+          </>
+        )}
+
+        {finished && (
+          <div style={{ textAlign: "center", padding: "10px 0" }}>
+            <p style={{ fontSize: 14, fontWeight: 700, color: colors.ink, marginBottom: 6 }}>✅ تمام شد</p>
+            <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 16 }}>
+              الان {cachedCount?.toLocaleString("fa-IR")} ترجمه روی گوشی ذخیره‌ست و کاملاً آفلاین در دسترسه.
+            </p>
+            <button onClick={onClose} style={{ width: "100%", padding: "10px", borderRadius: 12, fontSize: 13, fontWeight: 700, backgroundColor: colors.ink, color: colors.paper }}>
+              باشه
+            </button>
+          </div>
+        )}
+
+        {!running && !finished && cachedCount !== null && cachedCount > 0 && (
+          <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 12, textAlign: "center" }}>
+            {cachedCount.toLocaleString("fa-IR")} ترجمه از قبل ذخیره شده (این‌ها دوباره دانلود نمی‌شن)
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
+  const [offlineModalOpen, setOfflineModalOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const panelRef = useRef(null);
 
@@ -2705,7 +2976,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout }) {
 
           {/* Font size */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>اندازه‌ی فونت</p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
             {Object.entries(APP_FONT_SIZES).map(([key, s]) => (
               <button
                 key={key}
@@ -2723,8 +2994,19 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout }) {
               </button>
             ))}
           </div>
+
+          {/* Offline words download */}
+          <button
+            onClick={() => setOfflineModalOpen(true)}
+            className="flex items-center gap-2"
+            style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: "9px 12px", width: "100%" }}
+          >
+            <BookOpen size={14} /> دانلود آفلاین لغات
+          </button>
         </div>
       )}
+
+      <OfflineWordsModal open={offlineModalOpen} onClose={() => setOfflineModalOpen(false)} aiSettings={aiSettings} />
     </div>
   );
 }
@@ -6489,7 +6771,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                 {(user?.name || user?.email || "?").trim().charAt(0).toUpperCase()}
               </div>
             )}
-            <SettingsMenu appPrefs={appPrefs} setAppPrefs={setAppPrefs} user={user} onLogout={onLogout} />
+            <SettingsMenu appPrefs={appPrefs} setAppPrefs={setAppPrefs} user={user} onLogout={onLogout} aiSettings={aiSettings} />
           </div>
         </div>
         <p style={{ color: colors.goldSoft, fontSize: 13 }}>
