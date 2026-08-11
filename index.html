@@ -71,6 +71,12 @@
 
   <script>
     if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!window.__swReloaded) {
+          window.__swReloaded = true;
+          window.location.reload();
+        }
+      });
       window.addEventListener("load", () => {
         navigator.serviceWorker.register("sw.js").catch(() => {});
       });
