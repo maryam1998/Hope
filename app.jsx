@@ -1413,7 +1413,13 @@ async function callAI({ prompt, maxTokens, retries = 2, aiSettings }) {
   const base = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || DEFAULT_BACKEND_URL;
   const body = JSON.stringify({
     prompt,
-    maxTokens: Math.min(Math.max(maxTokens || 1000, 1000), 8192),
+    // قبلاً اینجا هر درخواستی، حتی یه ترجمه‌ی کوچیک با maxTokens:200، به‌زور
+    // به حداقل ۱۰۰۰ توکن گرد می‌شد (Math.max(maxTokens || 1000, 1000)) — یعنی
+    // داشتیم بدون دلیل سهمیه‌ی «توکن در دقیقه»ی رایگانِ Groq (که این خطاها
+    // ازش میان) رو خیلی سریع‌تر از چیزی که واقعاً لازم بود مصرف می‌کردیم. حالا
+    // دقیقاً همون مقداری که خودِ تابع خواسته می‌فرستیم (با یه کف خیلی کوچیک
+    // فقط برای جلوگیری از صفر/منفی، نه یه کفِ مصنوعیِ ۱۰۰۰تایی).
+    maxTokens: Math.min(Math.max(maxTokens || 300, 64), 8192),
   });
 
   for (let attempt = 0; ; attempt++) {
@@ -1425,15 +1431,29 @@ async function callAI({ prompt, maxTokens, retries = 2, aiSettings }) {
       });
       if (!res.ok) {
         let detail = `HTTP ${res.status}`;
-        const isClientError = res.status >= 400 && res.status < 500;
+        // ۴۲۹ (Too Many Requests) فنی جزو «خطاهای کلاینت»ه، ولی برخلاف ۴۰۰/۴۰۱
+        // که تکرارش بی‌فایده‌ست، ۴۲۹ دقیقاً یعنی «صبر کن و دوباره امتحان کن» —
+        // خودِ پیام خطای Groq هم صراحتاً همینو می‌گه («Please try again in
+        // 18.02s»). قبلاً این حالت رتراى نمی‌شد و همون خطای خام تا رو صفحه
+        // بالا می‌اومد؛ حالا آن را retryable در نظر می‌گیریم.
+        const isRateLimited = res.status === 429;
+        const isClientError = res.status >= 400 && res.status < 500 && !isRateLimited;
         try {
           const errBody = await res.json();
           detail = errBody.error || detail;
         } catch (_) {
           // response wasn't JSON — keep the HTTP status as the detail
         }
-        if (!isClientError && attempt < retries) {
-          await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+        if ((!isClientError || isRateLimited) && attempt < Math.max(retries, isRateLimited ? 1 : retries)) {
+          // اگه پیام خطا خودش عدد ثانیه رو داده («try again in 18.02s»)، دقیقاً
+          // همون‌قدر (+ یه کم حاشیه‌ی امن) صبر می‌کنیم؛ وگرنه چون سقفِ Groq
+          // روی «توکن در دقیقه»ست، یه تأخیر امن‌ترِ ۱۵ ثانیه‌ای در نظر می‌گیریم
+          // — تأخیر کوتاهِ معمولیِ ۷۰۰ میلی‌ثانیه برای این نوع خطا کافی نیست.
+          const retrySecondsMatch = detail.match(/try again in\s+(\d+(?:\.\d+)?)s/i);
+          const waitMs = isRateLimited
+            ? Math.ceil((retrySecondsMatch ? parseFloat(retrySecondsMatch[1]) : 15) * 1000) + 500
+            : 700 * (attempt + 1);
+          await new Promise((r) => setTimeout(r, waitMs));
           continue;
         }
         throw new Error(`ai-backend-error: ${detail}`);
