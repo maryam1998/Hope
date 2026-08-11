@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Menu, X, ChevronDown, Check } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 /* =============================================================================
    نگاشت موضوع → (اسم فارسی، آیکون). کلید دقیقاً همون رشته‌ی topic توی
@@ -57,36 +57,21 @@ TOPIC_META_LIST.forEach(([en, fa, icon]) => (TOPIC_META[en] = { fa, icon }));
 const UI_STRINGS = {
   fa: {
     search: "جستجوی موضوع یا مکالمه...",
-    allLevels: "همه سطح‌ها",
     comingSoon: "به‌زودی اضافه می‌شه",
     youHear: "می‌شنوی",
     youSay: "می‌گی",
-    menuTitle: "زبان نمایش این تب",
-    menuHint: "زبان عنوان موضوعات و برچسب‌های «می‌شنوی / می‌گی» رو تغییر می‌ده.",
-    close: "بستن",
     noResults: "چیزی پیدا نشد",
     backToTopics: "بازگشت به موضوعات",
   },
   en: {
     search: "Search topics or conversations...",
-    allLevels: "All levels",
     comingSoon: "Coming soon",
     youHear: "You Hear",
     youSay: "You Say",
-    menuTitle: "This tab's display language",
-    menuHint: "Changes the topic titles and the “You Hear / You Say” labels.",
-    close: "Close",
     noResults: "Nothing found",
     backToTopics: "Back to topics",
   },
 };
-
-const UI_LANGS = [
-  { code: "fa", label: "فارسی" },
-  { code: "en", label: "English" },
-];
-
-const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
 const COLORS = {
   navy: "#1C2541",
@@ -96,26 +81,6 @@ const COLORS = {
   hear: "#fbf7e3",
   say: "#fbdcae",
 };
-
-function LevelChip({ label, active, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: "6px 14px",
-        borderRadius: 999,
-        fontSize: 13,
-        fontWeight: 600,
-        border: `1.5px solid ${active ? COLORS.navy : "#d8cfae"}`,
-        backgroundColor: active ? COLORS.navy : "#fff",
-        color: active ? "#fff" : "#555",
-        flexShrink: 0,
-      }}
-    >
-      {label}
-    </button>
-  );
-}
 
 function TopicCard({ meta, hasData, onClick }) {
   return (
@@ -273,10 +238,10 @@ function ConversationBox({ items, variant, label, nativeLang, aiSettings, Clicka
 }
 
 function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree }) {
-  const filterFn = (arr) => (levelFilter ? arr.filter((x) => x.level === levelFilter) : arr);
+  const filterFn = (arr) => (levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr);
   const speakerA = filterFn(sc.speakerA);
   const speakerB = filterFn(sc.speakerB);
-  if (levelFilter && speakerA.length === 0 && speakerB.length === 0) return null;
+  if (levelFilter && levelFilter !== "all" && speakerA.length === 0 && speakerB.length === 0) return null;
 
   return (
     <div style={{ border: "1.5px solid #e6ddc4", borderRadius: 14, marginBottom: 10, overflow: "hidden", backgroundColor: "#fff" }}>
@@ -302,11 +267,9 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
   );
 }
 
-export default function DailyConversationsTab({ data, query, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree }) {
-  const [uiLang, setUiLang] = useState(nativeLang === "fa" ? "fa" : "en");
-  const [menuOpen, setMenuOpen] = useState(false);
+export default function DailyConversationsTab({ data, query, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, levelFilter }) {
+  const uiLang = nativeLang === "fa" ? "fa" : "en";
   const [activeTopic, setActiveTopic] = useState(null);
-  const [levelFilter, setLevelFilter] = useState(null);
   const [openScenario, setOpenScenario] = useState(null);
 
   const t = UI_STRINGS[uiLang] || UI_STRINGS.fa;
@@ -338,21 +301,6 @@ export default function DailyConversationsTab({ data, query, nativeLang, aiSetti
 
   return (
     <div>
-      {/* هدر کوچک تب: آیکون منو برای انتخاب زبان نمایش این تب */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
-        <button onClick={() => setMenuOpen(true)} aria-label="menu" style={{ padding: 6 }}>
-          <Menu size={20} color={COLORS.navy} />
-        </button>
-      </div>
-
-      {/* فیلتر سطح */}
-      <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 10, WebkitOverflowScrolling: "touch" }}>
-        <LevelChip label={t.allLevels} active={levelFilter === null} onClick={() => setLevelFilter(null)} />
-        {LEVELS.map((lv) => (
-          <LevelChip key={lv} label={lv} active={levelFilter === lv} onClick={() => setLevelFilter(lv)} />
-        ))}
-      </div>
-
       {/* شبکه‌ی کارت‌های موضوعی */}
       {!activeTopic && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
@@ -407,44 +355,6 @@ export default function DailyConversationsTab({ data, query, nativeLang, aiSetti
           ) : (
             <div style={{ textAlign: "center", color: "#999", padding: 30, fontSize: 13.5 }}>{t.comingSoon}</div>
           )}
-        </div>
-      )}
-
-      {/* منوی کشویی — زبان نمایش این تب */}
-      {menuOpen && (
-        <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.4)", zIndex: 50, display: "flex", justifyContent: "flex-end" }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: 260, maxWidth: "80%", backgroundColor: "#fff", height: "100%", padding: 20, boxShadow: "0 0 24px rgba(0,0,0,0.25)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-              <span style={{ fontWeight: 800, fontSize: 15, color: COLORS.navy, fontFamily: "var(--font-fa)" }}>{t.menuTitle}</span>
-              <button onClick={() => setMenuOpen(false)} aria-label={t.close}>
-                <X size={20} color="#666" />
-              </button>
-            </div>
-            <p style={{ fontSize: 11.5, color: "#888", marginBottom: 16, lineHeight: 1.7, fontFamily: "var(--font-fa)" }}>{t.menuHint}</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {UI_LANGS.map((l) => (
-                <button
-                  key={l.code}
-                  onClick={() => setUiLang(l.code)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "11px 14px",
-                    borderRadius: 12,
-                    border: `1.5px solid ${uiLang === l.code ? COLORS.teal : "#e6ddc4"}`,
-                    backgroundColor: uiLang === l.code ? "#eaf3f0" : "#fff",
-                    fontSize: 14,
-                    fontWeight: 600,
-                    color: COLORS.ink,
-                  }}
-                >
-                  {l.label}
-                  {uiLang === l.code && <Check size={16} color={COLORS.teal} />}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       )}
     </div>

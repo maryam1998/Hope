@@ -6889,6 +6889,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     aiSettings={aiSettings}
     ClickableSentence={ClickableSentence}
     SpeakButton={SpeakButton}
+    targetLangs={targetLangList}
+    translateFree={translateFree}
+    levelFilter={levelFilter}
   />
 )}
 
