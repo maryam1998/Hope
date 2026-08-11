@@ -73,14 +73,23 @@ const UI_STRINGS = {
   },
 };
 
-const COLORS = {
-  navy: "#1C2541",
-  teal: "#2f6f6f",
-  ink: "#1a1a1a",
-  muted: "#8a7a5c",
-  hear: "#fbf7e3",
-  say: "#fbdcae",
+// همون توکن‌های رنگ/فونتِ کل اپ (app.jsx) — چون این‌ها همه روی متغیرهای CSS
+// سراسری (--c-ink و ...) سوارن که خودِ App روی یه div ریشه ست می‌کنه، همینجا
+// دوباره تعریف‌شون کردن هیچ وابستگی جدیدی نمی‌سازه و باعث می‌شه این تب هم
+// دقیقاً مثل بقیه‌ی تب‌ها با تعویض تم (اقیانوسی/جنگلی/شب...) عوض بشه.
+const colors = {
+  paper: "var(--c-paper)",
+  paperDark: "var(--c-paperDark)",
+  ink: "var(--c-ink)",
+  inkSoft: "var(--c-inkSoft)",
+  gold: "var(--c-gold)",
+  goldSoft: "var(--c-goldSoft)",
+  teal: "var(--c-teal)",
+  rose: "var(--c-rose)",
+  cardBorder: "var(--c-cardBorder)",
 };
+const fontFa = "var(--font-fa)";
+const fontLatin = "var(--font-latin)";
 
 function TopicCard({ meta, hasData, onClick }) {
   return (
@@ -91,17 +100,17 @@ function TopicCard({ meta, hasData, onClick }) {
         flexDirection: "column",
         alignItems: "flex-start",
         gap: 6,
-        padding: "14px 14px 12px",
-        borderRadius: 16,
+        padding: "14px 12px 12px",
+        borderRadius: 14,
         textAlign: "right",
-        border: "1.5px solid #e6ddc4",
-        backgroundColor: "#fff",
+        border: `1px solid ${colors.cardBorder}`,
+        backgroundColor: "white",
         opacity: hasData ? 1 : 0.55,
-        minHeight: 92,
+        minHeight: 90,
       }}
     >
-      <span style={{ fontSize: 26, lineHeight: 1 }}>{meta.icon}</span>
-      <span style={{ fontFamily: "var(--font-fa)", fontSize: 13.5, fontWeight: 700, color: COLORS.ink, lineHeight: 1.4 }}>
+      <span style={{ fontSize: 24, lineHeight: 1 }}>{meta.icon}</span>
+      <span style={{ fontFamily: fontFa, fontSize: 13, fontWeight: 700, color: colors.ink, lineHeight: 1.4 }}>
         {meta.fa}
       </span>
     </button>
@@ -141,26 +150,27 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
   if (!value && !loading) return null;
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
       <span
         style={{
+          fontFamily: fontFa,
           fontSize: 9,
           fontWeight: 700,
-          color: COLORS.muted,
-          border: `1px solid ${COLORS.muted}`,
-          borderRadius: 5,
-          padding: "0px 4px",
+          color: colors.gold,
+          border: `1px solid ${colors.goldSoft}`,
+          borderRadius: 6,
+          padding: "0px 5px",
           flexShrink: 0,
         }}
       >
         {langCode.toUpperCase()}
       </span>
       {loading ? (
-        <span style={{ fontSize: 12, color: "#aaa" }}>...</span>
+        <span style={{ fontSize: 12, color: colors.inkSoft }}>...</span>
       ) : (
-        <span style={{ fontSize: 12.5, color: "#666", fontFamily: "var(--font-fa)" }}>{value}</span>
+        <span style={{ fontSize: 12.5, color: colors.inkSoft, fontWeight: 600, fontFamily: fontFa }}>{value}</span>
       )}
-      {value && SpeakButton && <SpeakButton text={value} code={langCode} color={COLORS.muted} />}
+      {value && SpeakButton && <SpeakButton text={value} code={langCode} color={colors.teal} />}
     </div>
   );
 }
@@ -168,20 +178,31 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
 function ConversationBox({ items, variant, label, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree }) {
   const isHear = variant === "hear";
   if (items.length === 0) return null;
+  const accent = isHear ? colors.teal : colors.gold;
   const langCodes = (targetLangs && targetLangs.length ? targetLangs.map((l) => l.code) : ["fa"]).filter((c) => c !== "en");
   return (
     <div>
-      <div style={{ fontSize: 15, fontWeight: 800, marginTop: isHear ? 12 : 14, textAlign: "left", color: COLORS.navy }}>
-        {label}
+      {/* eyebrow: بج دایره‌ای رنگی (تیل برای می‌شنوی، طلایی برای می‌گی) + برچسب —
+          همون زبانِ بج‌های سطح/زبان که توی تب لغات هست، نه یه استایل جدا */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: isHear ? 10 : 14, marginBottom: 6 }}>
+        <span
+          style={{
+            width: 16,
+            height: 16,
+            borderRadius: 5,
+            backgroundColor: accent,
+            flexShrink: 0,
+          }}
+        />
+        <span style={{ fontFamily: fontFa, fontSize: 12.5, fontWeight: 800, color: colors.ink }}>{label}</span>
       </div>
       <div
         style={{
-          position: "relative",
-          backgroundColor: isHear ? COLORS.hear : COLORS.say,
-          border: "2px solid #1a1a1a",
+          backgroundColor: "white",
+          border: `1px solid ${colors.cardBorder}`,
+          borderInlineStart: `3px solid ${accent}`,
           borderRadius: 12,
-          padding: "12px 16px",
-          margin: isHear ? "8px 34px 8px 0" : "8px 0 8px 34px",
+          overflow: "hidden",
         }}
       >
         {items.map((it, i) => (
@@ -192,12 +213,12 @@ function ConversationBox({ items, variant, label, nativeLang, aiSettings, Clicka
               alignItems: "flex-start",
               justifyContent: "space-between",
               gap: 8,
-              padding: "7px 0",
-              borderBottom: i < items.length - 1 ? "1px dashed rgba(0,0,0,0.15)" : "none",
+              padding: "9px 12px",
+              borderBottom: i < items.length - 1 ? `1px dashed ${colors.cardBorder}` : "none",
             }}
           >
             <div style={{ direction: "ltr", textAlign: "left", flex: 1 }}>
-              <div style={{ fontSize: 17, fontWeight: 500, color: "#1a1a1a" }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: colors.ink, fontFamily: fontLatin }}>
                 {ClickableSentence ? (
                   <ClickableSentence text={it.en} langCode="en" nativeLang={nativeLang} aiSettings={aiSettings} />
                 ) : (
@@ -218,18 +239,19 @@ function ConversationBox({ items, variant, label, nativeLang, aiSettings, Clicka
             </div>
             <span
               style={{
+                fontFamily: fontLatin,
                 fontSize: 10,
                 fontWeight: 700,
-                color: COLORS.muted,
-                border: `1px solid ${COLORS.muted}`,
+                color: colors.ink,
+                backgroundColor: colors.goldSoft,
                 borderRadius: 6,
-                padding: "1px 5px",
+                padding: "1px 6px",
                 flexShrink: 0,
               }}
             >
               {it.level}
             </span>
-            {SpeakButton && <SpeakButton text={it.en} code="en" color={COLORS.muted} />}
+            {SpeakButton && <SpeakButton text={it.en} code="en" color={colors.teal} />}
           </div>
         ))}
       </div>
@@ -244,21 +266,21 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
   if (levelFilter && levelFilter !== "all" && speakerA.length === 0 && speakerB.length === 0) return null;
 
   return (
-    <div style={{ border: "1.5px solid #e6ddc4", borderRadius: 14, marginBottom: 10, overflow: "hidden", backgroundColor: "#fff" }}>
-      <button onClick={onToggle} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px", textAlign: "right" }}>
+    <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, marginBottom: 10, overflow: "hidden", backgroundColor: "white" }}>
+      <button onClick={onToggle} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 15px", textAlign: "right" }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontFamily: "var(--font-fa)", fontWeight: 700, fontSize: 14.5, color: COLORS.ink }}>{sc.scenario}</div>
+          <div style={{ fontFamily: fontFa, fontWeight: 700, fontSize: 14, color: colors.ink }}>{sc.scenario}</div>
           {sc.context && !isOpen && (
-            <div style={{ fontFamily: "var(--font-fa)", fontSize: 12, color: "#8a8a8a", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <div style={{ fontFamily: fontFa, fontSize: 11.5, color: colors.inkSoft, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {sc.context}
             </div>
           )}
         </div>
-        <ChevronDown size={18} color={COLORS.teal} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0, marginRight: 8 }} />
+        <ChevronDown size={18} color={colors.teal} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0, marginRight: 8 }} />
       </button>
       {isOpen && (
-        <div style={{ padding: "0 16px 16px" }}>
-          {sc.context && <div style={{ fontFamily: "var(--font-fa)", fontSize: 12.5, color: "#8a8a8a", marginBottom: 4 }}>{sc.context}</div>}
+        <div style={{ padding: "0 15px 15px" }}>
+          {sc.context && <div style={{ fontFamily: fontFa, fontSize: 12, color: colors.inkSoft, marginBottom: 4 }}>{sc.context}</div>}
           <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} />
           <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} />
         </div>
@@ -316,7 +338,7 @@ export default function DailyConversationsTab({ data, query, nativeLang, aiSetti
             />
           ))}
           {filteredMeta.length === 0 && (
-            <div style={{ gridColumn: "1 / -1", textAlign: "center", color: "#999", padding: 30, fontSize: 13.5 }}>{t.noResults}</div>
+            <div style={{ gridColumn: "1 / -1", textAlign: "center", color: colors.inkSoft, padding: 30, fontSize: 13.5, fontFamily: fontFa }}>{t.noResults}</div>
           )}
         </div>
       )}
@@ -324,13 +346,13 @@ export default function DailyConversationsTab({ data, query, nativeLang, aiSetti
       {/* آکاردئون سناریوهای موضوع انتخاب‌شده */}
       {activeTopic && (
         <div style={{ paddingTop: 6 }}>
-          <button onClick={() => setActiveTopic(null)} style={{ display: "flex", alignItems: "center", gap: 6, color: COLORS.teal, fontSize: 13, fontWeight: 700, marginBottom: 14 }}>
+          <button onClick={() => setActiveTopic(null)} style={{ display: "flex", alignItems: "center", gap: 6, color: colors.teal, fontSize: 13, fontWeight: 700, fontFamily: fontFa, marginBottom: 14 }}>
             ← {t.backToTopics}
           </button>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-            <span style={{ fontSize: 24 }}>{TOPIC_META[activeTopic]?.icon}</span>
-            <span style={{ fontWeight: 800, fontSize: 16, color: COLORS.navy, fontFamily: "var(--font-fa)" }}>
+            <span style={{ fontSize: 22 }}>{TOPIC_META[activeTopic]?.icon}</span>
+            <span style={{ fontWeight: 800, fontSize: 16, color: colors.ink, fontFamily: fontFa }}>
               {TOPIC_META[activeTopic]?.fa}
             </span>
           </div>
@@ -353,7 +375,7 @@ export default function DailyConversationsTab({ data, query, nativeLang, aiSetti
               />
             ))
           ) : (
-            <div style={{ textAlign: "center", color: "#999", padding: 30, fontSize: 13.5 }}>{t.comingSoon}</div>
+            <div style={{ textAlign: "center", color: colors.inkSoft, padding: 30, fontSize: 13.5, fontFamily: fontFa }}>{t.comingSoon}</div>
           )}
         </div>
       )}
