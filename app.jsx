@@ -773,7 +773,7 @@ const speechController = (() => {
     playOnlineChunkUrls(onlineTtsUrls(onlineChunks[idx], onlineLangForTts), 0, idx);
   }
 
-  function speakOnline(text, langCodeForTts) {
+  function speakOnline(text, langCodeForTts, startWordIndex) {
     stopOnlineAudio();
     mode = "online";
     fullText = text;
@@ -781,7 +781,15 @@ const speechController = (() => {
     onlineChunks = splitForOnlineTts(text);
     onlineLangForTts = langCodeForTts;
     remaining = globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
-    playOnlineChunk(0);
+    // اگه یه نقطه‌ی شروعِ غیرصفر خواسته شده (مثلاً ادامه‌ی پخش بعد از عوض‌شدنِ
+    // حالتِ نمایش ترجمه)، تقریباً همون تکه‌ی آنلاین رو پیدا کن و از اونجا
+    // شروع کن — نه از اولِ متن.
+    let startChunk = 0;
+    if (Number.isInteger(startWordIndex) && startWordIndex > 0 && words.length && onlineChunks.length) {
+      const frac = Math.min(Math.max(startWordIndex / words.length, 0), 1);
+      startChunk = Math.min(onlineChunks.length - 1, Math.floor(frac * onlineChunks.length));
+    }
+    playOnlineChunk(startChunk);
   }
 
   function notify() {
@@ -971,6 +979,15 @@ const speechController = (() => {
     getState() {
       return { key, status, wordIndex, total: words.length, rate, globalRepeatSetting, remaining };
     },
+    // آفستِ کاراکتریِ نقطه‌ی فعلیِ پخش، داخلِ متنی که همین الان در حال
+    // خوندنشه. برای «ادامه‌ی پخش از همون‌جا» وقتی متنِ در حال پخش عوض
+    // می‌شه (مثلاً تغییرِ حالتِ نمایش ترجمه) لازمه.
+    getCharOffset() {
+      if (!words.length) return 0;
+      const idx = status === "playing" ? estimateWordIndex() : wordIndex;
+      const clamped = Math.min(Math.max(idx, 0), words.length - 1);
+      return words[clamped].start;
+    },
     getGlobalRepeatSetting() {
       return globalRepeatSetting;
     },
@@ -986,7 +1003,7 @@ const speechController = (() => {
       }
       notify();
     },
-    toggle(text, code) {
+    toggle(text, code, startWordIndex) {
       try {
         if (!text) return "unsupported";
         const hasSynthesis = "speechSynthesis" in window;
@@ -1057,14 +1074,19 @@ const speechController = (() => {
           words = tokenize(text);
           status = "playing";
           remaining = globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
-          speakFromWord(0, true);
+          // اگه شماره‌ی کلمه‌ی شروع مشخص شده (مثلاً برای ادامه‌ی پخش از همون‌جا
+          // بعد از عوض‌شدنِ حالتِ نمایش ترجمه)، از همون‌جا شروع کن؛ وگرنه از اول.
+          const startIdx = Number.isInteger(startWordIndex)
+            ? Math.min(Math.max(startWordIndex, 0), Math.max(words.length - 1, 0))
+            : 0;
+          speakFromWord(startIdx, true);
           return "ok";
         }
 
         // مسیر جایگزین (آنلاین رایگان)
         cancelSpeech();
         const onlineLang = code === "zh" ? "zh-CN" : code;
-        speakOnline(text, onlineLang);
+        speakOnline(text, onlineLang, startWordIndex);
         return "online-fallback";
       } catch (e) {
         status = "idle";
@@ -3160,6 +3182,23 @@ function RepeatButton({ color }) {
 // تکرار سراسری (RepeatButton بالاتر)، هرکدوم رو می‌خونه؛ وقتی یه آیتم تمام
 // تکرارهاش تموم شد (status از speechController میره رو idle)، خودش می‌ره
 // سراغ آیتم بعدی و صفحه رو با اسکرول نرم به همون‌جا می‌بره.
+// توکنایزِ سبکِ محلی (دقیقاً همونی که speechController داخلی استفاده
+// می‌کنه) — برای اینکه بشه آفستِ کاراکتریِ ذخیره‌شده رو روی متنِ تازه (بعد
+// از تغییرِ حالتِ نمایش ترجمه) به نزدیک‌ترین «کلمه» تبدیل کرد و از همون‌جا
+// پخش رو ادامه داد، بدون نیاز به دسترسی به حالتِ داخلیِ speechController.
+function ttsTokenizeWords(text) {
+  const arr = [];
+  const re = /\S+/g;
+  let m;
+  while ((m = re.exec(text || ""))) arr.push({ start: m.index, end: m.index + m[0].length });
+  return arr;
+}
+function wordIndexForCharOffsetLocal(words, offset) {
+  for (let i = words.length - 1; i >= 0; i--) {
+    if (offset >= words[i].start) return i;
+  }
+  return 0;
+}
 function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
   const [active, setActive] = useState(false);
   const activeRef = useRef(false);
@@ -3171,6 +3210,11 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
   // ادامه بدیم.
   const piRef = useRef(0);
   const lastKeyRef = useRef(null);
+  // آخرین لیستِ آیتم‌هایی که واقعاً باهاش پخش شروع شده (یعنی مالِ حالتِ
+  // نمایشِ *قبلی*، نه تازه‌ترین). لازمه چون وقتی modeKey عوض می‌شه،
+  // getItemsRef.current() دیگه لیستِ حالتِ قدیم رو نمی‌ده — برای محاسبه‌ی
+  // اینکه دقیقاً کجای متن بودیم، به همین لیستِ قدیمی نیاز داریم.
+  const lastItemsRef = useRef([]);
   // برای تایمر خواندن: لحظه‌ی شروعِ همین جلسه‌ی روشن‌بودن، تا وقتی خاموش
   // شد (چه با دست، چه خودش با تمومِ داستان) طول جلسه محاسبه و ذخیره بشه.
   const sessionStartRef = useRef(null);
@@ -3209,9 +3253,10 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
     return () => clearInterval(id);
   }, [active]);
 
-  function playAt(i) {
+  function playAt(i, startWordIndex) {
     if (!activeRef.current) return;
     const items = (getItemsRef.current && getItemsRef.current()) || [];
+    lastItemsRef.current = items;
     if (i >= items.length) {
       activeRef.current = false;
       setActive(false);
@@ -3230,7 +3275,7 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
     }
     const locale = TTS_LOCALE[item.code] || "en-US";
     lastKeyRef.current = `${locale}::${item.text}`;
-    speechController.toggle(item.text, item.code);
+    speechController.toggle(item.text, item.code, startWordIndex);
   }
 
   useEffect(() => {
@@ -3262,19 +3307,99 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
   }, []);
 
   // کاربر وسط خواندنِ خودکار، حالتِ نمایش ترجمه رو عوض کرد (جمله‌به‌جمله
-  // ↔ پاراگراف‌به‌پاراگراف ↔ هیچکدام) — تشخیص می‌دیم و به‌جای قطع‌شدن یا
-  // پرش به ایندکسِ اشتباه (چون طول لیستِ آیتم‌ها با هر حالت فرق می‌کنه)،
-  // همون پاراگرافی که تا الان می‌خوندیم رو تو لیستِ تازه پیدا می‌کنیم و
-  // خواندن رو دقیقاً از همون‌جا ادامه می‌دیم.
+  // ↔ پاراگراف‌به‌پاراگراف ↔ هیچکدام) — به‌جای اینکه صدا قطع بشه یا از اولِ
+  // جمله/پاراگرافِ تازه از نو شروع بشه، دقیقاً از همون نقطه‌ای که تا الان
+  // خونده بودیم ادامه پیدا می‌کنه. برای این کار، نقطه‌ی فعلی رو نسبت به
+  // متنِ کاملِ همون پاراگراف اندازه می‌گیریم (چون متنِ حالتِ پاراگراف/هیچکدام
+  // دقیقاً حاصلِ چسبوندنِ جمله‌های همون پاراگرافه با فاصله)، بعد همون آفست
+  // رو تو ساختارِ تازه (جمله‌به‌جمله یا پاراگراف‌به‌پاراگراف) پیدا می‌کنیم.
   const prevModeKeyRef = useRef(modeKey);
   useEffect(() => {
     if (modeKey === prevModeKeyRef.current) return;
     prevModeKeyRef.current = modeKey;
     if (!activeRef.current) return;
-    const items = (getItemsRef.current && getItemsRef.current()) || [];
-    let newIdx = items.findIndex((it) => it.pi === piRef.current);
-    if (newIdx === -1) newIdx = 0;
-    playAt(newIdx);
+
+    const pi = piRef.current;
+    const oldItems = lastItemsRef.current || [];
+    const newItems = (getItemsRef.current && getItemsRef.current()) || [];
+    const oldPlayingItem = oldItems[idxRef.current];
+
+    function fallback() {
+      let newIdx = newItems.findIndex((it) => it.pi === pi);
+      if (newIdx === -1) newIdx = 0;
+      playAt(newIdx);
+    }
+
+    if (!oldPlayingItem) {
+      fallback();
+      return;
+    }
+
+    // آفستِ فعلی، داخلِ متنِ آیتمِ در حال پخشِ قبلی (سبک قدیم).
+    const localOffset = speechController.getCharOffset();
+
+    // اگه اون آیتم خودش تنها بخشِ این پاراگراف بود (یعنی حالتِ قبلی
+    // پاراگراف/هیچکدام بوده)، این آفست همون آفستِ داخلِ کلِ پاراگرافه.
+    // اگه چند جمله برای این پاراگراف بوده (حالتِ قبلی جمله‌به‌جمله)، باید
+    // طولِ جمله‌های قبلیِ همون پاراگراف رو هم اضافه کنیم.
+    const oldOfParagraph = oldItems.filter((it) => it.pi === pi);
+    let paragraphOffset = localOffset;
+    if (oldOfParagraph.length > 1) {
+      let acc = 0;
+      for (const it of oldOfParagraph) {
+        if (it === oldPlayingItem) {
+          paragraphOffset = acc + localOffset;
+          break;
+        }
+        acc += it.text.length + 1; // +1 برای فاصله‌ای که بینِ جمله‌ها موقعِ چسبوندن گذاشته می‌شه
+      }
+    }
+
+    const newOfParagraph = newItems.filter((it) => it.pi === pi);
+    let targetItem = null;
+    let targetOffset = 0;
+    if (newOfParagraph.length > 1) {
+      // مقصد جمله‌به‌جمله‌ست — ببین این آفست تو کدوم جمله می‌افته.
+      let acc = 0;
+      for (let k = 0; k < newOfParagraph.length; k++) {
+        const it = newOfParagraph[k];
+        const end = acc + it.text.length;
+        if (paragraphOffset <= end || k === newOfParagraph.length - 1) {
+          targetItem = it;
+          targetOffset = Math.max(0, paragraphOffset - acc);
+          break;
+        }
+        acc = end + 1;
+      }
+    } else if (newOfParagraph.length === 1) {
+      targetItem = newOfParagraph[0];
+      targetOffset = paragraphOffset;
+    }
+
+    if (!targetItem) {
+      fallback();
+      return;
+    }
+
+    const newIdx = newItems.indexOf(targetItem);
+    const newLocale = TTS_LOCALE[targetItem.code] || "en-US";
+    const newKeyForTarget = `${newLocale}::${targetItem.text}`;
+    if (newKeyForTarget === lastKeyRef.current) {
+      // متنِ آیتمِ تازه با متنی که همین الان داره پخش می‌شه یکیه (مثلاً
+      // جابه‌جایی بینِ «پاراگراف‌به‌پاراگراف» و «هیچکدام» که هر دو از
+      // متنِ یکسانی استفاده می‌کنن) — پس صدا اصلاً قطع نشده و کاری لازم
+      // نیست، فقط ایندکس/پاراگرافِ ردگیری‌شده رو به‌روز می‌کنیم.
+      idxRef.current = newIdx;
+      lastItemsRef.current = newItems;
+      return;
+    }
+
+    const wordsInTarget = ttsTokenizeWords(targetItem.text);
+    const startWordIndex = wordsInTarget.length
+      ? wordIndexForCharOffsetLocal(wordsInTarget, Math.min(targetOffset, targetItem.text.length - 1))
+      : 0;
+
+    playAt(newIdx, startWordIndex);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modeKey]);
 
