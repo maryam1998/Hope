@@ -1,5 +1,10 @@
-const CACHE_NAME = "phrasebook-cache-v1";
-const APP_SHELL = ["./", "./index.html", "./app.jsx", "./manifest.json"];
+// هر بار که دیپلوی جدید می‌کنی، این عدد رو یکی زیاد کن (v1 -> v2 -> ...).
+// این کار باعث می‌شه یه کشِ کاملاً تازه ساخته بشه و مطمئن باشی چیزی از
+// نسخه‌ی قبلی باقی نمونده — even اگه به هر دلیلی یه فایل قدیمی جا بمونه.
+const CACHE_VERSION = "v2";
+const CACHE_NAME = `phrasebook-cache-${CACHE_VERSION}`;
+
+const APP_SHELL = ["./", "./index.html", "./app.bundle.min.js", "./manifest.json"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -17,15 +22,22 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-// Network-first for navigation/app files (so updates show up), falling back
-// to cache when offline. Cache-first for everything else (fonts, CDN libs).
+// همه‌ی درخواست‌های هم‌مبدأ (خودِ سایت: HTML/JS/JSON — چه خودِ باندل باشه چه
+// فایل‌های دیتا مثل DAILY_WORDS.js) رو «شبکه اول» می‌گیریم. فایل‌های خارجی
+// (فونت گوگل، کتابخونه‌های CDN مثل esm.sh) که به‌ندرت عوض می‌شن رو
+// «کش اول» می‌گیریم تا هم سریع باز بشن هم دیتا مصرف نکنن.
 self.addEventListener("fetch", (event) => {
   const req = event.request;
-  const isAppFile = APP_SHELL.some((f) => req.url.endsWith(f.replace("./", "")));
+  const url = new URL(req.url);
+  const isSameOrigin = url.origin === self.location.origin;
 
-  if (isAppFile) {
+  if (isSameOrigin) {
     event.respondWith(
-      fetch(req)
+      // { cache: "no-store" } یعنی خودِ fetch هم از کشِ HTTP دیسکِ مرورگر
+      // رد بشه و واقعاً بره سراغ شبکه — این همون قسمتیه که قبلاً نبود و
+      // باعث می‌شد با اینکه sw «شبکه اول» می‌نوشت، مرورگر بازم یه نسخه‌ی
+      // کش‌شده‌ی قدیمی رو از دیسک برگردونه.
+      fetch(req, { cache: "no-store" })
         .then((res) => {
           const copy = res.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
