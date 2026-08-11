@@ -1,143 +1,452 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { Menu, X, ChevronDown, Check } from "lucide-react";
 
-// یک باکس گفتگو — یا "You Hear" (کرم) یا "You Say" (نارنجی روشن) — دقیقاً
-// شبیه طرح تصویر. هر خط انگلیسی با ClickableSentence رندر می‌شه، یعنی
-// دقیقاً همون پاپ‌آپِ روی-کلمه (افزودن به داستان بعدی / افزودن به یادگیری
-// گرامر) که تو بقیه‌ی تب‌های برنامه هست، اینجا هم فعاله.
-function ConversationBox({ items, variant, nativeLang, aiSettings, ClickableSentence, SpeakButton }) {
-  const isHear = variant === "hear";
+/* =============================================================================
+   نگاشت موضوع → (اسم فارسی، آیکون). کلید دقیقاً همون رشته‌ی topic توی
+   DAILY_CONVERSATIONS.js هست، پس نیازی به تغییر دیتا نیست.
+   ============================================================================= */
+const TOPIC_META_LIST = [
+  ["Greetings and Small Talk", "احوال‌پرسی و گفتگوی کوتاه", "👋"],
+  ["Introducing People", "معرفی افراد", "🤝"],
+  ["Visiting an Old Friend", "دیدار دوست قدیمی", "🏠"],
+  ["Getting Acquainted (Personal Questions)", "آشنایی (سوالات شخصی)", "💬"],
+  ["Invitations", "دعوت‌کردن", "✉️"],
+  ["Accepting or Refusing an Invitation", "پذیرفتن یا رد کردن دعوت", "✅"],
+  ["Saying Goodbye", "خداحافظی", "🚶"],
+  ["Telephone Conversation", "مکالمه تلفنی", "☎️"],
+  ["Transportation", "حمل‌ونقل", "🚌"],
+  ["Gas Station and Auto Repair", "پمپ بنزین و تعمیر ماشین", "⛽"],
+  ["Weather and Seasons", "آب‌وهوا و فصل‌ها", "☀️"],
+  ["At a Restaurant / Café", "رستوران و کافه", "🍽️"],
+  ["Shopping (Clothes and General)", "خرید (لباس و عمومی)", "🛍️"],
+  ["At a Hotel", "در هتل", "🏨"],
+  ["Health and Doctor's Visit", "سلامتی و ویزیت دکتر", "🩺"],
+  ["Asking for Directions / Landmarks", "پرسیدن آدرس و نشانی", "🧭"],
+  ["Plans and Free Time (Hobbies)", "برنامه‌ها و اوقات فراغت", "🎨"],
+  ["Work and Workplace", "کار و محیط کار", "💼"],
+  ["Time and Appointments", "زمان و قرار ملاقات", "⏰"],
+  ["Expressing Opinions and Feelings", "ابراز نظر و احساسات", "❤️"],
+  ["Asking for Help and Clarification", "درخواست کمک و توضیح", "🙋"],
+  ["Politeness and Compliments", "ادب و تعارفات", "🙏"],
+  ["Travel and Experiences", "سفر و تجربیات", "✈️"],
+  ["Apologies and Forgiveness", "عذرخواهی و بخشش", "🙇"],
+  ["Family and Cultural Questions", "خانواده و سوالات فرهنگی", "👪"],
+  ["Sports and Fitness", "ورزش و تناسب اندام", "🏃"],
+  ["Technology and Communication", "فناوری و ارتباطات", "💻"],
+  ["Holidays and Celebrations", "تعطیلات و جشن‌ها", "🎉"],
+  ["Pets and Animals", "حیوانات خانگی", "🐾"],
+  ["Learning a Language", "یادگیری زبان", "🗣️"],
+  ["Emergency Situations", "موقعیت‌های اضطراری", "🚨"],
+  ["City Attractions and Sightseeing", "جاذبه‌های شهری و گردش", "🏙️"],
+  ["Schools and Education", "مدرسه و آموزش", "🏫"],
+  ["Money and Expenses", "پول و هزینه‌ها", "💰"],
+  ["Books and Reading", "کتاب و مطالعه", "📚"],
+  ["Environment and Nature", "محیط‌زیست و طبیعت", "🌿"],
+  ["Cooking and Recipes", "آشپزی و دستور پخت", "🍳"],
+  ["Movies and TV Series", "فیلم و سریال", "🎬"],
+  ["Music", "موسیقی", "🎵"],
+  ["Banking and Financial Services", "بانک و خدمات مالی", "🏦"],
+  ["Post Office and Mail", "اداره پست", "📮"],
+  ["Neighbors and Community", "همسایه‌ها و جامعه", "🏘️"],
+  ["Future Plans and Dreams", "برنامه‌های آینده و رویاها", "🌅"],
+  ["Memories and Past Experiences", "خاطرات و تجربیات گذشته", "🕰️"],
+];
+const TOPIC_META = {};
+TOPIC_META_LIST.forEach(([en, fa, icon]) => (TOPIC_META[en] = { fa, icon }));
+
+const UI_STRINGS = {
+  fa: {
+    search: "جستجوی موضوع یا مکالمه...",
+    allLevels: "همه سطح‌ها",
+    comingSoon: "به‌زودی اضافه می‌شه",
+    youHear: "می‌شنوی",
+    youSay: "می‌گی",
+    menuTitle: "زبان نمایش این تب",
+    menuHint: "زبان عنوان موضوعات و برچسب‌های «می‌شنوی / می‌گی» رو تغییر می‌ده.",
+    close: "بستن",
+    noResults: "چیزی پیدا نشد",
+    backToTopics: "بازگشت به موضوعات",
+  },
+  en: {
+    search: "Search topics or conversations...",
+    allLevels: "All levels",
+    comingSoon: "Coming soon",
+    youHear: "You Hear",
+    youSay: "You Say",
+    menuTitle: "This tab's display language",
+    menuHint: "Changes the topic titles and the “You Hear / You Say” labels.",
+    close: "Close",
+    noResults: "Nothing found",
+    backToTopics: "Back to topics",
+  },
+};
+
+const UI_LANGS = [
+  { code: "fa", label: "فارسی" },
+  { code: "en", label: "English" },
+];
+
+const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
+
+const COLORS = {
+  navy: "#1C2541",
+  teal: "#2f6f6f",
+  ink: "#1a1a1a",
+  muted: "#8a7a5c",
+  hear: "#fbf7e3",
+  say: "#fbdcae",
+};
+
+function LevelChip({ label, active, onClick }) {
   return (
-    <div
+    <button
+      onClick={onClick}
       style={{
-        position: "relative",
-        backgroundColor: isHear ? "#fbf7e3" : "#fbdcae",
-        border: "3px solid #1a1a1a",
-        borderRadius: 10,
-        padding: "16px 20px",
-        margin: isHear ? "10px 46px 10px 0" : "10px 0 10px 46px",
+        padding: "6px 14px",
+        borderRadius: 999,
+        fontSize: 13,
+        fontWeight: 600,
+        border: `1.5px solid ${active ? COLORS.navy : "#d8cfae"}`,
+        backgroundColor: active ? COLORS.navy : "#fff",
+        color: active ? "#fff" : "#555",
+        flexShrink: 0,
       }}
     >
-      {items.map((it, i) => (
-        <div
-          key={i}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 8,
-            padding: "6px 0",
-            borderBottom: i < items.length - 1 ? "1px dashed rgba(0,0,0,0.15)" : "none",
-          }}
-        >
-          <div style={{ direction: "ltr", textAlign: "left", flex: 1 }}>
-            <div style={{ fontSize: 19, fontWeight: 500, color: "#1a1a1a" }}>
-              {ClickableSentence ? (
-                <ClickableSentence text={it.en} langCode="en" nativeLang={nativeLang} aiSettings={aiSettings} />
-              ) : (
-                it.en
-              )}
-            </div>
-            {it.fa && (
-              <div style={{ fontSize: 13, color: "#666", marginTop: 2, fontFamily: "var(--font-fa)" }}>{it.fa}</div>
-            )}
-          </div>
-          {SpeakButton && <SpeakButton text={it.en} code="en" color="#8a7a5c" />}
-        </div>
-      ))}
+      {label}
+    </button>
+  );
+}
+
+function TopicCard({ meta, hasData, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-start",
+        gap: 6,
+        padding: "14px 14px 12px",
+        borderRadius: 16,
+        textAlign: "right",
+        border: "1.5px solid #e6ddc4",
+        backgroundColor: "#fff",
+        opacity: hasData ? 1 : 0.55,
+        minHeight: 92,
+      }}
+    >
+      <span style={{ fontSize: 26, lineHeight: 1 }}>{meta.icon}</span>
+      <span style={{ fontFamily: "var(--font-fa)", fontSize: 13.5, fontWeight: 700, color: COLORS.ink, lineHeight: 1.4 }}>
+        {meta.fa}
+      </span>
+    </button>
+  );
+}
+
+// ترجمه‌ی زنده‌ی یک خط به یک زبان مقصد. اگه زبان فارسیه و از قبل توی خودِ
+// دیتا (it.fa) موجوده، همون رو مستقیم نشون می‌ده (بدون درخواست شبکه)؛
+// برای بقیه‌ی زبان‌ها (هر چی که کاربر بالای صفحه اضافه کنه) با همون
+// translateFree که به کل اپ وصله می‌گیره — و چون translateFree خودش کش
+// IndexedDB داره، دفعه‌ی بعد همون ترجمه بدون اینترنت هم در دسترسه.
+function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, SpeakButton }) {
+  const [value, setValue] = useState(langCode === "fa" ? knownFa || "" : "");
+  const [loading, setLoading] = useState(langCode !== "fa" && !knownFa);
+
+  useEffect(() => {
+    if (langCode === "fa") {
+      setValue(knownFa || "");
+      setLoading(false);
+      return;
+    }
+    if (!translateFree) return;
+    let cancelled = false;
+    setLoading(true);
+    translateFree(text, langCode, "en", aiSettings)
+      .then((res) => {
+        if (!cancelled) setValue(res || "");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [text, langCode, knownFa]);
+
+  if (!value && !loading) return null;
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
       <span
         style={{
-          position: "absolute",
-          [isHear ? "right" : "left"]: -40,
-          bottom: 6,
-          fontSize: 30,
+          fontSize: 9,
+          fontWeight: 700,
+          color: COLORS.muted,
+          border: `1px solid ${COLORS.muted}`,
+          borderRadius: 5,
+          padding: "0px 4px",
+          flexShrink: 0,
         }}
       >
-        {isHear ? "🧑" : "👩‍🦰"}
+        {langCode.toUpperCase()}
       </span>
+      {loading ? (
+        <span style={{ fontSize: 12, color: "#aaa" }}>...</span>
+      ) : (
+        <span style={{ fontSize: 12.5, color: "#666", fontFamily: "var(--font-fa)" }}>{value}</span>
+      )}
+      {value && SpeakButton && <SpeakButton text={value} code={langCode} color={COLORS.muted} />}
     </div>
   );
 }
 
-export default function DailyConversationsTab({ data, query, nativeLang, aiSettings, ClickableSentence, SpeakButton }) {
-  const [openTopic, setOpenTopic] = useState(0);
+function ConversationBox({ items, variant, label, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree }) {
+  const isHear = variant === "hear";
+  if (items.length === 0) return null;
+  const langCodes = (targetLangs && targetLangs.length ? targetLangs.map((l) => l.code) : ["fa"]).filter((c) => c !== "en");
+  return (
+    <div>
+      <div style={{ fontSize: 15, fontWeight: 800, marginTop: isHear ? 12 : 14, textAlign: "left", color: COLORS.navy }}>
+        {label}
+      </div>
+      <div
+        style={{
+          position: "relative",
+          backgroundColor: isHear ? COLORS.hear : COLORS.say,
+          border: "2px solid #1a1a1a",
+          borderRadius: 12,
+          padding: "12px 16px",
+          margin: isHear ? "8px 34px 8px 0" : "8px 0 8px 34px",
+        }}
+      >
+        {items.map((it, i) => (
+          <div
+            key={i}
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+              gap: 8,
+              padding: "7px 0",
+              borderBottom: i < items.length - 1 ? "1px dashed rgba(0,0,0,0.15)" : "none",
+            }}
+          >
+            <div style={{ direction: "ltr", textAlign: "left", flex: 1 }}>
+              <div style={{ fontSize: 17, fontWeight: 500, color: "#1a1a1a" }}>
+                {ClickableSentence ? (
+                  <ClickableSentence text={it.en} langCode="en" nativeLang={nativeLang} aiSettings={aiSettings} />
+                ) : (
+                  it.en
+                )}
+              </div>
+              {langCodes.map((code) => (
+                <LineTranslation
+                  key={code}
+                  text={it.en}
+                  langCode={code}
+                  knownFa={it.fa}
+                  aiSettings={aiSettings}
+                  translateFree={translateFree}
+                  SpeakButton={SpeakButton}
+                />
+              ))}
+            </div>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: COLORS.muted,
+                border: `1px solid ${COLORS.muted}`,
+                borderRadius: 6,
+                padding: "1px 5px",
+                flexShrink: 0,
+              }}
+            >
+              {it.level}
+            </span>
+            {SpeakButton && <SpeakButton text={it.en} code="en" color={COLORS.muted} />}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-  const filteredTopics = useMemo(() => {
-    if (!query || !query.trim()) return data;
+function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree }) {
+  const filterFn = (arr) => (levelFilter ? arr.filter((x) => x.level === levelFilter) : arr);
+  const speakerA = filterFn(sc.speakerA);
+  const speakerB = filterFn(sc.speakerB);
+  if (levelFilter && speakerA.length === 0 && speakerB.length === 0) return null;
+
+  return (
+    <div style={{ border: "1.5px solid #e6ddc4", borderRadius: 14, marginBottom: 10, overflow: "hidden", backgroundColor: "#fff" }}>
+      <button onClick={onToggle} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px", textAlign: "right" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: "var(--font-fa)", fontWeight: 700, fontSize: 14.5, color: COLORS.ink }}>{sc.scenario}</div>
+          {sc.context && !isOpen && (
+            <div style={{ fontFamily: "var(--font-fa)", fontSize: 12, color: "#8a8a8a", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {sc.context}
+            </div>
+          )}
+        </div>
+        <ChevronDown size={18} color={COLORS.teal} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0, marginRight: 8 }} />
+      </button>
+      {isOpen && (
+        <div style={{ padding: "0 16px 16px" }}>
+          {sc.context && <div style={{ fontFamily: "var(--font-fa)", fontSize: 12.5, color: "#8a8a8a", marginBottom: 4 }}>{sc.context}</div>}
+          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} />
+          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function DailyConversationsTab({ data, query, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree }) {
+  const [uiLang, setUiLang] = useState(nativeLang === "fa" ? "fa" : "en");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [activeTopic, setActiveTopic] = useState(null);
+  const [levelFilter, setLevelFilter] = useState(null);
+  const [openScenario, setOpenScenario] = useState(null);
+
+  const t = UI_STRINGS[uiLang] || UI_STRINGS.fa;
+
+  const dataByTopic = useMemo(() => {
+    const map = {};
+    data.forEach((tp) => (map[tp.topic] = tp));
+    return map;
+  }, [data]);
+
+  const filteredMeta = useMemo(() => {
+    const all = TOPIC_META_LIST.map(([en, fa, icon]) => ({ en, fa, icon }));
+    if (!query || !query.trim()) return all;
     const q = query.trim().toLowerCase();
-    return data
-      .map((t) => {
-        const scenarios = t.scenarios.filter(
-          (sc) =>
-            sc.scenario.toLowerCase().includes(q) ||
-            sc.speakerA.some((x) => x.en.toLowerCase().includes(q)) ||
-            sc.speakerB.some((x) => x.en.toLowerCase().includes(q))
-        );
-        return { ...t, scenarios };
-      })
-      .filter((t) => t.scenarios.length > 0);
-  }, [data, query]);
+    return all.filter((m) => {
+      if (m.fa.includes(query.trim()) || m.en.toLowerCase().includes(q)) return true;
+      const d = dataByTopic[m.en];
+      if (!d) return false;
+      return d.scenarios.some(
+        (sc) =>
+          sc.scenario.toLowerCase().includes(q) ||
+          sc.speakerA.some((x) => x.en.toLowerCase().includes(q)) ||
+          sc.speakerB.some((x) => x.en.toLowerCase().includes(q))
+      );
+    });
+  }, [query, dataByTopic]);
 
-  if (filteredTopics.length === 0) {
-    return <div style={{ textAlign: "center", padding: 40, color: "#888" }}>چیزی پیدا نشد.</div>;
-  }
-
-  const activeIndex = Math.min(openTopic, filteredTopics.length - 1);
-  const activeTopic = filteredTopics[activeIndex];
+  const activeTopicData = activeTopic ? dataByTopic[activeTopic] : null;
 
   return (
     <div>
-      {/* لیست موضوعات — اسکرول افقی */}
-      <div className="flex gap-2 overflow-x-auto pb-3" style={{ WebkitOverflowScrolling: "touch" }}>
-        {filteredTopics.map((t, i) => (
-          <button
-            key={t.topic}
-            onClick={() => setOpenTopic(i)}
-            style={{
-              padding: "7px 16px",
-              borderRadius: 20,
-              whiteSpace: "nowrap",
-              border: "1px solid #d8cfae",
-              backgroundColor: i === activeIndex ? "#2f6f6f" : "#fff",
-              color: i === activeIndex ? "#fff" : "#333",
-              fontSize: 13,
-              fontFamily: "var(--font-fa)",
-              flexShrink: 0,
-            }}
-          >
-            {t.topic}
-          </button>
+      {/* هدر کوچک تب: آیکون منو برای انتخاب زبان نمایش این تب */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+        <button onClick={() => setMenuOpen(true)} aria-label="menu" style={{ padding: 6 }}>
+          <Menu size={20} color={COLORS.navy} />
+        </button>
+      </div>
+
+      {/* فیلتر سطح */}
+      <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 10, WebkitOverflowScrolling: "touch" }}>
+        <LevelChip label={t.allLevels} active={levelFilter === null} onClick={() => setLevelFilter(null)} />
+        {LEVELS.map((lv) => (
+          <LevelChip key={lv} label={lv} active={levelFilter === lv} onClick={() => setLevelFilter(lv)} />
         ))}
       </div>
 
-      {/* سناریوهای موضوع انتخاب‌شده */}
-      {activeTopic.scenarios.map((sc, si) => (
-        <div key={si} style={{ marginTop: 28 }}>
-          <div style={{ fontWeight: "bold", fontSize: 15, fontFamily: "var(--font-fa)" }}>{sc.scenario}</div>
-          {sc.context && (
-            <div style={{ fontSize: 12, color: "#888", marginTop: 2, fontFamily: "var(--font-fa)" }}>{sc.context}</div>
+      {/* شبکه‌ی کارت‌های موضوعی */}
+      {!activeTopic && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+          {filteredMeta.map((m) => (
+            <TopicCard
+              key={m.en}
+              meta={m}
+              hasData={!!dataByTopic[m.en]}
+              onClick={() => {
+                setActiveTopic(m.en);
+                setOpenScenario(0);
+              }}
+            />
+          ))}
+          {filteredMeta.length === 0 && (
+            <div style={{ gridColumn: "1 / -1", textAlign: "center", color: "#999", padding: 30, fontSize: 13.5 }}>{t.noResults}</div>
           )}
-
-          <div style={{ fontSize: 24, fontWeight: 700, marginTop: 10, textAlign: "left" }}>You Hear</div>
-          <ConversationBox
-            items={sc.speakerA}
-            variant="hear"
-            nativeLang={nativeLang}
-            aiSettings={aiSettings}
-            ClickableSentence={ClickableSentence}
-            SpeakButton={SpeakButton}
-          />
-
-          <div style={{ fontSize: 24, fontWeight: 700, marginTop: 6, textAlign: "left" }}>You Say</div>
-          <ConversationBox
-            items={sc.speakerB}
-            variant="say"
-            nativeLang={nativeLang}
-            aiSettings={aiSettings}
-            ClickableSentence={ClickableSentence}
-            SpeakButton={SpeakButton}
-          />
         </div>
-      ))}
+      )}
+
+      {/* آکاردئون سناریوهای موضوع انتخاب‌شده */}
+      {activeTopic && (
+        <div style={{ paddingTop: 6 }}>
+          <button onClick={() => setActiveTopic(null)} style={{ display: "flex", alignItems: "center", gap: 6, color: COLORS.teal, fontSize: 13, fontWeight: 700, marginBottom: 14 }}>
+            ← {t.backToTopics}
+          </button>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+            <span style={{ fontSize: 24 }}>{TOPIC_META[activeTopic]?.icon}</span>
+            <span style={{ fontWeight: 800, fontSize: 16, color: COLORS.navy, fontFamily: "var(--font-fa)" }}>
+              {TOPIC_META[activeTopic]?.fa}
+            </span>
+          </div>
+
+          {activeTopicData ? (
+            activeTopicData.scenarios.map((sc, i) => (
+              <ScenarioAccordionItem
+                key={i}
+                sc={sc}
+                t={t}
+                levelFilter={levelFilter}
+                isOpen={openScenario === i}
+                onToggle={() => setOpenScenario(openScenario === i ? null : i)}
+                nativeLang={nativeLang}
+                aiSettings={aiSettings}
+                ClickableSentence={ClickableSentence}
+                SpeakButton={SpeakButton}
+                targetLangs={targetLangs}
+                translateFree={translateFree}
+              />
+            ))
+          ) : (
+            <div style={{ textAlign: "center", color: "#999", padding: 30, fontSize: 13.5 }}>{t.comingSoon}</div>
+          )}
+        </div>
+      )}
+
+      {/* منوی کشویی — زبان نمایش این تب */}
+      {menuOpen && (
+        <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.4)", zIndex: 50, display: "flex", justifyContent: "flex-end" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 260, maxWidth: "80%", backgroundColor: "#fff", height: "100%", padding: 20, boxShadow: "0 0 24px rgba(0,0,0,0.25)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <span style={{ fontWeight: 800, fontSize: 15, color: COLORS.navy, fontFamily: "var(--font-fa)" }}>{t.menuTitle}</span>
+              <button onClick={() => setMenuOpen(false)} aria-label={t.close}>
+                <X size={20} color="#666" />
+              </button>
+            </div>
+            <p style={{ fontSize: 11.5, color: "#888", marginBottom: 16, lineHeight: 1.7, fontFamily: "var(--font-fa)" }}>{t.menuHint}</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {UI_LANGS.map((l) => (
+                <button
+                  key={l.code}
+                  onClick={() => setUiLang(l.code)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "11px 14px",
+                    borderRadius: 12,
+                    border: `1.5px solid ${uiLang === l.code ? COLORS.teal : "#e6ddc4"}`,
+                    backgroundColor: uiLang === l.code ? "#eaf3f0" : "#fff",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: COLORS.ink,
+                  }}
+                >
+                  {l.label}
+                  {uiLang === l.code && <Check size={16} color={COLORS.teal} />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
