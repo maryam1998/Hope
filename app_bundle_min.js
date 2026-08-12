@@ -5403,6 +5403,14 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [query, setQuery] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
   const [autoScrollPlay, setAutoScrollPlay] = useState(false);
+  const [playerOpacity, setPlayerOpacity] = useState(() => {
+    const saved = localStorage.getItem("phrasebook-player-opacity");
+    const n = saved === null ? 100 : Number(saved);
+    return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 100;
+  });
+  useEffect(() => {
+    localStorage.setItem("phrasebook-player-opacity", String(playerOpacity));
+  }, [playerOpacity]);
   const [chatOpen, setChatOpen] = useState(false);
   const [readingReport, setReadingReport] = useState(() => buildReadingReport());
   useEffect(() => {
@@ -5579,6 +5587,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const nativeLabel = LANGUAGES.find((l) => l.code === nativeLang)?.label;
   const targetLangList = targetOrder.map((code) => LANGUAGES.find((l) => l.code === code)).filter(Boolean);
   const targetLabel = targetLangList.map((l) => l.label).join("، ");
+  const showPlayerBar = tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "daily";
   if (!loaded) {
     return /* @__PURE__ */ React.createElement(
       "div",
@@ -5688,7 +5697,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       setShowAnswer(false);
     } }), /* @__PURE__ */ React.createElement(TabButton, { label: "داستان‌ساز", icon: Sparkles, active: tab === "story", onClick: () => setTab("story") }), /* @__PURE__ */ React.createElement(TabButton, { label: "لغات ذخیره‌شده", icon: Bookmark, active: tab === "saved", onClick: () => setTab("saved") }), /* @__PURE__ */ React.createElement(TabButton, { label: "گرامر", icon: Type, active: tab === "grammar", onClick: () => setTab("grammar") })),
     (tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "daily") && /* @__PURE__ */ React.createElement("div", { className: "px-4 pt-3" }, /* @__PURE__ */ React.createElement(LevelFilterRow, { levelFilter, setLevelFilter })),
-    (tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "daily") && /* @__PURE__ */ React.createElement("div", { className: "px-4 pt-2 flex items-center gap-2 flex-wrap", style: { justifyContent: "flex-end", rowGap: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: colors.inkSoft } }, "تکرار پخش"), /* @__PURE__ */ React.createElement(RepeatButton, { color: colors.gold }), /* @__PURE__ */ React.createElement(SpeedControl, { color: colors.gold }), /* @__PURE__ */ React.createElement(AutoplayToggle, { enabled: autoScrollPlay, onToggle: () => setAutoScrollPlay((v) => !v), color: colors.teal })),
     (tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "daily") && /* @__PURE__ */ React.createElement("div", { className: "px-4 pt-3" }, /* @__PURE__ */ React.createElement(
       "div",
       {
@@ -5707,7 +5715,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       ),
       query && /* @__PURE__ */ React.createElement("button", { onClick: () => setQuery(""), "aria-label": "پاک کردن جستجو" }, /* @__PURE__ */ React.createElement(X, { size: 16, color: colors.inkSoft }))
     )),
-    /* @__PURE__ */ React.createElement("main", { className: "px-4 py-4 pb-24" }, tab === "conversations" && /* @__PURE__ */ React.createElement(
+    /* @__PURE__ */ React.createElement("main", { className: "px-4 py-4", style: { paddingBottom: showPlayerBar ? 150 : 96 } }, tab === "conversations" && /* @__PURE__ */ React.createElement(
       DailyConversationsTab,
       {
         data: DAILY_CONVERSATIONS,
@@ -5843,6 +5851,24 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         jumpTo: storyJump
       }
     ))),
+    showPlayerBar && /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        style: {
+          position: "fixed",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 40,
+          backgroundColor: colors.paper,
+          opacity: playerOpacity / 100,
+          borderTop: `1px solid ${colors.cardBorder}`,
+          boxShadow: "0 -4px 14px rgba(28,37,65,0.12)"
+        }
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "px-4 pt-2 flex items-center gap-2 flex-wrap", style: { justifyContent: "flex-end", rowGap: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: colors.inkSoft } }, "تکرار پخش"), /* @__PURE__ */ React.createElement(RepeatButton, { color: colors.gold }), /* @__PURE__ */ React.createElement(SpeedControl, { color: colors.gold }), /* @__PURE__ */ React.createElement(AutoplayToggle, { enabled: autoScrollPlay, onToggle: () => setAutoScrollPlay((v) => !v), color: colors.teal })),
+      /* @__PURE__ */ React.createElement("div", { className: "px-4 flex items-center gap-2", style: { paddingTop: 4, paddingBottom: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" } }, "شفافیت پلیر"), /* @__PURE__ */ React.createElement("input", { type: "range", min: 0, max: 100, value: playerOpacity, onChange: (e) => setPlayerOpacity(Number(e.target.value)), "aria-label": "شفافیت پلیر", style: { flex: 1, accentColor: colors.gold } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" } }, `${playerOpacity}%`))
+    ),
     !chatOpen && /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -5850,7 +5876,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         "aria-label": "گفتگو با هوش مصنوعی",
         style: {
           position: "fixed",
-          bottom: 20,
+          bottom: showPlayerBar ? 130 : 20,
           left: 20,
           width: 56,
           height: 56,
@@ -5861,7 +5887,8 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           alignItems: "center",
           justifyContent: "center",
           boxShadow: "0 4px 14px rgba(28,37,65,0.35)",
-          border: "none"
+          border: "none",
+          zIndex: 45
         }
       },
       /* @__PURE__ */ React.createElement(MessageCircle, { size: 24 })
