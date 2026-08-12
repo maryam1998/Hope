@@ -171,10 +171,28 @@ async function getTranslationCacheCount() {
 // ترتیب: Google Translate (بدون‌رسمی) → MyMemory → Lingva (پروکسی گوگل) → LibreTranslate
 // ============================================================
 
+// 🔥 fetch با تایم‌اوت — بدونش، اگه یکی از سرویس‌های ترجمه (به‌خاطر فیلترینگ/
+// بلاک‌بودن توی شبکه‌ی کاربر) نه جواب بده نه خطا برگردونه، درخواست تا ابد
+// معلق می‌مونه و کل زنجیره‌ی ترجمه (و هر جایی که منتظرشه، مثل بازکردنِ یه
+// داستانِ ذخیره‌شده که هنوز ترجمه‌ی کامل نداره) هنگ می‌کنه. با AbortController
+// بعد از timeoutMs میلی‌ثانیه درخواست لغو می‌شه تا زنجیره بره سراغ سرویس بعدی.
+async function fetchWithTimeout(url, options = {}, timeoutMs = 7000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (e) {
+    if (e?.name === "AbortError") throw new Error("timeout-" + timeoutMs + "ms");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ۱) Google Translate — همون endpoint قدیمی و رایگان
 async function translateViaGoogle(text, targetLang, sourceLang = "auto") {
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
   if (!response.ok) throw new Error("google-http-" + response.status);
   const data = await response.json();
   if (data && data[0] && data[0].length) {
@@ -188,7 +206,7 @@ async function translateViaMyMemory(text, targetLang, sourceLang = "auto") {
   // MyMemory زبان مبدا "auto" را نمی‌شناسد؛ اگر مشخص نبود انگلیسی را حدس می‌زنیم
   const sl = sourceLang && sourceLang !== "auto" ? sourceLang : "en";
   const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sl}|${targetLang}`;
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
   if (!response.ok) throw new Error("mymemory-http-" + response.status);
   const data = await response.json();
   const translated = data?.responseData?.translatedText;
@@ -205,7 +223,7 @@ async function translateViaMyMemory(text, targetLang, sourceLang = "auto") {
 // ۳) Lingva Translate — یک پروکسی متن‌باز و رایگان جلوی Google Translate
 async function translateViaLingva(text, targetLang, sourceLang = "auto") {
   const url = `https://lingva.ml/api/v1/${sourceLang}/${targetLang}/${encodeURIComponent(text)}`;
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
   if (!response.ok) throw new Error("lingva-http-" + response.status);
   const data = await response.json();
   if (!data?.translation) throw new Error("lingva-empty-response");
@@ -214,7 +232,7 @@ async function translateViaLingva(text, targetLang, sourceLang = "auto") {
 
 // ۴) LibreTranslate — سرویس متن‌باز رایگان (نمونه‌ی عمومی)
 async function translateViaLibre(text, targetLang, sourceLang = "auto") {
-  const response = await fetch("https://libretranslate.de/translate", {
+  const response = await fetchWithTimeout("https://libretranslate.de/translate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ q: text, source: sourceLang || "auto", target: targetLang, format: "text" }),
@@ -1424,11 +1442,15 @@ async function callAI({ prompt, maxTokens, retries = 2, aiSettings }) {
 
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await fetch(`${base}/api/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-      });
+      const res = await fetchWithTimeout(
+        `${base}/api/generate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        },
+        20000 // تولید متن با AI ممکنه طول بکشه، پس تایم‌اوتش بلندتر از سرویس‌های ترجمه‌ست
+      );
       if (!res.ok) {
         let detail = `HTTP ${res.status}`;
         // ۴۲۹ (Too Many Requests) فنی جزو «خطاهای کلاینت»ه، ولی برخلاف ۴۰۰/۴۰۱
