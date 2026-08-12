@@ -129,7 +129,7 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
   return (
     // بلندگوی ترجمه هم سمت راستِ ردیف باشه: کانتینر رو صریحاً rtl می‌کنیم و
     // بلندگو رو اول می‌ذاریم (سرِ محورِ اصلی در rtl یعنی لبه‌ی راست).
-    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginTop: 4, direction: "rtl" } }, value && SpeakButton && /* @__PURE__ */ React.createElement(SpeakButton, { text: value, code: langCode, color: translationColor }), /* @__PURE__ */ React.createElement(
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginTop: 4, direction: "ltr" } }, value && SpeakButton && /* @__PURE__ */ React.createElement(SpeakButton, { text: value, code: langCode, color: translationColor }), /* @__PURE__ */ React.createElement(
       "span",
       {
         style: {
@@ -204,7 +204,7 @@ function ConversationBox({ items, variant, label, nativeLang, aiSettings, Clicka
         },
         it.level
       ),
-      /* @__PURE__ */ React.createElement("div", { style: { direction: "ltr", textAlign: "left", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 16, fontWeight: 800, color: mainTextColor, fontFamily: fontLatin } }, ClickableSentence ? /* @__PURE__ */ React.createElement(ClickableSentence, { text: it.en, langCode: "en", nativeLang, aiSettings }) : it.en), langCodes.map((code) => /* @__PURE__ */ React.createElement(
+      /* @__PURE__ */ React.createElement("div", { style: { direction: "ltr", textAlign: "left", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 16, fontWeight: 800, color: mainTextColor, fontFamily: fontLatin } }, ClickableSentence ? /* @__PURE__ */ React.createElement(ClickableSentence, { text: it.en, langCode: "en", nativeLang, aiSettings, color: mainTextColor, fontFamily: fontLatin, fontWeight: 800, fontSize: 16 }) : it.en), langCodes.map((code) => /* @__PURE__ */ React.createElement(
         LineTranslation,
         {
           key: code,
