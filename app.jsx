@@ -1534,6 +1534,20 @@ const STORY_WORD_PICKED_EVENT = "phrasebook:storyWordPicked";
 // نمونه‌ی هم‌زمان روی صفحه.
 const crossTranslateInFlight = new Set();
 
+// کدامین تبِ برنامه، همین الان روی صفحه‌ست — یک متغیرِ ساده‌ی سطحِ ماژول
+// (نه state ری‌اکت)، چون توابعِ ذخیره‌سازیِ پایین (که از خیلی جاهای مختلفِ
+// برنامه صدا زده می‌شن، نه فقط از داخلِ کامپوننت‌ها) باید بتونن همین الان
+// بفهمن کاربر توی کدوم تبه، بدون این‌که لازم باشه این اطلاعات از بالا تا
+// پایینِ کل درختِ کامپوننت‌ها prop-drilling بشه. PhrasebookMain با تغییرِ
+// state‌ِ tab خودش، این متغیر رو هم‌زمان به‌روز نگه می‌داره (نگاه کن به
+// useEffect مربوطه اونجا). هر لغت/عبارتی که همین الان ذخیره می‌شه، همین
+// مقدار به‌عنوانِ origin.tab باهاش ذخیره می‌شه — تا بعداً توی پنلِ «لغات
+// ذخیره‌شده»، لانگ‌پرس روی هر کارت بتونه کاربر رو به همون تب برگردونه.
+let currentOriginTab = null;
+function setCurrentOriginTab(tab) {
+  currentOriginTab = tab || null;
+}
+
 function loadSavedStoryWords() {
   try {
     const raw = window.localStorage.getItem(SAVED_STORY_WORDS_KEY);
@@ -1569,7 +1583,13 @@ function toggleSavedStoryWord(word, langCode, opts) {
   } else {
     const translations = {};
     if (opts && opts.meaning && opts.nativeLang) translations[opts.nativeLang] = opts.meaning;
-    list.unshift({ word: cleanWord || word, langCode, savedAt: new Date().toISOString(), translations });
+    list.unshift({
+      word: cleanWord || word,
+      langCode,
+      savedAt: new Date().toISOString(),
+      translations,
+      origin: { tab: currentOriginTab },
+    });
     nowSaved = true;
   }
   try {
@@ -1612,7 +1632,13 @@ function ensureSavedStoryWord(word, langCode) {
   const list = loadSavedStoryWords();
   const exists = list.some((e) => e.langCode === langCode && normalizeWord(e.word) === w);
   if (exists) return;
-  list.unshift({ word: cleanWord || word, langCode, savedAt: new Date().toISOString(), translations: {} });
+  list.unshift({
+    word: cleanWord || word,
+    langCode,
+    savedAt: new Date().toISOString(),
+    translations: {},
+    origin: { tab: currentOriginTab },
+  });
   try {
     window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(list));
     window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
@@ -2466,41 +2492,9 @@ function removeWordFromCollectionEntry(id, term) {
 }
 
 // ---------------------------------------------------------------------------
-// نگاشتِ لغت → سطح (A1..C2)، برای نشون‌دادنِ سطح توی پنل «لغات ذخیره‌شده».
-// این نگاشت‌ها فقط یه‌بار (موقع لود شدنِ ماژول) از روی دیتای موجود ساخته
-// می‌شن، نه هر بار که پنل رندر می‌شه — چون WORDS_AZ چند هزار ردیفه.
-//   ۱) WORDS_AZ / NEWS_WORDS / DAILY_WORDS: هر سه فقط انگلیسی‌ان (فیلد en)،
-//      پس کلیدشون صرفاً خودِ لغتِ نرمال‌شده‌ست (زبان همیشه en).
-//   ۲) VOCAB: چندزبانه‌ست (t.fa, t.en, t.es, ...)، پس کلید ترکیبیِ
-//      «langCode:لغتِ نرمال‌شده» لازمه.
-// اگه یه لغت تو چندجا با سطح‌های متفاوت باشه، اولین موردی که پیدا می‌شه
-// می‌مونه (کافیه، چون هدف فقط راهنماییِ تقریبیه نه مرجعِ رسمی).
-// ---------------------------------------------------------------------------
-const LEVEL_BY_EN_WORD = new Map();
-[...WORDS_AZ, ...NEWS_WORDS, ...DAILY_WORDS].forEach((w) => {
-  const key = normalizeWord(w.en);
-  if (key && !LEVEL_BY_EN_WORD.has(key)) LEVEL_BY_EN_WORD.set(key, w.level);
-});
-const LEVEL_BY_LANG_WORD = new Map();
-VOCAB.forEach((v) => {
-  Object.entries(v.t || {}).forEach(([code, text]) => {
-    const key = `${code}:${normalizeWord(text)}`;
-    if (text && !LEVEL_BY_LANG_WORD.has(key)) LEVEL_BY_LANG_WORD.set(key, v.level);
-  });
-});
-// سطحِ یک لغتِ ذخیره‌شده رو از روی دیتای محلی پیدا می‌کنه — کاملاً افلاین و
-// آنی، بدون نیاز به AI یا شبکه. اگه لغت تو هیچ‌کدوم از دیتاست‌های محلی
-// نبود (مثلاً یه عبارتِ چندکلمه‌ای یا لغتی که کاربر خودش تایپ کرده)،
-// null برمی‌گردونه و پنل به‌جای بج سطح، چیزی نشون نمی‌ده.
-function lookupSavedWordLevel(word, langCode) {
-  const w = normalizeWord(word);
-  if (!w) return null;
-  if (langCode === "en" && LEVEL_BY_EN_WORD.has(w)) return LEVEL_BY_EN_WORD.get(w);
-  const key = `${langCode}:${w}`;
-  if (LEVEL_BY_LANG_WORD.has(key)) return LEVEL_BY_LANG_WORD.get(key);
-  return null;
-}
-
+// نگاشتِ سطح (بالاتر، بعد از تعریفِ conversation) رو این‌جا صدا می‌زنیم —
+// نگاه کن به LEVEL_BY_EN_WORD / lookupSavedWordLevel پایین‌ترِ همین فایل،
+// دقیقاً بعد از «export const conversation».
 function findInVocab(word, langCode) {
   const w = normalizeWord(word);
   if (!w) return null;
@@ -2639,6 +2633,57 @@ const CATEGORIES = {
 
 export const conversation = [
   ];
+
+// ---------------------------------------------------------------------------
+// نگاشتِ لغت/عبارت/جمله → سطح (A1..C2)، برای نشون‌دادنِ سطح توی پنل «لغات
+// ذخیره‌شده» — هم برای تک‌لغت، هم برای اصطلاح/عبارت، هم برای کل یه جمله؛
+// چون با قابلیتِ «انتخابِ آزادِ متن → افزودن به داستان» کاربر می‌تونه هرکدوم
+// از این‌ها رو ذخیره کنه، نه فقط تک‌کلمه. این نگاشت‌ها فقط یه‌بار (موقع لود
+// شدنِ ماژول) از روی دیتای موجود ساخته می‌شن، نه هر بار که پنل رندر می‌شه.
+// باید بعد از تعریفِ conversation بیاد چون بهش نیاز داره.
+//   ۱) WORDS_AZ / NEWS_WORDS / DAILY_WORDS: تک‌لغتِ انگلیسی (فیلد en).
+//   ۲) VOCAB: تک‌لغت/عبارتِ چندزبانه (t.fa, t.en, ...).
+//   ۳) conversation (دیتای تبِ «عبارات»/اصطلاحات): همون شکلِ VOCAB —
+//      چندزبانه (t.*) + level؛ هر وقت این دیتاست پر بشه، خودکار پوشش داده
+//      می‌شه، نیازی به تغییرِ کد نیست.
+//   ۴) DAILY_CONVERSATIONS (تبِ «مکالمه»): هر خطِ انگلیسیِ هر سناریو
+//      (speakerA + speakerB) خودش یه سطح مستقل داره؛ این‌جا همه‌شون رو
+//      مسطح می‌کنیم تا جمله‌های کاملِ ذخیره‌شده هم سطح‌شون پیدا بشه.
+// اگه یه لغت/جمله تو چندجا با سطح‌های متفاوت باشه، اولین موردی که پیدا
+// می‌شه می‌مونه (کافیه، چون هدف فقط راهنماییِ تقریبیه نه مرجعِ رسمی).
+// ---------------------------------------------------------------------------
+const LEVEL_BY_EN_WORD = new Map();
+[...WORDS_AZ, ...NEWS_WORDS, ...DAILY_WORDS].forEach((w) => {
+  const key = normalizeWord(w.en);
+  if (key && !LEVEL_BY_EN_WORD.has(key)) LEVEL_BY_EN_WORD.set(key, w.level);
+});
+(DAILY_CONVERSATIONS || []).forEach((sc) => {
+  [...(sc.speakerA || []), ...(sc.speakerB || [])].forEach((it) => {
+    const key = normalizeWord(it.en);
+    if (key && it.level && !LEVEL_BY_EN_WORD.has(key)) LEVEL_BY_EN_WORD.set(key, it.level);
+  });
+});
+const LEVEL_BY_LANG_WORD = new Map();
+[...VOCAB, ...conversation].forEach((v) => {
+  if (!v.level) return;
+  Object.entries(v.t || {}).forEach(([code, text]) => {
+    const key = `${code}:${normalizeWord(text)}`;
+    if (text && !LEVEL_BY_LANG_WORD.has(key)) LEVEL_BY_LANG_WORD.set(key, v.level);
+  });
+});
+// سطحِ یک لغت/اصطلاح/جمله‌ی ذخیره‌شده رو از روی دیتای محلی پیدا می‌کنه —
+// کاملاً افلاین و آنی، بدون نیاز به AI یا شبکه. اگه متن تو هیچ‌کدوم از
+// دیتاست‌های محلی نبود (مثلاً جمله‌ای که کاربر خودش از یه متنِ آزاد
+// انتخاب کرده و عیناً تو هیچ لیستی نیست)، null برمی‌گردونه و پنل به‌جای
+// بج سطح، چیزی نشون نمی‌ده.
+function lookupSavedWordLevel(word, langCode) {
+  const w = normalizeWord(word);
+  if (!w) return null;
+  if (langCode === "en" && LEVEL_BY_EN_WORD.has(w)) return LEVEL_BY_EN_WORD.get(w);
+  const key = `${langCode}:${w}`;
+  if (LEVEL_BY_LANG_WORD.has(key)) return LEVEL_BY_LANG_WORD.get(key);
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // UI helpers
@@ -6149,7 +6194,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
 // popover's "save for next story" button, grouped by language, so they're
 // easy to find later instead of only surfacing inside Story Builder.
 // ---------------------------------------------------------------------------
-function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel, targetOrder, dictHistory, setDictHistory, onGoToDictionary }) {
+function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabel, targetOrder, dictHistory, setDictHistory, onGoToDictionary }) {
   const [words, setWords] = useState([]);
   // لغاتی که کاربر توی همین صفحه علامت زده تا ببره داستان‌ساز — جدا از
   // خودِ انبار دائمی؛ فقط یه انتخاب موقتیه، نه حذف/اضافه به ذخیره‌شده‌ها.
@@ -6160,6 +6205,54 @@ function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel, targetOrder, 
   // فقط لغاتِ در حال نمایش رو در برمی‌گیرن.
   const [query, setQuery] = useState("");
   const [actionMsg, setActionMsg] = useState("");
+
+  // نگه‌داشتنِ طولانی (لانگ‌پرس) روی هر کارت → کاربر رو به همون تبی می‌بره
+  // که اون لغت/عبارت اونجا ذخیره شده بود (origin.tab — نگاه کن به
+  // toggleSavedStoryWord/ensureSavedStoryWord). یه ref مشترکِ بینِ همه‌ی
+  // کارت‌ها کافیه چون همیشه فقط یک لمس/کلیک در آنِ واحد فعاله.
+  const pressStateRef = useRef({ key: null, timer: null, moved: false, startX: 0, startY: 0 });
+
+  const clearPress = () => {
+    if (pressStateRef.current.timer) clearTimeout(pressStateRef.current.timer);
+    pressStateRef.current = { key: null, timer: null, moved: false, startX: 0, startY: 0 };
+  };
+
+  const jumpToOrigin = (entry) => {
+    if (!onJumpToOrigin) return;
+    const ok = onJumpToOrigin(entry);
+    setActionMsg(
+      ok
+        ? `رفتیم به همون بخشی که «${entry.word}» ازش ذخیره شده بود`
+        : "منبعِ این لغت مشخص نیست (احتمالاً قبل از این قابلیت ذخیره شده)"
+    );
+  };
+
+  const beginPress = (key, clientX, clientY, entry, target) => {
+    // اگه لمس/کلیک روی خودِ یکی از دکمه‌های داخلِ کارت (پخش صدا، حذف،
+    // ویرایش...) شروع شده، لانگ‌پرس فعال نمی‌شه — همون دکمه کارِ خودش رو بکنه.
+    if (target && target.closest && target.closest("button")) return;
+    clearPress();
+    pressStateRef.current = {
+      key,
+      startX: clientX,
+      startY: clientY,
+      moved: false,
+      timer: setTimeout(() => {
+        if (pressStateRef.current.key === key && !pressStateRef.current.moved) {
+          jumpToOrigin(entry);
+        }
+      }, 550),
+    };
+  };
+
+  const movePress = (clientX, clientY) => {
+    const st = pressStateRef.current;
+    if (!st.key) return;
+    if (Math.abs(clientX - st.startX) > 10 || Math.abs(clientY - st.startY) > 10) {
+      st.moved = true;
+      if (st.timer) clearTimeout(st.timer);
+    }
+  };
 
   useEffect(() => {
     const refresh = () => setWords(loadSavedStoryWords());
@@ -6442,9 +6535,26 @@ function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel, targetOrder, 
                   // بالای صفحه فعال کرده، به همون ترتیب.
                   const otherLangs = relevantLangs.filter((l) => l !== code);
                   const level = lookupSavedWordLevel(e.word, code);
+                  const pressKey = `${code}:${e.word}`;
                   return (
                     <div
                       key={e.word}
+                      title="نگه‌دار تا به منبعِ این لغت بری"
+                      onMouseDown={(ev) => beginPress(pressKey, ev.clientX, ev.clientY, e, ev.target)}
+                      onMouseMove={(ev) => movePress(ev.clientX, ev.clientY)}
+                      onMouseUp={clearPress}
+                      onMouseLeave={clearPress}
+                      onTouchStart={(ev) => {
+                        const t = ev.touches[0];
+                        beginPress(pressKey, t.clientX, t.clientY, e, ev.target);
+                      }}
+                      onTouchMove={(ev) => {
+                        const t = ev.touches[0];
+                        movePress(t.clientX, t.clientY);
+                      }}
+                      onTouchEnd={clearPress}
+                      onTouchCancel={clearPress}
+                      onContextMenu={(ev) => ev.preventDefault()}
                       style={{
                         display: "flex",
                         flexDirection: "column",
@@ -6455,6 +6565,7 @@ function SavedWordsPanel({ onJumpToStory, nativeLang, nativeLabel, targetOrder, 
                         border: `1px solid ${isPicked ? colors.gold : colors.cardBorder}`,
                         backgroundColor: isPicked ? colors.goldSoft : colors.paper,
                         padding: "7px 10px",
+                        touchAction: "pan-y",
                       }}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -7045,6 +7156,11 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [favorites, setFavorites] = useState(new Set());
   const [wordFavorites, setWordFavorites] = useState(new Set());
   const [tab, setTab] = useState("conversations");
+  // این تب رو به متغیرِ سراسریِ currentOriginTab هم می‌رسونه — تا هر لغت/
+  // عبارتی که همین الان (توی هر تبی) ذخیره می‌شه، بدونه از کجا اومده.
+  useEffect(() => {
+    setCurrentOriginTab(tab);
+  }, [tab]);
   const [boxes, setBoxes] = useState(() => {
     const initial = {};
     conversation .forEach((p) => (initial[p.id] = 1));
@@ -7116,6 +7232,33 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     window.addEventListener(SAVED_WORDS_CHANGED_EVENT, bump);
     return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, bump);
   }, []);
+
+  // درخواست: لغاتی که از پاپ‌آپ/انتخابِ متن «ذخیره برای داستان بعدی» می‌شن،
+  // خودکار و دائمی تو خودِ تبِ «لغات» (لیستِ اصلیِ WORDS_AZ) هم دیده بشن —
+  // نه فقط تو پنلِ جدای «لغات ذخیره‌شده». چون WORDS_AZ.js یه فایلِ استاتیکه
+  // که تو خودِ اپ باندل شده (مشترکِ همه‌ی کاربرا رو گیت‌هاب پیجز)، از سمتِ
+  // مرورگر نمی‌شه واقعاً روش نوشت — این‌جا به‌جاش لغاتِ ذخیره‌شده (که خودشون
+  // از قبل توی Supabase/localStorage دائمی‌ان) رو موقعِ نمایش با WORDS_AZ
+  // ترکیب می‌کنیم؛ نتیجه برای کاربر دقیقاً همون حسی رو داره که خواسته:
+  // لغتی که ذخیره کرده، همیشه تو تبِ لغات هست. فقط لغاتِ تک‌کلمه‌ایِ
+  // انگلیسی رو اضافه می‌کنیم (چون WORDS_AZ فقط انگلیسیه)؛ جمله/اصطلاح یا
+  // زبانِ دیگه همچنان فقط تو «لغات ذخیره‌شده» می‌مونه چون قالبِ این لیست
+  // (تک‌لغتِ انگلیسی + معنی) باهاش جور درنمی‌آد.
+  const wordsWithSaved = useMemo(() => {
+    const existing = new Set(WORDS_AZ.map((w) => normalizeWord(w.en)));
+    const extras = loadSavedStoryWords()
+      .filter((e) => e.langCode === "en" && !/\s/.test(normalizeWord(e.word)))
+      .filter((e) => !existing.has(normalizeWord(e.word)))
+      .map((e) => ({
+        id: `saved:${normalizeWord(e.word)}`,
+        en: e.word,
+        fa: (e.translations && e.translations.fa) || "",
+        level: lookupSavedWordLevel(e.word, "en") || null,
+        pos: null,
+        isUserSaved: true,
+      }));
+    return extras.length ? [...extras, ...WORDS_AZ] : WORDS_AZ;
+  }, [savedWordsVersion]);
 
   // Same idea, but for saved grammar notes (added to the cloud-sync payload
   // below) — bumps whenever a note is added/removed/updated so the debounced
@@ -7500,7 +7643,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
         {tab === "words" && (
           <WordList
-            words={WORDS_AZ}
+            words={wordsWithSaved}
             wordFavorites={wordFavorites}
             toggleWordFavorite={toggleWordFavorite}
             query={query}
@@ -7576,8 +7719,25 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             setDictHistory={setDictHistory}
             onGoToDictionary={() => setTab("dictionary")}
             onJumpToStory={(lang, words) => {
+              // فقط لغات رو به داستان‌ساز می‌فرسته (که همیشه mount شده و
+              // همون لحظه‌شون رو دریافت می‌کنه) — بدون این‌که خودش تبِ
+              // فعلی رو عوض کنه؛ رفتن به تبِ داستان‌ساز، خودِ کاربره.
               setStoryJump({ lang, words, token: Date.now() });
-              setTab("story");
+            }}
+            onJumpToOrigin={(entry) => {
+              // لغت/عبارتی که هنوز (قبل از این قابلیت) origin نداشته —
+              // نمی‌دونیم از کجا اومده.
+              const originTab = entry && entry.origin && entry.origin.tab;
+              if (!originTab) return false;
+              setTab(originTab);
+              // توی تب‌هایی که خودشون یه نوارِ جستجو دارن (مکالمات، لغات،
+              // علاقه‌مندی‌ها، لغات‌و‌اخبار، مکالمه‌روزمره)، همون کادرِ
+              // جستجو رو با خودِ لغت پر می‌کنیم تا دقیقاً همون موردی که
+              // این لغت ازش اومده، فیلتر و نشون داده بشه.
+              if (["conversations", "words", "favorites", "vocab", "daily"].includes(originTab)) {
+                setQuery(entry.word);
+              }
+              return true;
             }}
           />
         )}
@@ -8240,22 +8400,40 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                 fontWeight={800}
                 fontSize={19}
               />
-              <SpeakButton text={w.en} code="en" color={colors.teal} />
-              <LevelBadge level={w.level} />
-              <span
-                style={{
-                  fontFamily: fontFa,
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: colors.teal,
-                  border: `1px solid ${colors.cardBorder}`,
-                  borderRadius: 6,
-                  padding: "1px 6px",
-                  flexShrink: 0,
-                }}
-              >
-                {POS_FA[w.pos] || w.pos}
-              </span>
+              <SpeakButton text={w.en} code="en" color={colors.teal} edge="end" />
+              {w.level && <LevelBadge level={w.level} />}
+              {w.isUserSaved && (
+                <span
+                  style={{
+                    fontFamily: fontFa,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: colors.rose,
+                    border: `1px solid ${colors.rose}`,
+                    borderRadius: 6,
+                    padding: "1px 6px",
+                    flexShrink: 0,
+                  }}
+                >
+                  شخصی
+                </span>
+              )}
+              {w.pos && (
+                <span
+                  style={{
+                    fontFamily: fontFa,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: colors.teal,
+                    border: `1px solid ${colors.cardBorder}`,
+                    borderRadius: 6,
+                    padding: "1px 6px",
+                    flexShrink: 0,
+                  }}
+                >
+                  {POS_FA[w.pos] || w.pos}
+                </span>
+              )}
             </div>
             {/* ترجمه‌ی این لغت به همه‌ی زبان‌های مقصدِ انتخاب‌شده — نه فقط
                 فارسی. رنگ متن‌ها مشکی و پررنگه (نه رنگ‌های کم‌کنتراست) تا

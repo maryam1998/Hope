@@ -155,7 +155,10 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
   if (!value && !loading) return null;
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+    // بلندگوی ترجمه هم سمت راستِ ردیف باشه: کانتینر رو صریحاً rtl می‌کنیم و
+    // بلندگو رو اول می‌ذاریم (سرِ محورِ اصلی در rtl یعنی لبه‌ی راست).
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, direction: "rtl" }}>
+      {value && SpeakButton && <SpeakButton text={value} code={langCode} color={translationColor} />}
       <span
         style={{
           fontFamily: fontFa,
@@ -175,7 +178,6 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
       ) : (
         <span style={{ fontSize: 12.5, color: translationColor, fontWeight: 800, fontFamily: fontFa }}>{value}</span>
       )}
-      {value && SpeakButton && <SpeakButton text={value} code={langCode} color={translationColor} />}
     </div>
   );
 }
@@ -216,12 +218,29 @@ function ConversationBox({ items, variant, label, nativeLang, aiSettings, Clicka
             style={{
               display: "flex",
               alignItems: "flex-start",
-              justifyContent: "space-between",
               gap: 8,
               padding: "9px 12px",
               borderBottom: i < items.length - 1 ? `1px dashed ${colors.cardBorder}` : "none",
+              direction: "rtl",
             }}
           >
+            {/* بلندگو همیشه اول (یعنی لبه‌ی راست، چون کانتینر rtl‌ه)،
+                بعد بجِ سطح، بعد خودِ متن که فضای باقی‌مونده رو پر می‌کنه. */}
+            {SpeakButton && <SpeakButton text={it.en} code="en" color={colors.teal} />}
+            <span
+              style={{
+                fontFamily: fontLatin,
+                fontSize: 10,
+                fontWeight: 700,
+                color: colors.ink,
+                backgroundColor: colors.goldSoft,
+                borderRadius: 6,
+                padding: "1px 6px",
+                flexShrink: 0,
+              }}
+            >
+              {it.level}
+            </span>
             <div style={{ direction: "ltr", textAlign: "left", flex: 1 }}>
               <div style={{ fontSize: 16, fontWeight: 800, color: mainTextColor, fontFamily: fontLatin }}>
                 {ClickableSentence ? (
@@ -242,21 +261,6 @@ function ConversationBox({ items, variant, label, nativeLang, aiSettings, Clicka
                 />
               ))}
             </div>
-            <span
-              style={{
-                fontFamily: fontLatin,
-                fontSize: 10,
-                fontWeight: 700,
-                color: colors.ink,
-                backgroundColor: colors.goldSoft,
-                borderRadius: 6,
-                padding: "1px 6px",
-                flexShrink: 0,
-              }}
-            >
-              {it.level}
-            </span>
-            {SpeakButton && <SpeakButton text={it.en} code="en" color={colors.teal} />}
           </div>
         ))}
       </div>
@@ -325,6 +329,67 @@ export default function DailyConversationsTab({ data, query, nativeLang, aiSetti
   }, [query, dataByTopic]);
 
   const activeTopicData = activeTopic ? dataByTopic[activeTopic] : null;
+
+  // جستجوی سراسری روی کلِ مکالمات (نه فقط اسمِ موضوع‌ها): وقتی کاربر عبارتی
+  // تایپ می‌کنه، چه تو صفحه‌ی موضوعات باشه چه داخل یه موضوعِ بازشده، همه‌ی
+  // خط‌های همه‌ی سناریوهای همه‌ی موضوعات (هم متنِ انگلیسی هم ترجمه‌ی فارسیِ
+  // ذخیره‌شده‌شون) رو می‌گرده و نتیجه رو مستقل از activeTopic نشون می‌ده.
+  // قبلاً وقتی داخلِ یه موضوع بودی، سرچ اصلاً به محتوای بازشده اعمال
+  // نمی‌شد و همیشه همون موضوعِ باز نشون داده می‌شد — همین باعث می‌شد سرچ
+  // «کاری نکنه».
+  const searchResults = useMemo(() => {
+    if (!query || !query.trim()) return null;
+    const q = query.trim().toLowerCase();
+    const qFa = query.trim();
+    const results = [];
+    data.forEach((tp) => {
+      const meta = TOPIC_META[tp.topic] || { fa: tp.topic, icon: "💬" };
+      (tp.scenarios || []).forEach((sc) => {
+        const scenarioHit = sc.scenario && sc.scenario.toLowerCase().includes(q);
+        [["speakerA", "hear"], ["speakerB", "say"]].forEach(([key, variant]) => {
+          (sc[key] || []).forEach((it) => {
+            const hit =
+              scenarioHit ||
+              (it.en && it.en.toLowerCase().includes(q)) ||
+              (it.fa && it.fa.includes(qFa));
+            if (hit) {
+              results.push({ topicFa: meta.fa, icon: meta.icon, scenario: sc.scenario, item: it, variant });
+            }
+          });
+        });
+      });
+    });
+    return results;
+  }, [query, data]);
+
+  if (searchResults) {
+    return (
+      <div>
+        {searchResults.length === 0 ? (
+          <div style={{ textAlign: "center", color: colors.inkSoft, padding: 30, fontSize: 13.5, fontFamily: fontFa }}>{t.noResults}</div>
+        ) : (
+          searchResults.map((r, i) => (
+            <div key={i} style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11.5, color: colors.inkSoft, fontFamily: fontFa, marginBottom: 5 }}>
+                {r.icon} {r.topicFa} · {r.scenario}
+              </div>
+              <ConversationBox
+                items={[r.item]}
+                variant={r.variant}
+                label={r.variant === "hear" ? t.youHear : t.youSay}
+                nativeLang={nativeLang}
+                aiSettings={aiSettings}
+                ClickableSentence={ClickableSentence}
+                SpeakButton={SpeakButton}
+                targetLangs={targetLangs}
+                translateFree={translateFree}
+              />
+            </div>
+          ))
+        )}
+      </div>
+    );
+  }
 
   return (
     <div>

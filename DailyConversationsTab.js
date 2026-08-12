@@ -126,22 +126,26 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
     };
   }, [text, langCode, knownFa]);
   if (!value && !loading) return null;
-  return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginTop: 4 } }, /* @__PURE__ */ React.createElement(
-    "span",
-    {
-      style: {
-        fontFamily: fontFa,
-        fontSize: 9,
-        fontWeight: 700,
-        color: colors.gold,
-        border: `1px solid ${colors.goldSoft}`,
-        borderRadius: 6,
-        padding: "0px 5px",
-        flexShrink: 0
-      }
-    },
-    langCode.toUpperCase()
-  ), loading ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: colors.inkSoft } }, "...") : /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, color: translationColor, fontWeight: 800, fontFamily: fontFa } }, value), value && SpeakButton && /* @__PURE__ */ React.createElement(SpeakButton, { text: value, code: langCode, color: translationColor }));
+  return (
+    // بلندگوی ترجمه هم سمت راستِ ردیف باشه: کانتینر رو صریحاً rtl می‌کنیم و
+    // بلندگو رو اول می‌ذاریم (سرِ محورِ اصلی در rtl یعنی لبه‌ی راست).
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginTop: 4, direction: "rtl" } }, value && SpeakButton && /* @__PURE__ */ React.createElement(SpeakButton, { text: value, code: langCode, color: translationColor }), /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        style: {
+          fontFamily: fontFa,
+          fontSize: 9,
+          fontWeight: 700,
+          color: colors.gold,
+          border: `1px solid ${colors.goldSoft}`,
+          borderRadius: 6,
+          padding: "0px 5px",
+          flexShrink: 0
+        }
+      },
+      langCode.toUpperCase()
+    ), loading ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: colors.inkSoft } }, "...") : /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, color: translationColor, fontWeight: 800, fontFamily: fontFa } }, value))
+  );
 }
 function ConversationBox({ items, variant, label, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree }) {
   const isHear = variant === "hear";
@@ -177,24 +181,13 @@ function ConversationBox({ items, variant, label, nativeLang, aiSettings, Clicka
         style: {
           display: "flex",
           alignItems: "flex-start",
-          justifyContent: "space-between",
           gap: 8,
           padding: "9px 12px",
-          borderBottom: i < items.length - 1 ? `1px dashed ${colors.cardBorder}` : "none"
+          borderBottom: i < items.length - 1 ? `1px dashed ${colors.cardBorder}` : "none",
+          direction: "rtl"
         }
       },
-      /* @__PURE__ */ React.createElement("div", { style: { direction: "ltr", textAlign: "left", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 16, fontWeight: 800, color: mainTextColor, fontFamily: fontLatin } }, ClickableSentence ? /* @__PURE__ */ React.createElement(ClickableSentence, { text: it.en, langCode: "en", nativeLang, aiSettings }) : it.en), langCodes.map((code) => /* @__PURE__ */ React.createElement(
-        LineTranslation,
-        {
-          key: code,
-          text: it.en,
-          langCode: code,
-          knownFa: it.fa,
-          aiSettings,
-          translateFree,
-          SpeakButton
-        }
-      ))),
+      SpeakButton && /* @__PURE__ */ React.createElement(SpeakButton, { text: it.en, code: "en", color: colors.teal }),
       /* @__PURE__ */ React.createElement(
         "span",
         {
@@ -211,7 +204,18 @@ function ConversationBox({ items, variant, label, nativeLang, aiSettings, Clicka
         },
         it.level
       ),
-      SpeakButton && /* @__PURE__ */ React.createElement(SpeakButton, { text: it.en, code: "en", color: colors.teal })
+      /* @__PURE__ */ React.createElement("div", { style: { direction: "ltr", textAlign: "left", flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 16, fontWeight: 800, color: mainTextColor, fontFamily: fontLatin } }, ClickableSentence ? /* @__PURE__ */ React.createElement(ClickableSentence, { text: it.en, langCode: "en", nativeLang, aiSettings }) : it.en), langCodes.map((code) => /* @__PURE__ */ React.createElement(
+        LineTranslation,
+        {
+          key: code,
+          text: it.en,
+          langCode: code,
+          knownFa: it.fa,
+          aiSettings,
+          translateFree,
+          SpeakButton
+        }
+      )))
     ))
   ));
 }
@@ -246,6 +250,43 @@ function DailyConversationsTab({ data, query, nativeLang, aiSettings, ClickableS
     });
   }, [query, dataByTopic]);
   const activeTopicData = activeTopic ? dataByTopic[activeTopic] : null;
+  const searchResults = useMemo(() => {
+    if (!query || !query.trim()) return null;
+    const q = query.trim().toLowerCase();
+    const qFa = query.trim();
+    const results = [];
+    data.forEach((tp) => {
+      const meta = TOPIC_META[tp.topic] || { fa: tp.topic, icon: "💬" };
+      (tp.scenarios || []).forEach((sc) => {
+        const scenarioHit = sc.scenario && sc.scenario.toLowerCase().includes(q);
+        [["speakerA", "hear"], ["speakerB", "say"]].forEach(([key, variant]) => {
+          (sc[key] || []).forEach((it) => {
+            const hit = scenarioHit || it.en && it.en.toLowerCase().includes(q) || it.fa && it.fa.includes(qFa);
+            if (hit) {
+              results.push({ topicFa: meta.fa, icon: meta.icon, scenario: sc.scenario, item: it, variant });
+            }
+          });
+        });
+      });
+    });
+    return results;
+  }, [query, data]);
+  if (searchResults) {
+    return /* @__PURE__ */ React.createElement("div", null, searchResults.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: colors.inkSoft, padding: 30, fontSize: 13.5, fontFamily: fontFa } }, t.noResults) : searchResults.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: colors.inkSoft, fontFamily: fontFa, marginBottom: 5 } }, r.icon, " ", r.topicFa, " · ", r.scenario), /* @__PURE__ */ React.createElement(
+      ConversationBox,
+      {
+        items: [r.item],
+        variant: r.variant,
+        label: r.variant === "hear" ? t.youHear : t.youSay,
+        nativeLang,
+        aiSettings,
+        ClickableSentence,
+        SpeakButton,
+        targetLangs,
+        translateFree
+      }
+    ))));
+  }
   return /* @__PURE__ */ React.createElement("div", null, !activeTopic && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 } }, filteredMeta.map((m) => /* @__PURE__ */ React.createElement(
     TopicCard,
     {
