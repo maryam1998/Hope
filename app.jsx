@@ -4981,15 +4981,20 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     };
   }, [translationLangs, paragraphs, storyLang]);
 
-  const filteredVocab = VOCAB.filter((v) => {
-    const w = v.t[storyLang] || v.t.en || "";
-    // لغتی که کاربر همین الان برای این داستان انتخاب کرده، دیگه تو لیستِ
-    // پیشنهادها نمونه — همین شلوغیِ چیپ‌ها رو کم می‌کنه (لغتِ انتخاب‌شده رو
-    // بالاتر، تو ردیفِ «لغاتِ انتخاب‌شده» می‌بینه، نیازی به دیدنش دوبار نیست).
-    if (selectedWords.includes(w)) return false;
-    const wLower = w.toLowerCase();
-    return !vocabQuery || wLower.includes(vocabQuery.toLowerCase()) || v.meaningFa.includes(vocabQuery);
-  });
+  // طبق درخواستِ کاربر: دیگه پیش‌فرض (بدون جستجو) هیچ چیپ پیشنهادی‌ای از VOCAB
+  // نشون داده نمی‌شه — قبلاً همیشه کل VOCAB نشون داده می‌شد که خیلی شلوغ بود.
+  // فقط وقتی کاربر واقعاً چیزی تو کادرِ جستجو تایپ کرده، نتیجه می‌آد؛ کادر
+  // حتی بعد از انتخاب‌شدنِ لغت هم (اگه چیزی برای نمایش نمونده) خالی می‌مونه.
+  const filteredVocab = useMemo(() => {
+    const qRaw = vocabQuery.trim();
+    if (!qRaw) return [];
+    const q = qRaw.toLowerCase();
+    return VOCAB.filter((v) => {
+      const w = v.t[storyLang] || v.t.en || "";
+      if (selectedWords.includes(w)) return false;
+      return w.toLowerCase().includes(q) || v.meaningFa.includes(qRaw);
+    });
+  }, [vocabQuery, storyLang, selectedWords]);
 
   // نتایجِ جستجو از تب‌های «لغات»، «لغات و اخبار»، «مکالمه و روزمره» و
   // «مکالمات روزمره» — فقط وقتی کاربر واقعاً چیزی تایپ کرده (چون این
@@ -5016,17 +5021,16 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     return results;
   }, [vocabQuery]);
 
-  // لغاتِ ذخیره‌شده‌ی همین زبانِ داستان — همیشه (نه فقط موقعِ جستجو) به‌شکلِ
-  // چیپ نشون داده می‌شن تا کاربر لازم نباشه برای استفاده‌ی دوباره از یه
-  // لغتِ قبلاً ذخیره‌شده به تبِ «لغات ذخیره‌شده» بره؛ با تایپ‌کردن هم فیلتر
-  // می‌شن، درست مثل بقیه‌ی منبع‌ها.
+  // طبق همون درخواست: لغاتِ ذخیره‌شده هم دیگه به‌طور پیش‌فرض (بدون جستجو)
+  // نشون داده نمی‌شن — فقط با تایپ‌کردن ظاهر می‌شن، درست مثل بقیه‌ی منبع‌ها.
   const matchingSavedWords = useMemo(() => {
     const qRaw = vocabQuery.trim();
+    if (!qRaw) return [];
     const q = qRaw.toLowerCase();
     return savedWordsForLang.filter((e) => {
       // همینجا هم لغتِ از قبل انتخاب‌شده رو مخفی می‌کنیم، همون دلیلِ بالا.
       if (selectedWords.includes(e.word)) return false;
-      return !qRaw || e.word.toLowerCase().includes(q) || (e.meaning && e.meaning.includes(qRaw));
+      return e.word.toLowerCase().includes(q) || (e.meaning && e.meaning.includes(qRaw));
     });
   }, [vocabQuery, savedWordsForLang, selectedWords]);
 
@@ -5749,8 +5753,8 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
             );
           })}
 
-          {/* لغاتِ ذخیره‌شده‌ی همین زبان — چه با جستجو، چه بدون جستجو (برای
-              استفاده‌ی سریعِ دوباره) */}
+          {/* لغاتِ ذخیره‌شده‌ی همین زبان — فقط وقتی کاربر جستجو می‌کنه (طبق
+              درخواست، دیگه به‌طور پیش‌فرض نشون داده نمی‌شن). */}
           {matchingSavedWords.map((e) => {
             const active = selectedWords.includes(e.word);
             return (
@@ -8540,15 +8544,7 @@ function WordTargetTranslation({ word, langCode, abbr, knownText, nativeLang, ai
   }, [word, langCode, knownText]);
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
-      {text ? (
-        <>
-          <p style={{ fontSize: 14, fontWeight: 700, color: colors.inkSoft }}>{text}</p>
-          <SpeakButton text={text} code={langCode} color={colors.teal} />
-        </>
-      ) : (
-        <p style={{ fontSize: 12, color: colors.inkSoft }}>در حال ترجمه...</p>
-      )}
+    <div style={{ display: "flex", alignItems: "center", gap: 8, direction: "ltr" }}>
       <span
         style={{
           fontFamily: fontFa,
@@ -8563,6 +8559,14 @@ function WordTargetTranslation({ word, langCode, abbr, knownText, nativeLang, ai
       >
         {abbr}
       </span>
+      {text ? (
+        <>
+          <p style={{ flex: 1, fontSize: 14, fontWeight: 700, color: colors.inkSoft }}>{text}</p>
+          <SpeakButton text={text} code={langCode} color={colors.teal} edge="end" />
+        </>
+      ) : (
+        <p style={{ flex: 1, fontSize: 12, color: colors.inkSoft }}>در حال ترجمه...</p>
+      )}
     </div>
   );
 }

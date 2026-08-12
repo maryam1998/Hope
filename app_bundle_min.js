@@ -3712,12 +3712,16 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       cancelled = true;
     };
   }, [translationLangs, paragraphs, storyLang]);
-  const filteredVocab = VOCAB.filter((v) => {
-    const w = v.t[storyLang] || v.t.en || "";
-    if (selectedWords.includes(w)) return false;
-    const wLower = w.toLowerCase();
-    return !vocabQuery || wLower.includes(vocabQuery.toLowerCase()) || v.meaningFa.includes(vocabQuery);
-  });
+  const filteredVocab = useMemo(() => {
+    const qRaw = vocabQuery.trim();
+    if (!qRaw) return [];
+    const q = qRaw.toLowerCase();
+    return VOCAB.filter((v) => {
+      const w = v.t[storyLang] || v.t.en || "";
+      if (selectedWords.includes(w)) return false;
+      return w.toLowerCase().includes(q) || v.meaningFa.includes(qRaw);
+    });
+  }, [vocabQuery, storyLang, selectedWords]);
   const otherTabMatches = useMemo(() => {
     const qRaw = vocabQuery.trim();
     if (!qRaw) return [];
@@ -3740,10 +3744,11 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   }, [vocabQuery]);
   const matchingSavedWords = useMemo(() => {
     const qRaw = vocabQuery.trim();
+    if (!qRaw) return [];
     const q = qRaw.toLowerCase();
     return savedWordsForLang.filter((e) => {
       if (selectedWords.includes(e.word)) return false;
-      return !qRaw || e.word.toLowerCase().includes(q) || e.meaning && e.meaning.includes(qRaw);
+      return e.word.toLowerCase().includes(q) || e.meaning && e.meaning.includes(qRaw);
     });
   }, [vocabQuery, savedWordsForLang, selectedWords]);
   const [translatingPick, setTranslatingPick] = useState(null);
@@ -6353,22 +6358,27 @@ function WordTargetTranslation({ word, langCode, abbr, knownText, nativeLang, ai
       cancelled = true;
     };
   }, [word, langCode, knownText]);
-  return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" } }, text ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, fontWeight: 700, color: colors.inkSoft } }, text), /* @__PURE__ */ React.createElement(SpeakButton, { text, code: langCode, color: colors.teal })) : /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft } }, "در حال ترجمه..."), /* @__PURE__ */ React.createElement(
-    "span",
-    {
-      style: {
-        fontFamily: fontFa,
-        fontSize: 10,
-        fontWeight: 700,
-        color: colors.gold,
-        border: `1px solid ${colors.goldSoft}`,
-        borderRadius: 6,
-        padding: "1px 5px",
-        flexShrink: 0
-      }
-    },
-    abbr
-  ));
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    { style: { display: "flex", alignItems: "center", gap: 8, direction: "ltr" } },
+    /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        style: {
+          fontFamily: fontFa,
+          fontSize: 10,
+          fontWeight: 700,
+          color: colors.gold,
+          border: `1px solid ${colors.goldSoft}`,
+          borderRadius: 6,
+          padding: "1px 5px",
+          flexShrink: 0
+        }
+      },
+      abbr
+    ),
+    text ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { flex: 1, fontSize: 14, fontWeight: 700, color: colors.inkSoft } }, text), /* @__PURE__ */ React.createElement(SpeakButton, { text, code: langCode, color: colors.teal, edge: "end" })) : /* @__PURE__ */ React.createElement("p", { style: { flex: 1, fontSize: 12, color: colors.inkSoft } }, "در حال ترجمه...")
+  );
 }
 function WordExamples({ word, langCode, meaningNative, nativeLang, aiSettings }) {
   const [examples, setExamples] = useState(() => loadWordExamples(word, langCode));

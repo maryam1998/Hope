@@ -155,10 +155,12 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
   if (!value && !loading) return null;
 
   return (
-    // طبق درخواست: این ردیف هم مثل متنِ اصلی، چپ‌به‌راست نوشته می‌شه (بلندگو
-    // و بج زبان سمتِ چپ، متنِ ترجمه بعدش) — even فارسی/عربی این‌جا LTR چیده می‌شه.
+    // طبق درخواست: این ردیف هم مثل متنِ اصلی چپ‌به‌راست نوشته می‌شه، ولی
+    // بلندگو طبق قانونِ کلیِ خودِ SpeakButton («همیشه سمت راستِ ردیف») باید
+    // edge="end" بگیره — وگرنه چون ردیف رو ltr کردیم ولی این پراپ رو ندادیم،
+    // بلندگو با فرضِ پیش‌فرضِ راست‌چین می‌رفت سمت چپ (دقیقاً برعکسِ خواسته).
     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, direction: "ltr" }}>
-      {value && SpeakButton && <SpeakButton text={value} code={langCode} color={translationColor} />}
+      {value && SpeakButton && <SpeakButton text={value} code={langCode} color={translationColor} edge="end" />}
       <span
         style={{
           fontFamily: fontFa,
@@ -174,9 +176,9 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
         {langCode.toUpperCase()}
       </span>
       {loading ? (
-        <span style={{ fontSize: 12, color: colors.inkSoft }}>...</span>
+        <span style={{ fontSize: 12, color: colors.inkSoft, flex: 1 }}>...</span>
       ) : (
-        <span style={{ fontSize: 12.5, color: translationColor, fontWeight: 800, fontFamily: fontFa }}>{value}</span>
+        <span style={{ fontSize: 12.5, color: translationColor, fontWeight: 800, fontFamily: fontFa, flex: 1 }}>{value}</span>
       )}
     </div>
   );

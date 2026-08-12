@@ -127,9 +127,9 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
   }, [text, langCode, knownFa]);
   if (!value && !loading) return null;
   return (
-    // بلندگوی ترجمه هم سمت راستِ ردیف باشه: کانتینر رو صریحاً rtl می‌کنیم و
-    // بلندگو رو اول می‌ذاریم (سرِ محورِ اصلی در rtl یعنی لبه‌ی راست).
-    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginTop: 4, direction: "ltr" } }, value && SpeakButton && /* @__PURE__ */ React.createElement(SpeakButton, { text: value, code: langCode, color: translationColor }), /* @__PURE__ */ React.createElement(
+    // بلندگو edge="end" می‌گیره چون این ردیف صریحاً ltr شده؛ بدونِ این
+    // پراپ، بلندگو با فرضِ پیش‌فرضِ راست‌چین سمتِ چپ می‌رفت (برعکسِ خواسته).
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginTop: 4, direction: "ltr" } }, value && SpeakButton && /* @__PURE__ */ React.createElement(SpeakButton, { text: value, code: langCode, color: translationColor, edge: "end" }), /* @__PURE__ */ React.createElement(
       "span",
       {
         style: {
@@ -144,7 +144,7 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
         }
       },
       langCode.toUpperCase()
-    ), loading ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: colors.inkSoft } }, "...") : /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, color: translationColor, fontWeight: 800, fontFamily: fontFa } }, value))
+    ), loading ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: colors.inkSoft, flex: 1 } }, "...") : /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, color: translationColor, fontWeight: 800, fontFamily: fontFa, flex: 1 } }, value))
   );
 }
 function ConversationBox({ items, variant, label, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree }) {
