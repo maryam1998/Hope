@@ -797,7 +797,7 @@ const speechController = (() => {
     playOnlineChunkUrls(onlineTtsUrls(onlineChunks[idx], onlineLangForTts), 0, idx);
   }
 
-  function speakOnline(text, langCodeForTts, startWordIndex, forceSingle) {
+  function speakOnline(text, langCodeForTts, startWordIndex, forceSingle, forceLoop) {
     stopOnlineAudio();
     mode = "online";
     fullText = text;
@@ -805,7 +805,7 @@ const speechController = (() => {
     onlineChunks = splitForOnlineTts(text);
     onlineLangForTts = langCodeForTts;
     singleShot = !!forceSingle;
-    remaining = singleShot ? 0 : globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
+    remaining = singleShot ? 0 : forceLoop ? Infinity : globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
     // اگه یه نقطه‌ی شروعِ غیرصفر خواسته شده (مثلاً ادامه‌ی پخش بعد از عوض‌شدنِ
     // حالتِ نمایش ترجمه)، تقریباً همون تکه‌ی آنلاین رو پیدا کن و از اونجا
     // شروع کن — نه از اولِ متن.
@@ -1032,6 +1032,11 @@ const speechController = (() => {
       try {
         if (!text) return "unsupported";
         const forceSingle = !!(options && options.singlePass);
+        // وقتی loop=true باشه (مثلاً دکمه‌ی «خواندن کل متن» روی پلیر)، این
+        // پخشِ خاص صرف‌نظر از تنظیمِ تکرارِ سراسری، تا وقتی خودِ کاربر دوباره
+        // نزنه بی‌نهایت تکرار می‌شه — لازم نیست کاربر برای ادامه‌ی خوندن
+        // دوباره کلیک کنه.
+        const forceLoop = !!(options && options.loop);
         const hasSynthesis = "speechSynthesis" in window;
 
         let newLocale = TTS_LOCALE[code] || "en-US";
@@ -1100,7 +1105,7 @@ const speechController = (() => {
           words = tokenize(text);
           status = "playing";
           singleShot = forceSingle;
-          remaining = forceSingle ? 0 : globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
+          remaining = forceSingle ? 0 : forceLoop ? Infinity : globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
           // اگه شماره‌ی کلمه‌ی شروع مشخص شده (مثلاً برای ادامه‌ی پخش از همون‌جا
           // بعد از عوض‌شدنِ حالتِ نمایش ترجمه)، از همون‌جا شروع کن؛ وگرنه از اول.
           const startIdx = Number.isInteger(startWordIndex)
@@ -1113,7 +1118,7 @@ const speechController = (() => {
         // مسیر جایگزین (آنلاین رایگان)
         cancelSpeech();
         const onlineLang = code === "zh" ? "zh-CN" : code;
-        speakOnline(text, onlineLang, startWordIndex, forceSingle);
+        speakOnline(text, onlineLang, startWordIndex, forceSingle, forceLoop);
         return "online-fallback";
       } catch (e) {
         status = "idle";
@@ -1167,93 +1172,34 @@ const speechController = (() => {
 })();
 
 // ---------------------------------------------------------------------------
-// Auto-play on scroll — used by PhraseList / WordList / VocabList. When
-// turned on, it drives the reading itself: scrolls the next card to the
-// center of the screen, plays its audio, waits for that to finish, then
-// moves to the next one — hands-free, one after another, down the whole
-// list. Toggling it off pauses (stops the audio, remembers the position);
-// toggling it back on resumes from that same spot instead of starting over.
+// اسکرول خودکار — استفاده‌شده توسط PhraseList / WordList / VocabList. خودش
+// هیچ صدایی رو پخش نمی‌کنه و شروعش نمی‌کنه؛ فقط وقتی روشنه، دنبالِ هر چیزی
+// که همین الان از طریقِ 🔊ِ خودِ آیتم (یا هر جای دیگه‌ای) در حالِ پخشه
+// می‌گرده، و کارتِ مربوطه رو خودکار وسطِ صفحه نگه می‌داره — تا کاربر خطش رو
+// گم نکنه. پخش/توقف و تکرار کاملاً دستِ خودِ دکمه‌های 🔊 می‌مونه.
 // ---------------------------------------------------------------------------
 function useAutoplayOnScroll(enabled, items) {
   const nodeMapRef = useRef(new Map()); // id -> DOM node
-  const indexRef = useRef(0); // resume position, survives pause/resume
-  const genRef = useRef(0); // bumped to cancel any in-flight sequence
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
   useEffect(() => {
-    if (!enabled) {
-      speechController.stop();
-      genRef.current++;
-      return;
-    }
-    const myGen = ++genRef.current;
-    let unsub = null;
-
-    function playAt(i) {
-      if (myGen !== genRef.current) return;
+    if (!enabled) return;
+    const update = (state) => {
+      if (!state.key || state.status === "idle") return;
       const list = itemsRef.current;
-      if (i >= list.length) {
-        // به انتهای لیست رسیدیم. اگه تکرار سراسری روی «بی‌نهایت»ه، به‌جای
-        // متوقف‌شدن، از ابتدای لیست دوباره شروع کن — یعنی کل متن (صرف‌نظر
-        // از اینکه جمله‌به‌جمله/پاراگراف‌به‌پاراگراف/بدون‌تقسیم نمایش داده
-        // می‌شه) تا بی‌نهایت پخش و اسکرول بشه، نه اینکه رو یه آیتم گیر کنه.
-        indexRef.current = 0; // reached the end — next resume starts over
-        if (list.length && speechController.getGlobalRepeatSetting() === "inf") {
-          playAt(0);
-        }
-        return;
-      }
-      indexRef.current = i;
-      const item = list[i];
-      const node = nodeMapRef.current.get(String(item.id));
+      const match = list.find(
+        (it) => it.text && `${TTS_LOCALE[it.code] || "en-US"}::${it.text}` === state.key
+      );
+      if (!match) return;
+      const node = nodeMapRef.current.get(String(match.id));
       if (node && node.scrollIntoView) {
         node.scrollIntoView({ behavior: "smooth", block: "center" });
       }
-      window.setTimeout(() => {
-        if (myGen !== genRef.current) return;
-        if (!item.text) {
-          playAt(i + 1);
-          return;
-        }
-        let started = false;
-        if (unsub) unsub();
-        unsub = speechController.subscribe((state) => {
-          if (myGen !== genRef.current) return;
-          if (state.status === "playing") started = true;
-          if (state.status === "idle" && started) {
-            if (unsub) {
-              unsub();
-              unsub = null;
-            }
-            playAt(i + 1);
-          }
-        });
-        // وقتی تکرار سراسری «بی‌نهایت»ه، هر آیتم فقط یک‌بار خونده بشه — وگرنه
-        // پخشِ همین یک آیتم تا ابد تو خودش می‌چرخه و اسکرول هیچ‌وقت به آیتم
-        // بعدی نمی‌رسه (باگِ اصلیِ گیرکردنِ پلیر). حلقه‌ی بی‌نهایتِ واقعی رو
-        // همون برگشتن به playAt(0) بالا، بعد از تمومِ کل لیست، انجام می‌ده.
-        const singlePass = speechController.getGlobalRepeatSetting() === "inf";
-        speechController.toggle(item.text, item.code, undefined, singlePass ? { singlePass: true } : undefined);
-      }, 450);
-    }
-
-    playAt(indexRef.current);
-
-    return () => {
-      genRef.current++;
-      if (unsub) unsub();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    update(speechController.getState());
+    return speechController.subscribe(update);
   }, [enabled]);
-
-  // If the visible list itself changes (search/level filter), restart from
-  // the top next time autoplay is (re)started — the old index no longer
-  // means anything against a different list.
-  useEffect(() => {
-    indexRef.current = 0;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items.length]);
 
   const registerRef = (id) => (node) => {
     const key = String(id);
@@ -1269,8 +1215,8 @@ function AutoplayToggle({ enabled, onToggle, color }) {
   return (
     <button
       onClick={onToggle}
-      aria-label="پخش خودکار هنگام اسکرول"
-      title={enabled ? "پخش خودکار روشن است — بزن خاموش کن" : "با اسکرول، هر کارت خودکار خونده بشه"}
+      aria-label="اسکرول خودکار"
+      title={enabled ? "اسکرول خودکار روشن است — بزن خاموش کن" : "هر چی با 🔊 داره خونده می‌شه، خودکار وسط صفحه بیار"}
       className="flex items-center gap-1"
       style={{
         fontFamily: fontFa,
@@ -1284,7 +1230,7 @@ function AutoplayToggle({ enabled, onToggle, color }) {
       }}
     >
       <PlayCircle size={14} />
-      پخش با اسکرول
+      اسکرول خودکار
     </button>
   );
 }
@@ -1736,6 +1682,13 @@ function addTextToStoryPicks(text, langCode) {
 // زبان + خودِ لغت (نرمال‌شده) است؛ هر ورودی می‌تونه چند مثال و ترجمه‌ی
 // هرکدوم به زبان‌های مختلف رو نگه داره.
 const WORD_EXAMPLES_KEY = "phrasebook-word-examples-v1";
+// وقتی مثالی ساخته/ترجمه می‌شه دیسپچ می‌شه — هم برای رفرش کامپوننت‌هایی که
+// نشونش می‌دن، هم برای اینکه افکتِ ذخیره‌ی خودکار (پایینِ فایل) بفهمه یه
+// تغییری افتاده و باید نسخه‌ی ابری رو هم به‌روز کنه — دقیقاً همون الگویی که
+// برای لغاتِ ذخیره‌شده/یادداشت‌های گرامر استفاده شده، چون قبلاً این مثال‌ها
+// فقط توی localStorage همین گوشی می‌موندن و با پاک‌شدنِ کش یا عوض‌کردنِ
+// دستگاه از دست می‌رفتن.
+const WORD_EXAMPLES_CHANGED_EVENT = "phrasebook:wordExamplesChanged";
 
 function loadAllWordExamples() {
   try {
@@ -1766,6 +1719,7 @@ function saveWordExample(word, langCode, exampleText) {
   all[key] = list;
   try {
     window.localStorage.setItem(WORD_EXAMPLES_KEY, JSON.stringify(all));
+    window.dispatchEvent(new Event(WORD_EXAMPLES_CHANGED_EVENT));
   } catch {}
   return entry;
 }
@@ -1780,6 +1734,30 @@ function updateWordExampleTranslation(word, langCode, exampleId, targetLangCode,
   all[key] = list;
   try {
     window.localStorage.setItem(WORD_EXAMPLES_KEY, JSON.stringify(all));
+    window.dispatchEvent(new Event(WORD_EXAMPLES_CHANGED_EVENT));
+  } catch {}
+}
+
+// نسخه‌ی ابریِ مثال‌ها رو با نسخه‌ی محلی ادغام می‌کنه (نه جایگزینش) — هر
+// مثالی که یا فقط محلی بود یا فقط ابری، نگه داشته می‌شه؛ چیزی گم نمی‌شه.
+function mergeWordExamplesFromCloud(cloudAll) {
+  if (!cloudAll || typeof cloudAll !== "object") return;
+  const local = loadAllWordExamples();
+  let changed = false;
+  Object.keys(cloudAll).forEach((key) => {
+    const cloudList = Array.isArray(cloudAll[key]) ? cloudAll[key] : [];
+    const localList = local[key] || [];
+    const localIds = new Set(localList.map((e) => e.id));
+    const additions = cloudList.filter((e) => e && e.id && !localIds.has(e.id));
+    if (additions.length) {
+      local[key] = [...localList, ...additions];
+      changed = true;
+    }
+  });
+  if (!changed) return;
+  try {
+    window.localStorage.setItem(WORD_EXAMPLES_KEY, JSON.stringify(local));
+    window.dispatchEvent(new Event(WORD_EXAMPLES_CHANGED_EVENT));
   } catch {}
 }
 
@@ -3247,7 +3225,7 @@ function TabButton({ label, icon: Icon, active, onClick }) {
   );
 }
 
-function SpeakButton({ text, code, color, edge }) {
+function SpeakButton({ text, code, color, edge, forceRepeat }) {
   const locale = TTS_LOCALE[code] || "en-US";
   const myKey = `${locale}::${text}`;
   const [state, setState] = useState(() => speechController.getState());
@@ -3260,7 +3238,7 @@ function SpeakButton({ text, code, color, edge }) {
 
   const handleToggle = (e) => {
     e.stopPropagation();
-    const result = speechController.toggle(text, code);
+    const result = speechController.toggle(text, code, undefined, forceRepeat ? { loop: true } : undefined);
     // "no-voice" دیگه پیش نمی‌آد چون خودکار می‌ره سراغ سرویس آنلاین رایگان
     // (result === "online-fallback")؛ فقط وقتی هیچ راهی — نه گوشی نه آنلاین —
     // ممکن نبود، خطا نشون می‌دیم.
@@ -4737,7 +4715,7 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
   );
 }
 
-function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange }) {
+function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, autoScrollActive }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
   // languages) — no separate picker duplicated here.
@@ -4826,8 +4804,66 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // display:none حتی وقتی تب «داستان‌ساز» فعال نیست هم mount می‌مونه، پس
   // اگه یه داستانِ ذخیره‌شده‌ی قدیمی/ناقص (بدون paragraph.sentences) باز
   // بشه و اینجا کرش کنه، کل اپ (نه فقط این تب) قفل می‌شه.
-  const allSentences = paragraphs.flatMap((p) => p.sentences || []);
+  // هر جمله رو با شماره‌ی پاراگراف/جمله‌ش (pi/si) نگه می‌داریم — هم برای
+  // ساختنِ متنِ کامل، هم برای اینکه بعداً بتونیم بفهمیم موقع پخشِ «کل متن»
+  // از روی پلیر، الان دقیقاً کدوم جمله داره خونده می‌شه (برای هایلایت/اسکرول).
+  const allSentences = paragraphs.flatMap((p, pi) =>
+    (p.sentences || []).map((s, si) => ({ ...s, _pi: pi, _si: si }))
+  );
   const fullStoryText = allSentences.map((s) => s?.text || "").join(" ");
+
+  // آفستِ کاراکتریِ شروعِ هر جمله داخلِ fullStoryText — دقیقاً باید با نحوه‌ی
+  // ساختنِ fullStoryText بالا (join با یک فاصله) هماهنگ باشه.
+  const sentenceOffsets = useMemo(() => {
+    let offset = 0;
+    return allSentences.map((s, idx) => {
+      const start = offset;
+      const text = s?.text || "";
+      offset += text.length;
+      if (idx < allSentences.length - 1) offset += 1; // فاصله‌ی join(" ")
+      return { pi: s._pi, si: s._si, start, end: start + text.length };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullStoryText]);
+
+  // جمله‌ای که همین الان، در حینِ پخشِ «کل متن» از روی پلیر، داره خونده
+  // می‌شه — برای هایلایت‌کردنِ خط و (اگه اسکرولِ خودکار فعال باشه) پیداکردنِ
+  // خط. وقتی پخشِ فعلی چیز دیگه‌ای غیر از کلِ داستانه (مثلاً کاربر خودش رو
+  // یک جمله‌ی خاص زده)، این null می‌مونه — یعنی فقط پخشِ سراسری هایلایت می‌شه.
+  const [activeStorySentence, setActiveStorySentence] = useState(null); // {pi, si} | null
+  useEffect(() => {
+    const myKey = `${TTS_LOCALE[storyLang] || "en-US"}::${fullStoryText}`;
+    const update = (state) => {
+      if (!fullStoryText || state.key !== myKey || state.status === "idle") {
+        setActiveStorySentence(null);
+        return;
+      }
+      const offset = speechController.getCharOffset();
+      let found = sentenceOffsets[0] || null;
+      for (const s of sentenceOffsets) {
+        if (offset >= s.start) found = s;
+        else break;
+      }
+      setActiveStorySentence(found ? { pi: found.pi, si: found.si } : null);
+    };
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [fullStoryText, storyLang, sentenceOffsets]);
+
+  // موقع پخشِ سراسریِ داستان، اگه اسکرولِ خودکار (همون دکمه‌ی کنارِ پلیر)
+  // فعال باشه، خطِ در حالِ خواندن رو خودکار وسطِ صفحه نگه می‌داره — کاربر
+  // خطش رو گم نمی‌کنه.
+  useEffect(() => {
+    if (!autoScrollActive || !activeStorySentence) return;
+    const node =
+      granularity === "sentence"
+        ? sentenceElsRef.current[`${activeStorySentence.pi}-${activeStorySentence.si}`]
+        : paragraphElsRef.current[activeStorySentence.pi];
+    if (node && node.scrollIntoView) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoScrollActive, activeStorySentence?.pi, activeStorySentence?.si, granularity]);
 
   // هر بار متنِ داستان یا زبانش عوض می‌شه، به بالا (App) گزارش می‌دیم تا
   // دکمه‌ی 🔊ِ روی نوارِ پلیر — همون‌جایی که قبلاً بالای این باکس بود —
@@ -6049,8 +6085,26 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                 <div key={pi} style={{ borderBottom: pi < paragraphs.length - 1 ? `1px dashed ${colors.cardBorder}` : "none", paddingBottom: 14 }}>
                   {granularity === "sentence" ? (
                     <div className="flex flex-col gap-3">
-                      {(p.sentences || []).map((s, si) => (
-                        <div key={si} ref={(el) => (sentenceElsRef.current[`${pi}-${si}`] = el)}>
+                      {(p.sentences || []).map((s, si) => {
+                        const isReadingNow =
+                          activeStorySentence && activeStorySentence.pi === pi && activeStorySentence.si === si;
+                        return (
+                        <div
+                          key={si}
+                          ref={(el) => (sentenceElsRef.current[`${pi}-${si}`] = el)}
+                          style={
+                            isReadingNow
+                              ? {
+                                  backgroundColor: "#FFF6D9",
+                                  borderRadius: 8,
+                                  boxShadow: `inset 3px 0 0 ${colors.gold}`,
+                                  padding: "4px 6px",
+                                  margin: "-4px -6px",
+                                  transition: "background-color 0.2s ease",
+                                }
+                              : undefined
+                          }
+                        >
                           <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                             <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
                             <p
@@ -6122,10 +6176,25 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                               );
                             })}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
-                    <div ref={(el) => (paragraphElsRef.current[pi] = el)}>
+                    <div
+                      ref={(el) => (paragraphElsRef.current[pi] = el)}
+                      style={
+                        activeStorySentence && activeStorySentence.pi === pi
+                          ? {
+                              backgroundColor: "#FFF6D9",
+                              borderRadius: 8,
+                              boxShadow: `inset 3px 0 0 ${colors.gold}`,
+                              padding: "4px 6px",
+                              margin: "-4px -6px",
+                              transition: "background-color 0.2s ease",
+                            }
+                          : undefined
+                      }
+                    >
                       <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                         <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
                         <p
@@ -7365,6 +7434,25 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     return extras.length ? [...extras, ...WORDS_AZ] : WORDS_AZ;
   }, [savedWordsVersion]);
 
+  // لغاتی که کاربر با ⭐ از تب‌های لغات/لغات‌و‌اخبار/مکالمه‌روزمره
+  // علاقه‌مندشون کرده — قبلاً تنها جایی که ذخیره می‌شدن تنظیماتِ داخلی بود
+  // و هیچ‌جا نشون داده نمی‌شدن (ستاره می‌خورد ولی توی تبِ «علاقه‌مندی‌ها»
+  // ظاهر نمی‌شد)؛ حالا همین‌جا، کنارِ عبارت‌های علاقه‌مندشده، نشون داده می‌شن.
+  const favoritedWords = useMemo(() => {
+    const sources = [wordsWithSaved, NEWS_WORDS, DAILY_WORDS];
+    const seen = new Set();
+    const result = [];
+    sources.forEach((list) => {
+      (list || []).forEach((w) => {
+        if (wordFavorites.has(w.id) && !seen.has(w.id)) {
+          seen.add(w.id);
+          result.push(w);
+        }
+      });
+    });
+    return result;
+  }, [wordsWithSaved, wordFavorites]);
+
   // Same idea, but for saved grammar notes (added to the cloud-sync payload
   // below) — bumps whenever a note is added/removed/updated so the debounced
   // save effect actually re-runs and pushes the change to Supabase, not just
@@ -7374,6 +7462,16 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     const bump = () => setGrammarNotesVersion((v) => v + 1);
     window.addEventListener(GRAMMAR_NOTES_CHANGED_EVENT, bump);
     return () => window.removeEventListener(GRAMMAR_NOTES_CHANGED_EVENT, bump);
+  }, []);
+
+  // همون الگو برای مثال‌های ساخته‌شده با هوش مصنوعی — قبلاً فقط توی
+  // localStorage همین گوشی می‌موندن و با پاک‌شدنِ کش گم می‌شدن؛ حالا مثلِ
+  // بقیه‌ی داده‌ها با اکانتِ کاربر روی ابر هم بکاپ می‌گیرن.
+  const [wordExamplesVersion, setWordExamplesVersion] = useState(0);
+  useEffect(() => {
+    const bump = () => setWordExamplesVersion((v) => v + 1);
+    window.addEventListener(WORD_EXAMPLES_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(WORD_EXAMPLES_CHANGED_EVENT, bump);
   }, []);
 
   // --- Load saved progress once, on first mount ---------------------------
@@ -7431,6 +7529,16 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         try {
           window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(saved.grammarNotes));
           window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+        } catch {}
+      }
+    }
+    if (saved.wordExamples) {
+      if (merge) {
+        mergeWordExamplesFromCloud(saved.wordExamples);
+      } else {
+        try {
+          window.localStorage.setItem(WORD_EXAMPLES_KEY, JSON.stringify(saved.wordExamples));
+          window.dispatchEvent(new Event(WORD_EXAMPLES_CHANGED_EVENT));
         } catch {}
       }
     }
@@ -7495,6 +7603,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         backendUrl,
         savedStoryWords: loadSavedStoryWords(),
         grammarNotes: loadGrammarNotes(),
+        wordExamples: loadAllWordExamples(),
       };
       try {
         await storage.set(userStorageKey, JSON.stringify(payload), false);
@@ -7504,7 +7613,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       if (user?.uid) supabaseSaveState(user.uid, payload);
     }, 500);
     return () => clearTimeout(timeout);
-  }, [nativeLang, targetOrder, langPickerOrder, favorites, wordFavorites, boxes, wordStats, savedStories, dictHistory, backendUrl, loaded, cloudChecked, userStorageKey, user?.uid, savedWordsVersion, grammarNotesVersion]);
+  }, [nativeLang, targetOrder, langPickerOrder, favorites, wordFavorites, boxes, wordStats, savedStories, dictHistory, backendUrl, loaded, cloudChecked, userStorageKey, user?.uid, savedWordsVersion, grammarNotesVersion, wordExamplesVersion]);
 
   const toggleTargetLang = (code) => {
     setTargetOrder((prev) => {
@@ -7726,18 +7835,47 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 )}
 
         {tab === "favorites" && (
-          <PhraseList
-            conversation ={conversation .filter((p) => favorites.has(p.id))}
-            nativeLang={nativeLang}
-            targetLangs={targetLangList}
-            favorites={favorites}
-            toggleFavorite={toggleFavorite}
-            query={query}
-            levelFilter={levelFilter}
-            aiSettings={aiSettings}
-            autoplayEnabled={tab === "favorites" && autoScrollPlay}
-            emptyText="هنوز چیزی به علاقه‌مندی‌ها اضافه نکردی. روی ⭐ کنار هر عبارت بزن."
-          />
+          <div className="flex flex-col gap-6">
+            {favorites.size === 0 && favoritedWords.length === 0 ? (
+              <p style={{ color: colors.inkSoft, fontSize: 14, textAlign: "center", marginTop: 40 }}>
+                هنوز چیزی به علاقه‌مندی‌ها اضافه نکردی. روی ⭐ کنار هر عبارت یا لغت بزن.
+              </p>
+            ) : (
+              <>
+                {favorites.size > 0 && (
+                  <PhraseList
+                    conversation ={conversation .filter((p) => favorites.has(p.id))}
+                    nativeLang={nativeLang}
+                    targetLangs={targetLangList}
+                    favorites={favorites}
+                    toggleFavorite={toggleFavorite}
+                    query={query}
+                    levelFilter={levelFilter}
+                    aiSettings={aiSettings}
+                    autoplayEnabled={tab === "favorites" && autoScrollPlay}
+                    emptyText=""
+                  />
+                )}
+                {favoritedWords.length > 0 && (
+                  <div>
+                    <h2 style={{ color: colors.gold, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>لغات</h2>
+                    <WordList
+                      words={favoritedWords}
+                      wordFavorites={wordFavorites}
+                      toggleWordFavorite={toggleWordFavorite}
+                      query={query}
+                      levelFilter={levelFilter}
+                      emptyText=""
+                      nativeLang={nativeLang}
+                      targetLangs={targetLangList}
+                      aiSettings={aiSettings}
+                      autoplayEnabled={tab === "favorites" && autoScrollPlay}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         )}
 
         {tab === "words" && (
@@ -7870,6 +8008,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             aiSettings={aiSettings}
             jumpTo={storyJump}
             onFullTextChange={setStoryPlayerText}
+            autoScrollActive={tab === "story" && autoScrollPlay}
           />
         </div>
       </main>
@@ -7897,7 +8036,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                 فعلاً منبعِ این متن، داستانِ ساخته‌شده تو تبِ داستان‌سازه (قبلاً
                 دکمه‌ش بالای خودِ داستان بود، الان اینجا کنارِ تکرار نشسته). */}
             {tab === "story" && storyPlayerText.text && (
-              <SpeakButton text={storyPlayerText.text} code={storyPlayerText.code} color={colors.teal} />
+              <SpeakButton text={storyPlayerText.text} code={storyPlayerText.code} color={colors.teal} forceRepeat />
             )}
             <SpeedControl color={colors.gold} />
             <AutoplayToggle enabled={autoScrollPlay} onToggle={() => setAutoScrollPlay((v) => !v)} color={colors.teal} />
