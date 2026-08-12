@@ -4769,6 +4769,10 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [submitted, setSubmitted] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
+  // اگه بعد از همه‌ی ریترای‌ها بازم تعداد تکرارِ بعضی لغات دقیقاً برابر
+  // repeatCount نشد، این پیام (غیر-بلاک‌کننده — داستان بازم نمایش داده
+  // می‌شه) به کاربر می‌گه کدوم لغت چند بار واقعاً استفاده شده.
+  const [repeatNotice, setRepeatNotice] = useState("");
   const [showSaved, setShowSaved] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   // لغاتِ ذخیره‌شده‌ی همین زبان — به‌شکلِ چیپ‌های کوچیکِ قابل‌تپ همین‌جا هم
@@ -4989,11 +4993,14 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     const qRaw = vocabQuery.trim();
     if (!qRaw) return [];
     const q = qRaw.toLowerCase();
-    return VOCAB.filter((v) => {
+    const matches = VOCAB.filter((v) => {
       const w = v.t[storyLang] || v.t.en || "";
       if (selectedWords.includes(w)) return false;
       return w.toLowerCase().includes(q) || v.meaningFa.includes(qRaw);
     });
+    // مثل otherTabMatches، سقف می‌ذاریم تا کادر شلوغ نشه — کاربر با
+    // تایپِ دقیق‌تر می‌تونه نتیجه رو محدودتر کنه.
+    return matches.slice(0, 20);
   }, [vocabQuery, storyLang, selectedWords]);
 
   // نتایجِ جستجو از تب‌های «لغات»، «لغات و اخبار»، «مکالمه و روزمره» و
@@ -5027,11 +5034,12 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     const qRaw = vocabQuery.trim();
     if (!qRaw) return [];
     const q = qRaw.toLowerCase();
-    return savedWordsForLang.filter((e) => {
+    const matches = savedWordsForLang.filter((e) => {
       // همینجا هم لغتِ از قبل انتخاب‌شده رو مخفی می‌کنیم، همون دلیلِ بالا.
       if (selectedWords.includes(e.word)) return false;
       return e.word.toLowerCase().includes(q) || (e.meaning && e.meaning.includes(qRaw));
     });
+    return matches.slice(0, 20);
   }, [vocabQuery, savedWordsForLang, selectedWords]);
 
   // لغتی که از یه منبعِ فقط-انگلیسی (لغات/اخبار/مکالمه‌ی روزمره) انتخاب
@@ -5130,6 +5138,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     selectedWords.forEach((w) => ensureSavedStoryWord(w, storyLang));
     setGenerating(true);
     setError("");
+    setRepeatNotice("");
     setParagraphs([]);
     setQuestions([]);
     setAnswers({});
@@ -5192,7 +5201,12 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
         const text = (parsedAttempt.paragraphs || []).flatMap((p) => (p.sentences || []).map((s) => s.text)).join(" ");
         const attemptCounts = selectedWords.map((w) => ({ word: w, count: countWordOccurrences(text, w) }));
         const repDeviation = attemptCounts.reduce((sum, c) => sum + Math.abs(c.count - repeatCount), 0);
-        const offenders = attemptCounts.filter((c) => c.count > repeatCount || c.count < Math.max(1, repeatCount - 2));
+        // قبلاً اینجا تحمل تا ۲ تا کم‌شماری (repeatCount - 2) رو "مشکل" حساب نمی‌کرد،
+        // یعنی مثلاً وقتی کاربر ۸ تا خواسته بود ولی مدل ۶ یا ۷ بار آورده بود، هیچ
+        // ریترای‌ای انجام نمی‌شد و همون نسخه‌ی ناقص به‌عنوان نتیجه‌ی نهایی قبول
+        // می‌شد. چون کاربر دقیقاً همون عدد رو می‌خواد، اینجا باید هر انحرافی
+        // (چه کم چه زیاد) به‌عنوان offender شمرده بشه تا ریترای واقعاً فعال بشه.
+        const offenders = attemptCounts.filter((c) => c.count !== repeatCount);
         // فاصله‌ی تعداد پاراگراف‌ها از بازه‌ی خواسته‌شده (کوتاه/متوسط/بلند) —
         // هر پاراگراف اضافه/کم شمرده می‌شه، وزنِ سنگین‌تری از یه اختلافِ
         // معمولیِ تعداد تکرار می‌گیره چون خودِ ساختارِ داستان رو به هم می‌زنه.
@@ -5211,7 +5225,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
       // دیگه با بازخوردِ دقیق (چند بار واقعاً استفاده شده، چند پاراگراف واقعاً
       // نوشته شده) دوباره امتحان می‌کنیم و در نهایت بهترین نسخه (کمترین
       // فاصله‌ی کل از عددهای درخواستی) رو نگه می‌داریم.
-      for (let attempt = 0; attempt < 2 && (best.offenders.length > 0 || !best.lengthOk); attempt++) {
+      for (let attempt = 0; attempt < 3 && (best.offenders.length > 0 || !best.lengthOk); attempt++) {
         const repDetail = best.counts.map((c) => `"${c.word}": you used it ${c.count} times, but the budget is ${repeatCount}`).join("; ");
         const lengthDetail = best.lengthOk
           ? ""
@@ -5228,6 +5242,14 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
         }
       }
       parsed = best.parsed;
+
+      // بعد از تمومِ ریترای‌ها، اگه هنوزم بعضی لغات دقیقاً به تعدادِ درخواستی
+      // نرسیده بودن، شفاف به کاربر می‌گیم — داستان رو (بهترین نسخه‌ی موجود)
+      // بازم نشون می‌دیم، فقط دیگه ادعا نمی‌کنیم که تکرارها ۱۰۰٪ دقیقن.
+      if (best.offenders && best.offenders.length > 0) {
+        const detail = best.offenders.map((o) => `«${o.word}»: ${o.count} بار`).join("، ");
+        setRepeatNotice(`بعد از چند بار تلاش، تعداد تکرار این لغت‌ها دقیقاً ${repeatCount} نشد — ${detail}. می‌تونی دوباره «بساز داستان» رو بزنی.`);
+      }
 
       const storyParagraphs = parsed.paragraphs || [];
       
@@ -5913,6 +5935,12 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
           >
             تلاش دوباره
           </button>
+        </div>
+      )}
+
+      {repeatNotice && !error && (
+        <div style={{ backgroundColor: "#FFF6E0", border: `1px solid ${colors.gold}`, borderRadius: 10, padding: 12 }}>
+          <p style={{ fontFamily: fontFa, fontSize: 12, color: colors.ink }}>{repeatNotice}</p>
         </div>
       )}
 
