@@ -4737,7 +4737,7 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
   );
 }
 
-function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo }) {
+function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
   // languages) — no separate picker duplicated here.
@@ -4828,6 +4828,15 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // بشه و اینجا کرش کنه، کل اپ (نه فقط این تب) قفل می‌شه.
   const allSentences = paragraphs.flatMap((p) => p.sentences || []);
   const fullStoryText = allSentences.map((s) => s?.text || "").join(" ");
+
+  // هر بار متنِ داستان یا زبانش عوض می‌شه، به بالا (App) گزارش می‌دیم تا
+  // دکمه‌ی 🔊ِ روی نوارِ پلیر — همون‌جایی که قبلاً بالای این باکس بود —
+  // بتونه همین متن رو بخونه. (این کامپوننت با display:none همیشه mount
+  // می‌مونه، پس نیازی به پاک‌کردنش موقعِ خروج از تب نیست؛ نمایشِ دکمه روی
+  // پلیر با چک‌کردنِ تبِ فعال کنترل می‌شه، نه با خالی‌بودنِ این متن.)
+  useEffect(() => {
+    if (onFullTextChange) onFullTextChange({ text: fullStoryText, code: storyLang });
+  }, [fullStoryText, storyLang]);
 
   useEffect(() => {
     setCollections(loadWordCollections().filter((c) => c.langCode === storyLang));
@@ -5998,7 +6007,6 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
               >
                 {justSaved ? <Check size={16} /> : <Bookmark size={16} />}
               </button>
-              <SpeakButton text={fullStoryText} code={storyLang} color={colors.teal} />
             </div>
           </div>
 
@@ -7295,6 +7303,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [dictHistory, setDictHistory] = useState([]);
   const [backendUrl, setBackendUrl] = useState("");
   const [storyJump, setStoryJump] = useState(null); // { lang, token } — set when jumping in from Saved Words
+  // متنِ کاملِ داستانِ ساخته‌شده در تبِ داستان‌ساز — برای این‌که دکمه‌ی
+  // 🔊ِ «خواندنِ کل متن» روی نوارِ پلیر (پایینِ صفحه) بتونه بدونِ داشتنِ
+  // دکمه‌ی جداگانه‌ی بالای داستان، همون متن رو بخونه.
+  const [storyPlayerText, setStoryPlayerText] = useState({ text: "", code: "" });
   const [grammarJump, setGrammarJump] = useState(null); // { word, sentence, langCode, token } — set from the word popover
   const aiSettings = { backendUrl, setBackendUrl };
   const userStorageKey = `${STORAGE_KEY}:${user?.email || "guest"}`;
@@ -7857,6 +7869,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             setSavedStories={setSavedStories}
             aiSettings={aiSettings}
             jumpTo={storyJump}
+            onFullTextChange={setStoryPlayerText}
           />
         </div>
       </main>
@@ -7880,6 +7893,12 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           <div className="px-4 pt-2 flex items-center gap-2 flex-wrap" style={{ justifyContent: "flex-end", rowGap: 8 }}>
             <span style={{ fontSize: 11, color: colors.inkSoft }}>تکرار پخش</span>
             <RepeatButton color={colors.gold} />
+            {/* خواندنِ کل متن — فقط وقتی معنی داره که متنی برای خوندن باشه؛
+                فعلاً منبعِ این متن، داستانِ ساخته‌شده تو تبِ داستان‌سازه (قبلاً
+                دکمه‌ش بالای خودِ داستان بود، الان اینجا کنارِ تکرار نشسته). */}
+            {tab === "story" && storyPlayerText.text && (
+              <SpeakButton text={storyPlayerText.text} code={storyPlayerText.code} color={colors.teal} />
+            )}
             <SpeedControl color={colors.gold} />
             <AutoplayToggle enabled={autoScrollPlay} onToggle={() => setAutoScrollPlay((v) => !v)} color={colors.teal} />
           </div>
