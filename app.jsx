@@ -4801,8 +4801,12 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   }, [storyLang]);
 
   const storyLangLabel = LANGUAGES.find((l) => l.code === storyLang)?.label || storyLang;
-  const allSentences = paragraphs.flatMap((p) => p.sentences);
-  const fullStoryText = allSentences.map((s) => s.text).join(" ");
+  // ⚠️ این خط رو همیشه با گارد (|| []) نگه دار — این کامپوننت با
+  // display:none حتی وقتی تب «داستان‌ساز» فعال نیست هم mount می‌مونه، پس
+  // اگه یه داستانِ ذخیره‌شده‌ی قدیمی/ناقص (بدون paragraph.sentences) باز
+  // بشه و اینجا کرش کنه، کل اپ (نه فقط این تب) قفل می‌شه.
+  const allSentences = paragraphs.flatMap((p) => p.sentences || []);
+  const fullStoryText = allSentences.map((s) => s?.text || "").join(" ");
 
   useEffect(() => {
     setCollections(loadWordCollections().filter((c) => c.langCode === storyLang));
@@ -4953,8 +4957,13 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // بدون نیاز به ساختن دوباره‌ی داستان.
   useEffect(() => {
     if (!paragraphs.length || !translationLangs.length) return;
+    // نکته: چک با «in» (وجودِ کلید)، نه truthiness — چون اگه یه جمله متنِ
+    // خالی داشته باشه، ترجمه‌ش هم می‌تونه رشته‌ی خالی برگرده؛ اگه اینجا با
+    // truthiness چک می‌کردیم، همچین جمله‌ای همیشه «هنوز ترجمه نشده» حساب
+    // می‌شد و این افکت هر بار دوباره اجرا می‌شد — یه حلقه‌ی بی‌پایان که کل
+    // اپ رو کند/قفل می‌کرد.
     const missingLangs = translationLangs.filter((code) =>
-      paragraphs.some((p) => (p.sentences || []).some((s) => !s.t || !s.t[code]))
+      paragraphs.some((p) => (p.sentences || []).some((s) => !s.t || !(code in s.t)))
     );
     if (!missingLangs.length) return;
     let cancelled = false;
@@ -4965,7 +4974,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
             (p.sentences || []).map(async (s) => {
               const additions = {};
               for (const code of missingLangs) {
-                if (s.t && s.t[code]) continue;
+                if (s.t && code in s.t) continue;
                 try {
                   additions[code] = await translateFree(s.text || "", code, storyLang);
                 } catch (e) {
@@ -5976,8 +5985,8 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                 getItems={() => {
                   if (granularity === "sentence") {
                     return paragraphs.flatMap((p, pi) =>
-                      p.sentences.map((s, si) => ({
-                        text: s.text,
+                      (p.sentences || []).map((s, si) => ({
+                        text: s?.text || "",
                         code: storyLang,
                         el: sentenceElsRef.current[`${pi}-${si}`],
                         pi,
@@ -5985,7 +5994,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                     );
                   }
                   return paragraphs.map((p, pi) => ({
-                    text: p.sentences.map((s) => s.text).join(" "),
+                    text: (p.sentences || []).map((s) => s?.text || "").join(" "),
                     code: storyLang,
                     el: paragraphElsRef.current[pi],
                     pi,
@@ -6030,13 +6039,13 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
 
           <div className="flex flex-col gap-5">
             {paragraphs.map((p, pi) => {
-              const paragraphText = p.sentences.map((s) => s.text).join(" ");
+              const paragraphText = (p.sentences || []).map((s) => s?.text || "").join(" ");
               const showTranslations = granularity !== "none" && translationLangs.length > 0;
               return (
                 <div key={pi} style={{ borderBottom: pi < paragraphs.length - 1 ? `1px dashed ${colors.cardBorder}` : "none", paddingBottom: 14 }}>
                   {granularity === "sentence" ? (
                     <div className="flex flex-col gap-3">
-                      {p.sentences.map((s, si) => (
+                      {(p.sentences || []).map((s, si) => (
                         <div key={si} ref={(el) => (sentenceElsRef.current[`${pi}-${si}`] = el)}>
                           <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                             <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
@@ -6138,8 +6147,9 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                       </div>
                       {showTranslations &&
                         translationLangs.map((code) => {
-                          const translated = p.sentences.every((s) => s.t?.[code])
-                            ? p.sentences.map((s) => s.t[code]).join(" ")
+                          const sentencesList = p.sentences || [];
+                          const translated = sentencesList.length && sentencesList.every((s) => s?.t?.[code])
+                            ? sentencesList.map((s) => s.t[code]).join(" ")
                             : null;
                           return (
                             <div
