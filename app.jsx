@@ -7531,7 +7531,8 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const targetLabel = targetLangList.map((l) => l.label).join("، ");
   // نوار پخشِ چسبیده به کف صفحه فقط تو تب‌هایی معنی داره که صدا/تکرار/
   // اسکرول خودکار توشون فعاله.
-  const showPlayerBar = tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "daily";
+  // پلیر چسبیده به کف صفحه — سرتاسری، تو همه‌ی تب‌ها نشون داده می‌شه.
+  const showPlayerBar = true;
 
   if (!loaded) {
     return (
