@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { ChevronDown } from "lucide-react";
 
 /* =============================================================================
@@ -184,7 +184,7 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
   );
 }
 
-function ConversationBox({ items, variant, label, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree }) {
+function ConversationBox({ items, variant, label, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef }) {
   const isHear = variant === "hear";
   if (items.length === 0) return null;
   const accent = isHear ? colors.teal : colors.gold;
@@ -214,18 +214,39 @@ function ConversationBox({ items, variant, label, nativeLang, aiSettings, Clicka
           overflow: "hidden",
         }}
       >
-        {items.map((it, i) => (
+        {items.map((it, i) => {
+          const isReadingNow = activeLine && activeLine.variant === variant && activeLine.i === i;
+          return (
           <div
             key={i}
+            ref={(el) => registerLineRef && registerLineRef(variant, i, el)}
             style={{
+              position: "relative",
               display: "flex",
               alignItems: "flex-start",
               gap: 8,
               padding: "9px 12px",
               borderBottom: i < items.length - 1 ? `1px dashed ${colors.cardBorder}` : "none",
               direction: "rtl",
+              transition: "background-color 0.2s ease",
             }}
           >
+            {/* نشانگرِ «همین الان اینجام» — یه میله‌ی باریک کنارِ خط، نه یه
+                جعبه‌ی پر‌رنگ روی کل خط. با insetInlineStart همیشه سمتِ
+                شروعِ خط می‌شینه، صرف‌نظر از جهتِ متن. */}
+            {isReadingNow && (
+              <span
+                style={{
+                  position: "absolute",
+                  insetInlineStart: 2,
+                  top: 8,
+                  bottom: 8,
+                  width: 3,
+                  borderRadius: 3,
+                  backgroundColor: colors.gold,
+                }}
+              />
+            )}
             {/* بلندگو همیشه اول (یعنی لبه‌ی راست، چون کانتینر rtl‌ه)،
                 بعد بجِ سطح، بعد خودِ متن که فضای باقی‌مونده رو پر می‌کنه. */}
             {SpeakButton && <SpeakButton text={it.en} code="en" color={colors.teal} />}
@@ -264,13 +285,14 @@ function ConversationBox({ items, variant, label, nativeLang, aiSettings, Clicka
               ))}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree }) {
+function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef }) {
   const filterFn = (arr) => (levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr);
   const speakerA = filterFn(sc.speakerA);
   const speakerB = filterFn(sc.speakerB);
@@ -292,20 +314,35 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
       {isOpen && (
         <div style={{ padding: "0 15px 15px" }}>
           {sc.context && <div style={{ fontFamily: fontFa, fontSize: 12, color: colors.inkSoft, marginBottom: 4 }}>{sc.context}</div>}
-          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} />
-          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} />
+          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} />
+          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} />
         </div>
       )}
     </div>
   );
 }
 
-export default function DailyConversationsTab({ data, query, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, levelFilter }) {
+export default function DailyConversationsTab({
+  data,
+  query,
+  nativeLang,
+  aiSettings,
+  ClickableSentence,
+  SpeakButton,
+  targetLangs,
+  translateFree,
+  levelFilter,
+  speechController,
+  onFullTextChange,
+  autoScrollActive,
+}) {
   const uiLang = nativeLang === "fa" ? "fa" : "en";
   const [activeTopic, setActiveTopic] = useState(null);
   const [openScenario, setOpenScenario] = useState(null);
 
   const t = UI_STRINGS[uiLang] || UI_STRINGS.fa;
+
+  const filterByLevel = (arr) => (levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr);
 
   const dataByTopic = useMemo(() => {
     const map = {};
@@ -331,6 +368,77 @@ export default function DailyConversationsTab({ data, query, nativeLang, aiSetti
   }, [query, dataByTopic]);
 
   const activeTopicData = activeTopic ? dataByTopic[activeTopic] : null;
+
+  // خطوطِ قابل‌خوندنِ سناریوی همین‌الان بازشده — دقیقاً همون ترتیبی که
+  // ConversationBox نشون می‌ده (اول «می‌شنوی»، بعد «می‌گی»). این‌ها منبعِ
+  // متنِ دکمه‌ی 🔊ِ «خواندنِ کل متن» روی نوارِ پلیرن.
+  const openScenarioData = activeTopicData && openScenario != null ? activeTopicData.scenarios[openScenario] : null;
+  const readableLines = useMemo(() => {
+    if (!openScenarioData) return [];
+    const a = filterByLevel(openScenarioData.speakerA || []).map((it, i) => ({ text: it.en, variant: "hear", i }));
+    const b = filterByLevel(openScenarioData.speakerB || []).map((it, i) => ({ text: it.en, variant: "say", i }));
+    return [...a, ...b];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openScenarioData, levelFilter]);
+
+  const fullText = readableLines.map((l) => l.text).join(" ");
+
+  const lineOffsets = useMemo(() => {
+    let offset = 0;
+    return readableLines.map((l) => {
+      const start = offset;
+      offset += l.text.length + 1; // فاصله‌ی join(" ")
+      return { variant: l.variant, i: l.i, start, end: start + l.text.length };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullText]);
+
+  // هر بار متنِ خوندنیِ سناریوی بازشده عوض بشه، به بالا (App) خبر می‌دیم تا
+  // دکمه‌ی 🔊ِ روی نوارِ پلیر بتونه همین متن رو بخونه — دقیقاً همون الگویی
+  // که تبِ داستان‌ساز استفاده می‌کنه.
+  useEffect(() => {
+    if (onFullTextChange) onFullTextChange({ text: fullText, code: "en" });
+  }, [fullText]);
+
+  // خطی که همین الان، در حینِ پخشِ «کل متن» از روی پلیر، داره خونده می‌شه —
+  // برای نشانگرِ کنارِ خط و اسکرولِ خودکار.
+  const [activeLine, setActiveLine] = useState(null); // {variant, i} | null
+  useEffect(() => {
+    if (!speechController) return;
+    const myKey = `en-US::${fullText}`;
+    const update = (state) => {
+      if (!fullText || state.key !== myKey || state.status === "idle") {
+        setActiveLine(null);
+        return;
+      }
+      const offset = speechController.getCharOffset();
+      let found = lineOffsets[0] || null;
+      for (const l of lineOffsets) {
+        if (offset >= l.start) found = l;
+        else break;
+      }
+      setActiveLine(found ? { variant: found.variant, i: found.i } : null);
+    };
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [fullText, lineOffsets, speechController]);
+
+  // موقع رفتن به سناریو یا موضوعِ دیگه، نشانگرِ خط قدیمی رو پاک کن.
+  useEffect(() => {
+    setActiveLine(null);
+  }, [activeTopic, openScenario]);
+
+  const lineRefs = useRef({});
+  const registerLineRef = (variant, i, el) => {
+    lineRefs.current[`${variant}-${i}`] = el;
+  };
+  useEffect(() => {
+    if (!autoScrollActive || !activeLine) return;
+    const node = lineRefs.current[`${activeLine.variant}-${activeLine.i}`];
+    if (node && node.scrollIntoView) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [autoScrollActive, activeLine?.variant, activeLine?.i]);
 
   // جستجوی سراسری روی کلِ مکالمات (نه فقط اسمِ موضوع‌ها): وقتی کاربر عبارتی
   // تایپ می‌کنه، چه تو صفحه‌ی موضوعات باشه چه داخل یه موضوعِ بازشده، همه‌ی
@@ -444,6 +552,8 @@ export default function DailyConversationsTab({ data, query, nativeLang, aiSetti
                 SpeakButton={SpeakButton}
                 targetLangs={targetLangs}
                 translateFree={translateFree}
+                activeLine={activeLine}
+                registerLineRef={registerLineRef}
               />
             ))
           ) : (

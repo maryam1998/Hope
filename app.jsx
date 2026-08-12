@@ -6092,19 +6092,24 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                         <div
                           key={si}
                           ref={(el) => (sentenceElsRef.current[`${pi}-${si}`] = el)}
-                          style={
-                            isReadingNow
-                              ? {
-                                  backgroundColor: "#FFF6D9",
-                                  borderRadius: 8,
-                                  boxShadow: `inset 3px 0 0 ${colors.gold}`,
-                                  padding: "4px 6px",
-                                  margin: "-4px -6px",
-                                  transition: "background-color 0.2s ease",
-                                }
-                              : undefined
-                          }
+                          style={{ position: "relative", paddingInlineStart: 10, transition: "background-color 0.2s ease" }}
                         >
+                          {/* نشانگرِ «همین الان اینجام» — میله‌ی باریکِ کنارِ خط،
+                              نه یه جعبه‌ی هایلایت روی کلِ خط. insetInlineStart
+                              خودش با جهتِ متن (fa/ar راست، en/es چپ) هماهنگه. */}
+                          {isReadingNow && (
+                            <span
+                              style={{
+                                position: "absolute",
+                                insetInlineStart: 0,
+                                top: 4,
+                                bottom: 4,
+                                width: 3,
+                                borderRadius: 3,
+                                backgroundColor: colors.gold,
+                              }}
+                            />
+                          )}
                           <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                             <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
                             <p
@@ -6182,19 +6187,21 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                   ) : (
                     <div
                       ref={(el) => (paragraphElsRef.current[pi] = el)}
-                      style={
-                        activeStorySentence && activeStorySentence.pi === pi
-                          ? {
-                              backgroundColor: "#FFF6D9",
-                              borderRadius: 8,
-                              boxShadow: `inset 3px 0 0 ${colors.gold}`,
-                              padding: "4px 6px",
-                              margin: "-4px -6px",
-                              transition: "background-color 0.2s ease",
-                            }
-                          : undefined
-                      }
+                      style={{ position: "relative", paddingInlineStart: 10, transition: "background-color 0.2s ease" }}
                     >
+                      {activeStorySentence && activeStorySentence.pi === pi && (
+                        <span
+                          style={{
+                            position: "absolute",
+                            insetInlineStart: 0,
+                            top: 4,
+                            bottom: 4,
+                            width: 3,
+                            borderRadius: 3,
+                            backgroundColor: colors.gold,
+                          }}
+                        />
+                      )}
                       <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                         <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
                         <p
@@ -7376,6 +7383,11 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // 🔊ِ «خواندنِ کل متن» روی نوارِ پلیر (پایینِ صفحه) بتونه بدونِ داشتنِ
   // دکمه‌ی جداگانه‌ی بالای داستان، همون متن رو بخونه.
   const [storyPlayerText, setStoryPlayerText] = useState({ text: "", code: "" });
+  // همون الگو، ولی برای متنِ خوندنیِ تبِ «مکالمات روزمره» (سناریوی
+  // بازشده). هر تب که بخواد دکمه‌ی 🔊ِ روی پلیر متنِ خودش رو بخونه، یه
+  // state مشابه اینجا اضافه می‌کنه و پایین (روی نوارِ پلیر) به ازای
+  // تبِ خودش نشون داده می‌شه.
+  const [dailyPlayerText, setDailyPlayerText] = useState({ text: "", code: "" });
   const [grammarJump, setGrammarJump] = useState(null); // { word, sentence, langCode, token } — set from the word popover
   const aiSettings = { backendUrl, setBackendUrl };
   const userStorageKey = `${STORAGE_KEY}:${user?.email || "guest"}`;
@@ -7831,6 +7843,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     targetLangs={targetLangList}
     translateFree={translateFree}
     levelFilter={levelFilter}
+    speechController={speechController}
+    onFullTextChange={setDailyPlayerText}
+    autoScrollActive={tab === "conversations" && autoScrollPlay}
   />
 )}
 
@@ -8037,6 +8052,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                 دکمه‌ش بالای خودِ داستان بود، الان اینجا کنارِ تکرار نشسته). */}
             {tab === "story" && storyPlayerText.text && (
               <SpeakButton text={storyPlayerText.text} code={storyPlayerText.code} color={colors.teal} forceRepeat />
+            )}
+            {tab === "conversations" && dailyPlayerText.text && (
+              <SpeakButton text={dailyPlayerText.text} code={dailyPlayerText.code} color={colors.teal} forceRepeat />
             )}
             <SpeedControl color={colors.gold} />
             <AutoplayToggle enabled={autoScrollPlay} onToggle={() => setAutoScrollPlay((v) => !v)} color={colors.teal} />
