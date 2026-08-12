@@ -7258,6 +7258,16 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [query, setQuery] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
   const [autoScrollPlay, setAutoScrollPlay] = useState(false);
+  // شفافیتِ نوار پخشِ چسبیده به کف صفحه — درصدی از ۰ (کاملاً شفاف) تا ۱۰۰
+  // (کاملاً کدر). روی دستگاه ذخیره می‌شه تا هربار برنگرده به پیش‌فرض.
+  const [playerOpacity, setPlayerOpacity] = useState(() => {
+    const saved = localStorage.getItem("phrasebook-player-opacity");
+    const n = saved === null ? 100 : Number(saved);
+    return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 100;
+  });
+  useEffect(() => {
+    localStorage.setItem("phrasebook-player-opacity", String(playerOpacity));
+  }, [playerOpacity]);
   const [chatOpen, setChatOpen] = useState(false);
   // گزارش خواندن — از رکوردهای تایمرِ «خواندن خودکار» ساخته می‌شه و هم
   // برای خلاصه‌ی کوچیک بالای چت، هم به‌عنوان زمینه برای خودِ چت هوش
@@ -7519,6 +7529,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     .map((code) => LANGUAGES.find((l) => l.code === code))
     .filter(Boolean);
   const targetLabel = targetLangList.map((l) => l.label).join("، ");
+  // نوار پخشِ چسبیده به کف صفحه فقط تو تب‌هایی معنی داره که صدا/تکرار/
+  // اسکرول خودکار توشون فعاله.
+  const showPlayerBar = tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "daily";
 
   if (!loaded) {
     return (
@@ -7665,16 +7678,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         </div>
       )}
 
-      {/* تکرار سراسری — روی هر 🔊ای که پایین‌تر تو این صفحه بزنی اعمال می‌شه */}
-      {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "daily") && (
-        <div className="px-4 pt-2 flex items-center gap-2 flex-wrap" style={{ justifyContent: "flex-end", rowGap: 8 }}>
-          <span style={{ fontSize: 11, color: colors.inkSoft }}>تکرار پخش</span>
-          <RepeatButton color={colors.gold} />
-          <SpeedControl color={colors.gold} />
-          <AutoplayToggle enabled={autoScrollPlay} onToggle={() => setAutoScrollPlay((v) => !v)} color={colors.teal} />
-        </div>
-      )}
-
       {/* Search — meaningful for the phrase and word list tabs */}
       {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "daily") && (
         <div className="px-4 pt-3">
@@ -7698,7 +7701,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         </div>
       )}
 
-      <main className="px-4 py-4 pb-24">
+      <main className="px-4 py-4" style={{ paddingBottom: showPlayerBar ? 150 : 96 }}>
         {tab === "conversations" && (
   <DailyConversationsTab
     data={DAILY_CONVERSATIONS}
@@ -7861,6 +7864,44 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         </div>
       </main>
 
+      {/* پلیر چسبیده به کف صفحه — تکرار پخش، سرعت، پخش خودکار، و تنظیم شفافیت.
+          همیشه روی صفحه می‌مونه (position: fixed)، حتی موقع اسکرول. */}
+      {showPlayerBar && (
+        <div
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 40,
+            backgroundColor: colors.paper,
+            opacity: playerOpacity / 100,
+            borderTop: `1px solid ${colors.cardBorder}`,
+            boxShadow: "0 -4px 14px rgba(28,37,65,0.12)",
+          }}
+        >
+          <div className="px-4 pt-2 flex items-center gap-2 flex-wrap" style={{ justifyContent: "flex-end", rowGap: 8 }}>
+            <span style={{ fontSize: 11, color: colors.inkSoft }}>تکرار پخش</span>
+            <RepeatButton color={colors.gold} />
+            <SpeedControl color={colors.gold} />
+            <AutoplayToggle enabled={autoScrollPlay} onToggle={() => setAutoScrollPlay((v) => !v)} color={colors.teal} />
+          </div>
+          <div className="px-4 flex items-center gap-2" style={{ paddingTop: 4, paddingBottom: 8 }}>
+            <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={playerOpacity}
+              onChange={(e) => setPlayerOpacity(Number(e.target.value))}
+              aria-label="شفافیت پلیر"
+              style={{ flex: 1, accentColor: colors.gold }}
+            />
+            <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
+          </div>
+        </div>
+      )}
+
       {/* Floating AI chat — reachable from every tab */}
       {!chatOpen && (
         <button
@@ -7868,7 +7909,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           aria-label="گفتگو با هوش مصنوعی"
           style={{
             position: "fixed",
-            bottom: 20,
+            // وقتی نوار پلیر پایین صفحه چسبیده، دکمه‌ی چت رو بالاتر می‌بریم
+            // تا زیرش گم نشه.
+            bottom: showPlayerBar ? 130 : 20,
             left: 20,
             width: 56,
             height: 56,
@@ -7880,6 +7923,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             justifyContent: "center",
             boxShadow: "0 4px 14px rgba(28,37,65,0.35)",
             border: "none",
+            zIndex: 45,
           }}
         >
           <MessageCircle size={24} />
