@@ -684,6 +684,11 @@ const speechController = (() => {
     return n === 3 || n === 6 ? n : 0;
   })();
   let remaining = 0; // چند تکرار دیگه برای متن فعلی مونده
+  // وقتی true باشه، یعنی این پخش باید فقط یک‌بار خونده بشه، حتی اگه تنظیم
+  // تکرار سراسری روی «بی‌نهایت» باشه — برای «اسکرول خودکار پلیر» لازمه که
+  // هر آیتم رو یک‌بار بخونه و بره سراغ بعدی؛ حلقه‌ی بی‌نهایت رو خودِ همون
+  // قابلیت، با برگشتن به ابتدای لیست، پیاده می‌کنه (نه با گیرکردن رو یک آیتم).
+  let singleShot = false;
   // وقتی خودمون عمداً speechSynthesis.cancel() صدا می‌زنیم (برای مکث، یا برای
   // شروع پخش جدید/تکرار)، مرورگر یه onerror با error="interrupted" شلیک
   // می‌کنه که خطای واقعی نیست. این فلگ همون قطع‌شدن‌های عمدی رو از خطای
@@ -769,11 +774,11 @@ const speechController = (() => {
 
   function playOnlineChunk(idx) {
     if (idx >= onlineChunks.length) {
-      if (globalRepeatSetting === "inf") {
+      if (!singleShot && globalRepeatSetting === "inf") {
         playOnlineChunk(0);
         return;
       }
-      if (remaining > 0) {
+      if (!singleShot && remaining > 0) {
         remaining -= 1;
         playOnlineChunk(0);
         return;
@@ -792,14 +797,15 @@ const speechController = (() => {
     playOnlineChunkUrls(onlineTtsUrls(onlineChunks[idx], onlineLangForTts), 0, idx);
   }
 
-  function speakOnline(text, langCodeForTts, startWordIndex) {
+  function speakOnline(text, langCodeForTts, startWordIndex, forceSingle) {
     stopOnlineAudio();
     mode = "online";
     fullText = text;
     words = tokenize(text);
     onlineChunks = splitForOnlineTts(text);
     onlineLangForTts = langCodeForTts;
-    remaining = globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
+    singleShot = !!forceSingle;
+    remaining = singleShot ? 0 : globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
     // اگه یه نقطه‌ی شروعِ غیرصفر خواسته شده (مثلاً ادامه‌ی پخش بعد از عوض‌شدنِ
     // حالتِ نمایش ترجمه)، تقریباً همون تکه‌ی آنلاین رو پیدا کن و از اونجا
     // شروع کن — نه از اولِ متن.
@@ -909,11 +915,11 @@ const speechController = (() => {
       };
       utter.onend = () => {
         if (status !== "playing") return;
-        if (globalRepeatSetting === "inf") {
+        if (!singleShot && globalRepeatSetting === "inf") {
           speakFromWord(0, true);
           return;
         }
-        if (remaining > 0) {
+        if (!singleShot && remaining > 0) {
           remaining -= 1;
           speakFromWord(0, true);
           return;
@@ -964,11 +970,11 @@ const speechController = (() => {
     };
     utter.onend = () => {
       if (status !== "playing") return;
-      if (globalRepeatSetting === "inf") {
+      if (!singleShot && globalRepeatSetting === "inf") {
         speakFromWord(0, true);
         return;
       }
-      if (remaining > 0) {
+      if (!singleShot && remaining > 0) {
         remaining -= 1;
         speakFromWord(0, true);
         return;
@@ -1022,9 +1028,10 @@ const speechController = (() => {
       }
       notify();
     },
-    toggle(text, code, startWordIndex) {
+    toggle(text, code, startWordIndex, options) {
       try {
         if (!text) return "unsupported";
+        const forceSingle = !!(options && options.singlePass);
         const hasSynthesis = "speechSynthesis" in window;
 
         let newLocale = TTS_LOCALE[code] || "en-US";
@@ -1092,7 +1099,8 @@ const speechController = (() => {
           fullText = text;
           words = tokenize(text);
           status = "playing";
-          remaining = globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
+          singleShot = forceSingle;
+          remaining = forceSingle ? 0 : globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
           // اگه شماره‌ی کلمه‌ی شروع مشخص شده (مثلاً برای ادامه‌ی پخش از همون‌جا
           // بعد از عوض‌شدنِ حالتِ نمایش ترجمه)، از همون‌جا شروع کن؛ وگرنه از اول.
           const startIdx = Number.isInteger(startWordIndex)
@@ -1105,7 +1113,7 @@ const speechController = (() => {
         // مسیر جایگزین (آنلاین رایگان)
         cancelSpeech();
         const onlineLang = code === "zh" ? "zh-CN" : code;
-        speakOnline(text, onlineLang, startWordIndex);
+        speakOnline(text, onlineLang, startWordIndex, forceSingle);
         return "online-fallback";
       } catch (e) {
         status = "idle";
@@ -1133,6 +1141,7 @@ const speechController = (() => {
       status = "idle";
       wordIndex = 0;
       remaining = 0;
+      singleShot = false;
       boundaryFired = false;
       currentUtterance = null;
       notify();
@@ -1185,7 +1194,14 @@ function useAutoplayOnScroll(enabled, items) {
       if (myGen !== genRef.current) return;
       const list = itemsRef.current;
       if (i >= list.length) {
+        // به انتهای لیست رسیدیم. اگه تکرار سراسری روی «بی‌نهایت»ه، به‌جای
+        // متوقف‌شدن، از ابتدای لیست دوباره شروع کن — یعنی کل متن (صرف‌نظر
+        // از اینکه جمله‌به‌جمله/پاراگراف‌به‌پاراگراف/بدون‌تقسیم نمایش داده
+        // می‌شه) تا بی‌نهایت پخش و اسکرول بشه، نه اینکه رو یه آیتم گیر کنه.
         indexRef.current = 0; // reached the end — next resume starts over
+        if (list.length && speechController.getGlobalRepeatSetting() === "inf") {
+          playAt(0);
+        }
         return;
       }
       indexRef.current = i;
@@ -1213,7 +1229,12 @@ function useAutoplayOnScroll(enabled, items) {
             playAt(i + 1);
           }
         });
-        speechController.toggle(item.text, item.code);
+        // وقتی تکرار سراسری «بی‌نهایت»ه، هر آیتم فقط یک‌بار خونده بشه — وگرنه
+        // پخشِ همین یک آیتم تا ابد تو خودش می‌چرخه و اسکرول هیچ‌وقت به آیتم
+        // بعدی نمی‌رسه (باگِ اصلیِ گیرکردنِ پلیر). حلقه‌ی بی‌نهایتِ واقعی رو
+        // همون برگشتن به playAt(0) بالا، بعد از تمومِ کل لیست، انجام می‌ده.
+        const singlePass = speechController.getGlobalRepeatSetting() === "inf";
+        speechController.toggle(item.text, item.code, undefined, singlePass ? { singlePass: true } : undefined);
       }, 450);
     }
 
@@ -5978,31 +5999,6 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                 {justSaved ? <Check size={16} /> : <Bookmark size={16} />}
               </button>
               <SpeakButton text={fullStoryText} code={storyLang} color={colors.teal} />
-              <AutoReadButton
-                color={colors.teal}
-                trackLangCode={storyLang}
-                modeKey={granularity}
-                getItems={() => {
-                  if (granularity === "sentence") {
-                    return paragraphs.flatMap((p, pi) =>
-                      (p.sentences || []).map((s, si) => ({
-                        text: s?.text || "",
-                        code: storyLang,
-                        el: sentenceElsRef.current[`${pi}-${si}`],
-                        pi,
-                      }))
-                    );
-                  }
-                  return paragraphs.map((p, pi) => ({
-                    text: (p.sentences || []).map((s) => s?.text || "").join(" "),
-                    code: storyLang,
-                    el: paragraphElsRef.current[pi],
-                    pi,
-                  }));
-                }}
-              />
-              <RepeatButton color={colors.teal} />
-              <SpeedControl color={colors.teal} />
             </div>
           </div>
 
