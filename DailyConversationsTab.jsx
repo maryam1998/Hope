@@ -155,9 +155,9 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
   if (!value && !loading) return null;
 
   return (
-    // بلندگوی ترجمه هم سمت راستِ ردیف باشه: کانتینر رو صریحاً rtl می‌کنیم و
-    // بلندگو رو اول می‌ذاریم (سرِ محورِ اصلی در rtl یعنی لبه‌ی راست).
-    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, direction: "rtl" }}>
+    // طبق درخواست: این ردیف هم مثل متنِ اصلی، چپ‌به‌راست نوشته می‌شه (بلندگو
+    // و بج زبان سمتِ چپ، متنِ ترجمه بعدش) — even فارسی/عربی این‌جا LTR چیده می‌شه.
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, direction: "ltr" }}>
       {value && SpeakButton && <SpeakButton text={value} code={langCode} color={translationColor} />}
       <span
         style={{
@@ -244,7 +244,7 @@ function ConversationBox({ items, variant, label, nativeLang, aiSettings, Clicka
             <div style={{ direction: "ltr", textAlign: "left", flex: 1 }}>
               <div style={{ fontSize: 16, fontWeight: 800, color: mainTextColor, fontFamily: fontLatin }}>
                 {ClickableSentence ? (
-                  <ClickableSentence text={it.en} langCode="en" nativeLang={nativeLang} aiSettings={aiSettings} />
+                  <ClickableSentence text={it.en} langCode="en" nativeLang={nativeLang} aiSettings={aiSettings} color={mainTextColor} fontFamily={fontLatin} fontWeight={800} fontSize={16} />
                 ) : (
                   it.en
                 )}

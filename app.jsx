@@ -4311,9 +4311,9 @@ function countOccurrences(story, word) {
 }
 
 const STORY_LENGTHS = [
-  { key: "short", label: "کوتاه", paragraphs: "1-2", sentencesHint: "short, roughly 4-6 sentences per paragraph", tokens: 1400 },
-  { key: "medium", label: "متوسط", paragraphs: "2-3", sentencesHint: "medium length, roughly 5-8 sentences per paragraph", tokens: 2500 },
-  { key: "long", label: "بلند", paragraphs: "4-6", sentencesHint: "long, roughly 6-10 sentences per paragraph", tokens: 4200 },
+  { key: "short", label: "کوتاه", paragraphs: "1-2", paragraphMin: 1, paragraphMax: 2, sentencesHint: "short, roughly 4-6 sentences per paragraph", tokens: 1400 },
+  { key: "medium", label: "متوسط", paragraphs: "2-3", paragraphMin: 2, paragraphMax: 3, sentencesHint: "medium length, roughly 5-8 sentences per paragraph", tokens: 2500 },
+  { key: "long", label: "بلند", paragraphs: "4-6", paragraphMin: 4, paragraphMax: 6, sentencesHint: "long, roughly 6-10 sentences per paragraph", tokens: 4200 },
 ];
 
 const CONTENT_TYPES = [
@@ -4982,8 +4982,13 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   }, [translationLangs, paragraphs, storyLang]);
 
   const filteredVocab = VOCAB.filter((v) => {
-    const w = (v.t[storyLang] || v.t.en || "").toLowerCase();
-    return !vocabQuery || w.includes(vocabQuery.toLowerCase()) || v.meaningFa.includes(vocabQuery);
+    const w = v.t[storyLang] || v.t.en || "";
+    // لغتی که کاربر همین الان برای این داستان انتخاب کرده، دیگه تو لیستِ
+    // پیشنهادها نمونه — همین شلوغیِ چیپ‌ها رو کم می‌کنه (لغتِ انتخاب‌شده رو
+    // بالاتر، تو ردیفِ «لغاتِ انتخاب‌شده» می‌بینه، نیازی به دیدنش دوبار نیست).
+    if (selectedWords.includes(w)) return false;
+    const wLower = w.toLowerCase();
+    return !vocabQuery || wLower.includes(vocabQuery.toLowerCase()) || v.meaningFa.includes(vocabQuery);
   });
 
   // نتایجِ جستجو از تب‌های «لغات»، «لغات و اخبار»، «مکالمه و روزمره» و
@@ -5018,15 +5023,22 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const matchingSavedWords = useMemo(() => {
     const qRaw = vocabQuery.trim();
     const q = qRaw.toLowerCase();
-    return savedWordsForLang.filter(
-      (e) => !qRaw || e.word.toLowerCase().includes(q) || (e.meaning && e.meaning.includes(qRaw))
-    );
-  }, [vocabQuery, savedWordsForLang]);
+    return savedWordsForLang.filter((e) => {
+      // همینجا هم لغتِ از قبل انتخاب‌شده رو مخفی می‌کنیم، همون دلیلِ بالا.
+      if (selectedWords.includes(e.word)) return false;
+      return !qRaw || e.word.toLowerCase().includes(q) || (e.meaning && e.meaning.includes(qRaw));
+    });
+  }, [vocabQuery, savedWordsForLang, selectedWords]);
 
   // لغتی که از یه منبعِ فقط-انگلیسی (لغات/اخبار/مکالمه‌ی روزمره) انتخاب
   // شده رو، اگه زبانِ داستان انگلیسی نیست، اول به زبانِ داستان ترجمه می‌کنه
   // (دقیقاً همون مسیرِ addCustomWord)، بعد به لیستِ انتخاب‌شده‌ها اضافه می‌کنه.
   const [translatingPick, setTranslatingPick] = useState(null); // term در حال ترجمه
+  // نگه‌داشتنِ نگاشتِ «لغتِ منبع (انگلیسی) → لغتِ ترجمه‌شده‌ای که واقعاً به
+  // selectedWords اضافه شد» — چون otherTabMatches همیشه به انگلیسیه ولی
+  // selectedWords ممکنه به زبانِ دیگه‌ای باشه؛ بدون این نگاشت نمی‌شه فهمید
+  // کدوم آیتمِ این لیست الان «انتخاب‌شده» حساب می‌شه تا از لیست مخفیش کنیم.
+  const [pickedTermTranslations, setPickedTermTranslations] = useState({});
   const pickForeignWord = async (term) => {
     if (storyLang === "en") {
       toggleWord(term);
@@ -5036,8 +5048,10 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     try {
       const res = await translateFree(term, storyLang, "en", aiSettings);
       const translated = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim() || term;
+      setPickedTermTranslations((prev) => ({ ...prev, [term]: translated }));
       toggleWord(translated);
     } catch (e) {
+      setPickedTermTranslations((prev) => ({ ...prev, [term]: term }));
       toggleWord(term);
     } finally {
       setTranslatingPick(null);
@@ -5123,26 +5137,37 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
 
       // شمارش تقریبی تعداد تکرار هر لغت (و اشکال صرفی نزدیکش) تو متن داستان —
       // برای اینکه بفهمیم مدل واقعاً به تعداد درخواستی پایبند بوده یا نه.
+      // شمارش قبلی روی \b (مرزِ کلمه‌ی ASCII) بود که برای هر اسکریپتِ غیرلاتین
+      // (فارسی/عربی/روسی و...) و حتی حروفِ لاتینِ با علامت (é, ü, ...) اصلاً
+      // کار نمی‌کرد — چون \b فقط بینِ [A-Za-z0-9_] و بقیه‌ی کاراکترها مرز
+      // می‌بینه، برای مثلاً فارسی هیچ مرزی پیدا نمی‌شد و شمارش همیشه ۰ برمی‌گشت.
+      // نتیجه‌ش این بود که رتراىِ اصلاحِ تعداد تکرار عملاً کور بود و هیچ‌وقت
+      // واقعاً کار نمی‌کرد. اینجا با \p{L}/\p{N} (یونیکد) مرزِ کلمه رو دستی
+      // می‌سازیم که برای هر زبانی درست کار کنه.
       const countWordOccurrences = (text, word) => {
         const esc = word.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         if (!esc) return 0;
-        const re = new RegExp(`\\b${esc}[a-zA-Z]*`, "gi");
+        const re = new RegExp(`(?<![\\p{L}\\p{N}])${esc}[\\p{L}\\p{N}]*`, "giu");
         const matches = text.match(re);
         return matches ? matches.length : 0;
       };
 
       const buildPrompt = (correction) => `You are a skilled storyteller writing ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}.
 
-NARRATIVE QUALITY — this is the most important requirement:
+TOPIC/GENRE — hard requirement, not a suggestion: the story MUST genuinely be ${genre.prompt}. Its plot, tone, setting, and vocabulary must clearly and unmistakably belong to this genre from the first sentence — do not default to a generic everyday story if the genre is something else.
+
+LENGTH — hard requirement: write EXACTLY ${lengthCfg.paragraphMin === lengthCfg.paragraphMax ? lengthCfg.paragraphMin : `between ${lengthCfg.paragraphMin} and ${lengthCfg.paragraphMax}`} paragraphs in total (not fewer, not more), each with ${lengthCfg.sentencesHint}. The "paragraphs" array in your JSON output must contain exactly this many paragraph objects.
+
+NARRATIVE QUALITY:
 - Write ONE genuinely coherent, connected story with a real narrative arc (setup → development → payoff/ending appropriate to the genre) — NOT a disconnected list of example sentences that merely happen to sit next to each other.
 - Every sentence must follow logically or causally from the one before it and set up the one after it: consistent characters, setting, and cause-and-effect, the way a real short story reads — a reader should never be able to tell which sentence was "built around" which target word.
 - The plot and content must feel fully intentional and relevant to the target words themselves — build a story that is actually ABOUT something connected to these words, not a generic story with the words awkwardly inserted.
 - You do NOT need to introduce the target words in the order they're listed — use whatever order serves the story best.
 - Paragraphs must flow into each other (later paragraphs should refer back to people, places, or events from earlier ones), not restart the scene each time.
 
-HARD CONSTRAINT on repetition — read carefully: each of the target words below has a strict usage BUDGET of exactly ${repeatCount} total mentions (counting all grammatical forms together as one). This is a hard ceiling, not a suggestion: ${repeatCount} is the maximum AND the goal — do not go over it, and do not pad the story with extra unnecessary mentions "to be safe". Meet this budget WITHOUT sacrificing narrative coherence — never break the story's flow just to squeeze in a repetition; if a word's budget is hard to fill naturally, let the plot itself create a reason for that word to come up again. Before finalizing your answer, silently count how many times you used each target word and trim any that went over budget. Target words and their exact budget: ${selectedWords.map((w) => `"${w}" → exactly ${repeatCount} times`).join(", ")}.${correction ? " " + correction : ""}
+REPETITION — hard requirement: each target word below has a strict usage BUDGET of exactly ${repeatCount} total mentions (all grammatical forms/inflections of the word counted together as one). ${repeatCount} is simultaneously the ceiling AND the goal — never go over it, and never pad the story with extra unnecessary mentions "to be safe" or fall short of it either. Meet this budget WITHOUT sacrificing narrative coherence — never break the story's flow just to squeeze in a repetition; if a word's budget is hard to fill naturally, let the plot itself create a reason for that word to come up again. Before finalizing your answer, silently go back through the story and count how many times you actually used each target word, and rewrite any part where the count is off. Target words and their exact budget: ${selectedWords.map((w) => `"${w}" → exactly ${repeatCount} times`).join(", ")}.${correction ? " " + correction : ""}
 
-The total length of the story must stay proportionate to ${lengthCfg.paragraphs} paragraphs, ${lengthCfg.sentencesHint} — do NOT lengthen the story just to fit more repetitions; if needed, reuse the same word within one sentence rather than adding new sentences. Organize the story into ${lengthCfg.paragraphs} paragraphs as described, each continuing the same throughline.
+Do NOT lengthen the story beyond the paragraph count above just to fit more repetitions of a word; if a word's budget doesn't fit naturally within that length, reuse it within an existing sentence instead of adding new sentences or paragraphs.
 
 After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
 
@@ -5159,22 +5184,35 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
       };
 
       const scoreAttempt = (parsedAttempt) => {
+        const paraCount = (parsedAttempt.paragraphs || []).length;
         const text = (parsedAttempt.paragraphs || []).flatMap((p) => (p.sentences || []).map((s) => s.text)).join(" ");
         const attemptCounts = selectedWords.map((w) => ({ word: w, count: countWordOccurrences(text, w) }));
-        const deviation = attemptCounts.reduce((sum, c) => sum + Math.abs(c.count - repeatCount), 0);
+        const repDeviation = attemptCounts.reduce((sum, c) => sum + Math.abs(c.count - repeatCount), 0);
         const offenders = attemptCounts.filter((c) => c.count > repeatCount || c.count < Math.max(1, repeatCount - 2));
-        return { counts: attemptCounts, deviation, offenders };
+        // فاصله‌ی تعداد پاراگراف‌ها از بازه‌ی خواسته‌شده (کوتاه/متوسط/بلند) —
+        // هر پاراگراف اضافه/کم شمرده می‌شه، وزنِ سنگین‌تری از یه اختلافِ
+        // معمولیِ تعداد تکرار می‌گیره چون خودِ ساختارِ داستان رو به هم می‌زنه.
+        const paraDeviation =
+          paraCount < lengthCfg.paragraphMin ? (lengthCfg.paragraphMin - paraCount) * 3
+          : paraCount > lengthCfg.paragraphMax ? (paraCount - lengthCfg.paragraphMax) * 3
+          : 0;
+        const lengthOk = paraCount >= lengthCfg.paragraphMin && paraCount <= lengthCfg.paragraphMax;
+        return { counts: attemptCounts, paraCount, lengthOk, deviation: repDeviation + paraDeviation, offenders };
       };
 
       let parsed = await runAttempt();
       let best = { parsed, ...scoreAttempt(parsed) };
 
-      // اگه تعداد تکرارها با درخواست فاصله داشت، تا ۲ بار دیگه با بازخورد
-      // دقیق (چند بار واقعاً استفاده شده) دوباره امتحان می‌کنیم و در نهایت
-      // بهترین نسخه (کمترین فاصله‌ی کل از عدد درخواستی) رو نگه می‌داریم.
-      for (let attempt = 0; attempt < 2 && best.offenders.length > 0; attempt++) {
-        const detail = best.counts.map((c) => `"${c.word}": you used it ${c.count} times, but the budget is ${repeatCount}`).join("; ");
-        const correction = `Your previous attempt broke the repetition budget (${detail}). Rewrite the story from scratch, shorter if needed, and this time strictly cap every target word at exactly ${repeatCount} total mentions — count as you go and stop each word once it hits its budget. Keep the story just as coherent and connected as before (or more so) while you do this — don't turn it into disconnected example sentences to make counting easier.`;
+      // اگه تعداد تکرارها یا تعداد پاراگراف‌ها با درخواست فاصله داشت، تا ۲ بار
+      // دیگه با بازخوردِ دقیق (چند بار واقعاً استفاده شده، چند پاراگراف واقعاً
+      // نوشته شده) دوباره امتحان می‌کنیم و در نهایت بهترین نسخه (کمترین
+      // فاصله‌ی کل از عددهای درخواستی) رو نگه می‌داریم.
+      for (let attempt = 0; attempt < 2 && (best.offenders.length > 0 || !best.lengthOk); attempt++) {
+        const repDetail = best.counts.map((c) => `"${c.word}": you used it ${c.count} times, but the budget is ${repeatCount}`).join("; ");
+        const lengthDetail = best.lengthOk
+          ? ""
+          : ` Also, your previous attempt had ${best.paraCount} paragraphs, but it must have ${lengthCfg.paragraphMin === lengthCfg.paragraphMax ? lengthCfg.paragraphMin : `between ${lengthCfg.paragraphMin} and ${lengthCfg.paragraphMax}`} paragraphs — fix the paragraph count too.`;
+        const correction = `Your previous attempt broke the repetition budget (${repDetail}).${lengthDetail} Rewrite the story from scratch and this time strictly cap every target word at exactly ${repeatCount} total mentions (count as you go and stop each word once it hits its budget) AND land the paragraph count exactly in the required range. Keep the story just as coherent and connected as before (or more so) while you do this — don't turn it into disconnected example sentences to make counting easier.`;
         try {
           const retryParsed = await runAttempt(correction);
           const retryScore = { parsed: retryParsed, ...scoreAttempt(retryParsed) };
@@ -5738,7 +5776,14 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
           {/* نتایجِ جستجو از تب‌های لغات / لغات و اخبار / مکالمه‌ی روزمره /
               مکالمات روزمره — فقط وقتی کاربر تایپ کرده. چون این‌ها فقط به
               انگلیسی‌ان، اگه زبانِ داستان چیز دیگه‌ای باشه، اول ترجمه می‌شن. */}
-          {otherTabMatches.map((item) => {
+          {otherTabMatches
+            .filter((item) => {
+              // اگه این لغت (به شکلِ ترجمه‌شده‌ی واقعاً اضافه‌شده‌اش) همین الان
+              // تو انتخاب‌های داستانه، دیگه تو این لیست نشونش نده.
+              const mapped = storyLang === "en" ? item.term : pickedTermTranslations[item.term];
+              return !mapped || !selectedWords.includes(mapped);
+            })
+            .map((item) => {
             const busy = translatingPick === item.term;
             return (
               <button
