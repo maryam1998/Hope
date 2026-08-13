@@ -207,7 +207,7 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
             transition: "background-color 0.2s ease"
           }
         },
-        isReadingNow && /* @__PURE__ */ React.createElement(
+        /* @__PURE__ */ React.createElement(
           "span",
           {
             style: {
@@ -217,7 +217,27 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
               bottom: 8,
               width: 3,
               borderRadius: 3,
-              backgroundColor: colors.gold
+              backgroundColor: colors.gold,
+              opacity: isReadingNow ? 1 : 0,
+              transition: "opacity 0.2s ease"
+            }
+          }
+        ),
+        /* @__PURE__ */ React.createElement(
+          "span",
+          {
+            "aria-hidden": "true",
+            style: {
+              position: "absolute",
+              insetInlineStart: 12,
+              insetInlineEnd: 12,
+              bottom: 3,
+              height: 2,
+              borderRadius: 2,
+              backgroundColor: colors.gold,
+              opacity: isReadingNow ? 0.28 : 0,
+              transition: "opacity 0.25s ease",
+              pointerEvents: "none"
             }
           }
         ),
