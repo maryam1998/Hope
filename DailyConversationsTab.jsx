@@ -245,22 +245,6 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
               transition: "background-color 0.2s ease",
             }}
           >
-            {/* نشانگرِ «همین الان اینجام» — یه میله‌ی باریک کنارِ خط، نه یه
-                جعبه‌ی پر‌رنگ روی کل خط. با insetInlineStart همیشه سمتِ
-                شروعِ خط می‌شینه، صرف‌نظر از جهتِ متن. */}
-            <span
-              style={{
-                position: "absolute",
-                insetInlineStart: 2,
-                top: 8,
-                bottom: 8,
-                width: 3,
-                borderRadius: 3,
-                backgroundColor: colors.gold,
-                opacity: isReadingNow ? 1 : 0,
-                transition: "opacity 0.2s ease",
-              }}
-            />
             {/* خط‌کش راهنما (Reading Guide) — یه نوار خیلی باریک و کم‌رنگ که
                 فقط زیرِ همون خطی که الان داره خونده می‌شه ظاهر می‌شه تا چشم
                 خواننده رو بدون شلوغ‌کاری روی خط نگه داره و موقع اسکرول/رفتن
