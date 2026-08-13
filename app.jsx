@@ -662,7 +662,7 @@ const speechController = (() => {
   let key = null; // `${locale}::${text}` — identifies what's currently loaded
   let locale = "en-US";
   let status = "idle"; // "idle" | "playing" | "paused"
-  let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1; // 0.5 (slow) .. 2 (fast), 1 = normal
+  let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1; // 0.25 (slow) .. 2 (fast), 1 = normal
   // "local" = TTS خود گوشی (speechSynthesis) | "online" = سرویس رایگان
   // آنلاین (وقتی گوشی اصلاً صدایی برای اون زبون نصب نداره).
   let mode = "local";
@@ -880,7 +880,7 @@ const speechController = (() => {
   // چون این تایمر مستقلِ موتورِ TTSه، همیشه دقیقاً همونی که می‌خوایم اجرا می‌شه.
   function interChunkGapMs(r) {
     const base = 160;
-    return Math.round(base / Math.min(Math.max(r, 0.3), 2));
+    return Math.round(base / Math.min(Math.max(r, 0.2), 2));
   }
 
   // 🔥 انتخاب صدای بهتر (Google Voices در کروم/اج)
@@ -1103,7 +1103,7 @@ const speechController = (() => {
       return rate;
     },
     setRate(r) {
-      rate = Math.min(Math.max(Number(r) || 1, 0.5), 2);
+      rate = Math.min(Math.max(Number(r) || 1, 0.25), 2);
       try {
         localStorage.setItem("phrasebook-tts-rate", String(rate));
       } catch (e) {}
@@ -3573,17 +3573,17 @@ function SpeedControl({ color }) {
       <button
         type="button"
         onClick={() => step(-0.1)}
-        disabled={rate <= 0.5}
-        style={{ ...btnStyle, opacity: rate <= 0.5 ? 0.4 : 1 }}
+        disabled={rate <= 0.25}
+        style={{ ...btnStyle, opacity: rate <= 0.25 ? 0.4 : 1 }}
         aria-label="کم کردن سرعت پخش"
       >
         −
       </button>
       <input
         type="range"
-        min={0.5}
+        min={0.25}
         max={2}
-        step={0.1}
+        step={0.05}
         value={rate}
         onChange={(e) => speechController.setRate(e.target.value)}
         style={{ width: 44, accentColor: c }}
