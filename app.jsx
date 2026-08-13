@@ -6147,7 +6147,6 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                   dir={dirFor(code)}
                                   style={{
                                     marginTop: 3,
-                                    marginInlineStart: 26,
                                   }}
                                 >
                                   {translated && <SpeakButton text={translated} code={code} color={translationColor} edge={dirFor(code) === "ltr" ? "end" : undefined} />}
@@ -6236,7 +6235,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                               key={code}
                               className="flex items-start gap-2"
                               dir={dirFor(code)}
-                              style={{ marginTop: 4, marginInlineStart: 26 }}
+                              style={{ marginTop: 4 }}
                             >
                               {translated && <SpeakButton text={translated} code={code} color={translationColor} edge={dirFor(code) === "ltr" ? "end" : undefined} />}
                               <p
@@ -7388,6 +7387,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // state مشابه اینجا اضافه می‌کنه و پایین (روی نوارِ پلیر) به ازای
   // تبِ خودش نشون داده می‌شه.
   const [dailyPlayerText, setDailyPlayerText] = useState({ text: "", code: "" });
+  // یه state مشترک برای هر سه تبی که از WordList استفاده می‌کنن (لغات،
+  // لغات‌و‌اخبار، مکالمه‌و‌روزمره) — چون همیشه فقط یکیشون هم‌زمان mount
+  // می‌مونه، لازم نیست هر تب state جدا داشته باشه.
+  const [wordListPlayerText, setWordListPlayerText] = useState({ text: "", code: "" });
   const [grammarJump, setGrammarJump] = useState(null); // { word, sentence, langCode, token } — set from the word popover
   const aiSettings = { backendUrl, setBackendUrl };
   const userStorageKey = `${STORAGE_KEY}:${user?.email || "guest"}`;
@@ -7837,6 +7840,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     data={DAILY_CONVERSATIONS}
     query={query}
     nativeLang={nativeLang}
+    nativeLabel={nativeLabel}
     aiSettings={aiSettings}
     ClickableSentence={ClickableSentence}
     SpeakButton={SpeakButton}
@@ -7882,8 +7886,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                       levelFilter={levelFilter}
                       emptyText=""
                       nativeLang={nativeLang}
+                      nativeLabel={nativeLabel}
                       targetLangs={targetLangList}
                       aiSettings={aiSettings}
+                      ClickableSentence={ClickableSentence}
                       autoplayEnabled={tab === "favorites" && autoScrollPlay}
                     />
                   </div>
@@ -7902,9 +7908,13 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             levelFilter={levelFilter}
             emptyText="لغتی برای نمایش نیست."
             nativeLang={nativeLang}
+            nativeLabel={nativeLabel}
             targetLangs={targetLangList}
             aiSettings={aiSettings}
+            ClickableSentence={ClickableSentence}
             autoplayEnabled={tab === "words" && autoScrollPlay}
+            onFullTextChange={setWordListPlayerText}
+            autoScrollActive={tab === "words" && autoScrollPlay}
           />
         )}
 
@@ -7917,9 +7927,13 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             levelFilter={levelFilter}
             emptyText="لغتی برای نمایش نیست."
             nativeLang={nativeLang}
+            nativeLabel={nativeLabel}
             targetLangs={targetLangList}
             aiSettings={aiSettings}
+            ClickableSentence={ClickableSentence}
             autoplayEnabled={tab === "vocab" && autoScrollPlay}
+            onFullTextChange={setWordListPlayerText}
+            autoScrollActive={tab === "vocab" && autoScrollPlay}
           />
         )}
 
@@ -7932,9 +7946,13 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             levelFilter={levelFilter}
             emptyText="لغتی برای نمایش نیست."
             nativeLang={nativeLang}
+            nativeLabel={nativeLabel}
             targetLangs={targetLangList}
             aiSettings={aiSettings}
+            ClickableSentence={ClickableSentence}
             autoplayEnabled={tab === "daily" && autoScrollPlay}
+            onFullTextChange={setWordListPlayerText}
+            autoScrollActive={tab === "daily" && autoScrollPlay}
           />
         )}
 
@@ -8055,6 +8073,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             )}
             {tab === "conversations" && dailyPlayerText.text && (
               <SpeakButton text={dailyPlayerText.text} code={dailyPlayerText.code} color={colors.teal} forceRepeat />
+            )}
+            {(tab === "words" || tab === "vocab" || tab === "daily") && wordListPlayerText.text && (
+              <SpeakButton text={wordListPlayerText.text} code={wordListPlayerText.code} color={colors.teal} forceRepeat />
             )}
             <SpeedControl color={colors.gold} />
             <AutoplayToggle enabled={autoScrollPlay} onToggle={() => setAutoScrollPlay((v) => !v)} color={colors.teal} />
@@ -8369,8 +8390,6 @@ const STORY_SELECTION_HIGHLIGHT = "hope-story-sel";
 
 function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, nativeLabel, aiSettings }) {
   const [popup, setPopup] = useState(null); // { top, left, text, langCode } | null
-  const [added, setAdded] = useState(false);
-  // مرجعِ خودِ عنصر پاپ‌آپِ شناور — برای تشخیصِ «لمس/کلیک بیرون از پاپ‌آپ».
   const popupElRef = useRef(null);
 
   const clearSelectionHighlight = () => {
@@ -8429,7 +8448,6 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
           CSS.highlights.set(STORY_SELECTION_HIGHLIGHT, new Highlight(range));
         }
       } catch {}
-      setAdded(false);
       setSaved(isWordSaved(selectedText, langCode));
       setGrammarSaved(false);
       setPopup({ top: rect.top, left: rect.left + rect.width / 2, text: selectedText, langCode });
@@ -8534,30 +8552,6 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       <button
         onClick={(e) => {
           e.stopPropagation();
-          addTextToStoryPicks(popup.text, popup.langCode);
-          setAdded(true);
-          setTimeout(() => closePopup(), 700);
-        }}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-          fontSize: 11,
-          fontWeight: 700,
-          color: colors.paper,
-          background: "rgba(255,255,255,0.08)",
-          border: "1px solid rgba(255,255,255,0.25)",
-          borderRadius: 6,
-          padding: "3px 8px",
-          cursor: "pointer",
-        }}
-      >
-        {added ? <Check size={11} color={colors.gold} /> : <Plus size={11} />}
-        {added ? "اضافه شد" : "افزودن به داستان"}
-      </button>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
           const nowSaved = toggleSavedStoryWord(popup.text, popup.langCode, { nativeLang: nativeLang || fallbackLangCode });
           setSaved(nowSaved);
           if (nowSaved) {
@@ -8623,7 +8617,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
 // به کتابخونه‌ی جدید).
 const WORDS_PAGE_SIZE = 60;
 
-function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, targetLangs, aiSettings, autoplayEnabled }) {
+function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence }) {
   // زبان‌هایی که باید زیرِ هر لغت ترجمه‌شون نشون داده بشه: همون زبان‌های
   // مقصدی که کاربر بالای صفحه انتخاب/مرتب کرده (targetLangs)، منهای خودِ
   // انگلیسی (چون انگلیسی همون سرلغته که بالا نشون داده می‌شه و تکرارش
@@ -8668,6 +8662,72 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
   const autoplayItems = filtered.map((w) => ({ id: w.id, text: w.en, code: "en" }));
   const { registerRef } = useAutoplayOnScroll(autoplayEnabled, autoplayItems);
 
+  // متنِ کاملِ «خواندنِ همه‌ی این لیست» — همون الگویی که داستان‌ساز و
+  // مکالمات روزمره دارن، اینجا هم برای لیستِ لغات. کلِ لیستِ فیلترشده
+  // (نه فقط چیزی که تا الان اسکرول شده) خونده می‌شه؛ هرچی پخش جلوتر بره،
+  // صفحه با اسکرولِ خودکار پایین‌تر می‌ره و همون IntersectionObserver
+  // بالا خودش بخش‌های بعدی رو لود می‌کنه.
+  const fullText = filtered.map((w) => w.en).join(" ");
+  const wordOffsets = useMemo(() => {
+    let offset = 0;
+    return filtered.map((w) => {
+      const start = offset;
+      offset += w.en.length + 1; // فاصله‌ی join(" ")
+      return { id: w.id, start, end: start + w.en.length };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullText]);
+
+  useEffect(() => {
+    if (onFullTextChange) onFullTextChange({ text: fullText, code: "en" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullText]);
+  // فقط موقعِ خروج از این تب (unmount کاملِ کامپوننت) متن رو پاک کن — نه
+  // به‌ازای هر تغییرِ فیلتر/جستجو، وگرنه دکمه‌ی 🔊 رو پلیر لحظه‌ای چشمک
+  // می‌زد (پاک می‌شد و دوباره ست می‌شد) با هر تایپ تو جستجو.
+  useEffect(() => {
+    return () => {
+      if (onFullTextChange) onFullTextChange({ text: "", code: "" });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // لغتی که همین الان، در حینِ پخشِ «کل لیست» از روی پلیر، داره خونده
+  // می‌شه — برای نشانگرِ کنارِ کارت و اسکرولِ خودکار.
+  const [activeWordId, setActiveWordId] = useState(null);
+  useEffect(() => {
+    const myKey = `en-US::${fullText}`;
+    const update = (state) => {
+      if (!fullText || state.key !== myKey || state.status === "idle") {
+        setActiveWordId(null);
+        return;
+      }
+      const offset = speechController.getCharOffset();
+      let found = wordOffsets[0] || null;
+      for (const w of wordOffsets) {
+        if (offset >= w.start) found = w;
+        else break;
+      }
+      setActiveWordId(found ? found.id : null);
+    };
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [fullText, wordOffsets]);
+
+  const listNodeMapRef = useRef(new Map());
+  useEffect(() => {
+    if (!autoScrollActive || activeWordId == null) return;
+    const node = listNodeMapRef.current.get(String(activeWordId));
+    if (node && node.scrollIntoView) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [autoScrollActive, activeWordId]);
+  const registerListRef = (id) => (node) => {
+    const key = String(id);
+    if (node) listNodeMapRef.current.set(key, node);
+    else listNodeMapRef.current.delete(key);
+  };
+
   if (filtered.length === 0) {
     return (
       <p style={{ color: colors.inkSoft, fontSize: 14, textAlign: "center", marginTop: 40 }}>
@@ -8681,10 +8741,32 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
       {visible.map((w) => (
         <div
           key={w.id}
-          ref={registerRef(w.id)}
+          ref={(el) => {
+            registerRef(w.id)(el);
+            registerListRef(w.id)(el);
+          }}
           className="flex items-center justify-between p-3 rounded-lg"
-          style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}` }}
+          style={{
+            position: "relative",
+            backgroundColor: "white",
+            border: `1px solid ${colors.cardBorder}`,
+          }}
         >
+          {/* نشانگرِ «همین الان اینجام» موقعِ خواندنِ کل لیست — میله‌ی
+              باریکِ کنارِ کارت، نه پرشدنِ کل کارت. */}
+          {activeWordId === w.id && (
+            <span
+              style={{
+                position: "absolute",
+                insetInlineStart: 0,
+                top: 6,
+                bottom: 6,
+                width: 3,
+                borderRadius: 3,
+                backgroundColor: colors.gold,
+              }}
+            />
+          )}
           <button onClick={() => toggleWordFavorite(w.id)} aria-label="افزودن به علاقه‌مندی‌ها" style={{ marginLeft: 4, flexShrink: 0 }}>
             <Star size={20} color={colors.gold} fill={wordFavorites.has(w.id) ? colors.gold : "none"} />
           </button>
@@ -8751,7 +8833,9 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                   abbr={l.abbr}
                   knownText={l.code === "fa" ? w.fa : ""}
                   nativeLang={nativeLang}
+                  nativeLabel={nativeLabel}
                   aiSettings={aiSettings}
+                  ClickableSentence={ClickableSentence}
                 />
               ))}
             </div>
@@ -8771,7 +8855,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
 // می‌کنه (تا دفعه‌ی بعد دیگه درخواستی به سرور نره). متن با رنگ مشکی‌پررنگ
 // (colors.ink) و bold نشون داده می‌شه — نه رنگ‌های کم‌کنتراست — تا خوندنِ
 // پشت‌سرهمِ چند زبان چشم رو خسته نکنه.
-function WordTargetTranslation({ word, langCode, abbr, knownText, nativeLang, aiSettings }) {
+function WordTargetTranslation({ word, langCode, abbr, knownText, nativeLang, nativeLabel, aiSettings, ClickableSentence }) {
   const [text, setText] = useState(knownText || (() => loadWordTranslation(word, langCode)));
 
   useEffect(() => {
@@ -8816,7 +8900,22 @@ function WordTargetTranslation({ word, langCode, abbr, knownText, nativeLang, ai
       </span>
       {text ? (
         <>
-          <p style={{ flex: 1, fontSize: 14, fontWeight: 700, color: colors.inkSoft }}>{text}</p>
+          {ClickableSentence ? (
+            <p style={{ flex: 1, fontSize: 14, fontWeight: 700, color: colors.inkSoft }}>
+              <ClickableSentence
+                text={text}
+                langCode={langCode}
+                nativeLang={nativeLang}
+                nativeLabel={nativeLabel}
+                aiSettings={aiSettings}
+                color={colors.inkSoft}
+                fontWeight={700}
+                fontSize={14}
+              />
+            </p>
+          ) : (
+            <p style={{ flex: 1, fontSize: 14, fontWeight: 700, color: colors.inkSoft }}>{text}</p>
+          )}
           <SpeakButton text={text} code={langCode} color={colors.teal} edge="end" />
         </>
       ) : (

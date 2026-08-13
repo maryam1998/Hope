@@ -127,7 +127,7 @@ function TopicCard({ meta, hasData, onClick }) {
 // برای بقیه‌ی زبان‌ها (هر چی که کاربر بالای صفحه اضافه کنه) با همون
 // translateFree که به کل اپ وصله می‌گیره — و چون translateFree خودش کش
 // IndexedDB داره، دفعه‌ی بعد همون ترجمه بدون اینترنت هم در دسترسه.
-function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, SpeakButton }) {
+function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, SpeakButton, ClickableSentence, nativeLang, nativeLabel }) {
   const [value, setValue] = useState(langCode === "fa" ? knownFa || "" : "");
   const [loading, setLoading] = useState(langCode !== "fa" && !knownFa);
 
@@ -177,6 +177,20 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
       </span>
       {loading ? (
         <span style={{ fontSize: 12, color: colors.inkSoft, flex: 1 }}>...</span>
+      ) : ClickableSentence ? (
+        <span style={{ flex: 1 }}>
+          <ClickableSentence
+            text={value}
+            langCode={langCode}
+            nativeLang={nativeLang}
+            nativeLabel={nativeLabel}
+            aiSettings={aiSettings}
+            color={translationColor}
+            fontFamily={fontFa}
+            fontWeight={800}
+            fontSize={12.5}
+          />
+        </span>
       ) : (
         <span style={{ fontSize: 12.5, color: translationColor, fontWeight: 800, fontFamily: fontFa, flex: 1 }}>{value}</span>
       )}
@@ -184,7 +198,7 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
   );
 }
 
-function ConversationBox({ items, variant, label, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef }) {
+function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef }) {
   const isHear = variant === "hear";
   if (items.length === 0) return null;
   const accent = isHear ? colors.teal : colors.gold;
@@ -281,6 +295,9 @@ function ConversationBox({ items, variant, label, nativeLang, aiSettings, Clicka
                   aiSettings={aiSettings}
                   translateFree={translateFree}
                   SpeakButton={SpeakButton}
+                  ClickableSentence={ClickableSentence}
+                  nativeLang={nativeLang}
+                  nativeLabel={nativeLabel}
                 />
               ))}
             </div>
@@ -292,7 +309,7 @@ function ConversationBox({ items, variant, label, nativeLang, aiSettings, Clicka
   );
 }
 
-function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef }) {
+function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef }) {
   const filterFn = (arr) => (levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr);
   const speakerA = filterFn(sc.speakerA);
   const speakerB = filterFn(sc.speakerB);
@@ -314,8 +331,8 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
       {isOpen && (
         <div style={{ padding: "0 15px 15px" }}>
           {sc.context && <div style={{ fontFamily: fontFa, fontSize: 12, color: colors.inkSoft, marginBottom: 4 }}>{sc.context}</div>}
-          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} />
-          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} />
+          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} />
+          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} />
         </div>
       )}
     </div>
@@ -326,6 +343,7 @@ export default function DailyConversationsTab({
   data,
   query,
   nativeLang,
+  nativeLabel,
   aiSettings,
   ClickableSentence,
   SpeakButton,
@@ -547,6 +565,7 @@ export default function DailyConversationsTab({
                 isOpen={openScenario === i}
                 onToggle={() => setOpenScenario(openScenario === i ? null : i)}
                 nativeLang={nativeLang}
+                nativeLabel={nativeLabel}
                 aiSettings={aiSettings}
                 ClickableSentence={ClickableSentence}
                 SpeakButton={SpeakButton}
