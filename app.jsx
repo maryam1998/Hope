@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
@@ -1741,165 +1742,6 @@ async function generateWordExample({ word, langCode, meaningNative, nativeLabel,
 }
 
 // ---------------------------------------------------------------------------
-// Reading-time tracking — هر بار که «خواندن خودکار» داستان روشن/خاموش می‌شه
-// (چه با دست، چه خودش با تمومِ داستان)، یه رکورد ثبت می‌شه: چقدر طول کشید،
-// به تاریخ میلادی و شمسی. برای گزارش‌گیری و تحلیل توسط چت هوش مصنوعیِ
-// شناور استفاده می‌شه (نگاه کن به buildReadingReport و AiChat).
-// ---------------------------------------------------------------------------
-const READING_SESSIONS_KEY = "phrasebook-reading-sessions-v1";
-const READING_SESSIONS_CHANGED_EVENT = "phrasebook:readingSessionsChanged";
-
-function loadReadingSessions() {
-  try {
-    const raw = window.localStorage.getItem(READING_SESSIONS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-// تبدیل تاریخ میلادی به شمسی — الگوریتم استاندارد و رایج (مبتنی بر همون
-// حساب معروفِ jalaali)، بدون نیاز به هیچ کتابخونه‌ی جانبی.
-function gregorianToJalali(gy, gm, gd) {
-  const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-  let jy = gy <= 1600 ? 0 : 979;
-  gy -= gy <= 1600 ? 621 : 1600;
-  const gy2 = gm > 2 ? gy + 1 : gy;
-  let days =
-    365 * gy +
-    Math.floor((gy2 + 3) / 4) -
-    Math.floor((gy2 + 99) / 100) +
-    Math.floor((gy2 + 399) / 400) -
-    80 +
-    gd +
-    g_d_m[gm - 1];
-  jy += 33 * Math.floor(days / 12053);
-  days %= 12053;
-  jy += 4 * Math.floor(days / 1461);
-  days %= 1461;
-  if (days > 365) {
-    jy += Math.floor((days - 1) / 365);
-    days = (days - 1) % 365;
-  }
-  const jm = days < 186 ? 1 + Math.floor(days / 31) : 7 + Math.floor((days - 186) / 30);
-  const jd = 1 + (days < 186 ? days % 31 : (days - 186) % 30);
-  return [jy, jm, jd];
-}
-function formatJalaliDate(date) {
-  const [jy, jm, jd] = gregorianToJalali(date.getFullYear(), date.getMonth() + 1, date.getDate());
-  return `${jy}/${String(jm).padStart(2, "0")}/${String(jd).padStart(2, "0")}`;
-}
-
-// جلسه‌ی فعالیت رو ذخیره می‌کنه — جلسه‌های خیلی کوتاه‌تر از ۳ ثانیه (مثلاً
-// کلیک اشتباهی، یا سوییچ سریع بین تب‌ها) اصلاً ثبت نمی‌شن که گزارش رو شلوغ
-// نکنن. category یکی از این‌هاست: "app" (کل زمان بازبودن نرم‌افزار)،
-// "story" (خواندن خودکار داستان)، "grammar" (زمان توی تبِ گرامر)،
-// "conversation " (زمان توی تبِ عبارات).
-function saveReadingSession({ category = "story", langCode, startedAt, endedAt, durationSeconds }) {
-  if (!durationSeconds || durationSeconds < 3) return;
-  const list = loadReadingSessions();
-  const endDate = new Date(endedAt);
-  list.unshift({
-    id: `${endedAt}-${Math.random().toString(36).slice(2, 7)}`,
-    category,
-    langCode: langCode || null,
-    startedAt,
-    endedAt,
-    durationSeconds: Math.round(durationSeconds),
-    gregorianDate: endDate.toISOString().slice(0, 10),
-    jalaliDate: formatJalaliDate(endDate),
-  });
-  try {
-    // فقط ۸۰۰ رکورد آخر نگه داشته می‌شه که حافظه‌ی محلی شلوغ نشه.
-    window.localStorage.setItem(READING_SESSIONS_KEY, JSON.stringify(list.slice(0, 800)));
-    window.dispatchEvent(new Event(READING_SESSIONS_CHANGED_EVENT));
-  } catch {}
-}
-
-// یه گزارش خلاصه از فعالیت‌های ثبت‌شده می‌سازه: امروز، هفت روز اخیر، مجموع
-// کل زمانِ بازبودنِ اپ، تفکیک به‌ازای هر بخش (داستان/گرامر/عبارات) و هر
-// زبان، و ده جلسه‌ی آخر همراه با تاریخ میلادی/شمسی. هم برای نمایش کوتاه
-// داخل خودِ اپ، هم برای دادن به‌عنوان زمینه (context) به چت هوش مصنوعی
-// شناور تا واقعاً بر پایه‌ی داده‌های خودِ کاربر تحلیل و راهنمایی کنه.
-function buildReadingReport() {
-  const sessions = loadReadingSessions();
-  if (!sessions.length) return null;
-  // معیار «امروز/هفت‌روز اخیر/مجموع» بر پایه‌ی category=app (کل زمان
-  // بازبودن نرم‌افزار) حساب می‌شه — شهودی‌ترین عدده برای «چقدر استفاده کردم».
-  const appSessions = sessions.filter((e) => e.category === "app");
-  const totalAppSeconds = appSessions.reduce((s, e) => s + e.durationSeconds, 0);
-  const today = new Date().toISOString().slice(0, 10);
-  const todaySeconds = appSessions.filter((e) => e.gregorianDate === today).reduce((s, e) => s + e.durationSeconds, 0);
-  const weekAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000);
-  const weekSeconds = appSessions
-    .filter((e) => new Date(e.endedAt) >= weekAgo)
-    .reduce((s, e) => s + e.durationSeconds, 0);
-  const byCategory = {};
-  sessions.forEach((e) => {
-    byCategory[e.category] = (byCategory[e.category] || 0) + e.durationSeconds;
-  });
-  const byLang = {};
-  sessions
-    .filter((e) => e.langCode)
-    .forEach((e) => {
-      byLang[e.langCode] = (byLang[e.langCode] || 0) + e.durationSeconds;
-    });
-  return {
-    totalSessions: sessions.length,
-    totalAppMinutes: Math.round(totalAppSeconds / 60),
-    todayMinutes: Math.round(todaySeconds / 60),
-    weekMinutes: Math.round(weekSeconds / 60),
-    byCategoryMinutes: Object.fromEntries(Object.entries(byCategory).map(([k, v]) => [k, Math.round(v / 60)])),
-    byLangMinutes: Object.fromEntries(Object.entries(byLang).map(([k, v]) => [k, Math.round(v / 60)])),
-    recent: sessions.slice(0, 10).map((e) => ({
-      category: e.category,
-      langCode: e.langCode,
-      minutes: Math.max(1, Math.round(e.durationSeconds / 60)),
-      gregorianDate: e.gregorianDate,
-      jalaliDate: e.jalaliDate,
-    })),
-  };
-}
-
-// هوکِ عمومیِ اندازه‌گیری زمان — وقتی isActive روشنه (مثلاً یه تب خاص بازه)
-// و صفحه هم واقعاً جلوی چشم کاربره (نه پس‌زمینه‌ی مرورگر)، زمان می‌شمره؛
-// به محض false شدن isActive، یا مخفی‌شدن تب مرورگر، یا unmount شدن، همون
-// جلسه رو با saveReadingSession ذخیره می‌کنه. برای هر سه‌ی «کل زمان اپ»،
-// «تبِ گرامر»، و «تبِ عبارات» از همین هوک استفاده می‌شه.
-function useActivityTimeTracker(category, isActive, langCode) {
-  const startRef = useRef(null);
-  useEffect(() => {
-    function start() {
-      if (!startRef.current) startRef.current = new Date().toISOString();
-    }
-    function stop() {
-      if (!startRef.current) return;
-      const startedAt = startRef.current;
-      startRef.current = null;
-      const endedAt = new Date().toISOString();
-      const durationSeconds = (new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000;
-      saveReadingSession({ category, langCode, startedAt, endedAt, durationSeconds });
-    }
-    if (isActive && (typeof document === "undefined" || document.visibilityState === "visible")) start();
-    else stop();
-
-    function handleVisibility() {
-      if (!isActive) return;
-      if (document.visibilityState === "visible") start();
-      else stop();
-    }
-    document.addEventListener("visibilitychange", handleVisibility);
-    window.addEventListener("beforeunload", stop);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibility);
-      window.removeEventListener("beforeunload", stop);
-      stop();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isActive, category, langCode]);
-}
-
-// ---------------------------------------------------------------------------
 // Grammar notes — detailed, per-word grammar explanations the user chose to
 // keep ("افزودن به یادگیری گرامر"), plus AI-checked practice sentences from
 // the Grammar tab's chat. Stored per-device, global across every story —
@@ -3295,9 +3137,6 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
   // getItemsRef.current() دیگه لیستِ حالتِ قدیم رو نمی‌ده — برای محاسبه‌ی
   // اینکه دقیقاً کجای متن بودیم، به همین لیستِ قدیمی نیاز داریم.
   const lastItemsRef = useRef([]);
-  // برای تایمر خواندن: لحظه‌ی شروعِ همین جلسه‌ی روشن‌بودن، تا وقتی خاموش
-  // شد (چه با دست، چه خودش با تمومِ داستان) طول جلسه محاسبه و ذخیره بشه.
-  const sessionStartRef = useRef(null);
   const [elapsed, setElapsed] = useState(0);
   // همیشه آخرین getItems (یعنی آخرین انتخاب کاربر برای جمله‌به‌جمله/
   // پاراگراف‌به‌پاراگراف) رو نگه می‌داره. چون این ref هر رندر آپدیت می‌شه ولی
@@ -3308,19 +3147,6 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
   useEffect(() => {
     getItemsRef.current = getItems;
   });
-
-  useEffect(() => {
-    if (!trackLangCode) return;
-    if (active) {
-      sessionStartRef.current = new Date().toISOString();
-    } else if (sessionStartRef.current) {
-      const startedAt = sessionStartRef.current;
-      sessionStartRef.current = null;
-      const endedAt = new Date().toISOString();
-      const durationSeconds = (new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000;
-      saveReadingSession({ langCode: trackLangCode, startedAt, endedAt, durationSeconds });
-    }
-  }, [active, trackLangCode]);
 
   // تایمرِ زنده — تا کاربر همون لحظه ببینه چقدر داره می‌خونه.
   useEffect(() => {
@@ -7073,21 +6899,29 @@ function GrammarPanel({
       {/* پنلِ شناورِ «تمرین جمله‌سازی با هوش مصنوعی» — درست مثلِ نوارِ پلیرِ
           چسبیده به کف صفحه (position: fixed)، اما یه پله بالاترِ اون
           (bottom: playerBarHeight)، که همیشه روی صفحه بمونه و با اسکرول‌کردنِ
-          لیستِ نکته‌های گرامری از دید خارج نشه. شفافیت‌ش هم مستقل از پلیره. */}
-      <div
-        ref={practicePanelRef}
-        style={{
-          position: "fixed",
-          left: 0,
-          right: 0,
-          bottom: playerBarHeight,
-          zIndex: 41,
-          backgroundColor: colors.paper,
-          opacity: practiceOpacity / 100,
-          borderTop: `1px solid ${colors.cardBorder}`,
-          boxShadow: "0 -4px 14px rgba(28,37,65,0.12)",
-        }}
-      >
+          لیستِ نکته‌های گرامری از دید خارج نشه. شفافیت‌ش هم مستقل از پلیره.
+          با createPortal مستقیم زیرِ <body> رندر می‌شه — چون GrammarPanel
+          خودش داخلِ یه div با display:none قایم می‌شه وقتی تبِ فعلی «گرامر»
+          نیست (برای این‌که چتِ تمرین از بین نره)، و اگه همین‌جا با
+          position:fixed می‌موند، آبا/جد با display:none باعث می‌شد این پنل
+          هم با رفتن به تب‌های دیگه قایم بشه. با پورتال، این پنل از اون
+          محدودیت فرار می‌کنه و دقیقاً مثلِ نوارِ پلیر، توی همه‌ی تب‌ها
+          همیشه روی صفحه و بالای پلیر باقی می‌مونه. */}
+      {createPortal(
+        <div
+          ref={practicePanelRef}
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: playerBarHeight,
+            zIndex: 41,
+            backgroundColor: colors.paper,
+            opacity: practiceOpacity / 100,
+            borderTop: `1px solid ${colors.cardBorder}`,
+            boxShadow: "0 -4px 14px rgba(28,37,65,0.12)",
+          }}
+        >
         <div className="px-4 pt-2 flex items-center justify-between gap-2 flex-wrap" style={{ rowGap: 6 }}>
           <button
             onClick={() => setPracticeCollapsed((v) => !v)}
@@ -7265,7 +7099,9 @@ function GrammarPanel({
           />
           <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{practiceOpacity}%</span>
         </div>
-      </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
@@ -7341,20 +7177,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // پدینگِ پایینِ <main> تو تبِ گرامر به‌اندازه‌ی کافی باشه و آخرین نکته‌ی
   // گرامری زیرِ پنلِ شناور گم نشه.
   const [practicePanelHeight, setPracticePanelHeight] = useState(0);
-  const [chatOpen, setChatOpen] = useState(false);
-  // گزارش خواندن — از رکوردهای تایمرِ «خواندن خودکار» ساخته می‌شه و هم
-  // برای خلاصه‌ی کوچیک بالای چت، هم به‌عنوان زمینه برای خودِ چت هوش
-  // مصنوعی (AiChat) استفاده می‌شه تا بتونه بر پایه‌ی داده‌ی واقعی تحلیل کنه.
-  const [readingReport, setReadingReport] = useState(() => buildReadingReport());
-  useEffect(() => {
-    const refresh = () => setReadingReport(buildReadingReport());
-    window.addEventListener(READING_SESSIONS_CHANGED_EVENT, refresh);
-    return () => window.removeEventListener(READING_SESSIONS_CHANGED_EVENT, refresh);
-  }, []);
-  // اندازه‌گیری زمان: کل زمانی که نرم‌افزار جلوی چشم کاربره (همیشه فعال، تا
-  // وقتی این کامپوننت سوار/باز باشه) خودکار ثبت می‌شه — بدون هیچ دکمه‌ی
-  // روشن/خاموشِ دستی‌ای.
-  useActivityTimeTracker("app", true);
   const [loaded, setLoaded] = useState(false);
   // «loaded» فقط یعنی نسخه‌ی محلی (localStorage) لود شده و صفحه می‌تونه باز
   // بشه — ولی نسخه‌ی ابری (Supabase) ممکنه هنوز در راه باشه (مخصوصاً
@@ -8103,70 +7925,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         </div>
       )}
 
-      {/* Floating AI chat — reachable from every tab */}
-      {!chatOpen && (
-        <button
-          onClick={() => setChatOpen(true)}
-          aria-label="گفتگو با هوش مصنوعی"
-          style={{
-            position: "fixed",
-            // وقتی نوار پلیر پایین صفحه چسبیده، دکمه‌ی چت رو بالاتر می‌بریم
-            // تا زیرش گم نشه.
-            bottom: showPlayerBar ? 130 : 20,
-            left: 20,
-            width: 56,
-            height: 56,
-            borderRadius: "50%",
-            backgroundColor: colors.gold,
-            color: "white",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            boxShadow: "0 4px 14px rgba(28,37,65,0.35)",
-            border: "none",
-            zIndex: 45,
-          }}
-        >
-          <MessageCircle size={24} />
-        </button>
-      )}
-
-      {chatOpen && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            backgroundColor: "rgba(28,37,65,0.4)",
-            display: "flex",
-            alignItems: "flex-end",
-            zIndex: 50,
-          }}
-          onClick={() => setChatOpen(false)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: "100%",
-              maxHeight: "80vh",
-              backgroundColor: colors.paper,
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              display: "flex",
-              flexDirection: "column",
-              padding: 16,
-            }}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <p style={{ fontWeight: 700, fontSize: 15 }}>گفتگو با هوش مصنوعی</p>
-              <button onClick={() => setChatOpen(false)} aria-label="بستن">
-                <X size={20} color={colors.inkSoft} />
-              </button>
-            </div>
-            <StudyStatsPanel report={readingReport} />
-            <AiChat targetLabel={targetLabel} nativeLabel={nativeLabel} readingReport={readingReport} />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -9358,258 +9116,6 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
   );
 }
 
-// ---------------------------------------------------------------------------
-// AI chat practice partner
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// نوار پیشرفتِ مطالعه — سه بخش (داستان‌ساز/گرامر/عبارات) رو با یه نوار
-// پیشرفت مقایسه می‌کنه، به‌همراه امروز/هفت‌روزِاخیر/مجموع و فهرست جلسه‌های
-// اخیر با تاریخ — با یه سوییچ کوچیک، خودِ کاربر انتخاب می‌کنه تاریخ‌ها رو
-// شمسی ببینه یا میلادی. توی همون شیتِ چتِ هوش مصنوعی نمایش داده می‌شه تا
-// «تحلیل» و «داده‌ی خام» کنار هم باشن.
-// ---------------------------------------------------------------------------
-function StudyStatsPanel({ report }) {
-  const [calendarMode, setCalendarMode] = useState(() => {
-    try {
-      return window.localStorage.getItem("phrasebook-stats-calendar") || "jalali";
-    } catch {
-      return "jalali";
-    }
-  });
-  useEffect(() => {
-    try {
-      window.localStorage.setItem("phrasebook-stats-calendar", calendarMode);
-    } catch {}
-  }, [calendarMode]);
-
-  const sections = [
-    { key: "story", label: "داستان‌ساز", color: colors.rose },
-    { key: "grammar", label: "گرامر", color: colors.gold },
-    { key: "conversation ", label: "عبارات", color: colors.teal },
-  ];
-
-  if (!report) {
-    return (
-      <p style={{ fontSize: 12, color: colors.inkSoft, textAlign: "center", padding: "10px 0" }}>
-        هنوز فعالیتی ثبت نشده — با استفاده از هر بخش (داستان‌ساز/گرامر/عبارات)، آمارت خودکار اینجا نشون داده می‌شه.
-      </p>
-    );
-  }
-
-  const maxMinutes = Math.max(1, ...sections.map((s) => report.byCategoryMinutes[s.key] || 0));
-
-  return (
-    <div
-      style={{
-        backgroundColor: "white",
-        border: `1px solid ${colors.cardBorder}`,
-        borderRadius: 14,
-        padding: 12,
-        marginBottom: 10,
-      }}
-    >
-      <div className="flex items-center justify-between mb-2">
-        <p style={{ fontWeight: 700, fontSize: 13 }}>📊 آمار مطالعه</p>
-        <div className="flex gap-1">
-          {[
-            { key: "jalali", label: "شمسی" },
-            { key: "gregorian", label: "میلادی" },
-          ].map((opt) => (
-            <button
-              key={opt.key}
-              onClick={() => setCalendarMode(opt.key)}
-              style={{
-                fontSize: 10,
-                padding: "2px 7px",
-                borderRadius: 10,
-                border: `1px solid ${calendarMode === opt.key ? colors.teal : colors.cardBorder}`,
-                backgroundColor: calendarMode === opt.key ? colors.teal : "white",
-                color: calendarMode === opt.key ? "white" : colors.ink,
-                fontWeight: 600,
-              }}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 10 }}>
-        امروز {report.todayMinutes} دقیقه · هفت روز اخیر {report.weekMinutes} دقیقه · مجموع {report.totalAppMinutes} دقیقه
-      </p>
-
-      <div className="flex flex-col gap-2 mb-3">
-        {sections.map((s) => {
-          const minutes = report.byCategoryMinutes[s.key] || 0;
-          const pct = Math.round((minutes / maxMinutes) * 100);
-          return (
-            <div key={s.key}>
-              <div className="flex items-center justify-between mb-1">
-                <span style={{ fontSize: 12, fontWeight: 600 }}>{s.label}</span>
-                <span style={{ fontSize: 11, color: colors.inkSoft }}>{minutes} دقیقه</span>
-              </div>
-              <div style={{ height: 7, borderRadius: 6, backgroundColor: colors.paperDark, overflow: "hidden" }}>
-                <div
-                  style={{
-                    height: "100%",
-                    width: `${pct}%`,
-                    backgroundColor: s.color,
-                    borderRadius: 6,
-                    transition: "width 0.3s",
-                  }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {report.recent.length > 0 && (
-        <>
-          <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 4 }}>جلسه‌های اخیر</p>
-          <div className="flex flex-col gap-1" style={{ maxHeight: 120, overflowY: "auto" }}>
-            {report.recent.map((r, i) => (
-              <div key={i} className="flex items-center justify-between" style={{ fontSize: 11, color: colors.inkSoft }}>
-                <span>
-                  {sections.find((s) => s.key === r.category)?.label || r.category}
-                  {r.langCode ? ` (${r.langCode})` : ""}
-                </span>
-                <span>{r.minutes} دقیقه</span>
-                <span dir="ltr">{calendarMode === "jalali" ? r.jalaliDate : r.gregorianDate}</span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function AiChat({ targetLabel, nativeLabel, readingReport }) {
-  const [messages, setMessages] = useState([
-    { role: "assistant", text: `سلام! هر سوالی داری بپرس — درباره‌ی ${targetLabel || "زبانی که یاد می‌گیری"}، یا هر موضوع دیگه‌ای، هرچی دلت خواست. به ${nativeLabel} هم می‌تونی بنویسی.` },
-  ]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const bottomRef = useRef(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  const send = async () => {
-    if (!input.trim() || loading) return;
-    const userMsg = { role: "user", text: input };
-    setMessages((m) => [...m, userMsg]);
-    setInput("");
-    setLoading(true);
-    try {
-      const reportText = readingReport
-        ? `Here is the user's REAL usage/practice data in this app, tracked automatically (Persian dates are the Jalali/Shamsi calendar; "app" = total time the app was open and in view, "story"/"grammar"/"conversation " = time spent specifically in each of those sections — sections can overlap with "app" time, they're not additive). Use it whenever the user asks about their study habits, progress, streaks, or wants encouragement/analysis — refer to real numbers, don't make them up: total sessions ever: ${readingReport.totalSessions}; total app-open minutes ever: ${readingReport.totalAppMinutes}; app-open minutes today: ${readingReport.todayMinutes}; app-open minutes in the last 7 days: ${readingReport.weekMinutes}; minutes per section (app/story/grammar/conversation  → minutes): ${JSON.stringify(readingReport.byCategoryMinutes)}; minutes per language read/listened to (ISO code → minutes): ${JSON.stringify(readingReport.byLangMinutes)}; last sessions (most recent first, section/language/minutes/Gregorian date/Jalali date): ${readingReport.recent.map((r) => `${r.category}${r.langCode ? "/" + r.langCode : ""} ${r.minutes}min on ${r.gregorianDate} (${r.jalaliDate})`).join("; ")}.`
-        : "The user has no recorded usage sessions yet in this app (tracking just started, or they haven't used it long enough — sessions under 3 seconds aren't logged). If they ask about their progress, mention it'll start showing up as they use the app.";
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          messages: [
-            {
-              role: "user",
-              content: `You are a helpful, all-purpose AI assistant chatting with a Persian speaker inside a language-learning app. Answer ANY question the user asks, on ANY topic (not just language learning) — general knowledge, advice, help with code, translation, or plain conversation — exactly like a general-purpose assistant would. Default to replying in ${nativeLabel} unless the user is specifically practicing ${targetLabel || "a foreign language"} or asks in another language, in which case reply in that language (adding a short ${nativeLabel} translation in parentheses for non-trivial sentences). If the user writes a sentence in ${targetLabel || "the target language"} that looks like a practice attempt, gently correct it. Keep replies reasonably short and conversational unless the question needs more depth.\n\n${reportText}\n\nConversation so far:\n\n${[...messages, userMsg].map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`).join("\n")}`,
-            },
-          ],
-        }),
-      });
-      const data = await res.json();
-      const textBlock = (data.content || []).map((b) => b.text || "").join("\n").trim();
-      setMessages((m) => [...m, { role: "assistant", text: textBlock || "متاسفم، پاسخی دریافت نشد." }]);
-    } catch (e) {
-      setMessages((m) => [...m, { role: "assistant", text: "خطا در برقراری ارتباط. دوباره امتحان کن." }]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col" style={{ height: "55vh" }}>
-      <div className="flex-1 overflow-y-auto flex flex-col gap-3 pb-2">
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            style={{
-              alignSelf: m.role === "user" ? "flex-start" : "flex-end",
-              backgroundColor: m.role === "user" ? "white" : colors.ink,
-              color: m.role === "user" ? colors.ink : colors.paper,
-              border: m.role === "user" ? `1px solid ${colors.cardBorder}` : "none",
-              borderRadius: 14,
-              padding: "10px 14px",
-              maxWidth: "80%",
-              fontSize: 14,
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {m.text}
-          </div>
-        ))}
-        {loading && (
-          <div style={{ alignSelf: "flex-end", color: colors.inkSoft, fontSize: 13 }}>
-            در حال نوشتن...
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </div>
-      <div className="flex gap-2 items-end pt-2" style={{ borderTop: `1px solid ${colors.cardBorder}`, position: "sticky", bottom: 0, backgroundColor: colors.paper }}>
-        <textarea
-          rows={1}
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            e.target.style.height = "auto";
-            e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          placeholder="پیامت رو بنویس... (برای خط جدید Enter، برای ارسال دکمه رو بزن)"
-          style={{
-            flex: 1,
-            fontFamily: fontFa,
-            border: `1px solid ${colors.cardBorder}`,
-            borderRadius: 18,
-            padding: "10px 16px",
-            fontSize: 14,
-            outline: "none",
-            resize: "none",
-            maxHeight: 140,
-            lineHeight: 1.5,
-          }}
-        />
-        <button
-          onClick={send}
-          disabled={loading}
-          style={{
-            backgroundColor: colors.gold,
-            color: "white",
-            borderRadius: "50%",
-            width: 42,
-            height: 42,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-          }}
-          aria-label="ارسال"
-        >
-          <Send size={18} />
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // =============================================================================
 // AUTHENTICATION
