@@ -2334,7 +2334,12 @@ function MiniMarkdown({ text, speakCode, nativeLang, aiSettings }) {
             // وگرنه جمله‌های انگلیسیِ خالص هم بر عکس/به‌هم‌ریخته نشون داده
             // می‌شن، دقیقاً همون مشکلی که توی مثال‌ها پیش اومده بود.
             <li key={i} dir="auto" className="flex items-start gap-1" style={{ marginBottom: 2, lineHeight: 1.8, textAlign: "start" }}>
-              {shouldSpeak(li) && <SpeakButton text={li} code={speakCode} color={colors.inkSoft} />}
+              {/* dir="auto" روی همین ردیف باعث می‌شه محورِ اصلیِ فلکس هم عوض
+                  بشه: خط‌های فارسی rtl می‌مونن (بلندگو با order پیش‌فرض درست
+                  سمت راست می‌شینه)، ولی خط‌های زبانِ خارجی auto می‌شن ltr —
+                  اونجا باید edge="end" بدیم وگرنه بلندگو برعکس، سمت چپ
+                  می‌افته و انگار تورفتگی/جابه‌جایی داره. */}
+              {shouldSpeak(li) && <SpeakButton text={li} code={speakCode} color={colors.inkSoft} edge={isPersianScriptLine(li) ? undefined : "end"} />}
               <span style={{ flex: 1 }}>{renderContent(li, `${blocks.length}-${i}`)}</span>
             </li>
           ))}
@@ -2366,7 +2371,7 @@ function MiniMarkdown({ text, speakCode, nativeLang, aiSettings }) {
             textAlign: "start",
           }}
         >
-          {shouldSpeak(content) && <SpeakButton text={content} code={speakCode} color={colors.inkSoft} />}
+          {shouldSpeak(content) && <SpeakButton text={content} code={speakCode} color={colors.inkSoft} edge={isPersianScriptLine(content) ? undefined : "end"} />}
           <span style={{ flex: 1 }}>{renderContent(content, blocks.length)}</span>
         </p>
       );
@@ -2386,7 +2391,7 @@ function MiniMarkdown({ text, speakCode, nativeLang, aiSettings }) {
     flushList();
     blocks.push(
       <p key={blocks.length} dir="auto" className="flex items-start gap-1" style={{ margin: "4px 0", lineHeight: 1.9, textAlign: "start" }}>
-        {shouldSpeak(line) && <SpeakButton text={line} code={speakCode} color={colors.inkSoft} />}
+        {shouldSpeak(line) && <SpeakButton text={line} code={speakCode} color={colors.inkSoft} edge={isPersianScriptLine(line) ? undefined : "end"} />}
         <span style={{ flex: 1 }}>{renderContent(line, blocks.length)}</span>
       </p>
     );
@@ -7314,7 +7319,12 @@ function GrammarPanel({ nativeLang, nativeLabel, targetOrder, aiSettings, jumpTo
 // ---------------------------------------------------------------------------
 function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [nativeLang, setNativeLang] = useState("fa");
-  const [targetOrder, setTargetOrder] = useState(["en"]);
+  // طبق درخواست: هر بار که وارد اکانت می‌شی، زبان‌های مقصد نباید از دفعه‌ی
+  // قبل به‌خاطر مونده باشن و از پیش انتخاب‌شده بیان — باید خالی شروع بشه و
+  // خودت هر بار انتخابش کنی. برای همین هم مقدارِ اولیه‌ش [] شده (نه ["en"])
+  // و هم، پایین‌تر در applySavedState، دیگه از روی داده‌ی ذخیره‌شده (چه
+  // محلی چه ابری) پر نمی‌شه.
+  const [targetOrder, setTargetOrder] = useState([]);
   // ترتیبِ نمایشِ خودِ مهرهای زبان (ردیفِ زبان مادری و ردیفِ زبان‌های مقصد) —
   // با کشیدن یه مهر روی مهرِ دیگه (DraggableLangRow) عوض می‌شه، جدا از
   // targetOrder که فقط ترتیبِ ترجمه‌های همون زبان‌های از‌قبل‌انتخاب‌شده‌ست.
@@ -7508,7 +7518,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     if (!saved) return;
     const merge = !!(opts && opts.merge);
     if (saved.nativeLang) setNativeLang(saved.nativeLang);
-    if (Array.isArray(saved.targetOrder) && saved.targetOrder.length) setTargetOrder(saved.targetOrder);
+    // طبق درخواست، زبان‌های مقصد دیگه از ذخیره‌ی قبلی بازیابی نمی‌شن — هر بار
+    // ورود باید خالی باشه، صرف‌نظر از این‌که دفعه‌ی قبل چی انتخاب شده بود.
+    // (خودِ targetOrder هنوز داره ذخیره می‌شه — پایین‌تر توی همون افکتِ ذخیره —
+    // فقط دیگه اینجا خودکار روی صفحه اعمال نمی‌شه.)
     if (Array.isArray(saved.langPickerOrder) && saved.langPickerOrder.length) setLangPickerOrder(saved.langPickerOrder);
     if (Array.isArray(saved.favorites)) setFavorites(new Set(saved.favorites));
     if (Array.isArray(saved.wordFavorites)) setWordFavorites(new Set(saved.wordFavorites));
@@ -8839,7 +8852,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                 />
               ))}
             </div>
-            <WordExamples word={w.en} langCode="en" meaningNative={w.fa} nativeLang={nativeLang} aiSettings={aiSettings} />
+            <WordExamples word={w.en} langCode="en" meaningNative={w.fa} nativeLang={nativeLang} targetLangs={effectiveDisplayLangs} aiSettings={aiSettings} />
           </div>
         </div>
       ))}
@@ -8933,7 +8946,7 @@ function WordTargetTranslation({ word, langCode, abbr, knownText, nativeLang, na
 // «افزودن به داستان‌ساز» جدا داره؛ و چون خودِ متنِ مثال با ClickableSentence
 // رندر می‌شه، انتخابِ آزادِ یه تکه از همون مثال هم (نگاه کن به ClickableSentence)
 // همون‌جا قابل افزودن به داستانه.
-function WordExamples({ word, langCode, meaningNative, nativeLang, aiSettings }) {
+function WordExamples({ word, langCode, meaningNative, nativeLang, targetLangs, aiSettings }) {
   const [examples, setExamples] = useState(() => loadWordExamples(word, langCode));
   const [generating, setGenerating] = useState(false);
   const [err, setErr] = useState("");
@@ -8987,34 +9000,73 @@ function WordExamples({ word, langCode, meaningNative, nativeLang, aiSettings })
       </button>
       {err && <p style={{ color: colors.rose, fontSize: 11, marginTop: 4 }}>{err}</p>}
       {examples.map((ex) => (
-        <WordExampleRow key={ex.id} example={ex} word={word} langCode={langCode} nativeLang={nativeLang} aiSettings={aiSettings} />
+        <WordExampleRow key={ex.id} example={ex} word={word} langCode={langCode} nativeLang={nativeLang} targetLangs={targetLangs} aiSettings={aiSettings} />
       ))}
     </div>
   );
 }
 
-function WordExampleRow({ example, word, langCode, nativeLang, aiSettings }) {
-  const [translation, setTranslation] = useState(example.translations?.[nativeLang] || "");
-  const [added, setAdded] = useState(false);
+// ترجمه‌ی خودِ جمله‌ی مثال به یک زبانِ مقصدِ مشخص — دقیقاً همون الگویی که
+// WordTargetTranslation/LineTranslation برای خودِ لغت/جمله استفاده می‌کنن،
+// اینجا هم عیناً برای هر کدوم از زبان‌های مقصدِ انتخاب‌شده تکرار می‌شه (نه
+// فقط nativeLang) تا مثلاً هم فارسی هم اسپانیایی هم‌زمان دیده بشن.
+function WordExampleTranslationLine({ example, word, langCode, targetLang, abbr, aiSettings }) {
+  const [translation, setTranslation] = useState(example.translations?.[targetLang] || "");
 
   useEffect(() => {
-    if (example.translations?.[nativeLang]) {
-      setTranslation(example.translations[nativeLang]);
+    if (example.translations?.[targetLang]) {
+      setTranslation(example.translations[targetLang]);
       return;
     }
     let cancelled = false;
-    translateFree(example.text, nativeLang, langCode, aiSettings)
+    translateFree(example.text, targetLang, langCode, aiSettings)
       .then((t) => {
         if (cancelled || !t) return;
         setTranslation(t);
-        updateWordExampleTranslation(word, langCode, example.id, nativeLang, t);
+        updateWordExampleTranslation(word, langCode, example.id, targetLang, t);
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [example.id, nativeLang]);
+  }, [example.id, targetLang]);
+
+  if (!translation) {
+    return <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 4 }}>در حال ترجمه...</p>;
+  }
+
+  return (
+    <div className="flex items-center gap-2" style={{ marginTop: 4, direction: "ltr" }}>
+      <span
+        style={{
+          fontFamily: fontFa,
+          fontSize: 10,
+          fontWeight: 700,
+          color: colors.gold,
+          border: `1px solid ${colors.goldSoft}`,
+          borderRadius: 6,
+          padding: "1px 5px",
+          flexShrink: 0,
+        }}
+      >
+        {abbr || targetLang.toUpperCase()}
+      </span>
+      <p style={{ flex: 1, fontSize: 12, fontWeight: 800, color: translationColor }}>{translation}</p>
+      <SpeakButton text={translation} code={targetLang} color={translationColor} edge="end" />
+    </div>
+  );
+}
+
+function WordExampleRow({ example, word, langCode, nativeLang, targetLangs, aiSettings }) {
+  const [added, setAdded] = useState(false);
+  // زبان‌های مقصدی که کاربر بالای صفحه انتخاب/مرتب کرده، منهای خودِ زبانِ
+  // مقصدی که جمله‌ی مثال بهش نوشته شده (langCode) — اگه چیزی انتخاب نشده
+  // بود، حداقل fa رو نشون بده که خالی نمونه.
+  const exampleTargetLangs =
+    targetLangs && targetLangs.length
+      ? targetLangs.filter((l) => l.code !== langCode)
+      : [{ code: nativeLang, label: "", abbr: nativeLang.toUpperCase() }];
 
   return (
     <div
@@ -9043,14 +9095,17 @@ function WordExampleRow({ example, word, langCode, nativeLang, aiSettings }) {
         </div>
         <SpeakButton text={example.text} code={langCode} color={colors.teal} edge="end" />
       </div>
-      {translation ? (
-        <div className="flex items-center gap-2" style={{ marginTop: 4 }}>
-          <p style={{ flex: 1, fontSize: 12, fontWeight: 800, color: translationColor }}>{translation}</p>
-          <SpeakButton text={translation} code={nativeLang} color={translationColor} />
-        </div>
-      ) : (
-        <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 4 }}>در حال ترجمه...</p>
-      )}
+      {exampleTargetLangs.map((l) => (
+        <WordExampleTranslationLine
+          key={l.code}
+          example={example}
+          word={word}
+          langCode={langCode}
+          targetLang={l.code}
+          abbr={l.abbr}
+          aiSettings={aiSettings}
+        />
+      ))}
       <button
         onClick={() => {
           addTextToStoryPicks(example.text, langCode);

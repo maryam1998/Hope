@@ -248,19 +248,41 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
             {/* نشانگرِ «همین الان اینجام» — یه میله‌ی باریک کنارِ خط، نه یه
                 جعبه‌ی پر‌رنگ روی کل خط. با insetInlineStart همیشه سمتِ
                 شروعِ خط می‌شینه، صرف‌نظر از جهتِ متن. */}
-            {isReadingNow && (
-              <span
-                style={{
-                  position: "absolute",
-                  insetInlineStart: 2,
-                  top: 8,
-                  bottom: 8,
-                  width: 3,
-                  borderRadius: 3,
-                  backgroundColor: colors.gold,
-                }}
-              />
-            )}
+            <span
+              style={{
+                position: "absolute",
+                insetInlineStart: 2,
+                top: 8,
+                bottom: 8,
+                width: 3,
+                borderRadius: 3,
+                backgroundColor: colors.gold,
+                opacity: isReadingNow ? 1 : 0,
+                transition: "opacity 0.2s ease",
+              }}
+            />
+            {/* خط‌کش راهنما (Reading Guide) — یه نوار خیلی باریک و کم‌رنگ که
+                فقط زیرِ همون خطی که الان داره خونده می‌شه ظاهر می‌شه تا چشم
+                خواننده رو بدون شلوغ‌کاری روی خط نگه داره و موقع اسکرول/رفتن
+                به جمله‌ی بعدی، خطش رو گم نکنه. چون هر ردیف position:relative
+                داره، این نوار هم مثل نشانگرِ کنار، فقط opacity/transition
+                می‌گیره — نه اینکه دائم mount/unmount بشه — تا جابه‌جایی بینِ
+                خط‌ها نرم و بدون پرش باشه. */}
+            <span
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                insetInlineStart: 12,
+                insetInlineEnd: 12,
+                bottom: 3,
+                height: 2,
+                borderRadius: 2,
+                backgroundColor: colors.gold,
+                opacity: isReadingNow ? 0.28 : 0,
+                transition: "opacity 0.25s ease",
+                pointerEvents: "none",
+              }}
+            />
             {/* بلندگو همیشه اول (یعنی لبه‌ی راست، چون کانتینر rtl‌ه)،
                 بعد بجِ سطح، بعد خودِ متن که فضای باقی‌مونده رو پر می‌کنه. */}
             {SpeakButton && <SpeakButton text={it.en} code="en" color={colors.teal} />}
