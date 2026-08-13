@@ -633,79 +633,67 @@ function vocabToMarkdown() {
 // Speech controller — a single module-level singleton, since only one
 // utterance should ever play across the whole app at once.
 //
-// IMPORTANT: earlier this spoke one word at a time (separate utterance per
-// word) to make pause/seek possible. That sounded slow and robotic, because
-// every browser adds real startup latency + a pause between *separate*
-// utterances — it's not how natural speech synthesis is meant to be driven.
+// Plays text one SENTENCE at a time (not one continuous utterance, and not
+// one word at a time). This is deliberate:
+//   - One utterance per word sounds robotic (every browser adds startup
+//     latency + a gap between separate utterances).
+//   - One continuous utterance for the whole text sounds natural, but gives
+//     us zero reliable control over pacing: many TTS engines (especially
+//     "Google"/network voices on Android) mostly ignore utterance.rate values
+//     below 1, so picking "0.5x" barely changes anything.
+//   - Sentence-sized chunks are the sweet spot: each sentence still sounds
+//     natural internally (real prosody, not word-by-word), but the GAP
+//     between sentences is something *we* fully control with setTimeout —
+//     completely independent of whatever the engine does with `rate`. That
+//     gap is what makes slow speeds actually feel slow, reliably, on every
+//     device. We also push the rate we hand to the engine further down than
+//     what the user picked (see engineRate below) to compensate for engines
+//     that have a rate floor.
 //
-// This version always sends one continuous utterance covering real text
-// (the whole thing, or "from word N to the end"), which is what gives
-// natural-sounding prosody and normal speed. To still support pause /
-// resume-from-position / seek forward-back, it tracks the current word via
-// the browser's onboundary event (fires per word on Chrome/Edge/most
-// Android engines) and, whenever we need to jump, cancels the current
-// utterance and starts a fresh one from that word's character offset —
-// which is instant and doesn't re-trigger the "restarts from the very
-// beginning" bug, since we're only ever restarting from the *target* word.
+// There is no per-word highlighting anymore — no onboundary tracking, no
+// word-position estimation. Pause/resume/repeat just track which SENTENCE
+// is currently playing.
 // ---------------------------------------------------------------------------
-// Rough average speaking pace used ONLY as a fallback position estimate (see
-// estimateWordIndex below) when the browser never fires onboundary events —
-// this happens often enough in practice (many mobile engines / many
-// non-English voices don't fire "word" boundaries at all) that relying on
-// onboundary alone left wordIndex stuck at 0 for the whole utterance, which
-// is why Pause -> Play used to restart from the very beginning instead of
-// resuming. Deliberately a little conservative (biased slow) so the fallback
-// resumes a touch early rather than skipping ahead over words.
-const FALLBACK_CHARS_PER_SEC = 13;
-// اکثر موتورهای TTS (خصوصاً روی اندروید) رویدادِ onboundary رو با یه تاخیرِ
-// ثابتِ کوچیک نسبت به صدای واقعی شلیک می‌کنن؛ همین چیزیه که باعث می‌شه
-// هایلایت «دیرتر از صدا» به‌نظر برسه. این عدد جبرانِ همون تاخیره — تخمینِ
-// موقعیت رو همیشه یه‌کم جلوتر می‌بره تا با گوش هماهنگ بشه.
-const BOUNDARY_LEAD_MS = 220;
 
 const speechController = (() => {
   let fullText = "";
-  let words = []; // [{start, end}] char offsets into fullText
+  let chunks = []; // [{start, end, text}] sentence-sized chunks of fullText
+  let chunkIndex = 0; // index into chunks of the sentence currently playing/paused
   let key = null; // `${locale}::${text}` — identifies what's currently loaded
   let locale = "en-US";
   let status = "idle"; // "idle" | "playing" | "paused"
-  let wordIndex = 0; // best-known current word position
-  let segmentStartOffset = 0; // char offset into fullText where the current utterance began
-  let segmentStartTime = 0; // Date.now() when the current utterance began
-  let boundaryFired = false; // whether onboundary has fired at least once for the current utterance
-  let lastBoundaryOffset = 0; // آخرین آفستِ تاییدشده توسط onboundary (یا شروعِ سگمنت)
-  let lastBoundaryTime = 0; // زمانِ همون تاییدِ آخر
-  let observedCharsPerSec = FALLBACK_CHARS_PER_SEC; // سرعتِ واقعیِ گفتار، از فاصله‌ی بین رویدادها اندازه‌گیری و به‌روزرسانی می‌شه
   let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1; // 0.5 (slow) .. 2 (fast), 1 = normal
-  let currentUtterance = null; // برای نگهداری reference صدای فعلی
   // "local" = TTS خود گوشی (speechSynthesis) | "online" = سرویس رایگان
-  // آنلاین (وقتی گوشی اصلاً صدایی برای اون زبون نصب نداره، مثلاً خیلی از
-  // گوشی‌ها برای ایتالیایی/هندی/ژاپنی/روسی/کره‌ای صدا ندارن).
+  // آنلاین (وقتی گوشی اصلاً صدایی برای اون زبون نصب نداره).
   let mode = "local";
   // --- تکرار سراسری ---------------------------------------------------
-  // یک تنظیم مشترک برای کل اپه، نه مال یک متن خاص. هر جا کاربر روی هر
-  // 🔊ای کلیک کنه، همین تنظیم روش اعمال می‌شه. مقدار: 0 (خاموش) | 1 | 2 | "inf"
   let globalRepeatSetting = (() => {
     const saved = localStorage.getItem("phrasebook-tts-repeat");
     if (saved === "inf") return "inf";
     const n = Number(saved);
     return n === 3 || n === 6 ? n : 0;
   })();
-  let remaining = 0; // چند تکرار دیگه برای متن فعلی مونده
-  // وقتی true باشه، یعنی این پخش باید فقط یک‌بار خونده بشه، حتی اگه تنظیم
-  // تکرار سراسری روی «بی‌نهایت» باشه — برای «اسکرول خودکار پلیر» لازمه که
-  // هر آیتم رو یک‌بار بخونه و بره سراغ بعدی؛ حلقه‌ی بی‌نهایت رو خودِ همون
-  // قابلیت، با برگشتن به ابتدای لیست، پیاده می‌کنه (نه با گیرکردن رو یک آیتم).
+  let remaining = 0;
   let singleShot = false;
-  // وقتی خودمون عمداً speechSynthesis.cancel() صدا می‌زنیم (برای مکث، یا برای
-  // شروع پخش جدید/تکرار)، مرورگر یه onerror با error="interrupted" شلیک
-  // می‌کنه که خطای واقعی نیست. این فلگ همون قطع‌شدن‌های عمدی رو از خطای
-  // واقعی جدا می‌کنه.
+  // وقتی خودمون عمداً speechSynthesis.cancel() صدا می‌زنیم (برای مکث یا
+  // شروع پخش جدید)، مرورگر یه onerror با error="interrupted" شلیک می‌کنه که
+  // خطای واقعی نیست. این فلگ همون قطع‌شدن‌های عمدی رو از خطای واقعی جدا می‌کنه.
   let expectingCancel = false;
+  // تایمرِ مکثِ بینِ دو جمله (همون چیزی که سرعتِ کند رو واقعاً حس‌شدنی می‌کنه) —
+  // موقعِ pause باید کنسل بشه وگرنه جمله‌ی بعدی خودش‌به‌خود شروع می‌شه.
+  let gapTimer = null;
   const listeners = new Set();
+
+  function clearGapTimer() {
+    if (gapTimer) {
+      clearTimeout(gapTimer);
+      gapTimer = null;
+    }
+  }
 
   function cancelSpeech() {
     expectingCancel = true;
+    clearGapTimer();
     try {
       window.speechSynthesis.cancel();
     } catch (e) {}
@@ -713,9 +701,7 @@ const speechController = (() => {
 
   // -------------------------------------------------------------------
   // مسیر جایگزین: وقتی گوشی صدایی برای این زبون نصب نداره، از یه سرویس
-  // آنلاین رایگان (بدون نیاز به کلید API) صدا رو می‌گیریم. سرویس‌ها به
-  // ترتیب امتحان می‌شن؛ اگه اولی جواب نداد می‌ره سراغ بعدی. متن به تکه‌های
-  // کوچیک شکسته می‌شه چون این سرویس‌ها برای متن‌های خیلی بلند خطا می‌دن.
+  // آنلاین رایگان (بدون نیاز به کلید API) صدا رو می‌گیریم.
   // -------------------------------------------------------------------
   let onlineAudio = null;
   let onlineChunks = [];
@@ -723,21 +709,18 @@ const speechController = (() => {
   let onlineLangForTts = "en";
 
   function splitForOnlineTts(text, maxLen = 180) {
-    const chunks = [];
+    const chunksArr = [];
     let rest = (text || "").trim();
     while (rest.length > maxLen) {
       let cut = rest.lastIndexOf(" ", maxLen);
       if (cut <= 0) cut = maxLen;
-      chunks.push(rest.slice(0, cut).trim());
+      chunksArr.push(rest.slice(0, cut).trim());
       rest = rest.slice(cut).trim();
     }
-    if (rest) chunks.push(rest);
-    return chunks.length ? chunks : [text];
+    if (rest) chunksArr.push(rest);
+    return chunksArr.length ? chunksArr : [text];
   }
 
-  // چند سرویسِ رایگانِ خوانش متن (بدون کلید API)، به همون سبک translateFree
-  // بالا: هر کدوم رو امتحان می‌کنیم، اولی که یه URL صوتی معتبر بده همون
-  // استفاده می‌شه.
   function onlineTtsUrls(chunkText, langCode) {
     const q = encodeURIComponent(chunkText);
     return [
@@ -759,8 +742,6 @@ const speechController = (() => {
 
   function playOnlineChunkUrls(urls, urlIndex, idx) {
     if (urlIndex >= urls.length) {
-      // همه‌ی سرویس‌ها برای این تکه شکست خوردن — برو سراغ تکه‌ی بعدی تا کل
-      // متن پخش نشدنِ یه سرویس، کل خوندن رو متوقف نکنه.
       playOnlineChunk(idx + 1);
       return;
     }
@@ -792,12 +773,12 @@ const speechController = (() => {
         return;
       }
       status = "idle";
-      wordIndex = 0;
+      chunkIndex = 0;
       notify();
       return;
     }
     onlineChunkIndex = idx;
-    wordIndex = wordIndexForCharOffset(
+    chunkIndex = chunkIndexForOffset(
       Math.min(fullText.length - 1, Math.floor((idx / Math.max(onlineChunks.length, 1)) * fullText.length))
     );
     status = "playing";
@@ -805,21 +786,18 @@ const speechController = (() => {
     playOnlineChunkUrls(onlineTtsUrls(onlineChunks[idx], onlineLangForTts), 0, idx);
   }
 
-  function speakOnline(text, langCodeForTts, startWordIndex, forceSingle, forceLoop) {
+  function speakOnline(text, langCodeForTts, startCharOffset, forceSingle, forceLoop) {
     stopOnlineAudio();
     mode = "online";
     fullText = text;
-    words = tokenize(text);
+    chunks = splitSentences(text);
     onlineChunks = splitForOnlineTts(text);
     onlineLangForTts = langCodeForTts;
     singleShot = !!forceSingle;
     remaining = singleShot ? 0 : forceLoop ? Infinity : globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
-    // اگه یه نقطه‌ی شروعِ غیرصفر خواسته شده (مثلاً ادامه‌ی پخش بعد از عوض‌شدنِ
-    // حالتِ نمایش ترجمه)، تقریباً همون تکه‌ی آنلاین رو پیدا کن و از اونجا
-    // شروع کن — نه از اولِ متن.
     let startChunk = 0;
-    if (Number.isInteger(startWordIndex) && startWordIndex > 0 && words.length && onlineChunks.length) {
-      const frac = Math.min(Math.max(startWordIndex / words.length, 0), 1);
+    if (Number.isInteger(startCharOffset) && startCharOffset > 0 && text.length && onlineChunks.length) {
+      const frac = Math.min(Math.max(startCharOffset / text.length, 0), 1);
       startChunk = Math.min(onlineChunks.length - 1, Math.floor(frac * onlineChunks.length));
     }
     playOnlineChunk(startChunk);
@@ -827,207 +805,154 @@ const speechController = (() => {
 
   function notify() {
     listeners.forEach((cb) =>
-      cb({ key, status, wordIndex, total: words.length, rate, globalRepeatSetting, remaining })
+      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining })
     );
   }
 
-  function tokenize(text) {
-    const arr = [];
-    const re = /\S+/g;
+  // حداکثر چند کلمه تو یه تکه (chunk) بگنجه. جمله‌های عادی معمولاً از این
+  // کوتاه‌ترن و دست‌نخورده می‌مونن (پروسودیِ طبیعی‌شون حفظ می‌شه). ولی متنِ
+  // بدونِ علامتِ‌نگارشی (مثلاً «خواندنِ کل لیستِ لغات» که کلی کلمه با فاصله
+  // به‌هم چسبیده‌ن) بدونِ این حد، یه تکه‌ی غول‌پیکر می‌شد و مکثِ بینِ‌تکه‌ها
+  // (که سرعتِ کند رو واقعی می‌کنه) اصلاً روش اعمال نمی‌شد.
+  const MAX_WORDS_PER_CHUNK = 6;
+
+  // متن رو اول به جمله تقسیم می‌کنه (روی .!?؟ و غیره)، بعد هر جمله‌ای که
+  // خیلی بلنده رو خودش به تکه‌های چندکلمه‌ای می‌شکنه. آفستِ کاراکتریِ شروع/
+  // پایانِ هر تکه هم نگه داشته می‌شه.
+  function splitSentences(text) {
+    const t = text || "";
+    if (!t) return [];
+    const re = /[^.!?؟。！]+[.!?؟。！]*/g;
+    const sentences = [];
     let m;
-    while ((m = re.exec(text))) arr.push({ start: m.index, end: m.index + m[0].length });
-    return arr;
+    while ((m = re.exec(t))) {
+      const raw = m[0];
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      const start = m.index + raw.indexOf(trimmed[0]);
+      sentences.push({ start, end: start + trimmed.length, text: trimmed });
+    }
+    if (!sentences.length) return [{ start: 0, end: t.length, text: t }];
+
+    const out = [];
+    for (const seg of sentences) {
+      const wordRe = /\S+/g;
+      const wordPositions = [];
+      let wm;
+      while ((wm = wordRe.exec(seg.text))) wordPositions.push({ start: wm.index, end: wm.index + wm[0].length });
+
+      if (wordPositions.length <= MAX_WORDS_PER_CHUNK) {
+        out.push(seg);
+        continue;
+      }
+      for (let i = 0; i < wordPositions.length; i += MAX_WORDS_PER_CHUNK) {
+        const lastIdx = Math.min(i + MAX_WORDS_PER_CHUNK, wordPositions.length) - 1;
+        const wStart = wordPositions[i].start;
+        const wEnd = wordPositions[lastIdx].end;
+        out.push({
+          start: seg.start + wStart,
+          end: seg.start + wEnd,
+          text: seg.text.slice(wStart, wEnd),
+        });
+      }
+    }
+    return out;
   }
 
-  function wordIndexForCharOffset(offset) {
-    for (let i = words.length - 1; i >= 0; i--) {
-      if (offset >= words[i].start) return i;
+  function chunkIndexForOffset(offset) {
+    for (let i = chunks.length - 1; i >= 0; i--) {
+      if (offset >= chunks[i].start) return i;
     }
     return 0;
   }
 
-  function estimateWordIndex() {
-    if (!words.length) return wordIndex;
-    // همیشه به‌صورتِ پیوسته تخمین می‌زنیم (نه فقط وقتی onboundary شلیک نشده)،
-    // چون منتظرِ رویدادِ بعدی موندن دقیقاً همون چیزیه که هایلایت رو «دیرتر
-    // از صدا» نشون می‌ده. لنگرِ segmentStartOffset/Time هر بار با رویدادِ
-    // onboundary تازه می‌شه، پس این تخمین هیچ‌وقت زیاد از واقعیت فاصله
-    // نمی‌گیره؛ فقط بینِ دو رویداد، به‌جای انجماد، به‌آرومی جلو می‌ره.
-    const elapsedSec = Math.max(0, (Date.now() - segmentStartTime + BOUNDARY_LEAD_MS) / 1000);
-    const estOffset = segmentStartOffset + elapsedSec * observedCharsPerSec;
-    return wordIndexForCharOffset(Math.min(estOffset, fullText.length - 1));
+  // چیزی که موتورِ TTS واقعاً باهاش صدا کنیم — پایین‌ترِ چیزیه که کاربر
+  // انتخاب کرده، چون خیلی از موتورها (مخصوصاً صداهای شبکه‌ای/Google روی
+  // اندروید) زیرِ ۱ عملاً کند نمی‌شن؛ این جبرانِ اون کفِ داخلیِ موتوره. سرعتِ
+  // واقعیِ حس‌شده رو بیشتر مکثِ بینِ جمله‌ها (interChunkGapMs) تعیین می‌کنه که
+  // کاملاً دستِ خودمونه و مستقل از رفتار موتوره.
+  function engineRate(r) {
+    if (r >= 1) return r;
+    return Math.max(0.1, r - (1 - r) * 0.6);
+  }
+
+  // مکثِ بینِ دو جمله — پایه‌ش یه فاصله‌ی طبیعیه، و با کاهشِ rate بیشتر می‌شه.
+  // چون این تایمر مستقلِ موتورِ TTSه، همیشه دقیقاً همونی که می‌خوایم اجرا می‌شه.
+  function interChunkGapMs(r) {
+    const base = 160;
+    return Math.round(base / Math.min(Math.max(r, 0.3), 2));
   }
 
   // 🔥 انتخاب صدای بهتر (Google Voices در کروم/اج)
   function getBestVoice(langCode) {
     const voices = window.speechSynthesis.getVoices();
     const langPrefix = langCode.split("-")[0];
-    
-    // اولویت ۱: صدای Google با کیفیت بالا (زنانه یا مردانه)
-    let preferred = voices.find(v => 
-      v.lang.startsWith(langPrefix) && 
+
+    let preferred = voices.find(v =>
+      v.lang.startsWith(langPrefix) &&
       (v.name.includes("Google") || v.name.includes("Natural")) &&
       (v.name.includes("Female") || v.name.includes("Male"))
     );
-    
-    // اولویت ۲: هر صدای Google
     if (!preferred) {
-      preferred = voices.find(v => 
-        v.lang.startsWith(langPrefix) && 
+      preferred = voices.find(v =>
+        v.lang.startsWith(langPrefix) &&
         (v.name.includes("Google") || v.name.includes("Natural"))
       );
     }
-    
-    // اولویت ۳: هر صدای با کیفیت بالا
     if (!preferred) {
-      preferred = voices.find(v => 
-        v.lang.startsWith(langPrefix) && 
+      preferred = voices.find(v =>
+        v.lang.startsWith(langPrefix) &&
         (v.name.includes("Enhanced") || v.name.includes("Premium"))
       );
     }
-    
-    // اولویت ۴: اولین صدای موجود برای این زبان
     if (!preferred) {
       preferred = voices.find(v => v.lang.startsWith(langPrefix));
     }
-    
     return preferred || null;
   }
 
-  function speakFromWord(i, forceRestart = false) {
-    const clamped = Math.min(Math.max(i, 0), Math.max(words.length - 1, 0));
-    if (!words.length) {
+  function speakChunk(idx, forceRestart = false) {
+    if (!chunks.length) {
       status = "idle";
       notify();
       return;
     }
-
-    // اگر در حالت paused هستیم و forceRestart = false، از همان نقطه ادامه بده
-    if (status === "paused" && !forceRestart) {
-      const baseOffset = words[wordIndex].start;
-      segmentStartOffset = baseOffset;
-      segmentStartTime = Date.now();
-      boundaryFired = false;
-      lastBoundaryOffset = baseOffset;
-      lastBoundaryTime = Date.now();
-      observedCharsPerSec = FALLBACK_CHARS_PER_SEC * rate;
-      status = "playing";
-      notify();
-      
-      const segment = fullText.slice(baseOffset);
-      const utter = new SpeechSynthesisUtterance(segment);
-      utter.lang = locale;
-      utter.rate = rate;
-      
-      const bestVoice = getBestVoice(locale);
-      if (bestVoice) utter.voice = bestVoice;
-      
-      utter.onboundary = (e) => {
-        if (e.name && e.name !== "word") return;
-        boundaryFired = true;
-        const abs = baseOffset + (e.charIndex || 0);
-        const now = Date.now();
-        // سرعتِ واقعیِ گفتار رو از فاصله‌ی بینِ دو تاییدِ اخیر اندازه می‌گیریم
-        // و با میانگینِ متحرک صاف می‌کنیم — این‌جوری تخمینِ بینِ دو رویداد،
-        // به‌جای یه عددِ ثابتِ حدسی، با ریتمِ واقعیِ همین صدا/همین متن هماهنگه.
-        if (lastBoundaryTime) {
-          const dt = (now - lastBoundaryTime) / 1000;
-          const doff = abs - lastBoundaryOffset;
-          if (dt > 0.03 && doff > 0) {
-            observedCharsPerSec = observedCharsPerSec * 0.6 + (doff / dt) * 0.4;
-          }
-        }
-        lastBoundaryOffset = abs;
-        lastBoundaryTime = now;
-        wordIndex = wordIndexForCharOffset(abs);
-        segmentStartOffset = abs;
-        segmentStartTime = now;
-        notify();
-      };
-      utter.onend = () => {
-        if (status !== "playing") return;
-        if (!singleShot && globalRepeatSetting === "inf") {
-          speakFromWord(0, true);
-          return;
-        }
-        if (!singleShot && remaining > 0) {
-          remaining -= 1;
-          speakFromWord(0, true);
-          return;
-        }
-        status = "idle";
-        wordIndex = 0;
-        notify();
-      };
-      utter.onerror = (e) => {
-        if (expectingCancel) {
-          expectingCancel = false;
-          return;
-        }
-        status = "idle";
-        notify();
-      };
-      
-      currentUtterance = utter;
-      window.speechSynthesis.speak(utter);
-      return;
-    }
-
-    // شروع از اول یا از کلمه‌ی مشخص
-    cancelSpeech();
-    
-    const baseOffset = words[clamped].start;
-    wordIndex = clamped;
-    segmentStartOffset = baseOffset;
-    segmentStartTime = Date.now();
-    boundaryFired = false;
-    lastBoundaryOffset = baseOffset;
-    lastBoundaryTime = Date.now();
-    observedCharsPerSec = FALLBACK_CHARS_PER_SEC * rate;
-    status = "playing";
-    notify();
-    
-    const segment = fullText.slice(baseOffset);
-    const utter = new SpeechSynthesisUtterance(segment);
-    utter.lang = locale;
-    utter.rate = rate;
-    
-    const bestVoice = getBestVoice(locale);
-    if (bestVoice) utter.voice = bestVoice;
-    
-    utter.onboundary = (e) => {
-      if (e.name && e.name !== "word") return;
-      boundaryFired = true;
-      const abs = baseOffset + (e.charIndex || 0);
-      const now = Date.now();
-      if (lastBoundaryTime) {
-        const dt = (now - lastBoundaryTime) / 1000;
-        const doff = abs - lastBoundaryOffset;
-        if (dt > 0.03 && doff > 0) {
-          observedCharsPerSec = observedCharsPerSec * 0.6 + (doff / dt) * 0.4;
-        }
-      }
-      lastBoundaryOffset = abs;
-      lastBoundaryTime = now;
-      wordIndex = wordIndexForCharOffset(abs);
-      segmentStartOffset = abs;
-      segmentStartTime = now;
-      notify();
-    };
-    utter.onend = () => {
-      if (status !== "playing") return;
+    if (idx >= chunks.length) {
       if (!singleShot && globalRepeatSetting === "inf") {
-        speakFromWord(0, true);
+        speakChunk(0, true);
         return;
       }
       if (!singleShot && remaining > 0) {
         remaining -= 1;
-        speakFromWord(0, true);
+        speakChunk(0, true);
         return;
       }
       status = "idle";
-      wordIndex = 0;
+      chunkIndex = 0;
       notify();
+      return;
+    }
+
+    clearGapTimer();
+    if (forceRestart) cancelSpeech();
+    chunkIndex = idx;
+    status = "playing";
+    notify();
+
+    const utter = new SpeechSynthesisUtterance(chunks[idx].text);
+    utter.lang = locale;
+    utter.rate = engineRate(rate);
+
+    const bestVoice = getBestVoice(locale);
+    if (bestVoice) utter.voice = bestVoice;
+
+    utter.onend = () => {
+      if (status !== "playing") return;
+      const gap = interChunkGapMs(rate);
+      gapTimer = setTimeout(() => {
+        gapTimer = null;
+        speakChunk(chunkIndex + 1, false);
+      }, gap);
     };
     utter.onerror = (e) => {
       if (expectingCancel) {
@@ -1037,8 +962,7 @@ const speechController = (() => {
       status = "idle";
       notify();
     };
-    
-    currentUtterance = utter;
+
     window.speechSynthesis.speak(utter);
   }
 
@@ -1048,16 +972,16 @@ const speechController = (() => {
       return () => listeners.delete(cb);
     },
     getState() {
-      return { key, status, wordIndex, total: words.length, rate, globalRepeatSetting, remaining };
+      return { key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining };
     },
-    // آفستِ کاراکتریِ نقطه‌ی فعلیِ پخش، داخلِ متنی که همین الان در حال
-    // خوندنشه. برای «ادامه‌ی پخش از همون‌جا» وقتی متنِ در حال پخش عوض
-    // می‌شه (مثلاً تغییرِ حالتِ نمایش ترجمه) لازمه.
+    // آفستِ کاراکتریِ شروعِ جمله‌ای که همین الان (یا آخرین‌بار) در حال
+    // پخشه — فقط برای «ادامه‌ی پخش از همون‌جا» وقتی متنِ در حال پخش عوض
+    // می‌شه (مثلاً تغییرِ حالتِ نمایش ترجمه) لازمه. دیگه هیچ‌جا برای
+    // هایلایتِ بصری استفاده نمی‌شه.
     getCharOffset() {
-      if (!words.length) return 0;
-      const idx = status === "playing" ? estimateWordIndex() : wordIndex;
-      const clamped = Math.min(Math.max(idx, 0), words.length - 1);
-      return words[clamped].start;
+      if (!chunks.length) return 0;
+      const idx = Math.min(Math.max(chunkIndex, 0), chunks.length - 1);
+      return chunks[idx].start;
     },
     getGlobalRepeatSetting() {
       return globalRepeatSetting;
@@ -1074,19 +998,16 @@ const speechController = (() => {
       }
       notify();
     },
-    toggle(text, code, startWordIndex, options) {
+    // startCharOffset (اختیاری): آفستِ کاراکتری‌ای که پخش باید تقریباً از
+    // جمله‌ی متناظرش شروع بشه — برای «ادامه از همون‌جا» بعد از تغییرِ متن.
+    toggle(text, code, startCharOffset, options) {
       try {
         if (!text) return "unsupported";
         const forceSingle = !!(options && options.singlePass);
-        // وقتی loop=true باشه (مثلاً دکمه‌ی «خواندن کل متن» روی پلیر)، این
-        // پخشِ خاص صرف‌نظر از تنظیمِ تکرارِ سراسری، تا وقتی خودِ کاربر دوباره
-        // نزنه بی‌نهایت تکرار می‌شه — لازم نیست کاربر برای ادامه‌ی خوندن
-        // دوباره کلیک کنه.
         const forceLoop = !!(options && options.loop);
         const hasSynthesis = "speechSynthesis" in window;
 
         let newLocale = TTS_LOCALE[code] || "en-US";
-        // اگر زبان فارسی است و صدای فارسی موجود نیست، از صدای عربی استفاده کن
         if (hasSynthesis && code === "fa") {
           const voices = window.speechSynthesis.getVoices();
           const hasPersianVoice = voices.some(v => v.lang.startsWith("fa"));
@@ -1095,7 +1016,7 @@ const speechController = (() => {
             if (arabicVoice) newLocale = "ar-SA";
           }
         }
-        
+
         const newKey = `${newLocale}::${text}`;
 
         // اگر همان متن در حال پخش است و دکمه زده شده، توقف/ادامه
@@ -1110,13 +1031,13 @@ const speechController = (() => {
             notify();
             return "ok";
           }
-          wordIndex = estimateWordIndex();
+          clearGapTimer();
           cancelSpeech();
           status = "paused";
           notify();
           return "ok";
         }
-        
+
         if (key === newKey && status === "paused") {
           status = "playing";
           if (mode === "online") {
@@ -1127,7 +1048,7 @@ const speechController = (() => {
               playOnlineChunk(onlineChunkIndex);
             }
           } else {
-            speakFromWord(wordIndex, false);
+            speakChunk(chunkIndex, false);
           }
           return "ok";
         }
@@ -1140,31 +1061,25 @@ const speechController = (() => {
         key = newKey;
         locale = newLocale;
 
-        // اول از همه: TTS خود گوشی. اگه گوشی اصلاً صدایی برای این زبون
-        // نصب نداره (مثلاً خیلی از گوشی‌ها برای ایتالیایی/هندی/ژاپنی/
-        // روسی/کره‌ای/چینی صدا ندارن)، به‌جای متوقف‌شدن، خودکار از یه
-        // سرویس رایگان آنلاین برای خوندن استفاده می‌کنیم.
         if (hasSynthesis && (voices.length === 0 || hasVoice)) {
           mode = "local";
           stopOnlineAudio();
           fullText = text;
-          words = tokenize(text);
+          chunks = splitSentences(text);
           status = "playing";
           singleShot = forceSingle;
           remaining = forceSingle ? 0 : forceLoop ? Infinity : globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
-          // اگه شماره‌ی کلمه‌ی شروع مشخص شده (مثلاً برای ادامه‌ی پخش از همون‌جا
-          // بعد از عوض‌شدنِ حالتِ نمایش ترجمه)، از همون‌جا شروع کن؛ وگرنه از اول.
-          const startIdx = Number.isInteger(startWordIndex)
-            ? Math.min(Math.max(startWordIndex, 0), Math.max(words.length - 1, 0))
+          const startIdx = Number.isInteger(startCharOffset) && startCharOffset > 0
+            ? chunkIndexForOffset(Math.min(startCharOffset, Math.max(text.length - 1, 0)))
             : 0;
-          speakFromWord(startIdx, true);
+          speakChunk(startIdx, true);
           return "ok";
         }
 
         // مسیر جایگزین (آنلاین رایگان)
         cancelSpeech();
         const onlineLang = code === "zh" ? "zh-CN" : code;
-        speakOnline(text, onlineLang, startWordIndex, forceSingle, forceLoop);
+        speakOnline(text, onlineLang, startCharOffset, forceSingle, forceLoop);
         return "online-fallback";
       } catch (e) {
         status = "idle";
@@ -1172,29 +1087,16 @@ const speechController = (() => {
         return "error";
       }
     },
-    seek(delta) {
-      if (!key || !words.length || mode === "online") return;
-      const current = status === "playing" ? estimateWordIndex() : wordIndex;
-      const nextIndex = Math.min(Math.max(current + delta, 0), words.length - 1);
-      if (status === "playing") {
-        speakFromWord(nextIndex, true);
-      } else {
-        wordIndex = nextIndex;
-        notify();
-      }
-    },
     stop() {
       cancelSpeech();
       stopOnlineAudio();
       mode = "local";
       key = null;
-      words = [];
+      chunks = [];
       status = "idle";
-      wordIndex = 0;
+      chunkIndex = 0;
       remaining = 0;
       singleShot = false;
-      boundaryFired = false;
-      currentUtterance = null;
       notify();
     },
     getRate() {
@@ -1209,13 +1111,14 @@ const speechController = (() => {
         if (onlineAudio) onlineAudio.playbackRate = rate;
         notify();
       } else if (status === "playing") {
-        speakFromWord(estimateWordIndex(), true);
+        speakChunk(chunkIndex, true);
       } else {
         notify();
       }
     },
   };
 })();
+
 
 // ---------------------------------------------------------------------------
 // اسکرول خودکار — استفاده‌شده توسط PhraseList / WordList / VocabList. خودش
@@ -3376,23 +3279,6 @@ function RepeatButton({ color }) {
 // تکرار سراسری (RepeatButton بالاتر)، هرکدوم رو می‌خونه؛ وقتی یه آیتم تمام
 // تکرارهاش تموم شد (status از speechController میره رو idle)، خودش می‌ره
 // سراغ آیتم بعدی و صفحه رو با اسکرول نرم به همون‌جا می‌بره.
-// توکنایزِ سبکِ محلی (دقیقاً همونی که speechController داخلی استفاده
-// می‌کنه) — برای اینکه بشه آفستِ کاراکتریِ ذخیره‌شده رو روی متنِ تازه (بعد
-// از تغییرِ حالتِ نمایش ترجمه) به نزدیک‌ترین «کلمه» تبدیل کرد و از همون‌جا
-// پخش رو ادامه داد، بدون نیاز به دسترسی به حالتِ داخلیِ speechController.
-function ttsTokenizeWords(text) {
-  const arr = [];
-  const re = /\S+/g;
-  let m;
-  while ((m = re.exec(text || ""))) arr.push({ start: m.index, end: m.index + m[0].length });
-  return arr;
-}
-function wordIndexForCharOffsetLocal(words, offset) {
-  for (let i = words.length - 1; i >= 0; i--) {
-    if (offset >= words[i].start) return i;
-  }
-  return 0;
-}
 function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
   const [active, setActive] = useState(false);
   const activeRef = useRef(false);
@@ -3447,7 +3333,7 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
     return () => clearInterval(id);
   }, [active]);
 
-  function playAt(i, startWordIndex) {
+  function playAt(i, startCharOffset) {
     if (!activeRef.current) return;
     const items = (getItemsRef.current && getItemsRef.current()) || [];
     lastItemsRef.current = items;
@@ -3469,7 +3355,7 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
     }
     const locale = TTS_LOCALE[item.code] || "en-US";
     lastKeyRef.current = `${locale}::${item.text}`;
-    speechController.toggle(item.text, item.code, startWordIndex);
+    speechController.toggle(item.text, item.code, startCharOffset);
   }
 
   useEffect(() => {
@@ -3588,12 +3474,9 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
       return;
     }
 
-    const wordsInTarget = ttsTokenizeWords(targetItem.text);
-    const startWordIndex = wordsInTarget.length
-      ? wordIndexForCharOffsetLocal(wordsInTarget, Math.min(targetOffset, targetItem.text.length - 1))
-      : 0;
+    const startCharOffset = Math.max(0, Math.min(targetOffset, Math.max(targetItem.text.length - 1, 0)));
 
-    playAt(newIdx, startWordIndex);
+    playAt(newIdx, startCharOffset);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modeKey]);
 
@@ -4860,9 +4743,9 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   }, [fullStoryText]);
 
   // جمله‌ای که همین الان، در حینِ پخشِ «کل متن» از روی پلیر، داره خونده
-  // می‌شه — برای هایلایت‌کردنِ خط و (اگه اسکرولِ خودکار فعال باشه) پیداکردنِ
-  // خط. وقتی پخشِ فعلی چیز دیگه‌ای غیر از کلِ داستانه (مثلاً کاربر خودش رو
-  // یک جمله‌ی خاص زده)، این null می‌مونه — یعنی فقط پخشِ سراسری هایلایت می‌شه.
+  // می‌شه — فقط برای اسکرولِ خودکار (اگه فعال باشه) استفاده می‌شه، نه برای
+  // هایلایتِ بصری. وقتی پخشِ فعلی چیز دیگه‌ای غیر از کلِ داستانه (مثلاً کاربر
+  // خودش رو یک جمله‌ی خاص زده)، این null می‌مونه.
   const [activeStorySentence, setActiveStorySentence] = useState(null); // {pi, si} | null
   useEffect(() => {
     const myKey = `${TTS_LOCALE[storyLang] || "en-US"}::${fullStoryText}`;
@@ -4884,16 +4767,9 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       });
     };
     update(speechController.getState());
-    const unsubscribe = speechController.subscribe(update);
-    // همون منطقِ polling — برای صداهایی که onboundary نمی‌دن، بدونِ این
-    // هایلایت تا آخرِ خوندن اصلاً حرکت نمی‌کرد.
-    const pollId = setInterval(() => {
-      if (speechController.getState().status === "playing") update(speechController.getState());
-    }, 100);
-    return () => {
-      unsubscribe();
-      clearInterval(pollId);
-    };
+    // دیگه نیازی به polling نیست — chunkIndex دقیقاً همون لحظه‌ای که جمله‌ی
+    // بعدی شروع می‌شه آپدیت می‌شه (نه با تخمین)، پس subscribe به‌تنهایی کافیه.
+    return speechController.subscribe(update);
   }, [fullStoryText, storyLang, sentenceOffsets]);
 
   // موقع پخشِ سراسریِ داستان، اگه اسکرولِ خودکار (همون دکمه‌ی کنارِ پلیر)
@@ -6132,31 +6008,12 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                   {granularity === "sentence" ? (
                     <div className="flex flex-col gap-3">
                       {(p.sentences || []).map((s, si) => {
-                        const isReadingNow =
-                          activeStorySentence && activeStorySentence.pi === pi && activeStorySentence.si === si;
                         return (
                         <div
                           key={si}
                           ref={(el) => (sentenceElsRef.current[`${pi}-${si}`] = el)}
-                          style={{ position: "relative", paddingInlineStart: 10, transition: "background-color 0.2s ease" }}
+                          style={{ position: "relative", paddingInlineStart: 10 }}
                         >
-                          {/* خط‌کش راهنما (Reading Guide) — یه نوار خیلی باریک و
-                              کم‌رنگ زیرِ خط، فقط وقتی همین خط داره خونده می‌شه. */}
-                          <span
-                            aria-hidden="true"
-                            style={{
-                              position: "absolute",
-                              insetInlineStart: 10,
-                              insetInlineEnd: 0,
-                              bottom: -2,
-                              height: 2,
-                              borderRadius: 2,
-                              backgroundColor: colors.gold,
-                              opacity: isReadingNow ? 0.28 : 0,
-                              transition: "opacity 0.25s ease",
-                              pointerEvents: "none",
-                            }}
-                          />
                           <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                             <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
                             <p
@@ -6233,23 +6090,8 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                   ) : (
                     <div
                       ref={(el) => (paragraphElsRef.current[pi] = el)}
-                      style={{ position: "relative", paddingInlineStart: 10, transition: "background-color 0.2s ease" }}
+                      style={{ position: "relative", paddingInlineStart: 10 }}
                     >
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          position: "absolute",
-                          insetInlineStart: 10,
-                          insetInlineEnd: 0,
-                          bottom: -2,
-                          height: 2,
-                          borderRadius: 2,
-                          backgroundColor: colors.gold,
-                          opacity: activeStorySentence && activeStorySentence.pi === pi ? 0.28 : 0,
-                          transition: "opacity 0.25s ease",
-                          pointerEvents: "none",
-                        }}
-                      />
                       <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                         <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
                         <p
@@ -8805,14 +8647,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
       });
     };
     update(speechController.getState());
-    const unsubscribe = speechController.subscribe(update);
-    const pollId = setInterval(() => {
-      if (speechController.getState().status === "playing") update(speechController.getState());
-    }, 100);
-    return () => {
-      unsubscribe();
-      clearInterval(pollId);
-    };
+    return speechController.subscribe(update);
   }, [fullText, wordOffsets]);
 
   const listNodeMapRef = useRef(new Map());

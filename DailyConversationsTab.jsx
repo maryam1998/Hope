@@ -229,7 +229,6 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
         }}
       >
         {items.map((it, i) => {
-          const isReadingNow = activeLine && activeLine.variant === variant && activeLine.i === i;
           return (
           <div
             key={i}
@@ -242,31 +241,8 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
               padding: "9px 12px",
               borderBottom: i < items.length - 1 ? `1px dashed ${colors.cardBorder}` : "none",
               direction: "rtl",
-              transition: "background-color 0.2s ease",
             }}
           >
-            {/* خط‌کش راهنما (Reading Guide) — یه نوار خیلی باریک و کم‌رنگ که
-                فقط زیرِ همون خطی که الان داره خونده می‌شه ظاهر می‌شه تا چشم
-                خواننده رو بدون شلوغ‌کاری روی خط نگه داره و موقع اسکرول/رفتن
-                به جمله‌ی بعدی، خطش رو گم نکنه. چون هر ردیف position:relative
-                داره، این نوار هم مثل نشانگرِ کنار، فقط opacity/transition
-                می‌گیره — نه اینکه دائم mount/unmount بشه — تا جابه‌جایی بینِ
-                خط‌ها نرم و بدون پرش باشه. */}
-            <span
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                insetInlineStart: 12,
-                insetInlineEnd: 12,
-                bottom: 3,
-                height: 2,
-                borderRadius: 2,
-                backgroundColor: colors.gold,
-                opacity: isReadingNow ? 0.28 : 0,
-                transition: "opacity 0.25s ease",
-                pointerEvents: "none",
-              }}
-            />
             {/* بلندگو همیشه اول (یعنی لبه‌ی راست، چون کانتینر rtl‌ه)،
                 بعد بجِ سطح، بعد خودِ متن که فضای باقی‌مونده رو پر می‌کنه. */}
             {SpeakButton && <SpeakButton text={it.en} code="en" color={colors.teal} />}
@@ -425,7 +401,7 @@ export default function DailyConversationsTab({
   }, [fullText]);
 
   // خطی که همین الان، در حینِ پخشِ «کل متن» از روی پلیر، داره خونده می‌شه —
-  // برای نشانگرِ کنارِ خط و اسکرولِ خودکار.
+  // فقط برای اسکرولِ خودکار استفاده می‌شه (هایلایتِ بصری نداره).
   const [activeLine, setActiveLine] = useState(null); // {variant, i} | null
   useEffect(() => {
     if (!speechController) return;
@@ -448,17 +424,9 @@ export default function DailyConversationsTab({
       });
     };
     update(speechController.getState());
-    const unsubscribe = speechController.subscribe(update);
-    // علاوه بر رویدادهای onboundary، هر ۱۰۰ میلی‌ثانیه هم خودمون چک می‌کنیم —
-    // چون بعضی صداها (خصوصاً غیرانگلیسی/موبایل) اصلاً onboundary شلیک
-    // نمی‌کنن و بدونِ این polling، هایلایت تا آخرِ خوندن اصلاً تکون نمی‌خورد.
-    const pollId = setInterval(() => {
-      if (speechController.getState().status === "playing") update(speechController.getState());
-    }, 100);
-    return () => {
-      unsubscribe();
-      clearInterval(pollId);
-    };
+    // chunkIndex دقیقاً همون لحظه‌ای که خطِ بعدی شروع می‌شه آپدیت می‌شه (نه
+    // با تخمین)، پس دیگه نیازی به polling نیست.
+    return speechController.subscribe(update);
   }, [fullText, lineOffsets, speechController]);
 
   // موقع رفتن به سناریو یا موضوعِ دیگه، نشانگرِ خط قدیمی رو پاک کن.

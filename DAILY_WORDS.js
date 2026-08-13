@@ -330,7 +330,7 @@ export const DAILY_WORDS = [
   { id: 102918, level: "A2", pos: "adjective", en: "nervous", fa: "عصبی" },
   { id: 300015, level: "A2", pos: "idiom", en: "never mind", fa: "بی‌خیال، مهم نیست" },
   { id: 300001, level: "A2", pos: "idiom", en: "no way", fa: "امکان نداره" },
-  { id: 300000, level: "A2", pos: "idiom", en: "of course", fa: "البته" },
+  { id: 3e5, level: "A2", pos: "idiom", en: "of course", fa: "البته" },
   { id: 300018, level: "A2", pos: "idiom", en: "on time", fa: "به موقع" },
   { id: 300009, level: "A2", pos: "idiom", en: "once in a while", fa: "گاهی اوقات" },
   { id: 103134, level: "A2", pos: "noun", en: "pants", fa: "شلوار" },
@@ -419,7 +419,7 @@ export const DAILY_WORDS = [
   { id: 400001, level: "B1", pos: "slang", en: "lowkey", fa: "تا حدی، بدون سروصدا" },
   { id: 300049, level: "B1", pos: "idiom", en: "make up your mind", fa: "تصمیم گرفتن" },
   { id: 102701, level: "B1", pos: "noun", en: "marriage", fa: "ازدواج" },
-  { id: 400000, level: "B1", pos: "slang", en: "no cap", fa: "جدی میگم، دروغ نیست" },
+  { id: 4e5, level: "B1", pos: "slang", en: "no cap", fa: "جدی میگم، دروغ نیست" },
   { id: 300059, level: "B1", pos: "idiom", en: "on the fence", fa: "مردد و بی‌تصمیم" },
   { id: 300044, level: "B1", pos: "idiom", en: "on the same page", fa: "هم‌فکر بودن" },
   { id: 300039, level: "B1", pos: "idiom", en: "once in a blue moon", fa: "خیلی به‌ندرت" },
@@ -678,5 +678,5 @@ export const DAILY_WORDS = [
   { id: 300165, level: "C2", pos: "idiom", en: "take something at face value", fa: "چیزی را همان‌طور که هست پذیرفتن" },
   { id: 300166, level: "C2", pos: "idiom", en: "the best of both worlds", fa: "داشتن مزایای هر دو طرف" },
   { id: 300167, level: "C2", pos: "idiom", en: "the last straw", fa: "آخرین ضربه‌ای که صبر را لبریز می‌کند" },
-  { id: 300168, level: "C2", pos: "idiom", en: "through thick and thin", fa: "در خوشی و ناخوشی، همیشه" },
+  { id: 300168, level: "C2", pos: "idiom", en: "through thick and thin", fa: "در خوشی و ناخوشی، همیشه" }
 ];
