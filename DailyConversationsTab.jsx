@@ -441,10 +441,24 @@ export default function DailyConversationsTab({
         if (offset >= l.start) found = l;
         else break;
       }
-      setActiveLine(found ? { variant: found.variant, i: found.i } : null);
+      setActiveLine((prev) => {
+        const next = found ? { variant: found.variant, i: found.i } : null;
+        if (prev && next && prev.variant === next.variant && prev.i === next.i) return prev;
+        return next;
+      });
     };
     update(speechController.getState());
-    return speechController.subscribe(update);
+    const unsubscribe = speechController.subscribe(update);
+    // علاوه بر رویدادهای onboundary، هر ۱۰۰ میلی‌ثانیه هم خودمون چک می‌کنیم —
+    // چون بعضی صداها (خصوصاً غیرانگلیسی/موبایل) اصلاً onboundary شلیک
+    // نمی‌کنن و بدونِ این polling، هایلایت تا آخرِ خوندن اصلاً تکون نمی‌خورد.
+    const pollId = setInterval(() => {
+      if (speechController.getState().status === "playing") update(speechController.getState());
+    }, 100);
+    return () => {
+      unsubscribe();
+      clearInterval(pollId);
+    };
   }, [fullText, lineOffsets, speechController]);
 
   // موقع رفتن به سناریو یا موضوعِ دیگه، نشانگرِ خط قدیمی رو پاک کن.

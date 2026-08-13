@@ -341,10 +341,21 @@ function DailyConversationsTab({
         if (offset >= l.start) found = l;
         else break;
       }
-      setActiveLine(found ? { variant: found.variant, i: found.i } : null);
+      setActiveLine((prev) => {
+        const next = found ? { variant: found.variant, i: found.i } : null;
+        if (prev && next && prev.variant === next.variant && prev.i === next.i) return prev;
+        return next;
+      });
     };
     update(speechController.getState());
-    return speechController.subscribe(update);
+    const unsubscribe = speechController.subscribe(update);
+    const pollId = setInterval(() => {
+      if (speechController.getState().status === "playing") update(speechController.getState());
+    }, 100);
+    return () => {
+      unsubscribe();
+      clearInterval(pollId);
+    };
   }, [fullText, lineOffsets, speechController]);
   useEffect(() => {
     setActiveLine(null);

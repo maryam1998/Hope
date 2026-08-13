@@ -657,6 +657,11 @@ function vocabToMarkdown() {
 // resuming. Deliberately a little conservative (biased slow) so the fallback
 // resumes a touch early rather than skipping ahead over words.
 const FALLBACK_CHARS_PER_SEC = 13;
+// اکثر موتورهای TTS (خصوصاً روی اندروید) رویدادِ onboundary رو با یه تاخیرِ
+// ثابتِ کوچیک نسبت به صدای واقعی شلیک می‌کنن؛ همین چیزیه که باعث می‌شه
+// هایلایت «دیرتر از صدا» به‌نظر برسه. این عدد جبرانِ همون تاخیره — تخمینِ
+// موقعیت رو همیشه یه‌کم جلوتر می‌بره تا با گوش هماهنگ بشه.
+const BOUNDARY_LEAD_MS = 220;
 
 const speechController = (() => {
   let fullText = "";
@@ -668,6 +673,9 @@ const speechController = (() => {
   let segmentStartOffset = 0; // char offset into fullText where the current utterance began
   let segmentStartTime = 0; // Date.now() when the current utterance began
   let boundaryFired = false; // whether onboundary has fired at least once for the current utterance
+  let lastBoundaryOffset = 0; // آخرین آفستِ تاییدشده توسط onboundary (یا شروعِ سگمنت)
+  let lastBoundaryTime = 0; // زمانِ همون تاییدِ آخر
+  let observedCharsPerSec = FALLBACK_CHARS_PER_SEC; // سرعتِ واقعیِ گفتار، از فاصله‌ی بین رویدادها اندازه‌گیری و به‌روزرسانی می‌شه
   let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1; // 0.5 (slow) .. 2 (fast), 1 = normal
   let currentUtterance = null; // برای نگهداری reference صدای فعلی
   // "local" = TTS خود گوشی (speechSynthesis) | "online" = سرویس رایگان
@@ -839,9 +847,14 @@ const speechController = (() => {
   }
 
   function estimateWordIndex() {
-    if (boundaryFired || !words.length) return wordIndex;
-    const elapsedSec = (Date.now() - segmentStartTime) / 1000;
-    const estOffset = segmentStartOffset + elapsedSec * FALLBACK_CHARS_PER_SEC * rate;
+    if (!words.length) return wordIndex;
+    // همیشه به‌صورتِ پیوسته تخمین می‌زنیم (نه فقط وقتی onboundary شلیک نشده)،
+    // چون منتظرِ رویدادِ بعدی موندن دقیقاً همون چیزیه که هایلایت رو «دیرتر
+    // از صدا» نشون می‌ده. لنگرِ segmentStartOffset/Time هر بار با رویدادِ
+    // onboundary تازه می‌شه، پس این تخمین هیچ‌وقت زیاد از واقعیت فاصله
+    // نمی‌گیره؛ فقط بینِ دو رویداد، به‌جای انجماد، به‌آرومی جلو می‌ره.
+    const elapsedSec = Math.max(0, (Date.now() - segmentStartTime + BOUNDARY_LEAD_MS) / 1000);
+    const estOffset = segmentStartOffset + elapsedSec * observedCharsPerSec;
     return wordIndexForCharOffset(Math.min(estOffset, fullText.length - 1));
   }
 
@@ -895,6 +908,9 @@ const speechController = (() => {
       segmentStartOffset = baseOffset;
       segmentStartTime = Date.now();
       boundaryFired = false;
+      lastBoundaryOffset = baseOffset;
+      lastBoundaryTime = Date.now();
+      observedCharsPerSec = FALLBACK_CHARS_PER_SEC * rate;
       status = "playing";
       notify();
       
@@ -910,7 +926,22 @@ const speechController = (() => {
         if (e.name && e.name !== "word") return;
         boundaryFired = true;
         const abs = baseOffset + (e.charIndex || 0);
+        const now = Date.now();
+        // سرعتِ واقعیِ گفتار رو از فاصله‌ی بینِ دو تاییدِ اخیر اندازه می‌گیریم
+        // و با میانگینِ متحرک صاف می‌کنیم — این‌جوری تخمینِ بینِ دو رویداد،
+        // به‌جای یه عددِ ثابتِ حدسی، با ریتمِ واقعیِ همین صدا/همین متن هماهنگه.
+        if (lastBoundaryTime) {
+          const dt = (now - lastBoundaryTime) / 1000;
+          const doff = abs - lastBoundaryOffset;
+          if (dt > 0.03 && doff > 0) {
+            observedCharsPerSec = observedCharsPerSec * 0.6 + (doff / dt) * 0.4;
+          }
+        }
+        lastBoundaryOffset = abs;
+        lastBoundaryTime = now;
         wordIndex = wordIndexForCharOffset(abs);
+        segmentStartOffset = abs;
+        segmentStartTime = now;
         notify();
       };
       utter.onend = () => {
@@ -950,6 +981,9 @@ const speechController = (() => {
     segmentStartOffset = baseOffset;
     segmentStartTime = Date.now();
     boundaryFired = false;
+    lastBoundaryOffset = baseOffset;
+    lastBoundaryTime = Date.now();
+    observedCharsPerSec = FALLBACK_CHARS_PER_SEC * rate;
     status = "playing";
     notify();
     
@@ -965,7 +999,19 @@ const speechController = (() => {
       if (e.name && e.name !== "word") return;
       boundaryFired = true;
       const abs = baseOffset + (e.charIndex || 0);
+      const now = Date.now();
+      if (lastBoundaryTime) {
+        const dt = (now - lastBoundaryTime) / 1000;
+        const doff = abs - lastBoundaryOffset;
+        if (dt > 0.03 && doff > 0) {
+          observedCharsPerSec = observedCharsPerSec * 0.6 + (doff / dt) * 0.4;
+        }
+      }
+      lastBoundaryOffset = abs;
+      lastBoundaryTime = now;
       wordIndex = wordIndexForCharOffset(abs);
+      segmentStartOffset = abs;
+      segmentStartTime = now;
       notify();
     };
     utter.onend = () => {
@@ -3934,7 +3980,14 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
         const isOpen = openKey === `${startTok}-${endTok}`;
         const isUnderlined = !!group; // has a saved explanation
         return (
-          <span key={idx} style={{ position: "relative", display: "inline-block" }}>
+          // نکته‌ی مهم: این span باید display:inline بمونه، نه inline-block.
+          // inline-block هر کلمه رو برای مرورگر یه «جعبه‌ی اتمیک» جدا حساب
+          // می‌کنه، و درگ‌کردنِ انتخاب روی چند خط از میونِ ده‌ها تا از این
+          // جعبه‌ها دقیقاً همون باگیه که باعث می‌شه انتخاب نصفه‌ونیمه بشه یا
+          // با کلیک لغو بشه (رفتار انتخاب‌متنِ استاندارد فقط با inline درست
+          // کار می‌کنه). موقعیتِ پاپ‌آپ زیرش هم position:fixed هست، پس به
+          // relative‌بودنِ این span هیچ وابستگی نداره.
+          <span key={idx} style={{ display: "inline" }}>
             <span
               onClick={(e) => {
                 e.stopPropagation();
@@ -4824,10 +4877,23 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         if (offset >= s.start) found = s;
         else break;
       }
-      setActiveStorySentence(found ? { pi: found.pi, si: found.si } : null);
+      setActiveStorySentence((prev) => {
+        const next = found ? { pi: found.pi, si: found.si } : null;
+        if (prev && next && prev.pi === next.pi && prev.si === next.si) return prev;
+        return next;
+      });
     };
     update(speechController.getState());
-    return speechController.subscribe(update);
+    const unsubscribe = speechController.subscribe(update);
+    // همون منطقِ polling — برای صداهایی که onboundary نمی‌دن، بدونِ این
+    // هایلایت تا آخرِ خوندن اصلاً حرکت نمی‌کرد.
+    const pollId = setInterval(() => {
+      if (speechController.getState().status === "playing") update(speechController.getState());
+    }, 100);
+    return () => {
+      unsubscribe();
+      clearInterval(pollId);
+    };
   }, [fullStoryText, storyLang, sentenceOffsets]);
 
   // موقع پخشِ سراسریِ داستان، اگه اسکرولِ خودکار (همون دکمه‌ی کنارِ پلیر)
@@ -8380,6 +8446,10 @@ const STORY_SELECTION_HIGHLIGHT = "hope-story-sel";
 function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, nativeLabel, aiSettings }) {
   const [popup, setPopup] = useState(null); // { top, left, text, langCode } | null
   const popupElRef = useRef(null);
+  // فقط برای این‌که دکمه‌ی 🔊ِ پاپ‌آپ بین آیکونِ پخش/توقف سوییچ کنه — دقیقاً
+  // همون الگویی که SpeakButton خودش استفاده می‌کنه.
+  const [speakState, setSpeakState] = useState(() => speechController.getState());
+  useEffect(() => speechController.subscribe(setSpeakState), []);
 
   const clearSelectionHighlight = () => {
     try {
@@ -8541,6 +8611,38 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       <button
         onClick={(e) => {
           e.stopPropagation();
+          const result = speechController.toggle(popup.text, popup.langCode);
+          if (result === "unsupported") {
+            alert("این مرورگر از خوندن صوتی متن پشتیبانی نمی‌کنه.");
+          } else if (result === "error") {
+            alert("پخش صدا با مشکل مواجه شد. اتصال اینترنت رو چک کن و دوباره امتحان کن.");
+          }
+        }}
+        aria-label="خواندنِ بخشِ انتخاب‌شده"
+        title="خواندنِ همینِ بخشِ انتخاب‌شده"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          fontSize: 11,
+          fontWeight: 700,
+          color: colors.paper,
+          background: "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(255,255,255,0.25)",
+          borderRadius: 6,
+          padding: "3px 8px",
+          cursor: "pointer",
+        }}
+      >
+        {speakState.key === `${TTS_LOCALE[popup.langCode] || "en-US"}::${popup.text}` && speakState.status === "playing" ? (
+          <Pause size={11} />
+        ) : (
+          <Volume2 size={11} />
+        )}
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
           const nowSaved = toggleSavedStoryWord(popup.text, popup.langCode, { nativeLang: nativeLang || fallbackLangCode });
           setSaved(nowSaved);
           if (nowSaved) {
@@ -8697,10 +8799,20 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
         if (offset >= w.start) found = w;
         else break;
       }
-      setActiveWordId(found ? found.id : null);
+      setActiveWordId((prev) => {
+        const next = found ? found.id : null;
+        return prev === next ? prev : next;
+      });
     };
     update(speechController.getState());
-    return speechController.subscribe(update);
+    const unsubscribe = speechController.subscribe(update);
+    const pollId = setInterval(() => {
+      if (speechController.getState().status === "playing") update(speechController.getState());
+    }, 100);
+    return () => {
+      unsubscribe();
+      clearInterval(pollId);
+    };
   }, [fullText, wordOffsets]);
 
   const listNodeMapRef = useRef(new Map());
