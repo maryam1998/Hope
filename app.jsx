@@ -1210,31 +1210,6 @@ function useAutoplayOnScroll(enabled, items) {
   return { registerRef };
 }
 
-function AutoplayToggle({ enabled, onToggle, color }) {
-  const c = color || colors.gold;
-  return (
-    <button
-      onClick={onToggle}
-      aria-label="اسکرول خودکار"
-      title={enabled ? "اسکرول خودکار روشن است — بزن خاموش کن" : "هر چی با 🔊 داره خونده می‌شه، خودکار وسط صفحه بیار"}
-      className="flex items-center gap-1"
-      style={{
-        fontFamily: fontFa,
-        fontSize: 11,
-        fontWeight: 700,
-        color: enabled ? "white" : c,
-        backgroundColor: enabled ? c : "transparent",
-        border: `1px solid ${c}`,
-        borderRadius: 14,
-        padding: "3px 9px",
-      }}
-    >
-      <PlayCircle size={14} />
-      اسکرول خودکار
-    </button>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // دیکشنری آفلاین دانلودی — یه فایل JSON ساده (کلمه ↔ معنی) که یه‌بار از
 // همین سایت دانلود و با Cache API رو گوشی کاربر ذخیره می‌شه. بعد از اون،
@@ -6099,22 +6074,23 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                           ref={(el) => (sentenceElsRef.current[`${pi}-${si}`] = el)}
                           style={{ position: "relative", paddingInlineStart: 10, transition: "background-color 0.2s ease" }}
                         >
-                          {/* نشانگرِ «همین الان اینجام» — میله‌ی باریکِ کنارِ خط،
-                              نه یه جعبه‌ی هایلایت روی کلِ خط. insetInlineStart
-                              خودش با جهتِ متن (fa/ar راست، en/es چپ) هماهنگه. */}
-                          {isReadingNow && (
-                            <span
-                              style={{
-                                position: "absolute",
-                                insetInlineStart: 0,
-                                top: 4,
-                                bottom: 4,
-                                width: 3,
-                                borderRadius: 3,
-                                backgroundColor: colors.gold,
-                              }}
-                            />
-                          )}
+                          {/* خط‌کش راهنما (Reading Guide) — یه نوار خیلی باریک و
+                              کم‌رنگ زیرِ خط، فقط وقتی همین خط داره خونده می‌شه. */}
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              position: "absolute",
+                              insetInlineStart: 10,
+                              insetInlineEnd: 0,
+                              bottom: -2,
+                              height: 2,
+                              borderRadius: 2,
+                              backgroundColor: colors.gold,
+                              opacity: isReadingNow ? 0.28 : 0,
+                              transition: "opacity 0.25s ease",
+                              pointerEvents: "none",
+                            }}
+                          />
                           <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                             <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
                             <p
@@ -6157,9 +6133,9 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                   {translated && <SpeakButton text={translated} code={code} color={translationColor} edge={dirFor(code) === "ltr" ? "end" : undefined} />}
                                   <p
                                     style={{
-                                      fontSize: 13,
+                                      fontSize: 13.5,
                                       color: translationColor,
-                                      fontWeight: 800,
+                                      fontWeight: 900,
                                       textAlign: "justify",
                                       fontFamily: code === "fa" ? fontFa : fontLatin,
                                     }}
@@ -6193,19 +6169,21 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                       ref={(el) => (paragraphElsRef.current[pi] = el)}
                       style={{ position: "relative", paddingInlineStart: 10, transition: "background-color 0.2s ease" }}
                     >
-                      {activeStorySentence && activeStorySentence.pi === pi && (
-                        <span
-                          style={{
-                            position: "absolute",
-                            insetInlineStart: 0,
-                            top: 4,
-                            bottom: 4,
-                            width: 3,
-                            borderRadius: 3,
-                            backgroundColor: colors.gold,
-                          }}
-                        />
-                      )}
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          position: "absolute",
+                          insetInlineStart: 10,
+                          insetInlineEnd: 0,
+                          bottom: -2,
+                          height: 2,
+                          borderRadius: 2,
+                          backgroundColor: colors.gold,
+                          opacity: activeStorySentence && activeStorySentence.pi === pi ? 0.28 : 0,
+                          transition: "opacity 0.25s ease",
+                          pointerEvents: "none",
+                        }}
+                      />
                       <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                         <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
                         <p
@@ -6245,9 +6223,9 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                               {translated && <SpeakButton text={translated} code={code} color={translationColor} edge={dirFor(code) === "ltr" ? "end" : undefined} />}
                               <p
                                 style={{
-                                  fontSize: 13,
+                                  fontSize: 13.5,
                                   color: translationColor,
-                                  fontWeight: 800,
+                                  fontWeight: 900,
                                   textAlign: "justify",
                                   fontFamily: code === "fa" ? fontFa : fontLatin,
                                 }}
@@ -7346,7 +7324,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [showAnswer, setShowAnswer] = useState(false);
   const [query, setQuery] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
-  const [autoScrollPlay, setAutoScrollPlay] = useState(false);
   // شفافیتِ نوار پخشِ چسبیده به کف صفحه — درصدی از ۰ (کاملاً شفاف) تا ۱۰۰
   // (کاملاً کدر). روی دستگاه ذخیره می‌شه تا هربار برنگرده به پیش‌فرض.
   const [playerOpacity, setPlayerOpacity] = useState(() => {
@@ -7862,7 +7839,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     levelFilter={levelFilter}
     speechController={speechController}
     onFullTextChange={setDailyPlayerText}
-    autoScrollActive={tab === "conversations" && autoScrollPlay}
+    autoScrollActive={tab === "conversations"}
   />
 )}
 
@@ -7884,7 +7861,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                     query={query}
                     levelFilter={levelFilter}
                     aiSettings={aiSettings}
-                    autoplayEnabled={tab === "favorites" && autoScrollPlay}
+                    autoplayEnabled={tab === "favorites"}
                     emptyText=""
                   />
                 )}
@@ -7903,7 +7880,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                       targetLangs={targetLangList}
                       aiSettings={aiSettings}
                       ClickableSentence={ClickableSentence}
-                      autoplayEnabled={tab === "favorites" && autoScrollPlay}
+                      autoplayEnabled={tab === "favorites"}
                     />
                   </div>
                 )}
@@ -7925,9 +7902,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             targetLangs={targetLangList}
             aiSettings={aiSettings}
             ClickableSentence={ClickableSentence}
-            autoplayEnabled={tab === "words" && autoScrollPlay}
+            autoplayEnabled={tab === "words"}
             onFullTextChange={setWordListPlayerText}
-            autoScrollActive={tab === "words" && autoScrollPlay}
+            autoScrollActive={tab === "words"}
           />
         )}
 
@@ -7944,9 +7921,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             targetLangs={targetLangList}
             aiSettings={aiSettings}
             ClickableSentence={ClickableSentence}
-            autoplayEnabled={tab === "vocab" && autoScrollPlay}
+            autoplayEnabled={tab === "vocab"}
             onFullTextChange={setWordListPlayerText}
-            autoScrollActive={tab === "vocab" && autoScrollPlay}
+            autoScrollActive={tab === "vocab"}
           />
         )}
 
@@ -7963,9 +7940,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             targetLangs={targetLangList}
             aiSettings={aiSettings}
             ClickableSentence={ClickableSentence}
-            autoplayEnabled={tab === "daily" && autoScrollPlay}
+            autoplayEnabled={tab === "daily"}
             onFullTextChange={setWordListPlayerText}
-            autoScrollActive={tab === "daily" && autoScrollPlay}
+            autoScrollActive={tab === "daily"}
           />
         )}
 
@@ -8054,7 +8031,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             aiSettings={aiSettings}
             jumpTo={storyJump}
             onFullTextChange={setStoryPlayerText}
-            autoScrollActive={tab === "story" && autoScrollPlay}
+            autoScrollActive={tab === "story"}
           />
         </div>
       </main>
@@ -8091,7 +8068,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               <SpeakButton text={wordListPlayerText.text} code={wordListPlayerText.code} color={colors.teal} forceRepeat />
             )}
             <SpeedControl color={colors.gold} />
-            <AutoplayToggle enabled={autoScrollPlay} onToggle={() => setAutoScrollPlay((v) => !v)} color={colors.teal} />
           </div>
           <div className="px-4 flex items-center gap-2" style={{ paddingTop: 4, paddingBottom: 8 }}>
             <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
@@ -8765,21 +8741,6 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
             border: `1px solid ${colors.cardBorder}`,
           }}
         >
-          {/* نشانگرِ «همین الان اینجام» موقعِ خواندنِ کل لیست — میله‌ی
-              باریکِ کنارِ کارت، نه پرشدنِ کل کارت. */}
-          {activeWordId === w.id && (
-            <span
-              style={{
-                position: "absolute",
-                insetInlineStart: 0,
-                top: 6,
-                bottom: 6,
-                width: 3,
-                borderRadius: 3,
-                backgroundColor: colors.gold,
-              }}
-            />
-          )}
           <button onClick={() => toggleWordFavorite(w.id)} aria-label="افزودن به علاقه‌مندی‌ها" style={{ marginLeft: 4, flexShrink: 0 }}>
             <Star size={20} color={colors.gold} fill={wordFavorites.has(w.id) ? colors.gold : "none"} />
           </button>

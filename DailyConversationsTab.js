@@ -156,10 +156,10 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
         aiSettings,
         color: translationColor,
         fontFamily: fontFa,
-        fontWeight: 800,
-        fontSize: 12.5
+        fontWeight: 900,
+        fontSize: 13
       }
-    )) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, color: translationColor, fontWeight: 800, fontFamily: fontFa, flex: 1 } }, value))
+    )) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, color: translationColor, fontWeight: 900, fontFamily: fontFa, flex: 1 } }, value))
   );
 }
 function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef }) {

@@ -187,12 +187,12 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
             aiSettings={aiSettings}
             color={translationColor}
             fontFamily={fontFa}
-            fontWeight={800}
-            fontSize={12.5}
+            fontWeight={900}
+            fontSize={13}
           />
         </span>
       ) : (
-        <span style={{ fontSize: 12.5, color: translationColor, fontWeight: 800, fontFamily: fontFa, flex: 1 }}>{value}</span>
+        <span style={{ fontSize: 13, color: translationColor, fontWeight: 900, fontFamily: fontFa, flex: 1 }}>{value}</span>
       )}
     </div>
   );
