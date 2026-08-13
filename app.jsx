@@ -343,6 +343,11 @@ const colors = {
 // انتخابی کاربر توی تنظیمات) چون خودِ کاربر رنگ مشخص خواسته.
 const mainTextColor = "#0B1220";
 const translationColor = "#0F5C34";
+// پس‌زمینه‌ی سبزِ ملایمِ پنلِ شناورِ «تمرین جمله‌سازی» — عمداً ثابته (نه
+// وابسته به تمِ رنگی) چون کاربر خودش دقیقاً سبزِ ملایم خواسته، نه رنگِ تیره
+// یا خیلی روشن.
+const PRACTICE_PANEL_BG = "#DEEEE0";
+const PRACTICE_PANEL_BORDER = "#B4D0B8";
 
 // Theme presets — each is a full set of the 9 tokens above. "vintage" is the
 // original look; the rest are alternate moods, all still checked for
@@ -6525,6 +6530,14 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
 // `jumpTo` arrives from requestGrammarJump() (word popover) with a fresh
 // word to fetch + show immediately, offering a "save" button once it loads.
 // ---------------------------------------------------------------------------
+// محدودکردنِ موقعیتِ پنلِ شناور «تمرین جمله‌سازی» به داخلِ صفحه — تا با
+// کشیدن با انگشت از دیدِ کاربر خارج نشه (کاملاً از صفحه بیرون نره).
+function clampPracticePos(x, y, w, h) {
+  const maxX = Math.max(8, window.innerWidth - w - 8);
+  const maxY = Math.max(8, window.innerHeight - h - 8);
+  return { x: Math.min(Math.max(8, x), maxX), y: Math.min(Math.max(8, y), maxY) };
+}
+
 function GrammarPanel({
   nativeLang,
   nativeLabel,
@@ -6551,19 +6564,105 @@ function GrammarPanel({
   // خودِ گفتگو (chatMessages) دست‌نخورده می‌مونه، همیشه mount شده‌ست.
   const [practiceCollapsed, setPracticeCollapsed] = useState(false);
   const practicePanelRef = useRef(null);
+  // موقعیتِ پنلِ شناور روی صفحه (به‌جای چسبیدنِ ثابت به کفِ صفحه) — با
+  // انگشت/ماوس از روی دستگیره‌ی بالای پنل قابلِ جابه‌جاییه و همیشه روی
+  // دستگاه ذخیره می‌شه تا هر بار سرِ جای قبلی‌ش باز شه.
+  const [practicePos, setPracticePos] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("phrasebook-practice-pos") || "null");
+      if (saved && typeof saved.x === "number" && typeof saved.y === "number") return saved;
+    } catch {}
+    const w = 320,
+      h = 220;
+    return {
+      x: Math.max(8, window.innerWidth - w - 16),
+      y: Math.max(8, window.innerHeight - playerBarHeight - h - 16),
+    };
+  });
+  const hasAutoPositionedRef = useRef(false);
+  const [practiceDrag, setPracticeDrag] = useState(null); // { startX, startY, baseX, baseY, w, h } while dragging
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("phrasebook-practice-pos", JSON.stringify(practicePos));
+    } catch {}
+  }, [practicePos]);
+
+  // کشیدنِ پنل با انگشت/ماوس از روی دستگیره — همون الگویِ کشیدن‌وانداختنِ
+  // بقیه‌ی جاهای اپ (مثلاً OrderChips): موقعیتِ شروع رو نگه می‌داریم و روی
+  // window گوش می‌دیم تا هرجای صفحه هم انگشت بره، جابه‌جایی ادامه پیدا کنه.
+  function startPracticeDrag(e) {
+    const point = e.touches ? e.touches[0] : e;
+    const el = practicePanelRef.current;
+    const rect = el ? el.getBoundingClientRect() : { left: practicePos.x, top: practicePos.y, width: 320, height: 220 };
+    setPracticeDrag({ startX: point.clientX, startY: point.clientY, baseX: rect.left, baseY: rect.top, w: rect.width, h: rect.height });
+  }
+
+  useEffect(() => {
+    if (!practiceDrag) return;
+    function handleMove(e) {
+      const point = e.touches ? e.touches[0] : e;
+      if (e.touches) e.preventDefault();
+      const dx = point.clientX - practiceDrag.startX;
+      const dy = point.clientY - practiceDrag.startY;
+      setPracticePos(clampPracticePos(practiceDrag.baseX + dx, practiceDrag.baseY + dy, practiceDrag.w, practiceDrag.h));
+    }
+    function handleUp() {
+      setPracticeDrag(null);
+    }
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("touchmove", handleMove, { passive: false });
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("touchend", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("touchend", handleUp);
+    };
+  }, [practiceDrag]);
+
+  // با چرخشِ صفحه/تغییرِ اندازه‌ی پنجره، اگه پنل بیرونِ محدوده‌ی جدید افتاد
+  // برش می‌گردونه داخلِ صفحه.
+  useEffect(() => {
+    function onResize() {
+      const el = practicePanelRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      setPracticePos((p) => clampPracticePos(p.x, p.y, rect.width, rect.height));
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   useLayoutEffect(() => {
     const el = practicePanelRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver((entries) => {
       const h = entries[0]?.contentRect?.height;
       if (h && onPracticePanelHeightChange) onPracticePanelHeightChange(Math.ceil(h));
+      const rect = el.getBoundingClientRect();
+      if (!hasAutoPositionedRef.current) {
+        hasAutoPositionedRef.current = true;
+        let hasSaved = false;
+        try {
+          hasSaved = !!localStorage.getItem("phrasebook-practice-pos");
+        } catch {}
+        if (!hasSaved) {
+          setPracticePos(
+            clampPracticePos(window.innerWidth - rect.width - 16, window.innerHeight - playerBarHeight - rect.height - 16, rect.width, rect.height)
+          );
+        }
+      } else {
+        setPracticePos((p) => clampPracticePos(p.x, p.y, rect.width, rect.height));
+      }
     });
     ro.observe(el);
     return () => {
       ro.disconnect();
       if (onPracticePanelHeightChange) onPracticePanelHeightChange(0);
     };
-  }, [onPracticePanelHeightChange]);
+  }, [onPracticePanelHeightChange, playerBarHeight]);
 
   // Follow-up "ask about this note" box shown under each expanded saved
   // note. Keyed by note id since several notes can (in theory) be expanded
@@ -6912,17 +7011,36 @@ function GrammarPanel({
           ref={practicePanelRef}
           style={{
             position: "fixed",
-            left: 0,
-            right: 0,
-            bottom: playerBarHeight,
+            left: practicePos.x,
+            top: practicePos.y,
+            width: "min(92vw, 360px)",
             zIndex: 41,
-            backgroundColor: colors.paper,
+            backgroundColor: PRACTICE_PANEL_BG,
             opacity: practiceOpacity / 100,
-            borderTop: `1px solid ${colors.cardBorder}`,
-            boxShadow: "0 -4px 14px rgba(28,37,65,0.12)",
+            border: `1px solid ${PRACTICE_PANEL_BORDER}`,
+            borderRadius: 16,
+            boxShadow: "0 8px 24px rgba(28,37,65,0.18)",
+            touchAction: practiceDrag ? "none" : "auto",
           }}
         >
-        <div className="px-4 pt-2 flex items-center justify-between gap-2 flex-wrap" style={{ rowGap: 6 }}>
+        {/* دستگیره‌ی کشیدن — فقط همین نوار برای جابه‌جاکردنِ پنل با انگشت/
+            ماوس واکنش نشون می‌ده تا با دکمه‌ها و ورودی‌های داخلِ پنل تداخل
+            نکنه. */}
+        <div
+          onMouseDown={startPracticeDrag}
+          onTouchStart={startPracticeDrag}
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            padding: "7px 0 2px",
+            cursor: practiceDrag ? "grabbing" : "grab",
+            touchAction: "none",
+          }}
+          aria-hidden="true"
+        >
+          <div style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: PRACTICE_PANEL_BORDER }} />
+        </div>
+        <div className="px-4 pt-1 flex items-center justify-between gap-2 flex-wrap" style={{ rowGap: 6 }}>
           <button
             onClick={() => setPracticeCollapsed((v) => !v)}
             className="flex items-center gap-1"
@@ -7656,8 +7774,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       <main
         className="px-4 py-4"
         style={{
-          paddingBottom:
-            (showPlayerBar ? 150 : 96) + (tab === "grammar" ? practicePanelHeight : 0),
+          // پنلِ «تمرین جمله‌سازی» دیگه به کفِ صفحه چسبیده نیست (شناور و
+          // قابلِ‌کشیدنه)، پس دیگه لازم نیست فضاش از پایینِ محتوا کم بشه.
+          paddingBottom: showPlayerBar ? 150 : 96,
         }}
       >
         {tab === "conversations" && (
