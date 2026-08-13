@@ -8287,6 +8287,11 @@ const STORY_SELECTION_HIGHLIGHT = "hope-story-sel";
 
 function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, nativeLabel, aiSettings }) {
   const [popup, setPopup] = useState(null); // { top, left, text, langCode } | null
+  // ترجمه‌ی خودِ محدوده‌ی انتخاب‌شده به زبان مبدأ/مادریِ کاربر (nativeLang) —
+  // دقیقاً همون کاری که برای تک‌کلمه‌ها توی ClickableSentence با
+  // lookupWordMeaning انجام می‌شه، اینجا هم برای کل محدوده (چند کلمه/جمله)
+  // با translateFree انجام می‌شه. { status: "loading" | "done" | "error", text? }
+  const [translation, setTranslation] = useState(null);
   const popupElRef = useRef(null);
   // فقط برای این‌که دکمه‌ی 🔊ِ پاپ‌آپ بین آیکونِ پخش/توقف سوییچ کنه — دقیقاً
   // همون الگویی که SpeakButton خودش استفاده می‌کنه.
@@ -8303,8 +8308,56 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
 
   const closePopup = () => {
     setPopup(null);
+    setTranslation(null);
     clearSelectionHighlight();
   };
+
+  // هر بار محدوده‌ی تازه‌ای انتخاب می‌شه (popup عوض می‌شه)، ترجمه‌ی همون
+  // محدوده رو به زبان مبدأ/مادریِ کاربر می‌گیریم — دقیقاً همون زنجیره‌ی
+  // fallback (کش → گوگل/مای‌مموری/لینگوا/لیبره → در آخر بک‌اند AI) که
+  // translateFree برای بقیه‌ی جاهای برنامه هم استفاده می‌کنه. اگه زبانِ
+  // مبدأِ متنِ انتخاب‌شده همون زبانِ مادریِ کاربر باشه، ترجمه بی‌معنیه و
+  // اصلاً درخواستی فرستاده نمی‌شه.
+  useEffect(() => {
+    if (!popup) return;
+    const targetLang = nativeLang || fallbackLangCode;
+    if (targetLang === popup.langCode) {
+      setTranslation(null);
+      return;
+    }
+    let cancelled = false;
+    setTranslation({ status: "loading" });
+    translateFree(popup.text, targetLang, popup.langCode, aiSettings)
+      .then((result) => {
+        if (cancelled) return;
+        const clean = (result || "").trim();
+        if (clean && clean !== popup.text.trim()) {
+          setTranslation({ status: "done", text: clean });
+        } else {
+          setTranslation({ status: "error" });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setTranslation({ status: "error" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [popup, nativeLang, fallbackLangCode, aiSettings]);
+
+  // دکمه‌ی «تلاش دوباره»ی خودِ ترجمه (جدا از دکمه‌های ذخیره/گرامر پایین) —
+  // برای وقتی سرویس‌های ترجمه‌ی رایگان موقتاً جواب ندادن.
+  function retryTranslation() {
+    if (!popup) return;
+    const targetLang = nativeLang || fallbackLangCode;
+    setTranslation({ status: "loading" });
+    translateFree(popup.text, targetLang, popup.langCode, aiSettings)
+      .then((result) => {
+        const clean = (result || "").trim();
+        setTranslation(clean && clean !== popup.text.trim() ? { status: "done", text: clean } : { status: "error" });
+      })
+      .catch(() => setTranslation({ status: "error" }));
+  }
   // این دوتا دقیقاً معادل دکمه‌های «ذخیره برای داستان بعدی» و «افزودن به
   // یادگیری گرامر» توی پاپ‌آپِ تک‌لغه‌ایِ ClickableSentence هستن — اینجا هم
   // همون رفتار رو برای یک محدوده‌ی انتخاب‌شده (چند کلمه یا یک جمله‌ی کامل)
@@ -8432,24 +8485,75 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       onTouchStart={(e) => e.stopPropagation()}
       style={{
         position: "fixed",
-        top: Math.max(8, popup.top - 40),
+        top: Math.max(8, popup.top - (translation ? 76 : 40)),
         left: Math.min(Math.max(90, popup.left), window.innerWidth - 90),
         transform: "translateX(-50%)",
         display: "flex",
-        alignItems: "center",
-        flexWrap: "wrap",
-        justifyContent: "center",
+        flexDirection: "column",
+        alignItems: "stretch",
         gap: 4,
-        maxWidth: "92vw",
+        maxWidth: "min(92vw, 320px)",
         background: colors.ink,
         color: colors.paper,
         borderRadius: 8,
-        padding: "5px 6px",
+        padding: "6px 7px",
         fontFamily: fontFa,
         zIndex: 9999,
         boxShadow: "0 4px 14px rgba(0,0,0,0.28)",
       }}
     >
+      {/* ترجمه‌ی خودِ محدوده‌ی انتخاب‌شده — همون چیزی که برای تک‌کلمه‌ها هم
+          توی پاپ‌آپِ ClickableSentence نشون داده می‌شه، اینجا برای کل
+          محدوده. وقتی زبانِ متن با زبانِ مادریِ کاربر یکیه، اصلاً نشون
+          داده نمی‌شه (translation همون‌جا null می‌مونه). */}
+      {translation && (
+        <div
+          dir={dirFor(nativeLang || fallbackLangCode)}
+          style={{
+            textAlign: dirFor(nativeLang || fallbackLangCode) === "rtl" ? "right" : "left",
+            fontSize: 12,
+            padding: "2px 4px 4px",
+            borderBottom: "1px solid rgba(255,255,255,0.15)",
+            marginBottom: 2,
+          }}
+        >
+          {translation.status === "loading" && (
+            <div className="flex items-center gap-1" style={{ color: colors.paper, opacity: 0.85 }}>
+              <Loader2 size={12} className="spin" />
+              <span>در حال یافتن ترجمه...</span>
+            </div>
+          )}
+          {translation.status === "done" && (
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+              <SpeakButton text={translation.text} code={nativeLang || fallbackLangCode} color={colors.goldSoft} />
+              <span style={{ flex: 1, overflowWrap: "break-word" }}>{translation.text}</span>
+            </div>
+          )}
+          {translation.status === "error" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ color: colors.rose, fontSize: 11 }}>ترجمه پیدا نشد (احتمالاً آفلاینی)</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  retryTranslation();
+                }}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: colors.paper,
+                  background: "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(255,255,255,0.25)",
+                  borderRadius: 6,
+                  padding: "2px 7px",
+                }}
+              >
+                تلاش دوباره
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", justifyContent: "center", gap: 4 }}>
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -8534,6 +8638,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
         <Type size={11} />
         {grammarSaved ? "ذخیره شد در گرامر" : "افزودن به یادگیری گرامر"}
       </button>
+      </div>
     </div>
   );
 }
