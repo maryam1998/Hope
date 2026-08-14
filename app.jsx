@@ -343,11 +343,10 @@ const colors = {
 // انتخابی کاربر توی تنظیمات) چون خودِ کاربر رنگ مشخص خواسته.
 const mainTextColor = "#0B1220";
 const translationColor = "#0F5C34";
-// پس‌زمینه‌ی سبزِ ملایمِ پنلِ شناورِ «تمرین جمله‌سازی» — عمداً ثابته (نه
-// وابسته به تمِ رنگی) چون کاربر خودش دقیقاً سبزِ ملایم خواسته، نه رنگِ تیره
-// یا خیلی روشن.
-const PRACTICE_PANEL_BG = "#DEEEE0";
-const PRACTICE_PANEL_BORDER = "#B4D0B8";
+// همون رنگِ پس‌زمینه‌ی نوارِ پلیرِ پایینِ صفحه (colors.paper) — تا این پنلِ
+// شناور با اون هم‌رنگ باشه؛ بردرِ طلاییِ کم‌رنگ (goldSoft) هم اضافه شده تا
+// با وجودِ هم‌رنگ بودنِ پس‌زمینه، پنل هنوز به‌وضوح از بقیه‌ی صفحه جدا دیده بشه.
+const PRACTICE_PANEL_BORDER = colors.goldSoft;
 
 // Theme presets — each is a full set of the 9 tokens above. "vintage" is the
 // original look; the rest are alternate moods, all still checked for
@@ -1127,6 +1126,28 @@ const speechController = (() => {
 
 
 // ---------------------------------------------------------------------------
+// حافظه‌ی «نقطه‌ی ادامه» برای متنِ اصلی (مثلاً داستان) — وقتی کاربر روی یه
+// کلمه یا یه محدوده‌ی انتخابی از متنِ اصلی دکمه‌ی پخش رو می‌زنه (برای شنیدنِ
+// تلفظش)، همون موقعیت (آفستِ کاراکتری داخلِ متنِ کامل) به‌خاطر سپرده می‌شه.
+// دفعه‌ی بعد که دکمه‌ی «پخشِ کل متن» زده بشه (از نگاهِ speechController،
+// چون کلیدش با کلمه/محدوده فرق داره، «متنِ تازه»ست)، پخش به‌جای شروع از اول،
+// از همون نقطه (تقریباً همون جمله) ادامه پیدا می‌کنه. کلید همون کلیدِ
+// speechController یعنی `${locale}::${fullText}` است.
+// ---------------------------------------------------------------------------
+const mainTextResumePoints = new Map();
+function rememberMainTextResumeOffset(mainTextKey, offset) {
+  if (!mainTextKey || !Number.isFinite(offset)) return;
+  mainTextResumePoints.set(mainTextKey, offset);
+}
+function consumeMainTextResumeOffset(mainTextKey) {
+  return mainTextKey ? mainTextResumePoints.get(mainTextKey) : undefined;
+}
+// آخرین متن/زبانِ داستان — چون GlobalAddToStorySelection سراسریه و مستقیم
+// به StoryBuilder دسترسی نداره، از همین متغیر برای ساختنِ کلیدِ درستِ
+// speechController موقعِ به‌خاطرسپردنِ نقطه‌ی ادامه استفاده می‌کنه.
+let latestStoryTextContext = { text: "", code: "" };
+
+// ---------------------------------------------------------------------------
 // اسکرول خودکار — استفاده‌شده توسط PhraseList / WordList / VocabList. خودش
 // هیچ صدایی رو پخش نمی‌کنه و شروعش نمی‌کنه؛ فقط وقتی روشنه، دنبالِ هر چیزی
 // که همین الان از طریقِ 🔊ِ خودِ آیتم (یا هر جای دیگه‌ای) در حالِ پخشه
@@ -1853,39 +1874,29 @@ let requestGrammarJump = null;
 // already uses) to turn it into whatever language the learner picked as nativeLang. No AI call is
 // used for the localization step itself; askGrammarTeacher (the practice chat) is unrelated and
 // intentionally left as-is.
-async function lookupWordGrammarDetail({ word, sentence, langCode, nativeLang, nativeLabel, aiSettings }) {
+async function lookupWordGrammarDetail({ word, sentence, langCode, nativeLang, nativeLabel, aiSettings, targetOrder }) {
   const langLabel = LANGUAGES.find((l) => l.code === langCode)?.label || langCode;
+  const otherLangsLabel = (targetOrder || [])
+    .filter((c) => c !== langCode && c !== nativeLang)
+    .map((c) => LANGUAGES.find((l) => l.code === c)?.label || c)
+    .join(", ");
   const prompt =
-    `You are an expert ${langLabel} teacher preparing a beginner-friendly grammar breakdown of one sentence, for internal use only. Your ENTIRE reply must be plain ENGLISH — headers, explanations, everything — no matter what ${langLabel} is or what the learner's native language is. A separate step (not you) will translate the English explanatory text afterward, so you never need to translate anything into another language yourself.\n\n` +
-    `Sentence in ${langLabel}: "${sentence}"\n` +
-    `Word the learner tapped on, to focus on especially: "${word}"\n\n` +
+    `You are a language teacher explaining a grammar point to a beginner language learner.\n` +
+    `User's native language: ${nativeLabel || nativeLang}\n` +
+    `Language they are learning: ${langLabel}\n` +
+    `Other languages they are learning simultaneously: ${otherLangsLabel || "None"}\n\n` +
+    `Sentence: "${sentence}"\n` +
+    `Word the user clicked on: "${word}"\n\n` +
+    `Please explain the grammar point in ${nativeLang}. Follow the structure below, but make the explanation natural and fluent:\n\n` +
+    `1. Give a natural translation of the sentence in ${nativeLang}.\n` +
+    `2. Explain the role of the word "${word}" in this sentence and why it appears in this form.\n` +
+    `3. Explain the main grammar point demonstrated by this sentence like a patient teacher. If there is a similar or different rule in the other languages (${otherLangsLabel}), mention it.\n` +
+    `4. Give one additional example (different from the original sentence) that demonstrates the same point, along with its translation into ${nativeLang}.\n` +
+    `5. Provide a simple trick to help remember this rule.\n\n` +
+    `Keep the response short and useful (maximum 4–5 short paragraphs). Do not use technical terminology unless necessary.`;
 
-    `⛔️ CRITICAL FORMAT RULE, before anything else: every time you write a full example sentence in ${langLabel} (the main sentence itself, or a new example/practice sentence), wrap that entire sentence — and ONLY that ${langLabel} sentence — on its own line between double section-marks, exactly like this: §§Sentence in ${langLabel} here§§. Never wrap English text in §§. Never put an ${langLabel} sentence and English commentary on the same line. Introducing a single ${langLabel} vocabulary word (not a full sentence) with **bold** followed by its English gloss (e.g. **word** — meaning) does NOT need §§ around it — §§ is only for full sentences.\n\n` +
-
-    `Follow EXACTLY this structure:\n\n` +
-
-    `## 1. Simple meaning\n` +
-    `Give the ${langLabel} sentence wrapped in §§...§§ on its own bolded line, then on the next line a natural, complete English translation of it — never literal/word-for-word, never incomplete.\n\n` +
-
-    `## 2. Sentence structure\n` +
-    `Point out the main pieces by quoting the actual ${langLabel} words, like this pattern: "Subject: **[actual word]** (meaning: ...) — Verb: **[actual word]** (meaning: ...)", plus object or other key parts if relevant. Every line here stays clean English with the quoted ${langLabel} word always **bold**, never blended into a running sentence.\n\n` +
-
-    `## 3. Key words\n` +
-    `Bullet only the genuinely important words (skip trivial ones like articles/prepositions) in this format: **word** — meaning, and its grammatical role in plain English (e.g. "auxiliary verb", "adjective" — never unexplained jargon). Give "${word}" extra detail: exactly what role it plays in this specific sentence.\n\n` +
-
-    `## 4. Grammar note\n` +
-    `Explain the ONE main grammar point in this sentence like a patient, great teacher — step by step, in plain English, why it works this way and how it differs from similar structures. Then give one small everyday example (different from the main sentence) that shows the same point: a full, correct ${langLabel} sentence wrapped in §§...§§ on its own line, immediately followed on the next line by its full English translation — never merge these two lines.\n\n` +
-
-    `## 5. Key phrase or expression\n` +
-    `If the sentence has a genuinely important fixed phrase/collocation, explain its meaning and give exactly 2 short, everyday example sentences — each a complete ${langLabel} sentence wrapped in §§...§§ on its own line, immediately followed by its English translation on the next line. If there truly isn't one, omit this whole section — don't force it.\n\n` +
-
-    `## 6. Practice\n` +
-    `Write 2 new, simple, genuinely everyday practice sentences in ${langLabel} that drill the same grammar point/word (not copies of the main sentence) — each wrapped in §§...§§ on its own line, immediately followed on the next line by its full English translation. Never merge a practice sentence and its translation onto one line.\n\n` +
-
-    `General rules: keep every section short and useful (no padding), never use unexplained grammar jargon, only mention what's genuinely useful for everyday conversation. Before answering, re-check every ${langLabel} sentence is wrapped in §§...§§ and every other line is plain English with no ${langLabel} words dropped in unmarked. Return ONLY the markdown, nothing before or after.`;
-
-  const englishText = await callAI({ prompt, maxTokens: 1100, aiSettings });
-  return await localizeGrammarDetailMarkdown(englishText.trim(), nativeLang, aiSettings);
+  const text = await callAI({ prompt, maxTokens: 900, aiSettings });
+  return text.trim();
 }
 
 // Localizes lookupWordGrammarDetail()'s fixed-English markdown into `nativeLang` using free online
@@ -1940,54 +1951,31 @@ async function localizeGrammarDetailMarkdown(englishText, nativeLang, aiSettings
 //   - a FOLLOW-UP question about the previous explanation (e.g. "چرا will
 //     نه؟") → just answer the question directly, conversationally, no need
 //     to redo the whole structured breakdown.
-async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history }) {
+async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history, targetOrder }) {
   const label = nativeLabel || "Persian";
   const langLabel = LANGUAGES.find((l) => l.code === langCode)?.label || langCode;
+  const otherLangsLabel = (targetOrder || [])
+    .filter((c) => c !== langCode && c !== nativeLang)
+    .map((c) => LANGUAGES.find((l) => l.code === c)?.label || c)
+    .join(", ");
   const historyText = (history || [])
     .slice(-8)
     .map((m) => `${m.role === "user" ? "Learner" : "Teacher"}: ${m.text}`)
     .join("\n");
   const prompt =
-    `You are an expert, patient, encouraging ${langLabel} language teacher helping a true beginner whose native language is ${label}.\n\n` +
-    `🚨 HARD LANGUAGE RULE (read this twice): your ENTIRE reply — every explanation, every header, every sentence of commentary — must be written in ${label}. This applies NO MATTER WHAT language the learner's message, question, or the sentence being discussed is in, and no matter what language ${langLabel} (the language being learned) is. The ONLY things allowed to appear in ${langLabel} are: the example/practice sentences themselves, and individual quoted words being pointed out (e.g. **word**). Never write a full explanatory sentence in ${langLabel} or in English — if you catch yourself doing that, stop and rewrite it in ${label}. This rule applies equally to brand-new sentences (case A) and to follow-up questions (case B) below.\n\n` +
-    `Formatted in Markdown, beginner-friendly (A1/A2 level), and genuinely FUN to read — never a dry, robotic list.\n` +
-    (historyText ? `Recent conversation so far, for context — use it to understand what the learner is referring to:\n${historyText}\n\n` : "") +
-    `The learner's new message is: "${userSentence}"\n\n` +
+    `You are a warm and friendly language teacher having a conversation with a beginner language learner.\n` +
+    `User's native language: ${label}\n` +
+    `Language they are practicing: ${langLabel}\n` +
+    `Other languages they are learning simultaneously: ${otherLangsLabel || "None"}\n\n` +
+    (historyText ? `Recent conversation so far, for context:\n${historyText}\n\n` : "") +
+    `The user sent this message: "${userSentence}"\n\n` +
+    `Your task:\n` +
+    `- If the user has written a sentence for practice, check it. If it is incorrect, provide the correct version and explain the reason simply, without technical terminology. If a word or phrase sounds unnatural, suggest a more natural alternative. Extract one useful grammar point from the same sentence and explain it. When helpful, mention similarities or differences between this rule and the other languages (${otherLangsLabel}).\n` +
+    `- If the user has asked a grammar question, answer it directly and briefly, using simple examples.\n\n` +
+    `Write all explanations in ${label}, but keep the foreign-language sentences in their original language.\n` +
+    `Keep your responses short, warm, and easy for a beginner to understand. Do not use technical terminology unless necessary.`;
 
-    `First decide which of these two situations this is:\n` +
-    `A) A NEW sentence in ${langLabel} that the learner wants checked/practiced (this is the default when there's no earlier conversation, or the message reads like a fresh attempt at a sentence).\n` +
-    `B) A FOLLOW-UP question about something you (the teacher) already said above — e.g. asking "چرا will نه؟", "یعنی چی؟", "فرق ... با ... چیه؟", or anything else that's clearly a question about the previous explanation rather than a new sentence to check. This includes questions that themselves mix in ${langLabel} words or conversation  (like "i will speak, i am speaking, i speak فرق چیه") — the question being partly in ${langLabel} does NOT mean you should answer in ${langLabel}; your answer is still 100% in ${label}.\n\n` +
-
-    `IF (B) — follow-up question:\n` +
-    `Just answer their question directly and conversationally, ENTIRELY in ${label} (see hard rule above), referring back to the earlier sentence/explanation from the conversation above as needed. Keep it short, clear, and warm — like a teacher answering a student, not a fixed report. Use a short header like "## 💬 جواب سوالت" if it reads well, bold (**) for the key word/rule being explained, and a tiny example if it genuinely helps. Do NOT redo the full correction+breakdown structure below — only follow it for case (A). Return ONLY the markdown.\n\n` +
-
-    `IF (A) — new sentence to check, respond with EXACTLY this structure, in ${label} (headers included), for the sentence: "${userSentence}":\n\n` +
-
-    `Write like a warm, professional language teacher who makes complicated things sound simple for a real beginner — never like a dry grammar manual or a list of technical terms. Only ever mention what's actually USEFUL for everyday conversation, nothing extra.\n\n` +
-
-    `## ۱. معنی ساده\n` +
-    `One simple, natural ${label} translation of the whole sentence, in a single line (bold the original ${langLabel} sentence first, then the translation).\n\n` +
-
-    `## ۲. ساختار جمله\n` +
-    `Point out the main structural pieces by literally quoting the actual word(s) from the sentence, like this pattern: «فاعل: **[actual word]** (${label}: ...) — فعل: **[actual word]** (${label}: ...)» plus مفعول/عبارت‌های مهم if relevant. Keep every line of this section clean — the ${langLabel} word always **bold** and separate from its ${label} gloss, never blended into one running sentence.\n\n` +
-
-    `## ۳. کلمه‌های مهم\n` +
-    `Bullet each genuinely important word (skip trivial ones like "the"/"a"): **word** — meaning, and its role in plain language (نه اصطلاح فنی بدون توضیح — اگه یه اصطلاح دستوری لازمه، همون‌جا با یه مثال ساده توضیحش بده).\n\n` +
-
-    `## ۴. نکته‌ی گرامری\n` +
-    `The ONE main grammar point in this sentence, explained the way a great teacher would — simply, step by step, never with unexplained jargon. Then give one small everyday example (different from the main sentence) that shows this same point: a full, correct ${langLabel} sentence on its own line, and immediately below it, on a separate line, its full correct ${label} translation — never merge these two lines.\n\n` +
-
-    `## ۵. ترکیب یا عبارت مهم\n` +
-    `If there's a meaningful fixed phrase/collocation, give its meaning + exactly 2 short everyday example sentences — each a complete ${langLabel} sentence on its own line, immediately followed by a separate line with its full ${label} translation. If there genuinely isn't one, skip this whole section entirely (don't force it).\n\n` +
-
-    `## ۶. تمرین کن\n` +
-    `2 new, simple, genuinely everyday practice sentences in ${langLabel} that drill the same grammar point/word (not a copy of the main sentence) — each a complete, correct sentence on its own line, immediately followed by a separate line with its full, natural ${label} translation.\n\n` +
-
-    `Keep every section SHORT — a couple of lines each, not paragraphs. No filler, no repeating yourself, no unexplained technical terms.\n\n` +
-
-    `⛔️ CRITICAL: never drop a ${langLabel} word or phrase in the middle of a ${label} sentence, or vice versa (e.g. never write something like «او afraid به خفه شدن» — that is broken and wrong). Every sentence must be entirely in ONE language; the only exception is a single word/phrase being introduced with **bold** immediately followed by its gloss (e.g. **afraid** — ترسیده), never woven into a flowing sentence. Before you output anything, silently re-check every ${langLabel} and every ${label} line for this — if any line is broken, incomplete, or mixes languages, rewrite it. Keep everything short, warm, and genuinely engaging — like a great teacher, not a manual. Use headers (##) and bold (**) exactly like Markdown. Return ONLY the markdown, for whichever case (A or B) applies.`;
-
-  const text = await callAI({ prompt, maxTokens: 1700, aiSettings });
+  const text = await callAI({ prompt, maxTokens: 1200, aiSettings });
   return text.trim();
 }
 
@@ -3001,7 +2989,7 @@ function TabButton({ label, icon: Icon, active, onClick }) {
   );
 }
 
-function SpeakButton({ text, code, color, edge, forceRepeat }) {
+function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, onPlayed }) {
   const locale = TTS_LOCALE[code] || "en-US";
   const myKey = `${locale}::${text}`;
   const [state, setState] = useState(() => speechController.getState());
@@ -3014,7 +3002,8 @@ function SpeakButton({ text, code, color, edge, forceRepeat }) {
 
   const handleToggle = (e) => {
     e.stopPropagation();
-    const result = speechController.toggle(text, code, undefined, forceRepeat ? { loop: true } : undefined);
+    const result = speechController.toggle(text, code, startOffset, forceRepeat ? { loop: true } : undefined);
+    if (onPlayed) onPlayed();
     // "no-voice" دیگه پیش نمی‌آد چون خودکار می‌ره سراغ سرویس آنلاین رایگان
     // (result === "online-fallback")؛ فقط وقتی هیچ راهی — نه گوشی نه آنلاین —
     // ممکن نبود، خطا نشون می‌دیم.
@@ -3441,7 +3430,7 @@ function SpeedControl({ color }) {
 // a small popover with its part of speech + Persian meaning, looked up first
 // from the local VOCAB list, then (if not found) from the AI backend.
 // ---------------------------------------------------------------------------
-function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabelProp, aiSettings, color, fontFamily, fontWeight, fontSize, alignSourceText, alignSourceLang }) {
+function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabelProp, aiSettings, color, fontFamily, fontWeight, fontSize, alignSourceText, alignSourceLang, storyBaseOffset, onSpeakOffset }) {
   const [openKey, setOpenKey] = useState(null); // `${startTokenIdx}-${endTokenIdx}` of the word/expression with popover open
   const [info, setInfo] = useState(null); // { pos, meaning } | "loading" | "error"
   const [anchorRect, setAnchorRect] = useState(null); // clicked word's screen position
@@ -3457,6 +3446,10 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
   // token straight from the render closure, which is how a tap could end up
   // saving nothing at all).
   const [activeTerm, setActiveTerm] = useState("");
+  // آفستِ کاراکتریِ پایانِ همون واژه/عبارتِ فعلاً بازشده، نسبت به شروعِ
+  // همینِ `text` — برای گزارشِ «نقطه‌ی ادامه»ی متنِ اصلی وقتی دکمه‌ی پخشِ
+  // همین پاپ‌آپ زده می‌شه (پایین‌تر، کنارِ onSpeakOffset).
+  const [activeTermLocalEnd, setActiveTermLocalEnd] = useState(0);
   // This language's bookmarked words/expressions ("Save for next story"),
   // kept live so previously-saved terms get a dotted underline as soon as
   // they're saved (or lose it as soon as they're un-saved) anywhere in the app.
@@ -3624,6 +3617,7 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     }
     setAnchorRect(evt.currentTarget.getBoundingClientRect());
     setActiveTerm(term);
+    setActiveTermLocalEnd(tokens.slice(0, endTok + 1).join("").length);
     setSaved(isWordSaved(term, langCode));
     setGrammarSaved(false);
     setOpenKey(key);
@@ -3683,7 +3677,12 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
   }
 
   return (
-    <span ref={containerRef} data-lang-code={langCode} style={{ position: "relative", display: "inline" }}>
+    <span
+      ref={containerRef}
+      data-lang-code={langCode}
+      data-story-base-offset={storyBaseOffset != null ? storyBaseOffset : undefined}
+      style={{ position: "relative", display: "inline" }}
+    >
       {tokens.map((tok, idx) => {
         if (/^\s+$/.test(tok) || tok === "") return <React.Fragment key={idx}>{tok}</React.Fragment>;
         if (groupSkip.has(idx)) return null; // already rendered as part of its group's combined span
@@ -3759,7 +3758,12 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                 {info !== "loading" && (
                   <>
                     <div className="flex items-center gap-2" style={{ marginBottom: 4 }}>
-                      <SpeakButton text={activeTerm} code={langCode} color={colors.goldSoft} />
+                      <SpeakButton
+                        text={activeTerm}
+                        code={langCode}
+                        color={colors.goldSoft}
+                        onPlayed={onSpeakOffset ? () => onSpeakOffset(activeTermLocalEnd) : undefined}
+                      />
                       <span dir="auto" style={{ fontWeight: 800, fontSize: 13 }}>
                         {activeTerm}
                       </span>
@@ -4573,6 +4577,35 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fullStoryText]);
 
+  // نسخه‌ی نگاشت‌شده‌ی sentenceOffsets (با کلیدِ pi-si) و آفستِ شروعِ هر
+  // پاراگراف (اولین جمله‌ش) — هر دو برای اینه که موقعِ کلیک‌کردن روی یه
+  // کلمه/عبارت (در ClickableSentence)، بشه فهمید همون کلمه دقیقاً کجای
+  // fullStoryText افتاده و «نقطه‌ی ادامه»ی پخشِ کل متن رو بر اساسش به‌خاطر
+  // سپرد.
+  const sentenceOffsetMap = useMemo(() => {
+    const map = {};
+    sentenceOffsets.forEach((s) => {
+      map[`${s.pi}-${s.si}`] = s;
+    });
+    return map;
+  }, [sentenceOffsets]);
+  const paragraphBaseOffsetMap = useMemo(() => {
+    const map = {};
+    sentenceOffsets.forEach((s) => {
+      if (!(s.pi in map)) map[s.pi] = s.start;
+    });
+    return map;
+  }, [sentenceOffsets]);
+  const mainStoryKey = fullStoryText ? `${TTS_LOCALE[storyLang] || "en-US"}::${fullStoryText}` : null;
+  // وقتی از پاپ‌آپِ کلمه یا محدوده‌ی انتخابی، دکمه‌ی پخش زده می‌شه، همین‌جا
+  // موقعیت (نسبت به کلِ fullStoryText) به‌خاطر سپرده می‌شه — تا دفعه‌ی بعد
+  // که دکمه‌ی «پخشِ کل متن» روی نوارِ پلیر زده بشه، از همون‌جا (نه از اول)
+  // ادامه پیدا کنه.
+  function reportStoryWordSpoken(baseOffset, localEnd) {
+    if (!mainStoryKey) return;
+    rememberMainTextResumeOffset(mainStoryKey, (baseOffset || 0) + (localEnd || 0));
+  }
+
   // جمله‌ای که همین الان، در حینِ پخشِ «کل متن» از روی پلیر، داره خونده
   // می‌شه — فقط برای اسکرولِ خودکار (اگه فعال باشه) استفاده می‌شه، نه برای
   // هایلایتِ بصری. وقتی پخشِ فعلی چیز دیگه‌ای غیر از کلِ داستانه (مثلاً کاربر
@@ -4624,6 +4657,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // می‌مونه، پس نیازی به پاک‌کردنش موقعِ خروج از تب نیست؛ نمایشِ دکمه روی
   // پلیر با چک‌کردنِ تبِ فعال کنترل می‌شه، نه با خالی‌بودنِ این متن.)
   useEffect(() => {
+    latestStoryTextContext = { text: fullStoryText, code: storyLang };
     if (onFullTextChange) onFullTextChange({ text: fullStoryText, code: storyLang });
   }, [fullStoryText, storyLang]);
 
@@ -5006,9 +5040,9 @@ NARRATIVE QUALITY:
 - You do NOT need to introduce the target words in the order they're listed — use whatever order serves the story best.
 - Paragraphs must flow into each other (later paragraphs should refer back to people, places, or events from earlier ones), not restart the scene each time.
 
-REPETITION — hard requirement: each target word below has a strict usage BUDGET of exactly ${repeatCount} total mentions (all grammatical forms/inflections of the word counted together as one). ${repeatCount} is simultaneously the ceiling AND the goal — never go over it, and never pad the story with extra unnecessary mentions "to be safe" or fall short of it either. Meet this budget WITHOUT sacrificing narrative coherence — never break the story's flow just to squeeze in a repetition; if a word's budget is hard to fill naturally, let the plot itself create a reason for that word to come up again. Before finalizing your answer, silently go back through the story and count how many times you actually used each target word, and rewrite any part where the count is off. Target words and their exact budget: ${selectedWords.map((w) => `"${w}" → exactly ${repeatCount} times`).join(", ")}.${correction ? " " + correction : ""}
+REPETITION — important guideline: each target word below should appear as close to ${repeatCount} times as possible (all grammatical forms/inflections of the word counted together as one). A variation of 1 or 2 more or fewer is acceptable — please try to avoid large deviations (e.g., don't use a word 0 times if the budget is ${repeatCount}). The story should feel natural, coherent, and interesting — do not sacrifice quality just to hit an exact number. However, if you notice a word appears much more or much less than ${repeatCount} (e.g., more than double or less than half), try to balance it in your final version. Count roughly before finalizing, but perfection is not required. Target words and their target count: ${selectedWords.map((w) => `"${w}" → about ${repeatCount} times`).join(", ")}.${correction ? " " + correction : ""}
 
-Do NOT lengthen the story beyond the paragraph count above just to fit more repetitions of a word; if a word's budget doesn't fit naturally within that length, reuse it within an existing sentence instead of adding new sentences or paragraphs.
+Do NOT lengthen the story beyond the paragraph count above just to fit more repetitions of a word; if a word's target doesn't fit naturally within that length, reuse it within an existing sentence instead of adding new sentences or paragraphs.
 
 After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
 
@@ -5029,12 +5063,13 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
         const text = (parsedAttempt.paragraphs || []).flatMap((p) => (p.sentences || []).map((s) => s.text)).join(" ");
         const attemptCounts = selectedWords.map((w) => ({ word: w, count: countWordOccurrences(text, w) }));
         const repDeviation = attemptCounts.reduce((sum, c) => sum + Math.abs(c.count - repeatCount), 0);
-        // قبلاً اینجا تحمل تا ۲ تا کم‌شماری (repeatCount - 2) رو "مشکل" حساب نمی‌کرد،
-        // یعنی مثلاً وقتی کاربر ۸ تا خواسته بود ولی مدل ۶ یا ۷ بار آورده بود، هیچ
-        // ریترای‌ای انجام نمی‌شد و همون نسخه‌ی ناقص به‌عنوان نتیجه‌ی نهایی قبول
-        // می‌شد. چون کاربر دقیقاً همون عدد رو می‌خواد، اینجا باید هر انحرافی
-        // (چه کم چه زیاد) به‌عنوان offender شمرده بشه تا ریترای واقعاً فعال بشه.
-        const offenders = attemptCounts.filter((c) => c.count !== repeatCount);
+        // این دیگه نیازی به «دقیقاً» رسیدن به repeatCount نداره — یه کلمه فقط
+        // وقتی offender حساب می‌شه که انحرافش واقعاً بزرگ باشه (بیش از ۲ تا
+        // فاصله، و بیشتر از دو برابر یا کمتر از نصفِ عددِ خواسته‌شده)؛ فاصله‌ی
+        // ۱ یا ۲ تایی طبیعیه و باعثِ ریترای نمی‌شه.
+        const offenders = attemptCounts.filter(
+          (c) => Math.abs(c.count - repeatCount) > 2 && (c.count > repeatCount * 2 || c.count < repeatCount / 2)
+        );
         // فاصله‌ی تعداد پاراگراف‌ها از بازه‌ی خواسته‌شده (کوتاه/متوسط/بلند) —
         // هر پاراگراف اضافه/کم شمرده می‌شه، وزنِ سنگین‌تری از یه اختلافِ
         // معمولیِ تعداد تکرار می‌گیره چون خودِ ساختارِ داستان رو به هم می‌زنه.
@@ -5054,11 +5089,11 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
       // نوشته شده) دوباره امتحان می‌کنیم و در نهایت بهترین نسخه (کمترین
       // فاصله‌ی کل از عددهای درخواستی) رو نگه می‌داریم.
       for (let attempt = 0; attempt < 3 && (best.offenders.length > 0 || !best.lengthOk); attempt++) {
-        const repDetail = best.counts.map((c) => `"${c.word}": you used it ${c.count} times, but the budget is ${repeatCount}`).join("; ");
+        const repDetail = best.offenders.map((c) => `"${c.word}": you used it ${c.count} times, but the target is about ${repeatCount}`).join("; ");
         const lengthDetail = best.lengthOk
           ? ""
           : ` Also, your previous attempt had ${best.paraCount} paragraphs, but it must have ${lengthCfg.paragraphMin === lengthCfg.paragraphMax ? lengthCfg.paragraphMin : `between ${lengthCfg.paragraphMin} and ${lengthCfg.paragraphMax}`} paragraphs — fix the paragraph count too.`;
-        const correction = `Your previous attempt broke the repetition budget (${repDetail}).${lengthDetail} Rewrite the story from scratch and this time strictly cap every target word at exactly ${repeatCount} total mentions (count as you go and stop each word once it hits its budget) AND land the paragraph count exactly in the required range. Keep the story just as coherent and connected as before (or more so) while you do this — don't turn it into disconnected example sentences to make counting easier.`;
+        const correction = `Your previous attempt had a large repetition imbalance for some words (${repDetail || "see above"}).${lengthDetail} Rewrite the story from scratch and this time get each target word closer to its target of ${repeatCount} mentions — being off by 1 or 2 is totally fine, just avoid using a word way more than double or way less than half of its target. AND land the paragraph count exactly in the required range. Keep the story just as natural, coherent, and connected as before (or more so) while you do this — don't turn it into disconnected example sentences to make counting easier.`;
         try {
           const retryParsed = await runAttempt(correction);
           const retryScore = { parsed: retryParsed, ...scoreAttempt(retryParsed) };
@@ -5076,7 +5111,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
       // بازم نشون می‌دیم، فقط دیگه ادعا نمی‌کنیم که تکرارها ۱۰۰٪ دقیقن.
       if (best.offenders && best.offenders.length > 0) {
         const detail = best.offenders.map((o) => `«${o.word}»: ${o.count} بار`).join("، ");
-        setRepeatNotice(`بعد از چند بار تلاش، تعداد تکرار این لغت‌ها دقیقاً ${repeatCount} نشد — ${detail}. می‌تونی دوباره «بساز داستان» رو بزنی.`);
+        setRepeatNotice(`تعداد تکرار این لغت‌ها با ${repeatCount} بار خواسته‌شده فاصله‌ی زیادی داره — ${detail}. می‌تونی دوباره «بساز داستان» رو بزنی.`);
       }
 
       const storyParagraphs = parsed.paragraphs || [];
@@ -5869,6 +5904,8 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                 aiSettings={aiSettings}
                                 color={mainTextColor}
                                 fontWeight={900}
+                                storyBaseOffset={sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0}
+                                onSpeakOffset={(localEnd) => reportStoryWordSpoken(sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0, localEnd)}
                               />
                             </p>
                           </div>
@@ -5943,6 +5980,8 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                             aiSettings={aiSettings}
                             color={mainTextColor}
                             fontWeight={900}
+                            storyBaseOffset={paragraphBaseOffsetMap[pi] ?? 0}
+                            onSpeakOffset={(localEnd) => reportStoryWordSpoken(paragraphBaseOffsetMap[pi] ?? 0, localEnd)}
                           />
                         </p>
                       </div>
@@ -6701,6 +6740,7 @@ function GrammarPanel({
       nativeLang,
       nativeLabel,
       aiSettings,
+      targetOrder,
     })
       .then((md) => {
         if (!cancelled) setPending((p) => (p && p.word === jumpTo.word ? { ...p, markdown: md } : p));
@@ -6755,6 +6795,7 @@ function GrammarPanel({
         nativeLabel,
         aiSettings,
         history,
+        targetOrder,
       });
       appendGrammarNoteThread(note.id, { question, answer });
     } catch (e) {
@@ -6783,6 +6824,7 @@ function GrammarPanel({
         nativeLabel,
         aiSettings,
         history: chatMessages,
+        targetOrder,
       });
       setChatMessages((m) => [...m, { role: "ai", text: reply, forSentence: sentence }]);
     } catch (e) {
@@ -7015,7 +7057,7 @@ function GrammarPanel({
             top: practicePos.y,
             width: "min(92vw, 360px)",
             zIndex: 41,
-            backgroundColor: PRACTICE_PANEL_BG,
+            backgroundColor: colors.paper,
             opacity: practiceOpacity / 100,
             border: `1px solid ${PRACTICE_PANEL_BORDER}`,
             borderRadius: 16,
@@ -7187,7 +7229,7 @@ function GrammarPanel({
                 onClick={sendChat}
                 disabled={chatLoading || !chatInput.trim()}
                 style={{
-                  backgroundColor: colors.teal,
+                  backgroundColor: colors.gold,
                   color: "white",
                   borderRadius: 10,
                   padding: "8px 14px",
@@ -8012,13 +8054,63 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           }}
         >
           <div className="px-4 pt-2 flex items-center gap-2 flex-wrap" style={{ justifyContent: "flex-end", rowGap: 8 }}>
+            {/* دکمه‌ی مرکزی Play/Pause + نمایش متن در حال پخش */}
+            {(() => {
+              const state = speechController.getState();
+              const isActive = state.status !== "idle" && state.key;
+              const isPlaying = isActive && state.status === "playing";
+              // متن کوتاه‌شده‌ای که در حال پخشه (حداکثر ۲۰ کاراکتر)
+              const shortText = isActive ? state.key?.split("::")?.[1]?.slice(0, 20) : "";
+              return (
+                <button
+                  onClick={() => {
+                    if (isActive) {
+                      // اگر در حال پخش یا مکث است، همان toggle را روی همان متن صدا بزن
+                      // باید کلید state.key را بشکافیم تا text و code را به دست آوریم
+                      const parts = state.key?.split("::");
+                      if (parts && parts.length === 2) {
+                        const code = Object.keys(TTS_LOCALE).find(k => TTS_LOCALE[k] === parts[0]) || "en";
+                        speechController.toggle(parts[1], code);
+                      }
+                    }
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: isActive ? colors.gold : colors.cardBorder,
+                    opacity: isActive ? 1 : 0.5,
+                    padding: 2,
+                    flexShrink: 0,
+                  }}
+                  title={isActive ? (isPlaying ? "توقف پخش" : "ادامه‌ی پخش") : "هیچ صدایی در حال پخش نیست"}
+                  aria-label={isActive ? (isPlaying ? "توقف" : "ادامه") : "خاموش"}
+                >
+                  {isPlaying ? <Pause size={18} /> : <PlayCircle size={18} />}
+                  {isActive && (
+                    <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap", maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {shortText}
+                    </span>
+                  )}
+                </button>
+              );
+            })()}
             <span style={{ fontSize: 11, color: colors.inkSoft }}>تکرار پخش</span>
             <RepeatButton color={colors.gold} />
             {/* خواندنِ کل متن — فقط وقتی معنی داره که متنی برای خوندن باشه؛
                 فعلاً منبعِ این متن، داستانِ ساخته‌شده تو تبِ داستان‌سازه (قبلاً
                 دکمه‌ش بالای خودِ داستان بود، الان اینجا کنارِ تکرار نشسته). */}
             {tab === "story" && storyPlayerText.text && (
-              <SpeakButton text={storyPlayerText.text} code={storyPlayerText.code} color={colors.teal} forceRepeat />
+              <SpeakButton
+                text={storyPlayerText.text}
+                code={storyPlayerText.code}
+                color={colors.teal}
+                forceRepeat
+                startOffset={consumeMainTextResumeOffset(`${TTS_LOCALE[storyPlayerText.code] || "en-US"}::${storyPlayerText.text}`)}
+              />
             )}
             {tab === "conversations" && dailyPlayerText.text && (
               <SpeakButton text={dailyPlayerText.text} code={dailyPlayerText.code} color={colors.teal} forceRepeat />
@@ -8378,6 +8470,23 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       }
       if (!rect || (!rect.width && !rect.height)) return;
       const langCode = resolveLangCode(sel.anchorNode);
+      // اگه این محدوده داخلِ متنِ اصلیِ داستانه (یعنی یه پدرِ نزدیک با
+      // data-story-base-offset داره)، آفستِ پایانِ انتخاب رو نسبت به کلِ
+      // fullStoryText حساب می‌کنیم — تا اگه بعداً دکمه‌ی پخشِ همین محدوده
+      // زده بشه، «نقطه‌ی ادامه»ی پخشِ کل داستان هم به‌خاطر سپرده بشه.
+      let storyResumeOffset = null;
+      try {
+        const endEl = range.endContainer && range.endContainer.nodeType === 1 ? range.endContainer : range.endContainer?.parentElement;
+        const storyEl = endEl && endEl.closest ? endEl.closest("[data-story-base-offset]") : null;
+        if (storyEl) {
+          const measureRange = document.createRange();
+          measureRange.selectNodeContents(storyEl);
+          measureRange.setEnd(range.endContainer, range.endOffset);
+          const localEnd = measureRange.toString().length;
+          const baseOffset = Number(storyEl.getAttribute("data-story-base-offset")) || 0;
+          storyResumeOffset = baseOffset + localEnd;
+        }
+      } catch {}
       // قبل از پاک‌کردنِ انتخابِ بومی، خودِ محدوده رو با CSS Custom
       // Highlight API رنگ می‌کنیم — این هایلایت مستقل از Selection مرورگره،
       // پس پاک‌کردنِ Selection (چند خط پایین‌تر) روش اثری نداره و تا وقتی
@@ -8391,7 +8500,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       } catch {}
       setSaved(isWordSaved(selectedText, langCode));
       setGrammarSaved(false);
-      setPopup({ top: rect.top, left: rect.left + rect.width / 2, text: selectedText, langCode });
+      setPopup({ top: rect.top, left: rect.left + rect.width / 2, text: selectedText, langCode, storyResumeOffset });
       // بلافاصله انتخابِ بومیِ مرورگر رو پاک می‌کنیم — دکمه‌ی شناورِ خودمون
       // (که همین الان ست شد) جایگزینش می‌شه، و نوار ابزارِ سیستم دیگه چیزی
       // برای نشون‌دادن نداره. هایلایتِ سفارشیِ بالا از این کار متأثر نمی‌شه.
@@ -8503,6 +8612,16 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
           onClick={(e) => {
             e.stopPropagation();
             const result = speechController.toggle(popup.text, popup.langCode);
+            // اگه این محدوده از متنِ اصلیِ داستان بوده (آفستش شناخته شده)، همون
+            // نقطه رو برای دفعه‌ی بعدِ زدنِ «پخشِ کل داستان» به‌خاطر می‌سپاریم —
+            // فقط وقتی زبانِ محدوده با زبانِ فعلیِ داستان یکیه، وگرنه به‌درد
+            // نمی‌خوره (مثلاً محدوده از متنِ ترجمه بوده).
+            if (popup.storyResumeOffset != null && latestStoryTextContext.text && popup.langCode === latestStoryTextContext.code) {
+              rememberMainTextResumeOffset(
+                `${TTS_LOCALE[latestStoryTextContext.code] || "en-US"}::${latestStoryTextContext.text}`,
+                popup.storyResumeOffset
+              );
+            }
             if (result === "unsupported") {
               alert("این مرورگر از خوندن صوتی متن پشتیبانی نمی‌کنه.");
             } else if (result === "error") {
@@ -8664,7 +8783,11 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
   const q = (query || "").trim().toLowerCase();
   let filtered = levelFilter && levelFilter !== "all" ? words.filter((w) => w.level === levelFilter) : words;
   filtered = q
-    ? filtered.filter((w) => w.en.toLowerCase().includes(q) || w.fa.includes(q))
+    ? filtered.filter((w) =>
+        w.t
+          ? Object.values(w.t).some((v) => typeof v === "string" && v.toLowerCase().includes(q))
+          : w.en.toLowerCase().includes(q) || w.fa.includes(q)
+      )
     : filtered;
 
   // با هر تغییر جستجو/سطح، دوباره از همون بخش اول شروع می‌کنیم.

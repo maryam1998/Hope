@@ -358,12 +358,14 @@ export default function DailyConversationsTab({
       if (m.fa.includes(query.trim()) || m.en.toLowerCase().includes(q)) return true;
       const d = dataByTopic[m.en];
       if (!d) return false;
-      return d.scenarios.some(
-        (sc) =>
-          sc.scenario.toLowerCase().includes(q) ||
-          sc.speakerA.some((x) => x.en.toLowerCase().includes(q)) ||
-          sc.speakerB.some((x) => x.en.toLowerCase().includes(q))
-      );
+      return d.scenarios.some((sc) => {
+        if (sc.scenario && sc.scenario.toLowerCase().includes(q)) return true;
+        return [...(sc.speakerA || []), ...(sc.speakerB || [])].some((it) =>
+          it.t
+            ? Object.values(it.t).some((v) => typeof v === "string" && v.toLowerCase().includes(q))
+            : it.en && it.en.toLowerCase().includes(q)
+        );
+      });
     });
   }, [query, dataByTopic]);
 
@@ -456,7 +458,6 @@ export default function DailyConversationsTab({
   const searchResults = useMemo(() => {
     if (!query || !query.trim()) return null;
     const q = query.trim().toLowerCase();
-    const qFa = query.trim();
     const results = [];
     data.forEach((tp) => {
       const meta = TOPIC_META[tp.topic] || { fa: tp.topic, icon: "💬" };
@@ -466,8 +467,9 @@ export default function DailyConversationsTab({
           (sc[key] || []).forEach((it) => {
             const hit =
               scenarioHit ||
-              (it.en && it.en.toLowerCase().includes(q)) ||
-              (it.fa && it.fa.includes(qFa));
+              (it.t
+                ? Object.values(it.t).some((v) => typeof v === "string" && v.toLowerCase().includes(q))
+                : (it.en && it.en.toLowerCase().includes(q)) || (it.fa && it.fa.includes(query.trim())));
             if (hit) {
               results.push({ topicFa: meta.fa, icon: meta.icon, scenario: sc.scenario, item: it, variant });
             }
