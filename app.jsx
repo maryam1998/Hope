@@ -7118,11 +7118,10 @@ function GrammarPanel({
                   top: practicePos.y,
                   width: "min(92vw, 360px)",
                   zIndex: 41,
-                  // یه پله تیره‌تر از پس‌زمینه‌ی نوارِ پلیر (colors.paper) —
-                  // مثل خودِ دکمه‌ی شناور، تا از پس‌زمینه‌ی صفحه هم که همون
-                  // colors.paper هست به‌وضوح جدا دیده بشه.
+                  // همیشه رنگیِ توپر و کاملاً کدر — بدون هیچ کنترلِ شفافیتی
+                  // (طبق درخواست، این پنل دیگه هیچ‌وقت کم‌رنگ/شفاف نمی‌شه).
                   backgroundColor: colors.paperDark,
-                  opacity: practiceOpacity / 100,
+                  opacity: 1,
                   border: `1px solid ${PRACTICE_PANEL_BORDER}`,
                   borderRadius: 16,
                   boxShadow: "0 8px 24px rgba(28,37,65,0.18)",
@@ -7345,21 +7344,6 @@ function GrammarPanel({
                   <Send size={16} color="#fff" />
                 </button>
               </div>
-            </div>
-
-            {/* شفافیتِ همینِ پنل — دقیقاً مثل کنترلِ «شفافیت پلیر» پایینِ صفحه. */}
-            <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2, paddingBottom: 8 }}>
-              <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پنل تمرین</span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={practiceOpacity}
-                onChange={(e) => setPracticeOpacity && setPracticeOpacity(Number(e.target.value))}
-                aria-label="شفافیت پنل تمرین"
-                style={{ flex: 1, accentColor: colors.teal }}
-              />
-              <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{practiceOpacity}%</span>
             </div>
           </>
         )}
