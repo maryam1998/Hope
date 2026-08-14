@@ -6587,14 +6587,6 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
 // `jumpTo` arrives from requestGrammarJump() (word popover) with a fresh
 // word to fetch + show immediately, offering a "save" button once it loads.
 // ---------------------------------------------------------------------------
-// محدودکردنِ موقعیتِ پنلِ شناور «تمرین جمله‌سازی» به داخلِ صفحه — تا با
-// کشیدن با انگشت از دیدِ کاربر خارج نشه (کاملاً از صفحه بیرون نره).
-function clampPracticePos(x, y, w, h) {
-  const maxX = Math.max(8, window.innerWidth - w - 8);
-  const maxY = Math.max(8, window.innerHeight - h - 8);
-  return { x: Math.min(Math.max(8, x), maxX), y: Math.min(Math.max(8, y), maxY) };
-}
-
 function GrammarPanel({
   nativeLang,
   nativeLabel,
@@ -6617,102 +6609,15 @@ function GrammarPanel({
   const [chatError, setChatError] = useState("");
   const chatEndRef = useRef(null);
   const chatTextareaRef = useRef(null);
-  // پنلِ شناورِ «تمرین جمله‌سازی» — جمع‌شده/بازشده، فقط برای مدیریتِ جا؛
-  // خودِ گفتگو (chatMessages) دست‌نخورده می‌مونه، همیشه mount شده‌ست.
-  // جمع‌شده = یه دکمه‌ی شناورِ گرد با آیکن چت، دقیقاً مثلِ ویجت‌های چتِ
-  // معمولِ وب — پیش‌فرض هم همینه تا صفحه رو شلوغ نکنه.
+  // نوارِ «تمرین جمله‌سازی» دیگه شناور/قابلِ‌کشیدن نیست — درست مثلِ
+  // اپ‌های چت، همیشه یه نوارِ ثابت و تمام‌عرض، چسبیده به کفِ صفحه و درست
+  // بالای نوارِ پلیره (position: fixed, left:0, right:0). «جمع‌شده» فقط
+  // یعنی فقط سرتیترِ نوار دیده می‌شه (برای جادادنِ بیشتر به محتوای صفحه)؛
+  // «بازشده» یعنی گفتگو و کادرِ نوشتن هم زیرِ همون سرتیتر باز می‌شه. خودِ
+  // گفتگو (chatMessages) در هر دو حالت دست‌نخورده می‌مونه، چون این کامپوننت
+  // همیشه mount شده‌ست.
   const [practiceCollapsed, setPracticeCollapsed] = useState(true);
   const practicePanelRef = useRef(null);
-  // موقعیتِ پنلِ شناور روی صفحه (به‌جای چسبیدنِ ثابت به کفِ صفحه) — با
-  // انگشت/ماوس از روی دستگیره‌ی بالای پنل قابلِ جابه‌جاییه و همیشه روی
-  // دستگاه ذخیره می‌شه تا هر بار سرِ جای قبلی‌ش باز شه.
-  const [practicePos, setPracticePos] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("phrasebook-practice-pos") || "null");
-      if (saved && typeof saved.x === "number" && typeof saved.y === "number") return saved;
-    } catch {}
-    const w = 320,
-      h = 220;
-    return {
-      x: Math.max(8, window.innerWidth - w - 16),
-      y: Math.max(8, window.innerHeight - playerBarHeight - h - 16),
-    };
-  });
-  const hasAutoPositionedRef = useRef(false);
-  const [practiceDrag, setPracticeDrag] = useState(null); // { startX, startY, baseX, baseY, w, h } while dragging
-  // وقتی جمع‌شده (دکمه‌ی شناور)، خودِ دکمه هم دستگیره‌ی کشیدنه و هم با یه
-  // تپ ساده باز می‌شه؛ برای اینکه این دو با هم قاطی نشن، تا وقتی جابه‌جاییِ
-  // انگشت از یه آستانه‌ی کوچیک بیشتر نشده، «کشیدن» حساب نمی‌شه — فقط بعد از
-  // رهاکردن، اگه واقعاً جابه‌جا نشده بود، به‌عنوانِ تپ (بازکردنِ چت) در نظر
-  // گرفته می‌شه. این‌جوری کشیدن هیچ‌وقت باعثِ بازشدن/بسته‌شدنِ اشتباهی نمی‌شه.
-  const dragMovedRef = useRef(false);
-  const DRAG_THRESHOLD = 6;
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("phrasebook-practice-pos", JSON.stringify(practicePos));
-    } catch {}
-  }, [practicePos]);
-
-  // کشیدنِ پنل با انگشت/ماوس — از هرجای بدنه‌ی پنل (چه جمع‌شده/دکمه‌ی
-  // شناور، چه بازشده) قابلِ کشیدنه، نه فقط دستگیره‌ی بالا. تنها استثنا:
-  // اگه لمس/کلیک دقیقاً روی یه المانِ تعاملی (دکمه، اینپوت، تکست‌اریا،
-  // سلکت، لینک) شروع شده باشه، درگ رو شروع نمی‌کنیم تا کلیک روی دکمه‌ها،
-  // تایپ‌کردن، و اسلایدرها مثلِ قبل درست کار کنن؛ خودِ پس‌زمینه‌ی پنل و
-  // بقیه‌ی نواحی غیرتعاملی همچنان از هرجاش قابلِ کشیدنه.
-  function startPracticeDrag(e) {
-    const interactive = e.target.closest && e.target.closest("button, input, textarea, select, a, [role='button']");
-    if (interactive) return;
-    const point = e.touches ? e.touches[0] : e;
-    const el = practicePanelRef.current;
-    const rect = el ? el.getBoundingClientRect() : { left: practicePos.x, top: practicePos.y, width: 320, height: 220 };
-    dragMovedRef.current = false;
-    setPracticeDrag({ startX: point.clientX, startY: point.clientY, baseX: rect.left, baseY: rect.top, w: rect.width, h: rect.height });
-  }
-
-  useEffect(() => {
-    if (!practiceDrag) return;
-    function handleMove(e) {
-      const point = e.touches ? e.touches[0] : e;
-      if (e.touches) e.preventDefault();
-      const dx = point.clientX - practiceDrag.startX;
-      const dy = point.clientY - practiceDrag.startY;
-      if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) dragMovedRef.current = true;
-      setPracticePos(clampPracticePos(practiceDrag.baseX + dx, practiceDrag.baseY + dy, practiceDrag.w, practiceDrag.h));
-    }
-    function handleUp() {
-      setPracticeDrag(null);
-      // اگه انگشت/ماوس تقریباً همون‌جا که شروع شده بود رها شد (کشیده نشد)،
-      // این یعنی کاربر داشت روی دکمه‌ی شناور تپ می‌کرد، نه جابه‌جاش می‌کرد —
-      // پس چتِ تمرین رو باز کن.
-      if (!dragMovedRef.current) {
-        setPracticeCollapsed((v) => (v ? false : v));
-      }
-    }
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("touchmove", handleMove, { passive: false });
-    window.addEventListener("mouseup", handleUp);
-    window.addEventListener("touchend", handleUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("touchmove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-      window.removeEventListener("touchend", handleUp);
-    };
-  }, [practiceDrag]);
-
-  // با چرخشِ صفحه/تغییرِ اندازه‌ی پنجره، اگه پنل بیرونِ محدوده‌ی جدید افتاد
-  // برش می‌گردونه داخلِ صفحه.
-  useEffect(() => {
-    function onResize() {
-      const el = practicePanelRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      setPracticePos((p) => clampPracticePos(p.x, p.y, rect.width, rect.height));
-    }
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
 
   useLayoutEffect(() => {
     const el = practicePanelRef.current;
@@ -6720,28 +6625,13 @@ function GrammarPanel({
     const ro = new ResizeObserver((entries) => {
       const h = entries[0]?.contentRect?.height;
       if (h && onPracticePanelHeightChange) onPracticePanelHeightChange(Math.ceil(h));
-      const rect = el.getBoundingClientRect();
-      if (!hasAutoPositionedRef.current) {
-        hasAutoPositionedRef.current = true;
-        let hasSaved = false;
-        try {
-          hasSaved = !!localStorage.getItem("phrasebook-practice-pos");
-        } catch {}
-        if (!hasSaved) {
-          setPracticePos(
-            clampPracticePos(window.innerWidth - rect.width - 16, window.innerHeight - playerBarHeight - rect.height - 16, rect.width, rect.height)
-          );
-        }
-      } else {
-        setPracticePos((p) => clampPracticePos(p.x, p.y, rect.width, rect.height));
-      }
     });
     ro.observe(el);
     return () => {
       ro.disconnect();
       if (onPracticePanelHeightChange) onPracticePanelHeightChange(0);
     };
-  }, [onPracticePanelHeightChange, playerBarHeight]);
+  }, [onPracticePanelHeightChange]);
 
   // Follow-up "ask about this note" box shown under each expanded saved
   // note. Keyed by note id since several notes can (in theory) be expanded
@@ -7077,240 +6967,188 @@ function GrammarPanel({
         })}
       </div>
 
-      {/* پنلِ شناورِ «تمرین جمله‌سازی با هوش مصنوعی» — درست مثلِ نوارِ پلیرِ
-          چسبیده به کف صفحه (position: fixed)، اما یه پله بالاترِ اون
-          (bottom: playerBarHeight)، که همیشه روی صفحه بمونه و با اسکرول‌کردنِ
-          لیستِ نکته‌های گرامری از دید خارج نشه. شفافیت‌ش هم مستقل از پلیره.
-          با createPortal مستقیم زیرِ <body> رندر می‌شه — چون GrammarPanel
-          خودش داخلِ یه div با display:none قایم می‌شه وقتی تبِ فعلی «گرامر»
-          نیست (برای این‌که چتِ تمرین از بین نره)، و اگه همین‌جا با
-          position:fixed می‌موند، آبا/جد با display:none باعث می‌شد این پنل
-          هم با رفتن به تب‌های دیگه قایم بشه. با پورتال، این پنل از اون
-          محدودیت فرار می‌کنه و دقیقاً مثلِ نوارِ پلیر، توی همه‌ی تب‌ها
-          همیشه روی صفحه و بالای پلیر باقی می‌مونه. */}
+      {/* نوارِ «تمرین جمله‌سازی با هوش مصنوعی» — دیگه شناور/قابلِ‌کشیدن
+          نیست؛ درست مثلِ اپ‌های چت، همیشه یه نوارِ ثابت و تمام‌عرض، چسبیده
+          به کفِ صفحه‌ست و درست یه پله بالاترِ نوارِ پلیر می‌شینه
+          (bottom: playerBarHeight). با createPortal مستقیم زیرِ <body>
+          رندر می‌شه — چون GrammarPanel خودش داخلِ یه div با display:none
+          قایم می‌شه وقتی تبِ فعلی «گرامر» نیست (برای این‌که چتِ تمرین از
+          بین نره)، و اگه همین‌جا با position:fixed می‌موند، آبا/جد با
+          display:none باعث می‌شد این نوار هم با رفتن به تب‌های دیگه قایم
+          بشه. با پورتال، این نوار از اون محدودیت فرار می‌کنه و دقیقاً مثلِ
+          نوارِ پلیر، توی همه‌ی تب‌ها همیشه روی صفحه و بالای پلیر باقی
+          می‌مونه (sticky در تمامِ صفحات). */}
       {createPortal(
         <div
           ref={practicePanelRef}
-          onMouseDown={startPracticeDrag}
-          onTouchStart={startPracticeDrag}
-          style={
-            practiceCollapsed
-              ? {
-                  position: "fixed",
-                  left: practicePos.x,
-                  top: practicePos.y,
-                  width: 58,
-                  height: 58,
-                  zIndex: 41,
-                  borderRadius: "50%",
-                  // رنگِ توپر و پررنگِ برندی (teal) تا دکمه‌ی شناور همیشه به‌وضوح
-                  // از پلیر و بقیه‌ی صفحه جدا دیده بشه و «شفاف» به‌نظر نرسه.
-                  // این دکمه همیشه کاملاً تیره/توپره — به‌عمد به اسلایدرِ
-                  // «شفافیت پنل تمرین» گوش نمی‌ده (اون فقط برای خودِ چتِ
-                  // بازشده‌ست، نه برای دکمه‌ی شناور که باید همیشه واضح دیده
-                  // بشه).
-                  backgroundColor: colors.teal,
-                  opacity: 1,
-                  border: `2px solid rgba(255,255,255,0.85)`,
-                  boxShadow: "0 8px 20px rgba(28,37,65,0.35)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: practiceDrag ? "grabbing" : "pointer",
-                  touchAction: "none",
-                  userSelect: "none",
-                }
-              : {
-                  position: "fixed",
-                  left: practicePos.x,
-                  top: practicePos.y,
-                  width: "min(92vw, 360px)",
-                  zIndex: 41,
-                  // همیشه رنگیِ توپر و کاملاً کدر — بدون هیچ کنترلِ شفافیتی
-                  // (طبق درخواست، این پنل دیگه هیچ‌وقت کم‌رنگ/شفاف نمی‌شه).
-                  backgroundColor: colors.paperDark,
-                  opacity: 1,
-                  border: `1px solid ${PRACTICE_PANEL_BORDER}`,
-                  borderRadius: 16,
-                  boxShadow: "0 8px 24px rgba(28,37,65,0.18)",
-                  touchAction: practiceDrag ? "none" : "auto",
-                }
-          }
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: playerBarHeight,
+            zIndex: 41,
+            backgroundColor: colors.paperDark,
+            border: `1px solid ${PRACTICE_PANEL_BORDER}`,
+            borderTop: `1px solid ${PRACTICE_PANEL_BORDER}`,
+            boxShadow: "0 -4px 14px rgba(28,37,65,0.12)",
+          }}
         >
-        {practiceCollapsed ? (
-          // دکمه‌ی شناورِ چت — درست مثلِ ویجت‌های چتِ معمولِ وب: یه دایره با
-          // آیکنِ پیام که هم با تپ باز می‌شه، هم با کشیدن از هرجای خودش
-          // (نه فقط یه دستگیره‌ی مخصوص) جابه‌جا می‌شه. تشخیصِ تپ در برابرِ
-          // کشیدن توسط dragMovedRef در window-listenerِ بالا انجام می‌شه، نه
-          // اینجا، تا کشیدن هیچ‌وقت باعثِ بازشدنِ اشتباهیِ چت نشه.
+          {/* هدرِ رنگیِ نوار — تیل توپر با متنِ سفید؛ با تپ روش، بدنه‌ی
+              گفتگو باز/جمع می‌شه. کادرِ نوشتنِ پایین همیشه (چه جمع‌شده چه
+              بازشده) در دسترسه، دقیقاً مثلِ نوارِ ارسالِ پیامِ اپ‌های چت. */}
           <div
-            aria-label="بازکردنِ چتِ تمرین جمله‌سازی و گرامر با هوش مصنوعی"
-            title="تمرین جمله‌سازی و گرامر با هوش مصنوعی"
-            style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={() => setPracticeCollapsed((v) => !v)}
+            role="button"
+            tabIndex={0}
+            aria-expanded={!practiceCollapsed}
+            aria-label={practiceCollapsed ? "بازکردنِ گفتگوی تمرین جمله‌سازی و گرامر" : "جمع‌کردنِ گفتگوی تمرین جمله‌سازی و گرامر"}
+            style={{ backgroundColor: colors.teal, cursor: "pointer", userSelect: "none" }}
           >
-            <MessageCircle size={26} color="#ffffff" fill="rgba(255,255,255,0.15)" strokeWidth={2.25} />
-            {chatMessages.length > 0 && (
-              <span
-                aria-hidden="true"
-                style={{
-                  position: "absolute",
-                  top: 4,
-                  insetInlineEnd: 4,
-                  width: 10,
-                  height: 10,
-                  borderRadius: "50%",
-                  backgroundColor: colors.gold,
-                  border: `2px solid ${colors.teal}`,
-                }}
-              />
-            )}
-          </div>
-        ) : (
-          <>
-            {/* هدرِ رنگیِ پنل — تیل توپر با متنِ سفید، تا این بخش هم مثلِ
-                دکمه‌ی شناور به‌وضوح رنگ داشته باشه و با بدنه‌ی پنل قاطی نشه. */}
-            <div style={{ backgroundColor: colors.teal, borderRadius: "15px 15px 0 0" }}>
-              {/* این نوارِ کوچیک صرفاً یه نشونه‌ی بصریِ «قابلِ کشیدن بودن»ه —
-                  خودِ کشیدن دیگه مخصوصِ همین نوار نیست: کل پنل (به‌جز
-                  دکمه‌ها/اینپوت‌ها/سلکت) از طریقِ handlerِ روی wrapper اصلی
-                  قابلِ کشیدنه، پس اینجا نیازی به onMouseDown/onTouchStart
-                  جدا نیست. */}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  padding: "7px 0 2px",
-                  cursor: practiceDrag ? "grabbing" : "grab",
-                  touchAction: "none",
-                }}
-                aria-hidden="true"
-              >
-                <div style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.55)" }} />
-              </div>
-              <div className="px-4 pt-1 pb-2 flex items-center justify-between gap-2 flex-wrap" style={{ rowGap: 6 }}>
-                <button
-                  onClick={() => setPracticeCollapsed(true)}
-                  className="flex items-center gap-1"
-                  aria-label="بستنِ چتِ تمرین"
-                  title={isFa ? "بستن" : "Close"}
-                  style={{ fontWeight: 700, color: "#fff", background: "none", border: "none", padding: 0, cursor: "pointer" }}
+            <div className="px-4 py-2 flex items-center justify-between gap-2 flex-wrap" style={{ rowGap: 6 }}>
+              <div className="flex items-center gap-2" style={{ fontWeight: 700, color: "#fff" }}>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    position: "relative",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 22,
+                    height: 22,
+                    borderRadius: "50%",
+                    backgroundColor: colors.teal,
+                    border: "2px solid rgba(255,255,255,0.85)",
+                    flexShrink: 0,
+                  }}
                 >
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: 20,
-                      height: 20,
-                      borderRadius: "50%",
-                      backgroundColor: colors.teal,
-                      border: "2px solid rgba(255,255,255,0.85)",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <MessageCircle size={11} color="#ffffff" fill="rgba(255,255,255,0.15)" strokeWidth={2.25} />
-                  </span>
-                  <span>تمرین جمله‌سازی و گرامر با هوش مصنوعی</span>
-                  <X size={14} color="#fff" style={{ marginInlineStart: 4 }} />
-                </button>
-                <div className="flex items-center gap-2" style={{ marginInlineStart: "auto" }}>
-                  {chatMessages.length > 0 && (
-                    <button
-                      onClick={clearChat}
-                      className="flex items-center gap-1"
-                      style={{ fontSize: 11, color: "#fff", opacity: 0.9 }}
-                      title={isFa ? "پاک‌کردن گفتگو" : "Clear conversation"}
-                    >
-                      <Trash2 size={12} />
-                      {isFa ? "پاک‌کردن گفتگو" : "Clear"}
-                    </button>
+                  <MessageCircle size={12} color="#ffffff" fill="rgba(255,255,255,0.15)" strokeWidth={2.25} />
+                  {chatMessages.length > 0 && practiceCollapsed && (
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        position: "absolute",
+                        top: -2,
+                        insetInlineEnd: -2,
+                        width: 9,
+                        height: 9,
+                        borderRadius: "50%",
+                        backgroundColor: colors.gold,
+                        border: `2px solid ${colors.teal}`,
+                      }}
+                    />
                   )}
-                  <select
-                    value={chatLang}
-                    onChange={(e) => setChatLang(e.target.value)}
-                    style={{ fontSize: 12, border: "none", borderRadius: 8, padding: "3px 6px" }}
+                </span>
+                <span>تمرین جمله‌سازی و گرامر با هوش مصنوعی</span>
+                {practiceCollapsed ? <ChevronUp size={16} color="#fff" /> : <ChevronDown size={16} color="#fff" />}
+              </div>
+              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                {chatMessages.length > 0 && (
+                  <button
+                    onClick={clearChat}
+                    className="flex items-center gap-1"
+                    style={{ fontSize: 11, color: "#fff", opacity: 0.9 }}
+                    title={isFa ? "پاک‌کردن گفتگو" : "Clear conversation"}
                   >
-                    {langOptions.map((code) => (
-                      <option key={code} value={code}>
-                        {LANGUAGES.find((l) => l.code === code)?.label || code}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    <Trash2 size={12} />
+                    {isFa ? "پاک‌کردن گفتگو" : "Clear"}
+                  </button>
+                )}
+                <select
+                  value={chatLang}
+                  onChange={(e) => setChatLang(e.target.value)}
+                  style={{ fontSize: 12, border: "none", borderRadius: 8, padding: "3px 6px" }}
+                >
+                  {langOptions.map((code) => (
+                    <option key={code} value={code}>
+                      {LANGUAGES.find((l) => l.code === code)?.label || code}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
+          </div>
 
-            <div className="px-4">
-              <p style={{ fontSize: 12, color: colors.inkSoft, margin: "6px 0 8px" }}>
-                یه جمله به {LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang} بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. یا هر سوال گرامری‌ای که داری — چه درباره‌ی این جمله، چه یه سوال کاملاً جدا — همین‌جا بپرس تا مثل یه معلم زبان جواب بدم.
-              </p>
+          {/* بدنه‌ی نوار — عرضش استانداردِ صفحاتِ چته (تمام‌عرض روی موبایل،
+              با یه سقفِ عرض روی صفحه‌های بزرگ‌تر تا خیلی کشیده نشه). */}
+          <div style={{ width: "min(100%, 640px)", margin: "0 auto" }}>
+            {!practiceCollapsed && (
+              <div className="px-4">
+                <p style={{ fontSize: 12, color: colors.inkSoft, margin: "8px 0 8px" }}>
+                  یه جمله به {LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang} بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. یا هر سوال گرامری‌ای که داری — چه درباره‌ی این جمله، چه یه سوال کاملاً جدا — همین‌جا بپرس تا مثل یه معلم زبان جواب بدم.
+                </p>
 
-              {chatMessages.length > 0 && (
-                <div style={{ maxHeight: "34vh", overflowY: "auto", marginBottom: 10, paddingRight: 2 }}>
-                  {chatMessages.map((m, i) => (
-                    <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-start" : "flex-end", marginBottom: 10 }}>
-                      <div
-                        dir="auto"
-                        style={{
-                          maxWidth: "90%",
-                          padding: "8px 12px",
-                          borderRadius: 12,
-                          fontSize: 13,
-                          backgroundColor: m.role === "user" ? colors.paper : colors.goldSoft,
-                          border: `1px solid ${colors.cardBorder}`,
-                        }}
-                      >
-                        {m.role === "user" ? m.text : <MiniMarkdown text={m.text} speakCode={chatLang} nativeLang={nativeLang} aiSettings={aiSettings} />}
-                        {m.role === "ai" && (
-                          <div className="flex justify-end" style={{ marginTop: 6 }}>
-                            {m.savedToGrammar ? (
-                              <span
-                                className="flex items-center gap-1"
-                                style={{ fontSize: 11, color: colors.gold, fontWeight: 700 }}
-                              >
-                                <Bookmark size={12} fill={colors.gold} />
-                                ذخیره شد
-                              </span>
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  saveGrammarNote({
-                                    langCode: chatLang,
-                                    word: m.forSentence || "جمله",
-                                    sentence: m.forSentence || "",
-                                    markdown: m.text,
-                                  });
-                                  // یه‌بار ذخیره کافیه — با تغییر همین پیام به حالت
-                                  // «ذخیره شد»، دکمه غیرفعال می‌شه و دیگه نیازی به
-                                  // زدن دوباره‌ش نیست (که قبلاً گیج‌کننده بود).
-                                  setChatMessages((prev) =>
-                                    prev.map((msg, idx) => (idx === i ? { ...msg, savedToGrammar: true } : msg))
-                                  );
-                                }}
-                                className="flex items-center gap-1"
-                                style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}
-                              >
-                                <Bookmark size={12} />
-                                ذخیره در یادگیری گرامر
-                              </button>
-                            )}
-                          </div>
-                        )}
+                {chatMessages.length > 0 && (
+                  <div style={{ maxHeight: "34vh", overflowY: "auto", marginBottom: 10, paddingRight: 2 }}>
+                    {chatMessages.map((m, i) => (
+                      <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-start" : "flex-end", marginBottom: 10 }}>
+                        <div
+                          dir="auto"
+                          style={{
+                            maxWidth: "90%",
+                            padding: "8px 12px",
+                            borderRadius: 12,
+                            fontSize: 13,
+                            backgroundColor: m.role === "user" ? colors.paper : colors.goldSoft,
+                            border: `1px solid ${colors.cardBorder}`,
+                          }}
+                        >
+                          {m.role === "user" ? m.text : <MiniMarkdown text={m.text} speakCode={chatLang} nativeLang={nativeLang} aiSettings={aiSettings} />}
+                          {m.role === "ai" && (
+                            <div className="flex justify-end" style={{ marginTop: 6 }}>
+                              {m.savedToGrammar ? (
+                                <span
+                                  className="flex items-center gap-1"
+                                  style={{ fontSize: 11, color: colors.gold, fontWeight: 700 }}
+                                >
+                                  <Bookmark size={12} fill={colors.gold} />
+                                  ذخیره شد
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    saveGrammarNote({
+                                      langCode: chatLang,
+                                      word: m.forSentence || "جمله",
+                                      sentence: m.forSentence || "",
+                                      markdown: m.text,
+                                    });
+                                    // یه‌بار ذخیره کافیه — با تغییر همین پیام به حالت
+                                    // «ذخیره شد»، دکمه غیرفعال می‌شه و دیگه نیازی به
+                                    // زدن دوباره‌ش نیست (که قبلاً گیج‌کننده بود).
+                                    setChatMessages((prev) =>
+                                      prev.map((msg, idx) => (idx === i ? { ...msg, savedToGrammar: true } : msg))
+                                    );
+                                  }}
+                                  className="flex items-center gap-1"
+                                  style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}
+                                >
+                                  <Bookmark size={12} />
+                                  ذخیره در یادگیری گرامر
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                  {chatLoading && (
-                    <div className="flex items-center gap-1" style={{ fontSize: 12, color: colors.inkSoft }}>
-                      <Loader2 size={13} className="spin" />
-                      در حال بررسی جمله...
-                    </div>
-                  )}
-                  <div ref={chatEndRef} />
-                </div>
-              )}
-              {chatError && <p style={{ fontSize: 12, color: colors.rose, marginBottom: 8 }}>{chatError}</p>}
+                    ))}
+                    {chatLoading && (
+                      <div className="flex items-center gap-1" style={{ fontSize: 12, color: colors.inkSoft }}>
+                        <Loader2 size={13} className="spin" />
+                        در حال بررسی جمله...
+                      </div>
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+                )}
+                {chatError && <p style={{ fontSize: 12, color: colors.rose, marginBottom: 8 }}>{chatError}</p>}
+              </div>
+            )}
 
+            {/* کادرِ نوشتن — همیشه در دسترسه (چه گفتگو باز باشه چه جمع‌شده)،
+                دقیقاً مثلِ نوارِ ارسالِ پیامِ اپ‌های چت که همیشه پایینِ صفحه
+                ثابته. با تپ‌کردن روی خودِ اینپوت هم گفتگو به‌طورِ خودکار
+                باز می‌شه تا کاربر جواب/تاریخچه رو ببینه. */}
+            <div className="px-4" style={{ paddingBottom: 8 }}>
               <div
                 className="flex gap-2 items-end"
                 style={{
@@ -7318,7 +7156,7 @@ function GrammarPanel({
                   border: `1.5px solid ${colors.teal}`,
                   borderRadius: 12,
                   padding: 6,
-                  marginBottom: 8,
+                  marginTop: practiceCollapsed ? 8 : 0,
                 }}
               >
                 <textarea
@@ -7326,6 +7164,7 @@ function GrammarPanel({
                   dir="auto"
                   rows={1}
                   value={chatInput}
+                  onFocus={() => setPracticeCollapsed(false)}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -7349,7 +7188,10 @@ function GrammarPanel({
                   }}
                 />
                 <button
-                  onClick={sendChat}
+                  onClick={() => {
+                    setPracticeCollapsed(false);
+                    sendChat();
+                  }}
                   disabled={chatLoading || !chatInput.trim()}
                   style={{
                     backgroundColor: colors.teal,
@@ -7368,8 +7210,7 @@ function GrammarPanel({
                 </button>
               </div>
             </div>
-          </>
-        )}
+          </div>
         </div>,
         document.body
       )}
@@ -7927,9 +7768,12 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       <main
         className="px-4 py-4"
         style={{
-          // پنلِ «تمرین جمله‌سازی» دیگه به کفِ صفحه چسبیده نیست (شناور و
-          // قابلِ‌کشیدنه)، پس دیگه لازم نیست فضاش از پایینِ محتوا کم بشه.
-          paddingBottom: showPlayerBar ? 150 : 96,
+          // نوارِ «تمرین جمله‌سازی» حالا همیشه چسبیده به کفِ صفحه‌ست (بالای
+          // پلیر) و توی همه‌ی تب‌ها دیده می‌شه، پس محتوای اصلی باید به
+          // اندازه‌ی ارتفاعِ واقعیِ همون نوار (practicePanelHeight، که با
+          // ResizeObserver اندازه‌گیری می‌شه) از پایین فاصله بگیره تا زیرِ
+          // نوار گم نشه.
+          paddingBottom: (showPlayerBar ? 150 : 96) + practicePanelHeight,
         }}
       >
         {tab === "conversations" && (
@@ -9867,6 +9711,31 @@ export default function App() {
   const theme = APP_THEMES[appPrefs.theme].values;
   const font = APP_FONTS[appPrefs.font];
   const fontSize = APP_FONT_SIZES[appPrefs.fontSize];
+
+  // پنلِ شناورِ «تمرین جمله‌سازی» با createPortal مستقیم زیرِ <body> رندر
+  // می‌شه (نه داخلِ این div پایین‌تر) — یعنی بیرون از دامنه‌ی CSS
+  // custom-property هایی (--c-paper, --c-teal, ...) که فقط روی اون div
+  // ست می‌شدن. نتیجه‌ش این بود که رنگ‌های colors.xxx (که همه‌شون
+  // var(--c-xxx) هستن) داخلِ پنلِ پورتال‌شده تعریف‌نشده می‌موندن و
+  // به‌جاش شفاف رندر می‌شدن — هم بک‌گراندِ خودِ پنل، هم آیکون‌هاش.
+  // برای رفعِ همیشگیِ این مشکل، همین متغیرها رو مستقیماً روی
+  // document.documentElement هم ست می‌کنیم؛ چون <html> جدِ مشترکِ هم
+  // #root و هم document.body (مقصدِ پورتال) هست، این‌جوری همه‌جای صفحه —
+  // پورتال‌شده یا نه — رنگ‌ها رو درست می‌بینه.
+  useEffect(() => {
+    const el = document.documentElement.style;
+    el.setProperty("--c-paper", theme.paper);
+    el.setProperty("--c-paperDark", theme.paperDark);
+    el.setProperty("--c-ink", theme.ink);
+    el.setProperty("--c-inkSoft", theme.inkSoft);
+    el.setProperty("--c-gold", theme.gold);
+    el.setProperty("--c-goldSoft", theme.goldSoft);
+    el.setProperty("--c-teal", theme.teal);
+    el.setProperty("--c-rose", theme.rose);
+    el.setProperty("--c-cardBorder", theme.cardBorder);
+    el.setProperty("--font-fa", font.fa);
+    el.setProperty("--font-latin", font.latin);
+  }, [theme, font]);
 
   // Sets the CSS custom properties every `colors.xxx` / fontFa / fontLatin
   // reference resolves to, plus a `zoom` for the font-size preference — one
