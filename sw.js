@@ -1,7 +1,10 @@
-// هر بار که دیپلوی جدید می‌کنی، این عدد رو یکی زیاد کن (v1 -> v2 -> ...).
+// هر بار که دیپلوی جدید می‌کنی، این عدد رو یکی زیاد کن (v1 -> v2 -> v3 -> ...).
 // این کار باعث می‌شه یه کشِ کاملاً تازه ساخته بشه و مطمئن باشی چیزی از
 // نسخه‌ی قبلی باقی نمونده — even اگه به هر دلیلی یه فایل قدیمی جا بمونه.
-const CACHE_VERSION = "v2";
+// همچنین چون خودِ محتوای این فایل عوض می‌شه، مرورگر متوجهِ نسخه‌ی جدید
+// می‌شه و چرخه‌ی install/activate رو اجرا می‌کنه (وگرنه اگه byte-به-byte
+// با نسخه‌ی قبلی یکی باشه، اصلاً آپدیت رو تشخیص نمی‌ده).
+const CACHE_VERSION = "v3";
 const CACHE_NAME = `phrasebook-cache-${CACHE_VERSION}`;
 
 const APP_SHELL = ["./", "./index.html", "./app.bundle.min.js", "./manifest.json"];
@@ -39,8 +42,12 @@ self.addEventListener("fetch", (event) => {
       // کش‌شده‌ی قدیمی رو از دیسک برگردونه.
       fetch(req, { cache: "no-store" })
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+          // فقط درخواست‌های GET رو تو Cache Storage بذار — cache.put روی
+          // POST/PUT و... خطا می‌ده (مثلاً درخواست‌های Supabase).
+          if (req.method === "GET") {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy)).catch(() => {});
+          }
           return res;
         })
         .catch(() => caches.match(req))
@@ -52,7 +59,7 @@ self.addEventListener("fetch", (event) => {
           cached ||
           fetch(req).then((res) => {
             const copy = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy)).catch(() => {});
             return res;
           })
       )
