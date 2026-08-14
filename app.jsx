@@ -6646,10 +6646,15 @@ function GrammarPanel({
     } catch {}
   }, [practicePos]);
 
-  // کشیدنِ پنل با انگشت/ماوس — وقتی بازه از روی دستگیره‌ی بالای پنل، وقتی
-  // جمع‌شده از روی خودِ دکمه‌ی شناور: موقعیتِ شروع رو نگه می‌داریم و روی
-  // window گوش می‌دیم تا هرجای صفحه هم انگشت بره، جابه‌جایی ادامه پیدا کنه.
+  // کشیدنِ پنل با انگشت/ماوس — از هرجای بدنه‌ی پنل (چه جمع‌شده/دکمه‌ی
+  // شناور، چه بازشده) قابلِ کشیدنه، نه فقط دستگیره‌ی بالا. تنها استثنا:
+  // اگه لمس/کلیک دقیقاً روی یه المانِ تعاملی (دکمه، اینپوت، تکست‌اریا،
+  // سلکت، لینک) شروع شده باشه، درگ رو شروع نمی‌کنیم تا کلیک روی دکمه‌ها،
+  // تایپ‌کردن، و اسلایدرها مثلِ قبل درست کار کنن؛ خودِ پس‌زمینه‌ی پنل و
+  // بقیه‌ی نواحی غیرتعاملی همچنان از هرجاش قابلِ کشیدنه.
   function startPracticeDrag(e) {
+    const interactive = e.target.closest && e.target.closest("button, input, textarea, select, a, [role='button']");
+    if (interactive) return;
     const point = e.touches ? e.touches[0] : e;
     const el = practicePanelRef.current;
     const rect = el ? el.getBoundingClientRect() : { left: practicePos.x, top: practicePos.y, width: 320, height: 220 };
@@ -7078,8 +7083,8 @@ function GrammarPanel({
       {createPortal(
         <div
           ref={practicePanelRef}
-          onMouseDown={practiceCollapsed ? startPracticeDrag : undefined}
-          onTouchStart={practiceCollapsed ? startPracticeDrag : undefined}
+          onMouseDown={startPracticeDrag}
+          onTouchStart={startPracticeDrag}
           style={
             practiceCollapsed
               ? {
@@ -7158,12 +7163,12 @@ function GrammarPanel({
             {/* هدرِ رنگیِ پنل — تیل توپر با متنِ سفید، تا این بخش هم مثلِ
                 دکمه‌ی شناور به‌وضوح رنگ داشته باشه و با بدنه‌ی پنل قاطی نشه. */}
             <div style={{ backgroundColor: colors.teal, borderRadius: "15px 15px 0 0" }}>
-              {/* دستگیره‌ی کشیدن — فقط همین نوار برای جابه‌جاکردنِ پنل با انگشت/
-                  ماوس واکنش نشون می‌ده تا با دکمه‌ها و ورودی‌های داخلِ پنل تداخل
-                  نکنه. */}
+              {/* این نوارِ کوچیک صرفاً یه نشونه‌ی بصریِ «قابلِ کشیدن بودن»ه —
+                  خودِ کشیدن دیگه مخصوصِ همین نوار نیست: کل پنل (به‌جز
+                  دکمه‌ها/اینپوت‌ها/سلکت) از طریقِ handlerِ روی wrapper اصلی
+                  قابلِ کشیدنه، پس اینجا نیازی به onMouseDown/onTouchStart
+                  جدا نیست. */}
               <div
-                onMouseDown={startPracticeDrag}
-                onTouchStart={startPracticeDrag}
                 style={{
                   display: "flex",
                   justifyContent: "center",
