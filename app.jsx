@@ -7898,15 +7898,15 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       {/* Tabs */}
       <nav className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ backgroundColor: colors.paperDark }}>
         <TabButton label="مکالمات روزمره" icon={MessageCircle} active={tab === "conversations"} onClick={() => setTab("conversations")} />
+        <TabButton label="داستان‌ساز" icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} />
+        <TabButton label="لغات ذخیره‌شده" icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} />
+        <TabButton label="گرامر" icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} />
         <TabButton label="لغات" icon={Layers} active={tab === "words"} onClick={() => setTab("words")} />
         <TabButton label="علاقه‌مندی‌ها" icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} />
         <TabButton label="لغات و اخبار" icon={Newspaper} active={tab === "vocab"} onClick={() => setTab("vocab")} />
         <TabButton label="مکالمه و روزمره" icon={Coffee} active={tab === "daily"} onClick={() => setTab("daily")} />
         <TabButton label="دیکشنری" icon={Search} active={tab === "dictionary"} onClick={() => setTab("dictionary")} />
         <TabButton label="مرور (جعبه لایتنر)" icon={RotateCcw} active={tab === "review"} onClick={() => { setTab("review"); setReviewIndex(0); setShowAnswer(false); }} />
-        <TabButton label="داستان‌ساز" icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} />
-        <TabButton label="لغات ذخیره‌شده" icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} />
-        <TabButton label="گرامر" icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} />
       </nav>
 
       {/* Level filter — applies to conversation , words, favorites, and vocabulary */}
