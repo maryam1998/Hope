@@ -1965,15 +1965,18 @@ async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLab
       .map((m) => `${m.role === "user" ? "Learner" : "Teacher"}: ${m.text}`)
       .join("\n") || "None";
   const prompt =
-    `You are a friendly, knowledgeable AI chat assistant inside a language-learning app — talk with the learner the same natural way any general-purpose AI chat assistant would. You're not limited to grammar; you can help with anything they bring up. On top of that, you're great at ${langLabel} practice.\n\n` +
-    `Learner's native language: ${label}. Language they're currently practicing: ${langLabel}. Other languages they study: ${otherLangsLabel}.\n\n` +
+    `You are a friendly, knowledgeable AI chat assistant inside a language-learning app — talk with the learner the same natural way any general-purpose AI chat assistant would. You're not limited to grammar; you can help with anything they bring up, in any language, about any topic. You are also an excellent, patient language teacher.\n\n` +
+    `Learner's native language: ${label}. The dropdown they currently have selected as their "practice language" is ${langLabel} — treat this only as a weak hint of what they *might* be practicing right now, never as a restriction. Other languages they study: ${otherLangsLabel}.\n\n` +
     `Recent conversation:\n${historyText}\n\n` +
     `Learner just wrote: "${userSentence}"\n\n` +
-    `How to respond:\n` +
-    `- If this reads like a sentence they wrote in ${langLabel} to practice: check it warmly. Say if it's correct or not, give the corrected version if needed, explain briefly and simply why (in ${label}) — especially if the mistake looks like it came from mixing ${label} and ${langLabel} structure — then add one more example sentence in ${langLabel} with a ${label} translation.\n` +
-    `- Otherwise, just answer naturally, like a normal, capable AI assistant would — any topic, any question, no restriction. Weave in an example phrase in ${langLabel} with translation only if it genuinely fits.\n` +
-    `- Default to ${langLabel} for any language-practice content (translated into ${label}); only bring in ${otherLangsLabel} or English if the learner specifically asks about them or it clearly helps.\n` +
-    `- Write in ${label}. Keep sentences in both languages clean and well-ordered, never jumbled. Keep the reply clear, well-organized, and not too long.`;
+    `Step 1 — Always detect the actual language(s) the message above is written in yourself, from the text itself; ignore the dropdown hint if the message is written in a different language than ${langLabel}. Never assume it's English and never assume it's ${langLabel} — read what's actually there.\n\n` +
+    `Step 2 — Decide what kind of message it is:\n` +
+    `- A sentence written in a language other than ${label} (their native language), meant as practice — whether that's ${langLabel}, one of ${otherLangsLabel}, or any other language entirely: treat THAT detected language as the practice language for this message (regardless of what the dropdown says). Check it warmly, say if it's correct or not, give the corrected version if needed, explain briefly and simply why (in ${label}) — especially if the mistake looks like it came from mixing ${label} and that language's structure — then add one more example sentence in that same language with a ${label} translation.\n` +
+    `- A question or message in ${label} (their native language), or in any other language, that isn't a practice sentence: just answer it naturally and helpfully like a normal, capable AI assistant would — any topic, any question, no restriction to language-learning content and no restriction to any particular language. Respond in whichever language best fits the question (usually the language they asked in, or ${label} if that's clearer for them). Weave in an example phrase with translation only if it genuinely fits a language-learning context.\n\n` +
+    `General rules:\n` +
+    `- Never default to English just because you're unsure — always match the language(s) actually present in the learner's message and this conversation.\n` +
+    `- Explanations of grammar/mistakes are always in ${label}, since that's the learner's native language, regardless of what language is being practiced.\n` +
+    `- Keep sentences in every language clean and well-ordered, never jumbled together. Keep the reply clear, well-organized, and not too long.`;
 
   const text = await callAI({ prompt, maxTokens: 1200, aiSettings });
   return text.trim();
@@ -6591,17 +6594,21 @@ function GrammarPanel({
   const [chatError, setChatError] = useState("");
   const chatEndRef = useRef(null);
   const chatTextareaRef = useRef(null);
-  // نوارِ «تمرین جمله‌سازی» یه Bottom Sheetِ قابلِ‌کشیدنه، دقیقاً مثلِ نقشه‌ی
-  // گوگل، با سه نقطه‌ی قفل (snap point):
-  //   • peek  — فقط سرتیترِ نوار دیده می‌شه (حالتِ جمع‌شده‌ی پیش‌فرض)
-  //   • half  — نصفِ ارتفاعِ صفحه (برای تایپ/تمرینِ نوشتن، درحالی‌که
-  //             جمله‌های بالای صفحه هم دیده می‌مونن)
-  //   • full  — تقریباً کلِ صفحه (فقط وقتی خودِ کاربر کاملاً بکشتش بالا)
-  // با کشیدنِ سرتیتر (grip handle) ارتفاع لحظه‌ای تغییر می‌کنه؛ با رهاکردن،
-  // به نزدیک‌ترین نقطه قفل می‌شه. تپ‌ِ ساده (بدونِ حرکتِ محسوس) هم بینِ
-  // peek و half سوییچ می‌کنه. خودِ گفتگو (chatMessages) در هر سه حالت
-  // دست‌نخورده می‌مونه، چون این کامپوننت همیشه mount شده‌ست.
+  // نوارِ «تمرین جمله‌سازی» یه Bottom Sheetِ کاملاً آزادانه‌قابلِ‌کشیدنه:
+  //   • peek — فقط سرتیترِ نوار دیده می‌شه (حالتِ جمع‌شده‌ی پیش‌فرض)
+  //   • open — هر ارتفاعی که خودِ کاربر با کشیدنِ سرتیتر انتخاب کنه، دقیقاً
+  //            همون می‌مونه؛ نه اسنپ به نقطه‌ی ثابتی در کار هست، نه سقفِ
+  //            مصنوعی‌ای پایین‌تر از خودِ صفحه. کشیدن به بالا/پایین ارتفاع
+  //            رو لحظه‌ای و پیوسته عوض می‌کنه؛ با رهاکردن، همون‌جا که
+  //            رهاش کرده ثابت می‌مونه (مگر خیلی نزدیکِ سرتیتر باشه که
+  //            به‌عنوانِ جمع‌شده در نظر گرفته می‌شه). تپ‌ِ ساده (بدونِ
+  //            کشیدنِ محسوس) هم بینِ peek و آخرین اندازه‌ی بازِ کاربر
+  //            سوییچ می‌کنه. خودِ گفتگو (chatMessages) در هر دو حالت
+  //            دست‌نخورده می‌مونه، چون این کامپوننت همیشه mount شده‌ست.
   const [practiceSheet, setPracticeSheet] = useState("peek");
+  // آخرین ارتفاعی (px) که خودِ کاربر با کشیدن، برای حالتِ «باز» انتخاب کرده.
+  // تا وقتی کاربر خودش نکشیده، null می‌مونه و پیش‌فرض نصفِ صفحه استفاده می‌شه.
+  const [practiceOpenHeight, setPracticeOpenHeight] = useState(null);
   const [practiceDragHeight, setPracticeDragHeight] = useState(null);
   const practicePanelRef = useRef(null);
   const practiceHeaderRef = useRef(null);
@@ -6645,30 +6652,36 @@ function GrammarPanel({
     };
   }, []);
 
-  const practiceSnapHeight = useCallback(
+  // بیشترین ارتفاعی که واقعاً می‌شه بهش کشید — عملاً محدودیتی نداره، فقط
+  // چند پیکسل کمتر از خودِ صفحه که سرتیتر همیشه لمس‌پذیر بمونه.
+  const practiceMaxHeight = Math.max(practiceHeaderH, practiceViewportH - 4);
+
+  const practiceRestHeight = useCallback(
     (state) => {
-      if (state === "half") return Math.round(practiceViewportH * 0.5);
-      if (state === "full") return Math.round(practiceViewportH * 0.92);
-      return practiceHeaderH;
+      if (state === "peek") return practiceHeaderH;
+      // «باز»: دقیقاً همون ارتفاعی که خودِ کاربر آخرین‌بار با کشیدن انتخاب
+      // کرده؛ اگه هنوز چیزی نکشیده، پیش‌فرض نصفِ صفحه‌ست.
+      const h = practiceOpenHeight != null ? practiceOpenHeight : Math.round(practiceViewportH * 0.5);
+      return Math.min(practiceMaxHeight, Math.max(practiceHeaderH, h));
     },
-    [practiceViewportH, practiceHeaderH]
+    [practiceHeaderH, practiceOpenHeight, practiceMaxHeight, practiceViewportH]
   );
 
-  const practiceCurrentHeight = practiceDragHeight != null ? practiceDragHeight : practiceSnapHeight(practiceSheet);
+  const practiceCurrentHeight = practiceDragHeight != null ? practiceDragHeight : practiceRestHeight(practiceSheet);
 
   const handlePracticeDragStart = useCallback(
     (e) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
       practiceDragInfoRef.current = {
         startY: e.clientY,
-        startHeight: practiceSnapHeight(practiceSheet),
+        startHeight: practiceRestHeight(practiceSheet),
         moved: false,
       };
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {}
     },
-    [practiceSheet, practiceSnapHeight]
+    [practiceSheet, practiceRestHeight]
   );
 
   const handlePracticeDragMove = useCallback(
@@ -6678,7 +6691,7 @@ function GrammarPanel({
       const delta = info.startY - e.clientY; // کشیدن به بالا = ارتفاع بیشتر
       if (Math.abs(delta) > 4) info.moved = true;
       const min = practiceHeaderH;
-      const max = Math.round(practiceViewportH * 0.92);
+      const max = Math.max(practiceHeaderH, practiceViewportH - 4);
       setPracticeDragHeight(Math.min(max, Math.max(min, info.startHeight + delta)));
     },
     [practiceHeaderH, practiceViewportH]
@@ -6689,27 +6702,26 @@ function GrammarPanel({
     practiceDragInfoRef.current = null;
     if (!info) return;
     if (!info.moved) {
-      // تپِ ساده (بدونِ کشیدنِ محسوس) — فقط بینِ جمع و نیمه سوییچ کن.
-      setPracticeSheet((prev) => (prev === "peek" ? "half" : "peek"));
+      // تپِ ساده (بدونِ کشیدنِ محسوس) — فقط بینِ جمع و آخرین اندازه‌ی
+      // بازِ کاربر سوییچ کن؛ اندازه‌ی ذخیره‌شده دست‌نخورده می‌مونه.
+      setPracticeSheet((prev) => (prev === "peek" ? "open" : "peek"));
       setPracticeDragHeight(null);
       return;
     }
+    // آزادِ آزاد: هر ارتفاعی که کاربر با کشیدن رهاش کرده، دقیقاً همون
+    // می‌مونه — نه اسنپ به نقطه‌ی ثابتی، نه گرد کردن. فقط اگه خیلی
+    // نزدیکِ سرتیتر رهاش کنه، به‌عنوانِ جمع‌شده در نظر می‌گیریمش تا بشه
+    // نوار رو کاملاً بست.
     const finalHeight = practiceDragHeight != null ? practiceDragHeight : info.startHeight;
-    const candidates = {
-      peek: practiceHeaderH,
-      half: Math.round(practiceViewportH * 0.5),
-      full: Math.round(practiceViewportH * 0.92),
-    };
-    let nearest = "peek";
-    let minDiff = Infinity;
-    for (const key of ["peek", "half", "full"]) {
-      const diff = Math.abs(candidates[key] - finalHeight);
-      if (diff < minDiff) {
-        minDiff = diff;
-        nearest = key;
-      }
+    const min = practiceHeaderH;
+    const max = Math.max(practiceHeaderH, practiceViewportH - 4);
+    const clamped = Math.min(max, Math.max(min, finalHeight));
+    if (clamped <= practiceHeaderH + 10) {
+      setPracticeSheet("peek");
+    } else {
+      setPracticeOpenHeight(clamped);
+      setPracticeSheet("open");
     }
-    setPracticeSheet(nearest);
     setPracticeDragHeight(null);
   }, [practiceDragHeight, practiceHeaderH, practiceViewportH]);
 
@@ -7214,7 +7226,7 @@ function GrammarPanel({
               style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}
             >
               <p style={{ fontSize: 12, color: colors.inkSoft, margin: "8px 0 8px", flexShrink: 0 }}>
-                یه جمله به {LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang} بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. یا هر سوال گرامری‌ای که داری — چه درباره‌ی این جمله، چه یه سوال کاملاً جدا — همین‌جا بپرس تا مثل یه معلم زبان جواب بدم.
+                به هر زبونی که بنویسی خودم تشخیص می‌دم؛ اگه یه جمله برای تمرین باشه و غلط داشته باشه، اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. لازم نیست از رو منوی بالا زبون رو هماهنگ نگه داری — اون فقط یه پیش‌فرضِ کمکیه. هر سوالی هم غیر از تمرین زبون داشتی، به هر زبونی، همین‌جا بپرس.
               </p>
 
                 {chatMessages.length > 0 && (
@@ -7291,6 +7303,7 @@ function GrammarPanel({
             <div className="px-4" style={{ paddingBottom: 8, flexShrink: 0 }}>
               <div
                 className="flex gap-2 items-end"
+                dir="rtl"
                 style={{
                   backgroundColor: colors.paper,
                   border: `1.5px solid ${colors.teal}`,
@@ -7299,12 +7312,33 @@ function GrammarPanel({
                   marginTop: practiceSheet === "peek" ? 8 : 0,
                 }}
               >
+                <button
+                  onClick={() => {
+                    setPracticeSheet((s) => (s === "peek" ? "open" : s));
+                    sendChat();
+                  }}
+                  disabled={chatLoading || !chatInput.trim()}
+                  style={{
+                    backgroundColor: colors.teal,
+                    color: "#fff",
+                    borderRadius: 10,
+                    padding: "8px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: chatLoading || !chatInput.trim() ? 0.5 : 1,
+                    boxShadow: chatLoading || !chatInput.trim() ? "none" : "0 2px 8px rgba(28,37,65,0.25)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Send size={16} color="#fff" />
+                </button>
                 <textarea
                   ref={chatTextareaRef}
                   dir="auto"
                   rows={1}
                   value={chatInput}
-                  onFocus={() => setPracticeSheet((s) => (s === "peek" ? "half" : s))}
+                  onFocus={() => setPracticeSheet((s) => (s === "peek" ? "open" : s))}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -7327,27 +7361,6 @@ function GrammarPanel({
                     color: colors.ink,
                   }}
                 />
-                <button
-                  onClick={() => {
-                    setPracticeSheet((s) => (s === "peek" ? "half" : s));
-                    sendChat();
-                  }}
-                  disabled={chatLoading || !chatInput.trim()}
-                  style={{
-                    backgroundColor: colors.teal,
-                    color: "#fff",
-                    borderRadius: 10,
-                    padding: "8px 14px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    opacity: chatLoading || !chatInput.trim() ? 0.5 : 1,
-                    boxShadow: chatLoading || !chatInput.trim() ? "none" : "0 2px 8px rgba(28,37,65,0.25)",
-                    flexShrink: 0,
-                  }}
-                >
-                  <Send size={16} color="#fff" />
-                </button>
               </div>
             </div>
           </div>
