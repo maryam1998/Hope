@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
@@ -6591,15 +6591,127 @@ function GrammarPanel({
   const [chatError, setChatError] = useState("");
   const chatEndRef = useRef(null);
   const chatTextareaRef = useRef(null);
-  // نوارِ «تمرین جمله‌سازی» دیگه شناور/قابلِ‌کشیدن نیست — درست مثلِ
-  // اپ‌های چت، همیشه یه نوارِ ثابت و تمام‌عرض، چسبیده به کفِ صفحه و درست
-  // بالای نوارِ پلیره (position: fixed, left:0, right:0). «جمع‌شده» فقط
-  // یعنی فقط سرتیترِ نوار دیده می‌شه (برای جادادنِ بیشتر به محتوای صفحه)؛
-  // «بازشده» یعنی گفتگو و کادرِ نوشتن هم زیرِ همون سرتیتر باز می‌شه. خودِ
-  // گفتگو (chatMessages) در هر دو حالت دست‌نخورده می‌مونه، چون این کامپوننت
-  // همیشه mount شده‌ست.
-  const [practiceCollapsed, setPracticeCollapsed] = useState(true);
+  // نوارِ «تمرین جمله‌سازی» یه Bottom Sheetِ قابلِ‌کشیدنه، دقیقاً مثلِ نقشه‌ی
+  // گوگل، با سه نقطه‌ی قفل (snap point):
+  //   • peek  — فقط سرتیترِ نوار دیده می‌شه (حالتِ جمع‌شده‌ی پیش‌فرض)
+  //   • half  — نصفِ ارتفاعِ صفحه (برای تایپ/تمرینِ نوشتن، درحالی‌که
+  //             جمله‌های بالای صفحه هم دیده می‌مونن)
+  //   • full  — تقریباً کلِ صفحه (فقط وقتی خودِ کاربر کاملاً بکشتش بالا)
+  // با کشیدنِ سرتیتر (grip handle) ارتفاع لحظه‌ای تغییر می‌کنه؛ با رهاکردن،
+  // به نزدیک‌ترین نقطه قفل می‌شه. تپ‌ِ ساده (بدونِ حرکتِ محسوس) هم بینِ
+  // peek و half سوییچ می‌کنه. خودِ گفتگو (chatMessages) در هر سه حالت
+  // دست‌نخورده می‌مونه، چون این کامپوننت همیشه mount شده‌ست.
+  const [practiceSheet, setPracticeSheet] = useState("peek");
+  const [practiceDragHeight, setPracticeDragHeight] = useState(null);
   const practicePanelRef = useRef(null);
+  const practiceHeaderRef = useRef(null);
+  const practiceDragInfoRef = useRef(null);
+  const [practiceHeaderH, setPracticeHeaderH] = useState(56);
+  const [practiceViewportH, setPracticeViewportH] = useState(() =>
+    typeof window === "undefined" ? 800 : Math.round((window.visualViewport && window.visualViewport.height) || window.innerHeight)
+  );
+
+  // ارتفاعِ واقعیِ خودِ سرتیتر رو اندازه می‌گیریم (وابسته به فونت/چیدمان)،
+  // تا نقطه‌ی «peek» همیشه دقیقاً هم‌اندازه‌ی سرتیتر باشه، نه یه عددِ ثابتِ
+  // حدسی.
+  useLayoutEffect(() => {
+    const el = practiceHeaderRef.current;
+    if (!el) return;
+    setPracticeHeaderH(Math.ceil(el.getBoundingClientRect().height));
+  }, []);
+
+  // ارتفاعِ واقعیِ دیدِ صفحه (viewport) رو دنبال می‌کنیم — نه فقط با resize
+  // معمولی، بلکه با visualViewport هم، چون وقتی کیبوردِ موبایل باز می‌شه،
+  // این چیزیه که واقعاً کوچیک می‌شه (برخلافِ 100vh که خیلی مرورگرها
+  // عوضش نمی‌کنن). این باعث می‌شه سقفِ «full» با بازشدنِ کیبورد درست
+  // تنظیم بشه و پنل هیچ‌وقت از چیزی که واقعاً دیده می‌شه بزرگ‌تر نشه.
+  useEffect(() => {
+    const update = () => {
+      const h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+      setPracticeViewportH(Math.round(h));
+    };
+    update();
+    window.addEventListener("resize", update);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", update);
+      window.visualViewport.addEventListener("scroll", update);
+    }
+    return () => {
+      window.removeEventListener("resize", update);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", update);
+        window.visualViewport.removeEventListener("scroll", update);
+      }
+    };
+  }, []);
+
+  const practiceSnapHeight = useCallback(
+    (state) => {
+      if (state === "half") return Math.round(practiceViewportH * 0.5);
+      if (state === "full") return Math.round(practiceViewportH * 0.92);
+      return practiceHeaderH;
+    },
+    [practiceViewportH, practiceHeaderH]
+  );
+
+  const practiceCurrentHeight = practiceDragHeight != null ? practiceDragHeight : practiceSnapHeight(practiceSheet);
+
+  const handlePracticeDragStart = useCallback(
+    (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      practiceDragInfoRef.current = {
+        startY: e.clientY,
+        startHeight: practiceSnapHeight(practiceSheet),
+        moved: false,
+      };
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {}
+    },
+    [practiceSheet, practiceSnapHeight]
+  );
+
+  const handlePracticeDragMove = useCallback(
+    (e) => {
+      const info = practiceDragInfoRef.current;
+      if (!info) return;
+      const delta = info.startY - e.clientY; // کشیدن به بالا = ارتفاع بیشتر
+      if (Math.abs(delta) > 4) info.moved = true;
+      const min = practiceHeaderH;
+      const max = Math.round(practiceViewportH * 0.92);
+      setPracticeDragHeight(Math.min(max, Math.max(min, info.startHeight + delta)));
+    },
+    [practiceHeaderH, practiceViewportH]
+  );
+
+  const handlePracticeDragEnd = useCallback(() => {
+    const info = practiceDragInfoRef.current;
+    practiceDragInfoRef.current = null;
+    if (!info) return;
+    if (!info.moved) {
+      // تپِ ساده (بدونِ کشیدنِ محسوس) — فقط بینِ جمع و نیمه سوییچ کن.
+      setPracticeSheet((prev) => (prev === "peek" ? "half" : "peek"));
+      setPracticeDragHeight(null);
+      return;
+    }
+    const finalHeight = practiceDragHeight != null ? practiceDragHeight : info.startHeight;
+    const candidates = {
+      peek: practiceHeaderH,
+      half: Math.round(practiceViewportH * 0.5),
+      full: Math.round(practiceViewportH * 0.92),
+    };
+    let nearest = "peek";
+    let minDiff = Infinity;
+    for (const key of ["peek", "half", "full"]) {
+      const diff = Math.abs(candidates[key] - finalHeight);
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearest = key;
+      }
+    }
+    setPracticeSheet(nearest);
+    setPracticeDragHeight(null);
+  }, [practiceDragHeight, practiceHeaderH, practiceViewportH]);
 
   useLayoutEffect(() => {
     const el = practicePanelRef.current;
@@ -6949,17 +7061,16 @@ function GrammarPanel({
         })}
       </div>
 
-      {/* نوارِ «تمرین جمله‌سازی با هوش مصنوعی» — دیگه شناور/قابلِ‌کشیدن
-          نیست؛ درست مثلِ اپ‌های چت، همیشه یه نوارِ ثابت و تمام‌عرض، چسبیده
-          به کفِ صفحه‌ست (bottom: 0) — پایین‌ترین قسمتِ صفحه، پایین‌ترِ
-          نوارِ پلیر (که حالا خودش یه پله بالاترِ همین نوار می‌شینه). با
-          createPortal مستقیم زیرِ <body> رندر می‌شه — چون GrammarPanel
-          خودش داخلِ یه div با display:none قایم می‌شه وقتی تبِ فعلی «گرامر»
-          نیست (برای این‌که چتِ تمرین از بین نره)، و اگه همین‌جا با
-          position:fixed می‌موند، آبا/جد با display:none باعث می‌شد این نوار
-          هم با رفتن به تب‌های دیگه قایم بشه. با پورتال، این نوار از اون
-          محدودیت فرار می‌کنه و توی همه‌ی تب‌ها همیشه روی صفحه باقی می‌مونه
-          (sticky در تمامِ صفحات). */}
+      {/* نوارِ «تمرین جمله‌سازی با هوش مصنوعی» — یه Bottom Sheetِ
+          قابلِ‌کشیدنه با سه نقطه‌ی قفل (peek/half/full)، همیشه چسبیده به
+          کفِ صفحه (bottom: 0)، درست بالای نوارِ پلیر. با createPortal
+          مستقیم زیرِ <body> رندر می‌شه — چون GrammarPanel خودش داخلِ یه
+          div با display:none قایم می‌شه وقتی تبِ فعلی «گرامر» نیست (برای
+          این‌که چتِ تمرین از بین نره)، و اگه همین‌جا با position:fixed
+          می‌موند، آبا/جد با display:none باعث می‌شد این نوار هم با رفتن به
+          تب‌های دیگه قایم بشه. با پورتال، این نوار از اون محدودیت فرار
+          می‌کنه و توی همه‌ی تب‌ها همیشه روی صفحه باقی می‌مونه (sticky در
+          تمامِ صفحات). */}
       {createPortal(
         <div
           ref={practicePanelRef}
@@ -6969,23 +7080,52 @@ function GrammarPanel({
             right: 0,
             bottom: 0,
             zIndex: 42,
+            height: practiceCurrentHeight,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
             backgroundColor: colors.paperDark,
             border: `1px solid ${PRACTICE_PANEL_BORDER}`,
             borderTop: `1px solid ${PRACTICE_PANEL_BORDER}`,
             boxShadow: "0 -4px 14px rgba(28,37,65,0.12)",
+            transition: practiceDragHeight != null ? "none" : "height 0.24s cubic-bezier(.2,.8,.2,1)",
+            touchAction: "none",
           }}
         >
-          {/* هدرِ رنگیِ نوار — تیل توپر با متنِ سفید؛ با تپ روش، بدنه‌ی
-              گفتگو باز/جمع می‌شه. کادرِ نوشتنِ پایین همیشه (چه جمع‌شده چه
-              بازشده) در دسترسه، دقیقاً مثلِ نوارِ ارسالِ پیامِ اپ‌های چت. */}
+          {/* هدرِ رنگیِ نوار — تیل توپر با متنِ سفید؛ خودِ این هدر همون
+              دستگیره‌ی کشیدنه (grip handle). کشیدنِ آروم بالا/پایین ارتفاع
+              رو لحظه‌ای عوض می‌کنه؛ با رهاکردن، به نزدیک‌ترین نقطه‌ی قفل
+              (جمع/نیمه/کامل) اسنپ می‌شه. یه تپِ ساده (بدونِ کشیدنِ محسوس)
+              هم بینِ جمع و نیمه سوییچ می‌کنه. کادرِ نوشتنِ پایین همیشه (در
+              هر سه حالت) در دسترسه، دقیقاً مثلِ نوارِ ارسالِ پیامِ
+              اپ‌های چت. */}
           <div
-            onClick={() => setPracticeCollapsed((v) => !v)}
+            ref={practiceHeaderRef}
+            onPointerDown={handlePracticeDragStart}
+            onPointerMove={handlePracticeDragMove}
+            onPointerUp={handlePracticeDragEnd}
+            onPointerCancel={handlePracticeDragEnd}
             role="button"
             tabIndex={0}
-            aria-expanded={!practiceCollapsed}
-            aria-label={practiceCollapsed ? "بازکردنِ گفتگوی تمرین جمله‌سازی و گرامر" : "جمع‌کردنِ گفتگوی تمرین جمله‌سازی و گرامر"}
-            style={{ backgroundColor: colors.teal, cursor: "pointer", userSelect: "none" }}
+            aria-expanded={practiceSheet !== "peek"}
+            aria-label={
+              practiceSheet === "peek"
+                ? "بازکردنِ گفتگوی تمرین جمله‌سازی و گرامر"
+                : "جمع‌کردنِ گفتگوی تمرین جمله‌سازی و گرامر"
+            }
+            style={{ backgroundColor: colors.teal, cursor: "grab", userSelect: "none", flexShrink: 0 }}
           >
+            {/* دستگیره‌ی کوچیکِ بالا — نشونه‌ی بصریِ این‌که قابلِ‌کشیدنه. */}
+            <div
+              aria-hidden="true"
+              style={{
+                width: 36,
+                height: 4,
+                borderRadius: 2,
+                backgroundColor: "rgba(255,255,255,0.55)",
+                margin: "6px auto 0",
+              }}
+            />
             <div className="px-4 py-2 flex items-center justify-between gap-2 flex-wrap" style={{ rowGap: 6 }}>
               <div className="flex items-center gap-2" style={{ fontWeight: 700, color: "#fff" }}>
                 <span
@@ -7004,7 +7144,7 @@ function GrammarPanel({
                   }}
                 >
                   <MessageCircle size={12} color="#ffffff" fill="rgba(255,255,255,0.15)" strokeWidth={2.25} />
-                  {chatMessages.length > 0 && practiceCollapsed && (
+                  {chatMessages.length > 0 && practiceSheet === "peek" && (
                     <span
                       aria-hidden="true"
                       style={{
@@ -7021,9 +7161,9 @@ function GrammarPanel({
                   )}
                 </span>
                 <span>تمرین جمله‌سازی و گرامر با هوش مصنوعی</span>
-                {practiceCollapsed ? <ChevronUp size={16} color="#fff" /> : <ChevronDown size={16} color="#fff" />}
+                {practiceSheet === "peek" ? <ChevronUp size={16} color="#fff" /> : <ChevronDown size={16} color="#fff" />}
               </div>
-              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-2" onPointerDown={(e) => e.stopPropagation()}>
                 {chatMessages.length > 0 && (
                   <button
                     onClick={clearChat}
@@ -7051,16 +7191,34 @@ function GrammarPanel({
           </div>
 
           {/* بدنه‌ی نوار — عرضش استانداردِ صفحاتِ چته (تمام‌عرض روی موبایل،
-              با یه سقفِ عرض روی صفحه‌های بزرگ‌تر تا خیلی کشیده نشه). */}
-          <div style={{ width: "min(100%, 640px)", margin: "0 auto" }}>
-            {!practiceCollapsed && (
-              <div className="px-4">
-                <p style={{ fontSize: 12, color: colors.inkSoft, margin: "8px 0 8px" }}>
-                  یه جمله به {LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang} بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. یا هر سوال گرامری‌ای که داری — چه درباره‌ی این جمله، چه یه سوال کاملاً جدا — همین‌جا بپرس تا مثل یه معلم زبان جواب بدم.
-                </p>
+              با یه سقفِ عرض روی صفحه‌های بزرگ‌تر تا خیلی کشیده نشه).
+              flex:1 می‌گیره تا هرچقدر ارتفاعِ نوار (با کشیدن) عوض بشه،
+              خودش رو با اون تطبیق بده؛ تاریخچه‌ی گفتگو هم به‌جای یه
+              maxHeight ثابت، از باقیِ فضا پر می‌شه (flex:1، خودش
+              overflow-y:auto). همیشه mount می‌مونه (نه با شرط)، تا کشیدن/
+              اسنپ‌شدن نرم به نظر بیاد؛ فقط توی حالتِ «peek»، ارتفاعِ خودِ
+              نوار (که همون ارتفاعِ هدره) عملاً هیچی ازش رو نشون نمی‌ده. */}
+          <div
+            style={{
+              width: "min(100%, 640px)",
+              margin: "0 auto",
+              flex: 1,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div
+              aria-hidden={practiceSheet === "peek"}
+              className="px-4"
+              style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}
+            >
+              <p style={{ fontSize: 12, color: colors.inkSoft, margin: "8px 0 8px", flexShrink: 0 }}>
+                یه جمله به {LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang} بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. یا هر سوال گرامری‌ای که داری — چه درباره‌ی این جمله، چه یه سوال کاملاً جدا — همین‌جا بپرس تا مثل یه معلم زبان جواب بدم.
+              </p>
 
                 {chatMessages.length > 0 && (
-                  <div style={{ maxHeight: "34vh", overflowY: "auto", marginBottom: 10, paddingRight: 2 }}>
+                  <div style={{ flex: 1, minHeight: 0, overflowY: "auto", marginBottom: 10, paddingRight: 2 }}>
                     {chatMessages.map((m, i) => (
                       <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-start" : "flex-end", marginBottom: 10 }}>
                         <div
@@ -7122,15 +7280,15 @@ function GrammarPanel({
                     <div ref={chatEndRef} />
                   </div>
                 )}
-                {chatError && <p style={{ fontSize: 12, color: colors.rose, marginBottom: 8 }}>{chatError}</p>}
-              </div>
-            )}
+                {chatError && <p style={{ fontSize: 12, color: colors.rose, marginBottom: 8, flexShrink: 0 }}>{chatError}</p>}
+            </div>
 
-            {/* کادرِ نوشتن — همیشه در دسترسه (چه گفتگو باز باشه چه جمع‌شده)،
+            {/* کادرِ نوشتن — همیشه در دسترسه (در هر سه حالتِ جمع/نیمه/کامل)،
                 دقیقاً مثلِ نوارِ ارسالِ پیامِ اپ‌های چت که همیشه پایینِ صفحه
-                ثابته. با تپ‌کردن روی خودِ اینپوت هم گفتگو به‌طورِ خودکار
-                باز می‌شه تا کاربر جواب/تاریخچه رو ببینه. */}
-            <div className="px-4" style={{ paddingBottom: 8 }}>
+                ثابته. با تپ‌کردن روی خودِ اینپوت، اگه نوار کاملاً جمع بود
+                (peek)، فقط تا نیمه (half) باز می‌شه — نه کاملِ صفحه — تا
+                جمله‌های بالای صفحه هم درحینِ تایپ دیده بمونن. */}
+            <div className="px-4" style={{ paddingBottom: 8, flexShrink: 0 }}>
               <div
                 className="flex gap-2 items-end"
                 style={{
@@ -7138,7 +7296,7 @@ function GrammarPanel({
                   border: `1.5px solid ${colors.teal}`,
                   borderRadius: 12,
                   padding: 6,
-                  marginTop: practiceCollapsed ? 8 : 0,
+                  marginTop: practiceSheet === "peek" ? 8 : 0,
                 }}
               >
                 <textarea
@@ -7146,7 +7304,7 @@ function GrammarPanel({
                   dir="auto"
                   rows={1}
                   value={chatInput}
-                  onFocus={() => setPracticeCollapsed(false)}
+                  onFocus={() => setPracticeSheet((s) => (s === "peek" ? "half" : s))}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -7171,7 +7329,7 @@ function GrammarPanel({
                 />
                 <button
                   onClick={() => {
-                    setPracticeCollapsed(false);
+                    setPracticeSheet((s) => (s === "peek" ? "half" : s));
                     sendChat();
                   }}
                   disabled={chatLoading || !chatInput.trim()}
