@@ -7092,8 +7092,12 @@ function GrammarPanel({
                   borderRadius: "50%",
                   // یه پله تیره‌تر از پس‌زمینه‌ی نوارِ پلیر (colors.paper) تا
                   // دکمه‌ی شناور به‌وضوح از پلیر و بقیه‌ی صفحه جدا دیده بشه.
+                  // این دکمه همیشه کاملاً تیره/توپره — به‌عمد به اسلایدرِ
+                  // «شفافیت پنل تمرین» گوش نمی‌ده (اون فقط برای خودِ چتِ
+                  // بازشده‌ست، نه برای دکمه‌ی شناور که باید همیشه واضح دیده
+                  // بشه).
                   backgroundColor: colors.paperDark,
-                  opacity: practiceOpacity / 100,
+                  opacity: 1,
                   border: `1px solid ${PRACTICE_PANEL_BORDER}`,
                   boxShadow: "0 8px 20px rgba(28,37,65,0.28)",
                   display: "flex",
@@ -7109,7 +7113,10 @@ function GrammarPanel({
                   top: practicePos.y,
                   width: "min(92vw, 360px)",
                   zIndex: 41,
-                  backgroundColor: colors.paper,
+                  // یه پله تیره‌تر از پس‌زمینه‌ی نوارِ پلیر (colors.paper) —
+                  // مثل خودِ دکمه‌ی شناور، تا از پس‌زمینه‌ی صفحه هم که همون
+                  // colors.paper هست به‌وضوح جدا دیده بشه.
+                  backgroundColor: colors.paperDark,
                   opacity: practiceOpacity / 100,
                   border: `1px solid ${PRACTICE_PANEL_BORDER}`,
                   borderRadius: 16,
@@ -7219,7 +7226,7 @@ function GrammarPanel({
                           padding: "8px 12px",
                           borderRadius: 12,
                           fontSize: 13,
-                          backgroundColor: m.role === "user" ? "white" : colors.goldSoft,
+                          backgroundColor: m.role === "user" ? colors.paper : colors.goldSoft,
                           border: `1px solid ${colors.cardBorder}`,
                         }}
                       >
@@ -7276,7 +7283,7 @@ function GrammarPanel({
               <div
                 className="flex gap-2 items-end"
                 style={{
-                  backgroundColor: "white",
+                  backgroundColor: colors.paper,
                   border: `1px solid ${colors.cardBorder}`,
                   borderRadius: 12,
                   padding: 6,
