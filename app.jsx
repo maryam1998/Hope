@@ -1954,26 +1954,36 @@ async function localizeGrammarDetailMarkdown(englishText, nativeLang, aiSettings
 async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history, targetOrder }) {
   const label = nativeLabel || "Persian";
   const langLabel = LANGUAGES.find((l) => l.code === langCode)?.label || langCode;
-  const otherLangsLabel = (targetOrder || [])
-    .filter((c) => c !== langCode && c !== nativeLang)
-    .map((c) => LANGUAGES.find((l) => l.code === c)?.label || c)
-    .join(", ");
-  const historyText = (history || [])
-    .slice(-8)
-    .map((m) => `${m.role === "user" ? "Learner" : "Teacher"}: ${m.text}`)
-    .join("\n");
+  const otherLangsLabel =
+    (targetOrder || [])
+      .filter((c) => c !== langCode && c !== nativeLang)
+      .map((c) => LANGUAGES.find((l) => l.code === c)?.label || c)
+      .join(", ") || "None";
+  const historyText =
+    (history || [])
+      .slice(-8)
+      .map((m) => `${m.role === "user" ? "Learner" : "Teacher"}: ${m.text}`)
+      .join("\n") || "None";
   const prompt =
-    `You are a warm and friendly language teacher having a conversation with a beginner language learner.\n` +
-    `User's native language: ${label}\n` +
+    `You are a warm and patient language teacher helping a beginner learner.\n\n` +
+    `Learner's native language: ${label}\n` +
     `Language they are practicing: ${langLabel}\n` +
-    `Other languages they are learning simultaneously: ${otherLangsLabel || "None"}\n\n` +
-    (historyText ? `Recent conversation so far, for context:\n${historyText}\n\n` : "") +
-    `The user sent this message: "${userSentence}"\n\n` +
-    `Your task:\n` +
-    `- If the user has written a sentence for practice, check it. If it is incorrect, provide the correct version and explain the reason simply, without technical terminology. If a word or phrase sounds unnatural, suggest a more natural alternative. Extract one useful grammar point from the same sentence and explain it. When helpful, mention similarities or differences between this rule and the other languages (${otherLangsLabel}).\n` +
-    `- If the user has asked a grammar question, answer it directly and briefly, using simple examples.\n\n` +
-    `Write all explanations in ${label}, but keep the foreign-language sentences in their original language.\n` +
-    `Keep your responses short, warm, and easy for a beginner to understand. Do not use technical terminology unless necessary.`;
+    `Other languages they also study: ${otherLangsLabel}\n\n` +
+    `Previous conversation (if any):\n${historyText}\n\n` +
+    `Now the learner says: "${userSentence}"\n\n` +
+    `Please respond in ${label}, but keep the example sentences in ${langLabel}.\n\n` +
+    `Your answer must follow this exact structure:\n\n` +
+    `1. Quick check: Say if the sentence is correct, almost correct, or needs work – be encouraging.\n\n` +
+    `2. If there's a mistake:\n\n` +
+    `   - What's wrong: Name the type of error (e.g. word order, verb tense, wrong preposition, odd word choice).\n` +
+    `   - Correct version: Write the full corrected sentence in ${langLabel}.\n` +
+    `   - Why it's wrong: Explain briefly in very simple words (no grammar jargon).\n` +
+    `   - Compare with other languages (${otherLangsLabel}): Only if it helps – mention if the rule is similar or different.\n\n` +
+    `3. If the sentence is already correct:\n\n` +
+    `   - Say "Great! Your sentence is correct."\n` +
+    `   - Give one extra tip: a more natural synonym, a common phrase, or a slight variation.\n\n` +
+    `4. One more example: Give a new sentence (different from the learner's) that shows the same grammar point, with a translation into ${label}.\n\n` +
+    `Keep your whole reply short (under 150 words), clear, and friendly. Use bullet points or short paragraphs.`;
 
   const text = await callAI({ prompt, maxTokens: 1200, aiSettings });
   return text.trim();
@@ -6601,7 +6611,9 @@ function GrammarPanel({
   const chatTextareaRef = useRef(null);
   // پنلِ شناورِ «تمرین جمله‌سازی» — جمع‌شده/بازشده، فقط برای مدیریتِ جا؛
   // خودِ گفتگو (chatMessages) دست‌نخورده می‌مونه، همیشه mount شده‌ست.
-  const [practiceCollapsed, setPracticeCollapsed] = useState(false);
+  // جمع‌شده = یه دکمه‌ی شناورِ گرد با آیکن چت، دقیقاً مثلِ ویجت‌های چتِ
+  // معمولِ وب — پیش‌فرض هم همینه تا صفحه رو شلوغ نکنه.
+  const [practiceCollapsed, setPracticeCollapsed] = useState(true);
   const practicePanelRef = useRef(null);
   // موقعیتِ پنلِ شناور روی صفحه (به‌جای چسبیدنِ ثابت به کفِ صفحه) — با
   // انگشت/ماوس از روی دستگیره‌ی بالای پنل قابلِ جابه‌جاییه و همیشه روی
@@ -6620,6 +6632,13 @@ function GrammarPanel({
   });
   const hasAutoPositionedRef = useRef(false);
   const [practiceDrag, setPracticeDrag] = useState(null); // { startX, startY, baseX, baseY, w, h } while dragging
+  // وقتی جمع‌شده (دکمه‌ی شناور)، خودِ دکمه هم دستگیره‌ی کشیدنه و هم با یه
+  // تپ ساده باز می‌شه؛ برای اینکه این دو با هم قاطی نشن، تا وقتی جابه‌جاییِ
+  // انگشت از یه آستانه‌ی کوچیک بیشتر نشده، «کشیدن» حساب نمی‌شه — فقط بعد از
+  // رهاکردن، اگه واقعاً جابه‌جا نشده بود، به‌عنوانِ تپ (بازکردنِ چت) در نظر
+  // گرفته می‌شه. این‌جوری کشیدن هیچ‌وقت باعثِ بازشدن/بسته‌شدنِ اشتباهی نمی‌شه.
+  const dragMovedRef = useRef(false);
+  const DRAG_THRESHOLD = 6;
 
   useEffect(() => {
     try {
@@ -6627,13 +6646,14 @@ function GrammarPanel({
     } catch {}
   }, [practicePos]);
 
-  // کشیدنِ پنل با انگشت/ماوس از روی دستگیره — همون الگویِ کشیدن‌وانداختنِ
-  // بقیه‌ی جاهای اپ (مثلاً OrderChips): موقعیتِ شروع رو نگه می‌داریم و روی
+  // کشیدنِ پنل با انگشت/ماوس — وقتی بازه از روی دستگیره‌ی بالای پنل، وقتی
+  // جمع‌شده از روی خودِ دکمه‌ی شناور: موقعیتِ شروع رو نگه می‌داریم و روی
   // window گوش می‌دیم تا هرجای صفحه هم انگشت بره، جابه‌جایی ادامه پیدا کنه.
   function startPracticeDrag(e) {
     const point = e.touches ? e.touches[0] : e;
     const el = practicePanelRef.current;
     const rect = el ? el.getBoundingClientRect() : { left: practicePos.x, top: practicePos.y, width: 320, height: 220 };
+    dragMovedRef.current = false;
     setPracticeDrag({ startX: point.clientX, startY: point.clientY, baseX: rect.left, baseY: rect.top, w: rect.width, h: rect.height });
   }
 
@@ -6644,10 +6664,17 @@ function GrammarPanel({
       if (e.touches) e.preventDefault();
       const dx = point.clientX - practiceDrag.startX;
       const dy = point.clientY - practiceDrag.startY;
+      if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) dragMovedRef.current = true;
       setPracticePos(clampPracticePos(practiceDrag.baseX + dx, practiceDrag.baseY + dy, practiceDrag.w, practiceDrag.h));
     }
     function handleUp() {
       setPracticeDrag(null);
+      // اگه انگشت/ماوس تقریباً همون‌جا که شروع شده بود رها شد (کشیده نشد)،
+      // این یعنی کاربر داشت روی دکمه‌ی شناور تپ می‌کرد، نه جابه‌جاش می‌کرد —
+      // پس چتِ تمرین رو باز کن.
+      if (!dragMovedRef.current) {
+        setPracticeCollapsed((v) => (v ? false : v));
+      }
     }
     window.addEventListener("mousemove", handleMove);
     window.addEventListener("touchmove", handleMove, { passive: false });
@@ -7051,214 +7078,271 @@ function GrammarPanel({
       {createPortal(
         <div
           ref={practicePanelRef}
-          style={{
-            position: "fixed",
-            left: practicePos.x,
-            top: practicePos.y,
-            width: "min(92vw, 360px)",
-            zIndex: 41,
-            backgroundColor: colors.paper,
-            opacity: practiceOpacity / 100,
-            border: `1px solid ${PRACTICE_PANEL_BORDER}`,
-            borderRadius: 16,
-            boxShadow: "0 8px 24px rgba(28,37,65,0.18)",
-            touchAction: practiceDrag ? "none" : "auto",
-          }}
-        >
-        {/* دستگیره‌ی کشیدن — فقط همین نوار برای جابه‌جاکردنِ پنل با انگشت/
-            ماوس واکنش نشون می‌ده تا با دکمه‌ها و ورودی‌های داخلِ پنل تداخل
-            نکنه. */}
-        <div
-          onMouseDown={startPracticeDrag}
-          onTouchStart={startPracticeDrag}
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            padding: "7px 0 2px",
-            cursor: practiceDrag ? "grabbing" : "grab",
-            touchAction: "none",
-          }}
-          aria-hidden="true"
-        >
-          <div style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: PRACTICE_PANEL_BORDER }} />
-        </div>
-        <div className="px-4 pt-1 flex items-center justify-between gap-2 flex-wrap" style={{ rowGap: 6 }}>
-          <button
-            onClick={() => setPracticeCollapsed((v) => !v)}
-            className="flex items-center gap-1"
-            aria-label={practiceCollapsed ? "بازکردنِ پنلِ تمرین" : "جمع‌کردنِ پنلِ تمرین"}
-            title={practiceCollapsed ? "بازکردن" : "جمع‌کردن"}
-            style={{ fontWeight: 700, background: "none", border: "none", padding: 0, cursor: "pointer" }}
-          >
-            {practiceCollapsed ? <ChevronUp size={16} color={colors.inkSoft} /> : <ChevronDown size={16} color={colors.inkSoft} />}
-            <span>تمرین جمله‌سازی با هوش مصنوعی</span>
-          </button>
-          <div className="flex items-center gap-2" style={{ marginInlineStart: "auto" }}>
-            {chatMessages.length > 0 && (
-              <button
-                onClick={clearChat}
-                className="flex items-center gap-1"
-                style={{ fontSize: 11, color: colors.rose }}
-                title={isFa ? "پاک‌کردن گفتگو" : "Clear conversation"}
-              >
-                <Trash2 size={12} />
-                {isFa ? "پاک‌کردن گفتگو" : "Clear"}
-              </button>
-            )}
-            <select
-              value={chatLang}
-              onChange={(e) => setChatLang(e.target.value)}
-              style={{ fontSize: 12, border: `1px solid ${colors.cardBorder}`, borderRadius: 8, padding: "3px 6px" }}
-            >
-              {langOptions.map((code) => (
-                <option key={code} value={code}>
-                  {LANGUAGES.find((l) => l.code === code)?.label || code}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {!practiceCollapsed && (
-          <div className="px-4">
-            <p style={{ fontSize: 12, color: colors.inkSoft, margin: "6px 0 8px" }}>
-              یه جمله به {LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang} بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. بعدش هم می‌تونی هر سوال گرامری‌ای درباره‌ش داشتی همین‌جا بپرسی.
-            </p>
-
-            {chatMessages.length > 0 && (
-              <div style={{ maxHeight: "34vh", overflowY: "auto", marginBottom: 10, paddingRight: 2 }}>
-                {chatMessages.map((m, i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-start" : "flex-end", marginBottom: 10 }}>
-                    <div
-                      dir="auto"
-                      style={{
-                        maxWidth: "90%",
-                        padding: "8px 12px",
-                        borderRadius: 12,
-                        fontSize: 13,
-                        backgroundColor: m.role === "user" ? "white" : colors.goldSoft,
-                        border: `1px solid ${colors.cardBorder}`,
-                      }}
-                    >
-                      {m.role === "user" ? m.text : <MiniMarkdown text={m.text} speakCode={chatLang} nativeLang={nativeLang} aiSettings={aiSettings} />}
-                      {m.role === "ai" && (
-                        <div className="flex justify-end" style={{ marginTop: 6 }}>
-                          {m.savedToGrammar ? (
-                            <span
-                              className="flex items-center gap-1"
-                              style={{ fontSize: 11, color: colors.gold, fontWeight: 700 }}
-                            >
-                              <Bookmark size={12} fill={colors.gold} />
-                              ذخیره شد
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => {
-                                saveGrammarNote({
-                                  langCode: chatLang,
-                                  word: m.forSentence || "جمله",
-                                  sentence: m.forSentence || "",
-                                  markdown: m.text,
-                                });
-                                // یه‌بار ذخیره کافیه — با تغییر همین پیام به حالت
-                                // «ذخیره شد»، دکمه غیرفعال می‌شه و دیگه نیازی به
-                                // زدن دوباره‌ش نیست (که قبلاً گیج‌کننده بود).
-                                setChatMessages((prev) =>
-                                  prev.map((msg, idx) => (idx === i ? { ...msg, savedToGrammar: true } : msg))
-                                );
-                              }}
-                              className="flex items-center gap-1"
-                              style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}
-                            >
-                              <Bookmark size={12} />
-                              ذخیره در یادگیری گرامر
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {chatLoading && (
-                  <div className="flex items-center gap-1" style={{ fontSize: 12, color: colors.inkSoft }}>
-                    <Loader2 size={13} className="spin" />
-                    در حال بررسی جمله...
-                  </div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
-            )}
-            {chatError && <p style={{ fontSize: 12, color: colors.rose, marginBottom: 8 }}>{chatError}</p>}
-
-            <div
-              className="flex gap-2 items-end"
-              style={{
-                backgroundColor: "white",
-                border: `1px solid ${colors.cardBorder}`,
-                borderRadius: 12,
-                padding: 6,
-                marginBottom: 8,
-              }}
-            >
-              <textarea
-                ref={chatTextareaRef}
-                dir="auto"
-                rows={1}
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                    e.preventDefault();
-                    sendChat();
-                  }
-                }}
-                placeholder="جمله‌ت رو بنویس یا سوالت رو بپرس... (برای خط جدید Enter، برای ارسال دکمه رو بزن)"
-                style={{
-                  flex: 1,
-                  border: "none",
-                  outline: "none",
-                  resize: "none",
-                  padding: "8px 10px",
-                  fontSize: 13,
-                  fontFamily: "inherit",
-                  lineHeight: 1.6,
-                  maxHeight: 140,
-                }}
-              />
-              <button
-                onClick={sendChat}
-                disabled={chatLoading || !chatInput.trim()}
-                style={{
-                  backgroundColor: colors.gold,
-                  color: "white",
-                  borderRadius: 10,
-                  padding: "8px 14px",
+          onMouseDown={practiceCollapsed ? startPracticeDrag : undefined}
+          onTouchStart={practiceCollapsed ? startPracticeDrag : undefined}
+          style={
+            practiceCollapsed
+              ? {
+                  position: "fixed",
+                  left: practicePos.x,
+                  top: practicePos.y,
+                  width: 58,
+                  height: 58,
+                  zIndex: 41,
+                  borderRadius: "50%",
+                  // یه پله تیره‌تر از پس‌زمینه‌ی نوارِ پلیر (colors.paper) تا
+                  // دکمه‌ی شناور به‌وضوح از پلیر و بقیه‌ی صفحه جدا دیده بشه.
+                  backgroundColor: colors.paperDark,
+                  opacity: practiceOpacity / 100,
+                  border: `1px solid ${PRACTICE_PANEL_BORDER}`,
+                  boxShadow: "0 8px 20px rgba(28,37,65,0.28)",
                   display: "flex",
                   alignItems: "center",
-                  opacity: chatLoading || !chatInput.trim() ? 0.6 : 1,
-                  flexShrink: 0,
+                  justifyContent: "center",
+                  cursor: practiceDrag ? "grabbing" : "pointer",
+                  touchAction: "none",
+                  userSelect: "none",
+                }
+              : {
+                  position: "fixed",
+                  left: practicePos.x,
+                  top: practicePos.y,
+                  width: "min(92vw, 360px)",
+                  zIndex: 41,
+                  backgroundColor: colors.paper,
+                  opacity: practiceOpacity / 100,
+                  border: `1px solid ${PRACTICE_PANEL_BORDER}`,
+                  borderRadius: 16,
+                  boxShadow: "0 8px 24px rgba(28,37,65,0.18)",
+                  touchAction: practiceDrag ? "none" : "auto",
+                }
+          }
+        >
+        {practiceCollapsed ? (
+          // دکمه‌ی شناورِ چت — درست مثلِ ویجت‌های چتِ معمولِ وب: یه دایره با
+          // آیکنِ پیام که هم با تپ باز می‌شه، هم با کشیدن از هرجای خودش
+          // (نه فقط یه دستگیره‌ی مخصوص) جابه‌جا می‌شه. تشخیصِ تپ در برابرِ
+          // کشیدن توسط dragMovedRef در window-listenerِ بالا انجام می‌شه، نه
+          // اینجا، تا کشیدن هیچ‌وقت باعثِ بازشدنِ اشتباهیِ چت نشه.
+          <div
+            aria-label="بازکردنِ چتِ تمرین جمله‌سازی با هوش مصنوعی"
+            title="تمرین جمله‌سازی با هوش مصنوعی"
+            style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}
+          >
+            <MessageCircle size={26} color={colors.gold} />
+            {chatMessages.length > 0 && (
+              <span
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  top: 4,
+                  insetInlineEnd: 4,
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  backgroundColor: colors.teal,
+                  border: `2px solid ${colors.paperDark}`,
+                }}
+              />
+            )}
+          </div>
+        ) : (
+          <>
+            {/* دستگیره‌ی کشیدن — فقط همین نوار برای جابه‌جاکردنِ پنل با انگشت/
+                ماوس واکنش نشون می‌ده تا با دکمه‌ها و ورودی‌های داخلِ پنل تداخل
+                نکنه. */}
+            <div
+              onMouseDown={startPracticeDrag}
+              onTouchStart={startPracticeDrag}
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                padding: "7px 0 2px",
+                cursor: practiceDrag ? "grabbing" : "grab",
+                touchAction: "none",
+              }}
+              aria-hidden="true"
+            >
+              <div style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: PRACTICE_PANEL_BORDER }} />
+            </div>
+            <div className="px-4 pt-1 flex items-center justify-between gap-2 flex-wrap" style={{ rowGap: 6 }}>
+              <button
+                onClick={() => setPracticeCollapsed(true)}
+                className="flex items-center gap-1"
+                aria-label="بستنِ چتِ تمرین"
+                title={isFa ? "بستن" : "Close"}
+                style={{ fontWeight: 700, background: "none", border: "none", padding: 0, cursor: "pointer" }}
+              >
+                <MessageCircle size={16} color={colors.inkSoft} />
+                <span>تمرین جمله‌سازی با هوش مصنوعی</span>
+                <X size={14} color={colors.inkSoft} style={{ marginInlineStart: 4 }} />
+              </button>
+              <div className="flex items-center gap-2" style={{ marginInlineStart: "auto" }}>
+                {chatMessages.length > 0 && (
+                  <button
+                    onClick={clearChat}
+                    className="flex items-center gap-1"
+                    style={{ fontSize: 11, color: colors.rose }}
+                    title={isFa ? "پاک‌کردن گفتگو" : "Clear conversation"}
+                  >
+                    <Trash2 size={12} />
+                    {isFa ? "پاک‌کردن گفتگو" : "Clear"}
+                  </button>
+                )}
+                <select
+                  value={chatLang}
+                  onChange={(e) => setChatLang(e.target.value)}
+                  style={{ fontSize: 12, border: `1px solid ${colors.cardBorder}`, borderRadius: 8, padding: "3px 6px" }}
+                >
+                  {langOptions.map((code) => (
+                    <option key={code} value={code}>
+                      {LANGUAGES.find((l) => l.code === code)?.label || code}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="px-4">
+              <p style={{ fontSize: 12, color: colors.inkSoft, margin: "6px 0 8px" }}>
+                یه جمله به {LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang} بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. بعدش هم می‌تونی هر سوال گرامری‌ای درباره‌ش داشتی همین‌جا بپرسی.
+              </p>
+
+              {chatMessages.length > 0 && (
+                <div style={{ maxHeight: "34vh", overflowY: "auto", marginBottom: 10, paddingRight: 2 }}>
+                  {chatMessages.map((m, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-start" : "flex-end", marginBottom: 10 }}>
+                      <div
+                        dir="auto"
+                        style={{
+                          maxWidth: "90%",
+                          padding: "8px 12px",
+                          borderRadius: 12,
+                          fontSize: 13,
+                          backgroundColor: m.role === "user" ? "white" : colors.goldSoft,
+                          border: `1px solid ${colors.cardBorder}`,
+                        }}
+                      >
+                        {m.role === "user" ? m.text : <MiniMarkdown text={m.text} speakCode={chatLang} nativeLang={nativeLang} aiSettings={aiSettings} />}
+                        {m.role === "ai" && (
+                          <div className="flex justify-end" style={{ marginTop: 6 }}>
+                            {m.savedToGrammar ? (
+                              <span
+                                className="flex items-center gap-1"
+                                style={{ fontSize: 11, color: colors.gold, fontWeight: 700 }}
+                              >
+                                <Bookmark size={12} fill={colors.gold} />
+                                ذخیره شد
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  saveGrammarNote({
+                                    langCode: chatLang,
+                                    word: m.forSentence || "جمله",
+                                    sentence: m.forSentence || "",
+                                    markdown: m.text,
+                                  });
+                                  // یه‌بار ذخیره کافیه — با تغییر همین پیام به حالت
+                                  // «ذخیره شد»، دکمه غیرفعال می‌شه و دیگه نیازی به
+                                  // زدن دوباره‌ش نیست (که قبلاً گیج‌کننده بود).
+                                  setChatMessages((prev) =>
+                                    prev.map((msg, idx) => (idx === i ? { ...msg, savedToGrammar: true } : msg))
+                                  );
+                                }}
+                                className="flex items-center gap-1"
+                                style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}
+                              >
+                                <Bookmark size={12} />
+                                ذخیره در یادگیری گرامر
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {chatLoading && (
+                    <div className="flex items-center gap-1" style={{ fontSize: 12, color: colors.inkSoft }}>
+                      <Loader2 size={13} className="spin" />
+                      در حال بررسی جمله...
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+              )}
+              {chatError && <p style={{ fontSize: 12, color: colors.rose, marginBottom: 8 }}>{chatError}</p>}
+
+              <div
+                className="flex gap-2 items-end"
+                style={{
+                  backgroundColor: "white",
+                  border: `1px solid ${colors.cardBorder}`,
+                  borderRadius: 12,
+                  padding: 6,
+                  marginBottom: 8,
                 }}
               >
-                <Send size={16} />
-              </button>
+                <textarea
+                  ref={chatTextareaRef}
+                  dir="auto"
+                  rows={1}
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                      e.preventDefault();
+                      sendChat();
+                    }
+                  }}
+                  placeholder="جمله‌ت رو بنویس یا سوالت رو بپرس... (برای خط جدید Enter، برای ارسال دکمه رو بزن)"
+                  style={{
+                    flex: 1,
+                    border: "none",
+                    outline: "none",
+                    resize: "none",
+                    padding: "8px 10px",
+                    fontSize: 13,
+                    fontFamily: "inherit",
+                    lineHeight: 1.6,
+                    maxHeight: 140,
+                  }}
+                />
+                <button
+                  onClick={sendChat}
+                  disabled={chatLoading || !chatInput.trim()}
+                  style={{
+                    backgroundColor: colors.gold,
+                    color: "white",
+                    borderRadius: 10,
+                    padding: "8px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    opacity: chatLoading || !chatInput.trim() ? 0.6 : 1,
+                    flexShrink: 0,
+                  }}
+                >
+                  <Send size={16} />
+                </button>
+              </div>
             </div>
-          </div>
-        )}
 
-        {/* شفافیتِ همینِ پنل — دقیقاً مثل کنترلِ «شفافیت پلیر» پایینِ صفحه. */}
-        <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2, paddingBottom: 8 }}>
-          <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پنل تمرین</span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={practiceOpacity}
-            onChange={(e) => setPracticeOpacity && setPracticeOpacity(Number(e.target.value))}
-            aria-label="شفافیت پنل تمرین"
-            style={{ flex: 1, accentColor: colors.teal }}
-          />
-          <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{practiceOpacity}%</span>
-        </div>
+            {/* شفافیتِ همینِ پنل — دقیقاً مثل کنترلِ «شفافیت پلیر» پایینِ صفحه. */}
+            <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2, paddingBottom: 8 }}>
+              <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پنل تمرین</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={practiceOpacity}
+                onChange={(e) => setPracticeOpacity && setPracticeOpacity(Number(e.target.value))}
+                aria-label="شفافیت پنل تمرین"
+                style={{ flex: 1, accentColor: colors.teal }}
+              />
+              <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{practiceOpacity}%</span>
+            </div>
+          </>
+        )}
         </div>,
         document.body
       )}
