@@ -8249,25 +8249,30 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       {/* نقطه‌ی راهنمای «پلیرِ نامرئی» — وقتی شفافیتِ پلیر رو کاربر می‌بره
           روی صفر، خودِ پلیر (و در نتیجه‌ی همون opacity، تمامِ محتوای
           داخلش) کاملاً نامرئی می‌شه و ممکنه کاربر فراموش کنه پلیری در
-          کاره. این یک نقطه‌ی مستقلِ خیلی کوچیک و کم‌رنگه، بیرون از دیوِ
-          پلیر (پس تحتِ تأثیرِ opacity: playerOpacity/100 نیست)، که فقط تو
-          گوشه‌ی پلیر می‌شینه و می‌گه «هنوز اینجام». pointerEvents: none
-          داره تا نه جلوی متنِ پشتش رو بگیره و نه کلیک‌ها رو قاپ بزنه. */}
+          کاره. این دکمه‌ی مستقل، بیرون از دیوِ پلیر (پس تحتِ تأثیرِ
+          opacity: playerOpacity/100 نیست)، گوشه‌ی پلیر می‌شینه، هم می‌گه
+          «هنوز اینجام» و هم با یه کلیک شفافیت رو برمی‌گردونه به ۱۰۰٪ —
+          چون وقتی صفره، خودِ اسلایدرِ تنظیمِ شفافیت هم داخلِ همون پلیرِ
+          نامرئیه و قابل دیدن/لمس نیست. */}
       {showPlayerBar && playerOpacity === 0 && (
-        <div
-          aria-hidden="true"
-          title="پلیر همچنان فعاله — فقط شفافیتش صفره"
+        <button
+          onClick={() => setPlayerOpacity(100)}
+          title="پلیر نامرئیه — بزن تا شفافیتش برگرده رو ۱۰۰٪"
+          aria-label="نمایش دوباره‌ی پلیر"
           style={{
             position: "fixed",
             right: 14,
             bottom: practicePanelHeight + 6,
             zIndex: 41,
-            width: 4,
-            height: 4,
+            width: 22,
+            height: 22,
             borderRadius: "50%",
+            border: `1px solid ${colors.gold}`,
             backgroundColor: colors.gold,
-            opacity: 0.35,
-            pointerEvents: "none",
+            opacity: 0.9,
+            boxShadow: "0 2px 8px rgba(28,37,65,0.25)",
+            cursor: "pointer",
+            padding: 0,
           }}
         />
       )}
