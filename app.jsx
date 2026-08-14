@@ -1965,14 +1965,17 @@ async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLab
       .map((m) => `${m.role === "user" ? "Learner" : "Teacher"}: ${m.text}`)
       .join("\n") || "None";
   const prompt =
-    `You are a warm and patient language teacher helping a beginner learner.\n\n` +
+    `You are a warm and patient language teacher helping a beginner learner, acting as their all-purpose grammar assistant.\n\n` +
     `Learner's native language: ${label}\n` +
     `Language they are practicing: ${langLabel}\n` +
     `Other languages they also study: ${otherLangsLabel}\n\n` +
     `Previous conversation (if any):\n${historyText}\n\n` +
-    `Now the learner says: "${userSentence}"\n\n` +
-    `Please respond in ${label}, but keep the example sentences in ${langLabel}.\n\n` +
-    `Your answer must follow this exact structure:\n\n` +
+    `Now the learner writes: "${userSentence}"\n\n` +
+    `First, decide what the learner is doing:\n` +
+    `A) They wrote a practice sentence in ${langLabel} they want checked (even if it has mistakes), OR\n` +
+    `B) They are asking a grammar question — about ${langLabel}, about ${label}, about another language they study, or a general "why"/"what's the difference"/"how do I say..." question. This includes questions written in ${label} with no ${langLabel} sentence to check, and follow-up questions about something said earlier in the conversation.\n\n` +
+    `Please respond in ${label}, but keep example sentences in ${langLabel} (or whichever language the question is specifically about).\n\n` +
+    `If (A) — a sentence to check — follow this exact structure:\n\n` +
     `1. Quick check: Say if the sentence is correct, almost correct, or needs work – be encouraging.\n\n` +
     `2. If there's a mistake:\n\n` +
     `   - What's wrong: Name the type of error (e.g. word order, verb tense, wrong preposition, odd word choice).\n` +
@@ -1983,6 +1986,11 @@ async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLab
     `   - Say "Great! Your sentence is correct."\n` +
     `   - Give one extra tip: a more natural synonym, a common phrase, or a slight variation.\n\n` +
     `4. One more example: Give a new sentence (different from the learner's) that shows the same grammar point, with a translation into ${label}.\n\n` +
+    `If (B) — a grammar question, not a sentence to check — answer it directly and clearly instead of forcing the structure above:\n\n` +
+    `   - Answer the question first, in plain simple words (no jargon, no unnecessary labels like "Quick check").\n` +
+    `   - Give 1-2 short example sentences in ${langLabel} that illustrate the point, each with a translation into ${label}.\n` +
+    `   - If relevant, briefly compare with ${otherLangsLabel} or with ${label} to help the rule stick.\n` +
+    `   - Do not invent a sentence to "correct" — there isn't one; just teach.\n\n` +
     `Keep your whole reply short (under 150 words), clear, and friendly. Use bullet points or short paragraphs.`;
 
   const text = await callAI({ prompt, maxTokens: 1200, aiSettings });
@@ -6873,7 +6881,7 @@ function GrammarPanel({
       <div>
         <h2 style={{ fontWeight: 800, fontSize: 18, color: colors.ink, marginBottom: 4 }}>گرامر</h2>
         <p style={{ fontSize: 13, color: colors.inkSoft, lineHeight: 1.7 }}>
-          توضیحات گرامری‌ای که از روی لغت‌های داستان ذخیره کردی اینجاست. پایین‌تر هم می‌تونی با هوش مصنوعی جمله بنویسی تا مثل یه معلم زبان، اصلاحش کنه و گرامرش رو کلمه‌به‌کلمه بهت یاد بده.
+          توضیحات گرامری‌ای که از روی لغت‌های داستان ذخیره کردی اینجاست. پایین‌تر هم می‌تونی با هوش مصنوعی جمله بنویسی تا مثل یه معلم زبان، اصلاحش کنه و گرامرش رو کلمه‌به‌کلمه بهت یاد بده — یا هر سوال گرامری دیگه‌ای هم داشتی همون‌جا بپرسی.
         </p>
       </div>
 
@@ -7136,8 +7144,8 @@ function GrammarPanel({
           // کشیدن توسط dragMovedRef در window-listenerِ بالا انجام می‌شه، نه
           // اینجا، تا کشیدن هیچ‌وقت باعثِ بازشدنِ اشتباهیِ چت نشه.
           <div
-            aria-label="بازکردنِ چتِ تمرین جمله‌سازی با هوش مصنوعی"
-            title="تمرین جمله‌سازی با هوش مصنوعی"
+            aria-label="بازکردنِ چتِ تمرین جمله‌سازی و گرامر با هوش مصنوعی"
+            title="تمرین جمله‌سازی و گرامر با هوش مصنوعی"
             style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}
           >
             <MessageCircle size={26} color="#ffffff" fill="rgba(255,255,255,0.15)" strokeWidth={2.25} />
@@ -7187,8 +7195,23 @@ function GrammarPanel({
                   title={isFa ? "بستن" : "Close"}
                   style={{ fontWeight: 700, color: "#fff", background: "none", border: "none", padding: 0, cursor: "pointer" }}
                 >
-                  <MessageCircle size={16} color="#fff" />
-                  <span>تمرین جمله‌سازی با هوش مصنوعی</span>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 20,
+                      height: 20,
+                      borderRadius: "50%",
+                      backgroundColor: colors.teal,
+                      border: "2px solid rgba(255,255,255,0.85)",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <MessageCircle size={11} color="#ffffff" fill="rgba(255,255,255,0.15)" strokeWidth={2.25} />
+                  </span>
+                  <span>تمرین جمله‌سازی و گرامر با هوش مصنوعی</span>
                   <X size={14} color="#fff" style={{ marginInlineStart: 4 }} />
                 </button>
                 <div className="flex items-center gap-2" style={{ marginInlineStart: "auto" }}>
@@ -7220,7 +7243,7 @@ function GrammarPanel({
 
             <div className="px-4">
               <p style={{ fontSize: 12, color: colors.inkSoft, margin: "6px 0 8px" }}>
-                یه جمله به {LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang} بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. بعدش هم می‌تونی هر سوال گرامری‌ای درباره‌ش داشتی همین‌جا بپرسی.
+                یه جمله به {LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang} بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. یا هر سوال گرامری‌ای که داری — چه درباره‌ی این جمله، چه یه سوال کاملاً جدا — همین‌جا بپرس تا مثل یه معلم زبان جواب بدم.
               </p>
 
               {chatMessages.length > 0 && (
