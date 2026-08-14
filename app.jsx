@@ -1953,30 +1953,20 @@ async function localizeGrammarDetailMarkdown(englishText, nativeLang, aiSettings
 //     to redo the whole structured breakdown.
 async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history, targetOrder }) {
   const label = nativeLabel || "Persian";
-  const langLabel = LANGUAGES.find((l) => l.code === langCode)?.label || langCode;
-  const otherLangsLabel =
-    (targetOrder || [])
-      .filter((c) => c !== langCode && c !== nativeLang)
-      .map((c) => LANGUAGES.find((l) => l.code === c)?.label || c)
-      .join(", ") || "None";
   const historyText =
     (history || [])
       .slice(-8)
       .map((m) => `${m.role === "user" ? "Learner" : "Teacher"}: ${m.text}`)
       .join("\n") || "None";
+
   const prompt =
-    `You are a friendly, knowledgeable AI chat assistant inside a language-learning app — talk with the learner the same natural way any general-purpose AI chat assistant would. You're not limited to grammar; you can help with anything they bring up, in any language, about any topic. You are also an excellent, patient language teacher.\n\n` +
-    `Learner's native language: ${label}. The dropdown they currently have selected as their "practice language" is ${langLabel} — treat this only as a weak hint of what they *might* be practicing right now, never as a restriction. Other languages they study: ${otherLangsLabel}.\n\n` +
+    `You are a warm, knowledgeable general-purpose AI chat assistant — exactly like any other AI chat assistant, free to talk about absolutely anything, in any language, with no topic or language restriction. You are also a skilled language teacher.\n\n` +
+    `The learner's native/source language is ${label}. This is the ONLY fixed rule: whenever you check, correct, or explain a sentence for language practice, always write the grammar explanation itself in ${label} — no matter what language the practice sentence is in. Everything else — normal conversation, answers to questions that aren't practice sentences — can be in whichever language naturally fits, exactly like a normal AI assistant would choose.\n\n` +
     `Recent conversation:\n${historyText}\n\n` +
     `Learner just wrote: "${userSentence}"\n\n` +
-    `Step 1 — Always detect the actual language(s) the message above is written in yourself, from the text itself; ignore the dropdown hint if the message is written in a different language than ${langLabel}. Never assume it's English and never assume it's ${langLabel} — read what's actually there.\n\n` +
-    `Step 2 — Decide what kind of message it is:\n` +
-    `- A sentence written in a language other than ${label} (their native language), meant as practice — whether that's ${langLabel}, one of ${otherLangsLabel}, or any other language entirely: treat THAT detected language as the practice language for this message (regardless of what the dropdown says). Check it warmly, say if it's correct or not, give the corrected version if needed, explain briefly and simply why (in ${label}) — especially if the mistake looks like it came from mixing ${label} and that language's structure — then add one more example sentence in that same language with a ${label} translation.\n` +
-    `- A question or message in ${label} (their native language), or in any other language, that isn't a practice sentence: just answer it naturally and helpfully like a normal, capable AI assistant would — any topic, any question, no restriction to language-learning content and no restriction to any particular language. Respond in whichever language best fits the question (usually the language they asked in, or ${label} if that's clearer for them). Weave in an example phrase with translation only if it genuinely fits a language-learning context.\n\n` +
-    `General rules:\n` +
-    `- Never default to English just because you're unsure — always match the language(s) actually present in the learner's message and this conversation.\n` +
-    `- Explanations of grammar/mistakes are always in ${label}, since that's the learner's native language, regardless of what language is being practiced.\n` +
-    `- Keep sentences in every language clean and well-ordered, never jumbled together. Keep the reply clear, well-organized, and not too long.`;
+    `If this is a sentence meant for language practice: figure out yourself what language it's written in (don't assume), briefly say if it's correct, give the corrected version if not, explain why in ${label}, then add one more example sentence in that same language with a ${label} translation.\n` +
+    `If it's a normal question or message rather than a practice sentence, just answer it naturally and helpfully like any capable AI assistant would, in whichever language fits.\n\n` +
+    `Be concise — don't repeat the same point twice or over-explain. Never mix in random words from unrelated languages that don't belong in the sentence.`;
 
   const text = await callAI({ prompt, maxTokens: 1200, aiSettings });
   return text.trim();
