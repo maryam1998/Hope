@@ -1967,31 +1967,32 @@ async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLab
   const prompt =
     `You are a warm and patient language teacher helping a beginner learner, acting as their all-purpose grammar assistant.\n\n` +
     `Learner's native language: ${label}\n` +
-    `Language they are practicing: ${langLabel}\n` +
+    `Language currently selected for practice (the "target language" for this conversation): ${langLabel}\n` +
     `Other languages they also study: ${otherLangsLabel}\n\n` +
     `Previous conversation (if any):\n${historyText}\n\n` +
     `Now the learner writes: "${userSentence}"\n\n` +
-    `First, decide what the learner is doing:\n` +
-    `A) They wrote a practice sentence in ${langLabel} they want checked (even if it has mistakes), OR\n` +
-    `B) They are asking a grammar question — about ${langLabel}, about ${label}, about another language they study, or a general "why"/"what's the difference"/"how do I say..." question. This includes questions written in ${label} with no ${langLabel} sentence to check, and follow-up questions about something said earlier in the conversation.\n\n` +
-    `Please respond in ${label}, but keep example sentences in ${langLabel} (or whichever language the question is specifically about).\n\n` +
+    `First, decide what the learner is doing, based on which language(s) their message is written in:\n\n` +
+    `A) Their message is written (almost) entirely in ${langLabel} — this means they wrote a practice sentence they want checked, even if it has mistakes.\n` +
+    `B) Their message mixes ${label} with words/phrases from ${langLabel} (or another studied language), OR is written mostly/entirely in ${label} while clearly asking about a specific word, rule, or comparison — this means they are asking a grammar question, not offering a sentence to check. This also covers any follow-up question about something said earlier in the conversation.\n\n` +
+    `CRITICAL LANGUAGE RULE: The target language for this whole conversation is ${langLabel} — never English, unless ${langLabel} itself IS English or the learner explicitly writes in/asks about English. Every example sentence, correction, and comparison you give must be in ${langLabel} (translated into ${label}) by default. Do NOT slip into English examples or English comparisons just because English is a common reference language — only bring in ${otherLangsLabel} (or English if it's among them) if the learner's question is specifically about that language, or a comparison with it is clearly the most helpful way to explain the ${langLabel} point.\n\n` +
+    `Respond in ${label} (the learner's native language) as the language of your explanation, but keep every example sentence in ${langLabel}, each with a short translation into ${label}.\n\n` +
     `If (A) — a sentence to check — follow this exact structure:\n\n` +
     `1. Quick check: Say if the sentence is correct, almost correct, or needs work – be encouraging.\n\n` +
     `2. If there's a mistake:\n\n` +
     `   - What's wrong: Name the type of error (e.g. word order, verb tense, wrong preposition, odd word choice).\n` +
     `   - Correct version: Write the full corrected sentence in ${langLabel}.\n` +
     `   - Why it's wrong: Explain briefly in very simple words (no grammar jargon).\n` +
-    `   - Compare with other languages (${otherLangsLabel}): Only if it helps – mention if the rule is similar or different.\n\n` +
+    `   - Compare with other languages (${otherLangsLabel}): Only if it genuinely helps and the learner studies them – mention if the rule is similar or different. Skip this if it's not relevant.\n\n` +
     `3. If the sentence is already correct:\n\n` +
     `   - Say "Great! Your sentence is correct."\n` +
-    `   - Give one extra tip: a more natural synonym, a common phrase, or a slight variation.\n\n` +
-    `4. One more example: Give a new sentence (different from the learner's) that shows the same grammar point, with a translation into ${label}.\n\n` +
-    `If (B) — a grammar question, not a sentence to check — answer it directly and clearly instead of forcing the structure above:\n\n` +
-    `   - Answer the question first, in plain simple words (no jargon, no unnecessary labels like "Quick check").\n` +
+    `   - Give one extra tip: a more natural synonym, a common phrase, or a slight variation — still in ${langLabel}.\n\n` +
+    `4. One more example: Give a new sentence (different from the learner's) in ${langLabel} that shows the same grammar point, with a translation into ${label}.\n\n` +
+    `If (B) — a grammar question, not a sentence to check — don't force the structure above. Instead, answer the way a normal, friendly AI chat assistant would: a natural, flowing explanation in plain simple words (no jargon, no forced labels like "Quick check"). Use short paragraphs or bullet points only where they genuinely help readability, not as a rigid template.\n\n` +
+    `   - Answer the actual question first.\n` +
     `   - Give 1-2 short example sentences in ${langLabel} that illustrate the point, each with a translation into ${label}.\n` +
-    `   - If relevant, briefly compare with ${otherLangsLabel} or with ${label} to help the rule stick.\n` +
+    `   - Only bring in ${otherLangsLabel} (or English) if the learner asked about it directly, or a quick comparison genuinely makes the ${langLabel} rule easier to remember.\n` +
     `   - Do not invent a sentence to "correct" — there isn't one; just teach.\n\n` +
-    `Keep your whole reply short (under 150 words), clear, and friendly. Use bullet points or short paragraphs.`;
+    `Keep your whole reply short (under 150 words), clear, and friendly.`;
 
   const text = await callAI({ prompt, maxTokens: 1200, aiSettings });
   return text.trim();
@@ -6969,15 +6970,15 @@ function GrammarPanel({
 
       {/* نوارِ «تمرین جمله‌سازی با هوش مصنوعی» — دیگه شناور/قابلِ‌کشیدن
           نیست؛ درست مثلِ اپ‌های چت، همیشه یه نوارِ ثابت و تمام‌عرض، چسبیده
-          به کفِ صفحه‌ست و درست یه پله بالاترِ نوارِ پلیر می‌شینه
-          (bottom: playerBarHeight). با createPortal مستقیم زیرِ <body>
-          رندر می‌شه — چون GrammarPanel خودش داخلِ یه div با display:none
-          قایم می‌شه وقتی تبِ فعلی «گرامر» نیست (برای این‌که چتِ تمرین از
-          بین نره)، و اگه همین‌جا با position:fixed می‌موند، آبا/جد با
-          display:none باعث می‌شد این نوار هم با رفتن به تب‌های دیگه قایم
-          بشه. با پورتال، این نوار از اون محدودیت فرار می‌کنه و دقیقاً مثلِ
-          نوارِ پلیر، توی همه‌ی تب‌ها همیشه روی صفحه و بالای پلیر باقی
-          می‌مونه (sticky در تمامِ صفحات). */}
+          به کفِ صفحه‌ست (bottom: 0) — پایین‌ترین قسمتِ صفحه، پایین‌ترِ
+          نوارِ پلیر (که حالا خودش یه پله بالاترِ همین نوار می‌شینه). با
+          createPortal مستقیم زیرِ <body> رندر می‌شه — چون GrammarPanel
+          خودش داخلِ یه div با display:none قایم می‌شه وقتی تبِ فعلی «گرامر»
+          نیست (برای این‌که چتِ تمرین از بین نره)، و اگه همین‌جا با
+          position:fixed می‌موند، آبا/جد با display:none باعث می‌شد این نوار
+          هم با رفتن به تب‌های دیگه قایم بشه. با پورتال، این نوار از اون
+          محدودیت فرار می‌کنه و توی همه‌ی تب‌ها همیشه روی صفحه باقی می‌مونه
+          (sticky در تمامِ صفحات). */}
       {createPortal(
         <div
           ref={practicePanelRef}
@@ -6985,8 +6986,8 @@ function GrammarPanel({
             position: "fixed",
             left: 0,
             right: 0,
-            bottom: playerBarHeight,
-            zIndex: 41,
+            bottom: 0,
+            zIndex: 42,
             backgroundColor: colors.paperDark,
             border: `1px solid ${PRACTICE_PANEL_BORDER}`,
             borderTop: `1px solid ${PRACTICE_PANEL_BORDER}`,
@@ -7991,8 +7992,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         </div>
       </main>
 
-      {/* پلیر چسبیده به کف صفحه — تکرار پخش، سرعت، پخش خودکار، و تنظیم شفافیت.
-          همیشه روی صفحه می‌مونه (position: fixed)، حتی موقع اسکرول. */}
+      {/* پلیر — درست یه پله بالاترِ نوارِ «تمرین جمله‌سازی» می‌شینه (که حالا
+          پایین‌ترین قسمتِ صفحه‌ست، bottom: 0)، پس ارتفاعِ اندازه‌گیری‌شده‌ی
+          همون نوار (practicePanelHeight) رو به bottom اضافه می‌کنیم. همیشه
+          روی صفحه می‌مونه (position: fixed)، حتی موقع اسکرول. */}
       {showPlayerBar && (
         <div
           ref={playerBarRef}
@@ -8000,7 +8003,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             position: "fixed",
             left: 0,
             right: 0,
-            bottom: 0,
+            bottom: practicePanelHeight,
             zIndex: 40,
             backgroundColor: colors.paper,
             opacity: playerOpacity / 100,
