@@ -7090,16 +7090,16 @@ function GrammarPanel({
                   height: 58,
                   zIndex: 41,
                   borderRadius: "50%",
-                  // یه پله تیره‌تر از پس‌زمینه‌ی نوارِ پلیر (colors.paper) تا
-                  // دکمه‌ی شناور به‌وضوح از پلیر و بقیه‌ی صفحه جدا دیده بشه.
+                  // رنگِ توپر و پررنگِ برندی (teal) تا دکمه‌ی شناور همیشه به‌وضوح
+                  // از پلیر و بقیه‌ی صفحه جدا دیده بشه و «شفاف» به‌نظر نرسه.
                   // این دکمه همیشه کاملاً تیره/توپره — به‌عمد به اسلایدرِ
                   // «شفافیت پنل تمرین» گوش نمی‌ده (اون فقط برای خودِ چتِ
                   // بازشده‌ست، نه برای دکمه‌ی شناور که باید همیشه واضح دیده
                   // بشه).
-                  backgroundColor: colors.paperDark,
+                  backgroundColor: colors.teal,
                   opacity: 1,
-                  border: `1px solid ${PRACTICE_PANEL_BORDER}`,
-                  boxShadow: "0 8px 20px rgba(28,37,65,0.28)",
+                  border: `2px solid rgba(255,255,255,0.85)`,
+                  boxShadow: "0 8px 20px rgba(28,37,65,0.35)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -7136,7 +7136,7 @@ function GrammarPanel({
             title="تمرین جمله‌سازی با هوش مصنوعی"
             style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}
           >
-            <MessageCircle size={26} color={colors.gold} />
+            <MessageCircle size={26} color="#ffffff" fill="rgba(255,255,255,0.15)" strokeWidth={2.25} />
             {chatMessages.length > 0 && (
               <span
                 aria-hidden="true"
@@ -7147,66 +7147,70 @@ function GrammarPanel({
                   width: 10,
                   height: 10,
                   borderRadius: "50%",
-                  backgroundColor: colors.teal,
-                  border: `2px solid ${colors.paperDark}`,
+                  backgroundColor: colors.gold,
+                  border: `2px solid ${colors.teal}`,
                 }}
               />
             )}
           </div>
         ) : (
           <>
-            {/* دستگیره‌ی کشیدن — فقط همین نوار برای جابه‌جاکردنِ پنل با انگشت/
-                ماوس واکنش نشون می‌ده تا با دکمه‌ها و ورودی‌های داخلِ پنل تداخل
-                نکنه. */}
-            <div
-              onMouseDown={startPracticeDrag}
-              onTouchStart={startPracticeDrag}
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                padding: "7px 0 2px",
-                cursor: practiceDrag ? "grabbing" : "grab",
-                touchAction: "none",
-              }}
-              aria-hidden="true"
-            >
-              <div style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: PRACTICE_PANEL_BORDER }} />
-            </div>
-            <div className="px-4 pt-1 flex items-center justify-between gap-2 flex-wrap" style={{ rowGap: 6 }}>
-              <button
-                onClick={() => setPracticeCollapsed(true)}
-                className="flex items-center gap-1"
-                aria-label="بستنِ چتِ تمرین"
-                title={isFa ? "بستن" : "Close"}
-                style={{ fontWeight: 700, background: "none", border: "none", padding: 0, cursor: "pointer" }}
+            {/* هدرِ رنگیِ پنل — تیل توپر با متنِ سفید، تا این بخش هم مثلِ
+                دکمه‌ی شناور به‌وضوح رنگ داشته باشه و با بدنه‌ی پنل قاطی نشه. */}
+            <div style={{ backgroundColor: colors.teal, borderRadius: "15px 15px 0 0" }}>
+              {/* دستگیره‌ی کشیدن — فقط همین نوار برای جابه‌جاکردنِ پنل با انگشت/
+                  ماوس واکنش نشون می‌ده تا با دکمه‌ها و ورودی‌های داخلِ پنل تداخل
+                  نکنه. */}
+              <div
+                onMouseDown={startPracticeDrag}
+                onTouchStart={startPracticeDrag}
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  padding: "7px 0 2px",
+                  cursor: practiceDrag ? "grabbing" : "grab",
+                  touchAction: "none",
+                }}
+                aria-hidden="true"
               >
-                <MessageCircle size={16} color={colors.inkSoft} />
-                <span>تمرین جمله‌سازی با هوش مصنوعی</span>
-                <X size={14} color={colors.inkSoft} style={{ marginInlineStart: 4 }} />
-              </button>
-              <div className="flex items-center gap-2" style={{ marginInlineStart: "auto" }}>
-                {chatMessages.length > 0 && (
-                  <button
-                    onClick={clearChat}
-                    className="flex items-center gap-1"
-                    style={{ fontSize: 11, color: colors.rose }}
-                    title={isFa ? "پاک‌کردن گفتگو" : "Clear conversation"}
-                  >
-                    <Trash2 size={12} />
-                    {isFa ? "پاک‌کردن گفتگو" : "Clear"}
-                  </button>
-                )}
-                <select
-                  value={chatLang}
-                  onChange={(e) => setChatLang(e.target.value)}
-                  style={{ fontSize: 12, border: `1px solid ${colors.cardBorder}`, borderRadius: 8, padding: "3px 6px" }}
+                <div style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.55)" }} />
+              </div>
+              <div className="px-4 pt-1 pb-2 flex items-center justify-between gap-2 flex-wrap" style={{ rowGap: 6 }}>
+                <button
+                  onClick={() => setPracticeCollapsed(true)}
+                  className="flex items-center gap-1"
+                  aria-label="بستنِ چتِ تمرین"
+                  title={isFa ? "بستن" : "Close"}
+                  style={{ fontWeight: 700, color: "#fff", background: "none", border: "none", padding: 0, cursor: "pointer" }}
                 >
-                  {langOptions.map((code) => (
-                    <option key={code} value={code}>
-                      {LANGUAGES.find((l) => l.code === code)?.label || code}
-                    </option>
-                  ))}
-                </select>
+                  <MessageCircle size={16} color="#fff" />
+                  <span>تمرین جمله‌سازی با هوش مصنوعی</span>
+                  <X size={14} color="#fff" style={{ marginInlineStart: 4 }} />
+                </button>
+                <div className="flex items-center gap-2" style={{ marginInlineStart: "auto" }}>
+                  {chatMessages.length > 0 && (
+                    <button
+                      onClick={clearChat}
+                      className="flex items-center gap-1"
+                      style={{ fontSize: 11, color: "#fff", opacity: 0.9 }}
+                      title={isFa ? "پاک‌کردن گفتگو" : "Clear conversation"}
+                    >
+                      <Trash2 size={12} />
+                      {isFa ? "پاک‌کردن گفتگو" : "Clear"}
+                    </button>
+                  )}
+                  <select
+                    value={chatLang}
+                    onChange={(e) => setChatLang(e.target.value)}
+                    style={{ fontSize: 12, border: "none", borderRadius: 8, padding: "3px 6px" }}
+                  >
+                    {langOptions.map((code) => (
+                      <option key={code} value={code}>
+                        {LANGUAGES.find((l) => l.code === code)?.label || code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -7284,7 +7288,7 @@ function GrammarPanel({
                 className="flex gap-2 items-end"
                 style={{
                   backgroundColor: colors.paper,
-                  border: `1px solid ${colors.cardBorder}`,
+                  border: `1.5px solid ${colors.teal}`,
                   borderRadius: 12,
                   padding: 6,
                   marginBottom: 8,
@@ -7313,23 +7317,27 @@ function GrammarPanel({
                     fontFamily: "inherit",
                     lineHeight: 1.6,
                     maxHeight: 140,
+                    backgroundColor: "transparent",
+                    color: colors.ink,
                   }}
                 />
                 <button
                   onClick={sendChat}
                   disabled={chatLoading || !chatInput.trim()}
                   style={{
-                    backgroundColor: colors.gold,
-                    color: "white",
+                    backgroundColor: colors.teal,
+                    color: "#fff",
                     borderRadius: 10,
                     padding: "8px 14px",
                     display: "flex",
                     alignItems: "center",
-                    opacity: chatLoading || !chatInput.trim() ? 0.6 : 1,
+                    justifyContent: "center",
+                    opacity: chatLoading || !chatInput.trim() ? 0.5 : 1,
+                    boxShadow: chatLoading || !chatInput.trim() ? "none" : "0 2px 8px rgba(28,37,65,0.25)",
                     flexShrink: 0,
                   }}
                 >
-                  <Send size={16} />
+                  <Send size={16} color="#fff" />
                 </button>
               </div>
             </div>
