@@ -8242,6 +8242,30 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               style={{ flex: 1, accentColor: colors.gold }}
             />
             <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
+            {playerOpacity >= 0 && playerOpacity <= 7 && (
+              <button
+                onClick={() => setPlayerOpacity(100)}
+                title="بازگردانی شفافیت پلیر به ۱۰۰٪"
+                aria-label="بازگردانی شفافیت پلیر به ۱۰۰٪"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: colors.gold,
+                  border: "none",
+                  borderRadius: "50%",
+                  width: 24,
+                  height: 24,
+                  padding: 0,
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  color: "#fff",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
+                }}
+              >
+                <RotateCcw size={13} />
+              </button>
+            )}
           </div>
         </div>
       )}
