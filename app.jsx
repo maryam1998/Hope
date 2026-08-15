@@ -863,6 +863,18 @@ const speechController = (() => {
   // شروع پخش جدید)، مرورگر یه onerror با error="interrupted" شلیک می‌کنه که
   // خطای واقعی نیست. این فلگ همون قطع‌شدن‌های عمدی رو از خطای واقعی جدا می‌کنه.
   let expectingCancel = false;
+  // ---------------------------------------------------------------------
+  // «نقطه‌ی ادامه»ی سراسری و خودکار برای هر متن — کلیدش همون کلیدِ
+  // speechController (`${locale}::${text}`) است. هر بار که وضعیتِ فعلی
+  // (چه در حالِ پخش، چه مکث‌شده) اعلام می‌شه، آخرین آفستِ رسیده‌شده برای
+  // همون کلید اینجا ذخیره می‌شه. این باعث می‌شه اگه به هر دلیلی (توقفِ
+  // کاملِ speechController.stop()، یا شروعِ پخشِ یه متنِ دیگه روش) پخشِ این
+  // متن قطع بشه، دفعه‌ی بعد که همین متن دوباره خواسته بشه (از هر دکمه‌ای،
+  // در هر حالتی)، به‌جای از اول، از همون نقطه ادامه پیدا کنه — مگر اینکه
+  // خودِ صدازننده صریحاً یه startCharOffset دیگه بده. با پایان‌یافتنِ
+  // طبیعیِ کاملِ متن (بدونِ تکرارِ باقی‌مونده)، نقطه‌ش پاک می‌شه تا دفعه‌ی
+  // بعد از اول شروع بشه.
+  const lastOffsetByKey = new Map();
   // تایمرِ مکثِ بینِ دو جمله (همون چیزی که سرعتِ کند رو واقعاً حس‌شدنی می‌کنه) —
   // موقعِ pause باید کنسل بشه وگرنه جمله‌ی بعدی خودش‌به‌خود شروع می‌شه.
   let gapTimer = null;
@@ -956,6 +968,7 @@ const speechController = (() => {
         playOnlineChunk(0);
         return;
       }
+      if (key) lastOffsetByKey.delete(key);
       status = "idle";
       chunkIndex = 0;
       notify();
@@ -988,6 +1001,9 @@ const speechController = (() => {
   }
 
   function notify() {
+    if (key && (status === "playing" || status === "paused") && chunks[chunkIndex]) {
+      lastOffsetByKey.set(key, chunks[chunkIndex].start);
+    }
     listeners.forEach((cb) =>
       cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining })
     );
@@ -1117,6 +1133,7 @@ const speechController = (() => {
         speakChunk(0, true);
         return;
       }
+      if (key) lastOffsetByKey.delete(key);
       status = "idle";
       chunkIndex = 0;
       notify();
@@ -1255,6 +1272,15 @@ const speechController = (() => {
         key = newKey;
         locale = newLocale;
 
+        // اگه صدازننده صریحاً آفستی نداده، ببین همین متن قبلاً (با توقفِ
+        // کامل یا با پخشِ یه متنِ دیگه روش) نیمه‌کاره مونده بود یا نه —
+        // اگه آره، به‌جای از اول، از همون نقطه ادامه می‌دیم.
+        let effectiveStartOffset = startCharOffset;
+        if (!(Number.isInteger(effectiveStartOffset) && effectiveStartOffset > 0)) {
+          const saved = lastOffsetByKey.get(newKey);
+          if (Number.isInteger(saved) && saved > 0) effectiveStartOffset = saved;
+        }
+
         if (hasSynthesis && (voices.length === 0 || hasVoice)) {
           mode = "local";
           stopOnlineAudio();
@@ -1263,8 +1289,8 @@ const speechController = (() => {
           status = "playing";
           singleShot = forceSingle;
           remaining = forceSingle ? 0 : forceLoop ? Infinity : globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
-          const startIdx = Number.isInteger(startCharOffset) && startCharOffset > 0
-            ? chunkIndexForOffset(Math.min(startCharOffset, Math.max(text.length - 1, 0)))
+          const startIdx = Number.isInteger(effectiveStartOffset) && effectiveStartOffset > 0
+            ? chunkIndexForOffset(Math.min(effectiveStartOffset, Math.max(text.length - 1, 0)))
             : 0;
           speakChunk(startIdx, true);
           return "ok";
@@ -1273,7 +1299,7 @@ const speechController = (() => {
         // مسیر جایگزین (آنلاین رایگان)
         cancelSpeech();
         const onlineLang = code === "zh" ? "zh-CN" : code;
-        speakOnline(text, onlineLang, startCharOffset, forceSingle, forceLoop);
+        speakOnline(text, onlineLang, effectiveStartOffset, forceSingle, forceLoop);
         return "online-fallback";
       } catch (e) {
         status = "idle";
@@ -3457,6 +3483,14 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
   // ادامه بدیم.
   const piRef = useRef(0);
   const lastKeyRef = useRef(null);
+  // آخرین ایندکسِ آیتمی که خواندنِ خودکار توش بود، وقتی کاربر دکمه‌ی
+  // توقف رو زد (یا کامپوننت خاموش شد). دفعه‌ی بعد که دوباره روشنش کنه،
+  // از همین ایندکس ادامه می‌ده — نه از آیتمِ اول. (آفستِ دقیقِ داخلِ خودِ
+  // همون آیتم رو دیگه لازم نیست جدا نگه داریم؛ چون speechController خودش
+  // به‌طور خودکار آخرین نقطه‌ی هر متن رو به‌خاطر می‌سپاره و همین که
+  // playAt دوباره برای همون آیتم toggle رو صدا بزنه، از همون‌جا ادامه
+  // پیدا می‌کنه.)
+  const savedIdxRef = useRef(0);
   // آخرین لیستِ آیتم‌هایی که واقعاً باهاش پخش شروع شده (یعنی مالِ حالتِ
   // نمایشِ *قبلی*، نه تازه‌ترین). لازمه چون وقتی modeKey عوض می‌شه،
   // getItemsRef.current() دیگه لیستِ حالتِ قدیم رو نمی‌ده — برای محاسبه‌ی
@@ -3492,6 +3526,10 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
       activeRef.current = false;
       setActive(false);
       lastKeyRef.current = null;
+      // کل لیست طبیعی تموم شد — دفعه‌ی بعد که «خواندنِ خودکار» دوباره
+      // زده بشه، باید از آیتمِ اول شروع بشه، نه اینکه بخواد ادامه‌ی
+      // چیزی بده که قبلاً تمام‌شده.
+      savedIdxRef.current = 0;
       return;
     }
     const item = items[i];
@@ -3636,14 +3674,18 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
   function handleClick(e) {
     e.stopPropagation();
     if (active) {
+      // نقطه‌ی توقف رو نگه می‌داریم — دفعه‌ی بعد که «خواندنِ خودکار» دوباره
+      // روشن بشه، از همین آیتم ادامه پیدا می‌کنه (نه از اول لیست). آفستِ
+      // دقیقِ داخلِ خودِ آیتم رو خودِ speechController خودکار به‌خاطر می‌سپاره.
+      savedIdxRef.current = idxRef.current;
       activeRef.current = false;
       setActive(false);
       speechController.stop();
     } else {
       activeRef.current = true;
-      idxRef.current = 0;
+      idxRef.current = savedIdxRef.current;
       setActive(true);
-      playAt(0);
+      playAt(savedIdxRef.current);
     }
   }
 
