@@ -364,13 +364,27 @@ const colors = {
 // انتخابی کاربر توی تنظیمات) چون خودِ کاربر رنگ مشخص خواسته.
 const mainTextColor = "#0B1220";
 const translationColor = "#0F5C34";
-// رنگِ ثابتِ «ماژیک هایلایتِ خواندن» — همون زردِ روشنِ دموی مرجع (نه
-// طلایی/نارنجیِ colors.gold که وابسته به تمِ رنگیِ انتخابیِ کاربره و توی
-// بعضی تم‌ها به نارنجی می‌زنه). این رنگ عمداً ثابته و در همه‌ی تب‌ها
-// (داستان‌ساز، مکالمات روزمره، لغات/دیکشنری/علاقه‌مندی‌ها) برای نشونِ
-// جمله/کلمه‌ای که همین الان با «خواندنِ خودکار» داره خونده می‌شه استفاده
-// می‌شه — تا ظاهرِ هایلایت توی همه‌ی تب‌ها یکدست و دقیقاً مثلِ دموی مرجع باشه.
+// رنگِ ثابتِ «ماژیک هایلایتِ خواندن» — این دیگه فقط یه فال‌بکه؛ رنگِ واقعی
+// از appPrefs.highlightColor (که کاربر از تنظیمات انتخاب می‌کنه) میاد.
 const READ_MARKER_COLOR = "#FFD54F";
+// پالتِ رنگ‌های کم‌رنگ/بی‌حال (pastel) که کاربر می‌تونه به‌عنوانِ رنگِ
+// هایلایتِ خواندن ازش انتخاب کنه — دقیقاً همون طیفی که خودِ کاربر
+// به‌عنوانِ نمونه فرستاد (زردِ کم‌رنگ، هلویی، نارنجیِ ملایم، صورتی‌مرجانی،
+// زیتونی، سبز، فیروزه‌ای، آبیِ روشن، آبی، بنفش، بنفشِ صورتی، صورتی).
+const HIGHLIGHT_COLOR_PALETTE = [
+  "#F7E98E", // زرد کم‌رنگ
+  "#FBD9AE", // هلویی
+  "#F7C48C", // نارنجیِ ملایم
+  "#F1968E", // صورتی‌مرجانی
+  "#DCE07E", // زیتونی روشن
+  "#9AD98A", // سبز کم‌رنگ
+  "#8DE0BE", // فیروزه‌ای/نعنایی
+  "#A6DEE9", // آبیِ خیلی روشن
+  "#A9C7F0", // آبی کم‌رنگ
+  "#C7B6EC", // بنفشِ کم‌رنگ
+  "#F0AEEC", // بنفشیِ صورتی
+  "#F4AAC0", // صورتی
+];
 // همون رنگِ پس‌زمینه‌ی نوارِ پلیرِ پایینِ صفحه (colors.paper) — تا این پنلِ
 // شناور با اون هم‌رنگ باشه؛ بردرِ طلاییِ کم‌رنگ (goldSoft) هم اضافه شده تا
 // با وجودِ هم‌رنگ بودنِ پس‌زمینه، پنل هنوز به‌وضوح از بقیه‌ی صفحه جدا دیده بشه.
@@ -537,9 +551,10 @@ function loadAppPrefs() {
       fontSize: APP_FONT_SIZES[parsed.fontSize] ? parsed.fontSize : "medium",
       uiLang: APP_LANGUAGES[parsed.uiLang] ? parsed.uiLang : "fa",
       calendarSystem: CALENDAR_SYSTEMS.includes(parsed.calendarSystem) ? parsed.calendarSystem : "jalali",
+      highlightColor: HIGHLIGHT_COLOR_PALETTE.includes(parsed.highlightColor) ? parsed.highlightColor : HIGHLIGHT_COLOR_PALETTE[0],
     };
   } catch (e) {
-    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali" };
+    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali", highlightColor: HIGHLIGHT_COLOR_PALETTE[0] };
   }
 }
 function saveAppPrefs(prefs) {
@@ -3285,6 +3300,32 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
             ))}
           </div>
 
+          {/* رنگِ هایلایتِ خواندن — همون مارکری که موقع «خواندنِ خودکار»
+              دورِ جمله/کلمه‌ی در‌حالِ‌خواندن کشیده می‌شه. یه پالتِ ثابت از
+              رنگ‌های کم‌رنگ/بی‌حال (نه تند)، چون رنگ‌های پررنگ روی متنِ
+              تیره خوندن رو خسته‌کننده می‌کنه. */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
+            {uiLang === "en" ? "Read-aloud highlight color" : "رنگ هایلایتِ خواندن"}
+          </p>
+          <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
+            {HIGHLIGHT_COLOR_PALETTE.map((hex) => (
+              <button
+                key={hex}
+                onClick={() => update("highlightColor", hex)}
+                aria-pressed={appPrefs.highlightColor === hex}
+                title={hex}
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: "50%",
+                  backgroundColor: hex,
+                  border: appPrefs.highlightColor === hex ? `3px solid ${colors.ink}` : `1px solid ${colors.cardBorder}`,
+                  flexShrink: 0,
+                }}
+              />
+            ))}
+          </div>
+
           {/* Offline words download */}
           <button
             onClick={() => setOfflineModalOpen(true)}
@@ -5151,7 +5192,7 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
   );
 }
 
-function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, autoScrollActive, calendarSystem }) {
+function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, autoScrollActive, calendarSystem, highlightColor }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
   // languages) — no separate picker duplicated here.
@@ -6708,7 +6749,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                   می‌گیره — مو‌به‌مو مثلِ تصویرِ مرجع. */}
                               <span
                                 style={{
-                                  backgroundColor: isSentenceActive ? READ_MARKER_COLOR : "transparent",
+                                  backgroundColor: isSentenceActive ? (highlightColor || READ_MARKER_COLOR) : "transparent",
                                   borderRadius: 5,
                                   padding: isSentenceActive ? "2px 4px" : "2px 0",
                                   WebkitBoxDecorationBreak: "clone",
@@ -6802,7 +6843,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                             >
                               <span
                                 style={{
-                                  backgroundColor: isParaActive ? READ_MARKER_COLOR : "transparent",
+                                  backgroundColor: isParaActive ? (highlightColor || READ_MARKER_COLOR) : "transparent",
                                   borderRadius: 5,
                                   padding: isParaActive ? "2px 4px" : "2px 0",
                                   WebkitBoxDecorationBreak: "clone",
@@ -8845,6 +8886,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     speechController={speechController}
     onFullTextChange={setDailyPlayerText}
     autoScrollActive={tab === "conversations"}
+    highlightColor={appPrefs.highlightColor}
   />
 )}
 
@@ -8886,6 +8928,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                       aiSettings={aiSettings}
                       ClickableSentence={ClickableSentence}
                       autoplayEnabled={tab === "favorites"}
+                      highlightColor={appPrefs.highlightColor}
                     />
                   </div>
                 )}
@@ -8910,6 +8953,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             autoplayEnabled={tab === "words"}
             onFullTextChange={setWordListPlayerText}
             autoScrollActive={tab === "words"}
+            highlightColor={appPrefs.highlightColor}
           />
         )}
 
@@ -8929,6 +8973,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             autoplayEnabled={tab === "vocab"}
             onFullTextChange={setWordListPlayerText}
             autoScrollActive={tab === "vocab"}
+            highlightColor={appPrefs.highlightColor}
           />
         )}
 
@@ -8948,6 +8993,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             autoplayEnabled={tab === "daily"}
             onFullTextChange={setWordListPlayerText}
             autoScrollActive={tab === "daily"}
+            highlightColor={appPrefs.highlightColor}
           />
         )}
 
@@ -9055,6 +9101,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             onFullTextChange={setStoryPlayerText}
             autoScrollActive={tab === "story"}
             calendarSystem={appPrefs.calendarSystem || "jalali"}
+            highlightColor={appPrefs.highlightColor}
           />
         </div>
       </main>
@@ -10083,7 +10130,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
 // به کتابخونه‌ی جدید).
 const WORDS_PAGE_SIZE = 60;
 
-function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence }) {
+function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor }) {
   // زبان‌هایی که باید زیرِ هر لغت ترجمه‌شون نشون داده بشه: همون زبان‌های
   // مقصدی که کاربر بالای صفحه انتخاب/مرتب کرده (targetLangs)، منهای خودِ
   // انگلیسی (چون انگلیسی همون سرلغته که بالا نشون داده می‌شه و تکرارش
@@ -10243,7 +10290,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                     هست، نه یه باکسِ تمام‌عرض دورِ کل ردیف. */}
                 <span
                   style={{
-                    backgroundColor: activeWordId === w.id ? READ_MARKER_COLOR : "transparent",
+                    backgroundColor: activeWordId === w.id ? (highlightColor || READ_MARKER_COLOR) : "transparent",
                     borderRadius: 5,
                     padding: activeWordId === w.id ? "2px 4px" : "2px 0",
                     WebkitBoxDecorationBreak: "clone",

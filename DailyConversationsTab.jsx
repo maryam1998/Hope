@@ -203,7 +203,7 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
   );
 }
 
-function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef }) {
+function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor }) {
   const isHear = variant === "hear";
   if (items.length === 0) return null;
   const accent = isHear ? colors.teal : colors.gold;
@@ -273,7 +273,7 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
                     یه باکسِ تمام‌عرض دورِ کل ردیف. */}
                 <span
                   style={{
-                    backgroundColor: isLineActive ? READ_MARKER_COLOR : "transparent",
+                    backgroundColor: isLineActive ? (highlightColor || READ_MARKER_COLOR) : "transparent",
                     borderRadius: 5,
                     padding: isLineActive ? "2px 4px" : "2px 0",
                     WebkitBoxDecorationBreak: "clone",
@@ -311,7 +311,7 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
   );
 }
 
-function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef }) {
+function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor }) {
   const filterFn = (arr) => (levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr);
   const speakerA = filterFn(sc.speakerA);
   const speakerB = filterFn(sc.speakerB);
@@ -333,8 +333,8 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
       {isOpen && (
         <div style={{ padding: "0 15px 15px" }}>
           {sc.context && <div style={{ fontFamily: fontFa, fontSize: 12, color: colors.inkSoft, marginBottom: 4 }}>{sc.context}</div>}
-          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} />
-          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} />
+          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} highlightColor={highlightColor} />
+          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} highlightColor={highlightColor} />
         </div>
       )}
     </div>
@@ -364,6 +364,7 @@ export default function DailyConversationsTab({
   speechController,
   onFullTextChange,
   autoScrollActive,
+  highlightColor,
 }) {
   const uiLang = nativeLang === "fa" ? "fa" : "en";
   const [activeTopic, setActiveTopic] = useState(() => lastConversationsNav.topic);
@@ -603,6 +604,7 @@ export default function DailyConversationsTab({
                 translateFree={translateFree}
                 activeLine={activeLine}
                 registerLineRef={registerLineRef}
+                highlightColor={highlightColor}
               />
             ))
           ) : (
