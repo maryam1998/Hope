@@ -8682,6 +8682,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           همون نوار (practicePanelHeight) رو به bottom اضافه می‌کنیم. همیشه
           روی صفحه می‌مونه (position: fixed)، حتی موقع اسکرول. */}
       {showPlayerBar && (
+        <>
         <div
           ref={playerBarRef}
           onMouseDown={(e) => startPlayerLongPress(e.clientX, e.clientY)}
@@ -8756,6 +8757,38 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
           </div>
         </div>
+        {/* دکمه‌ی «بازنشانیِ شفافیت» — وقتی شفافیتِ پلیر خیلی پایین میاد (زیرِ
+            ۷۰٪)، خودِ نوار (و اسلایدرِ توش) هم کم‌رنگ/کم‌کنتراست می‌شه و
+            برگردوندنش به حالتِ عادی سخت می‌شه. این دکمه بیرونِ اون div ِ
+            کم‌رنگ‌شده (خارج از اثرِ opacity والد) رندر می‌شه تا همیشه کاملاً
+            واضح و قابل‌لمس بمونه، مهم نیست شفافیتِ پلیر چقدر پایین رفته باشه. */}
+        {playerOpacity < 70 && (
+          <button
+            onClick={() => setPlayerOpacity(100)}
+            aria-label="بازنشانی شفافیت پلیر به ۱۰۰٪"
+            title="بازنشانی شفافیت"
+            style={{
+              position: "fixed",
+              right: 10,
+              bottom: practicePanelHeight + 10,
+              zIndex: 41,
+              width: 34,
+              height: 34,
+              borderRadius: "50%",
+              border: `1px solid ${colors.cardBorder}`,
+              backgroundColor: colors.paper,
+              color: colors.gold,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 2px 8px rgba(28,37,65,0.25)",
+              opacity: 1,
+            }}
+          >
+            <RotateCcw size={16} />
+          </button>
+        )}
+        </>
       )}
 
     </div>
