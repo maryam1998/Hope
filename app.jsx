@@ -10,63 +10,6 @@ import { DAILY_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
 import DailyConversationsTab from "./DailyConversationsTab.jsx";
 
 // ---------------------------------------------------------------------------
-// ردیابِ خوانش، سرتاسریِ اپ: کلمه‌ای که همین الان داره خونده می‌شه، به‌جای
-// یه خط زیرش، خودش یه سایه‌ی نرم می‌گیره (box-shadow). همون منطقی که تبِ
-// «مکالمه و روزمره» استفاده می‌کنه (DailyConversationsTab.jsx)، اینجا هم
-// برای بقیه‌ی تب‌هایی که متن رو کلمه‌به‌کلمه دنبال می‌کنن (لغات، لغات و
-// اخبار، داستان‌ساز) به‌کار می‌ره.
-function tokenizeWords(text) {
-  const words = [];
-  const re = /\S+/g;
-  let m;
-  while ((m = re.exec(text || "")) !== null) {
-    words.push({ text: m[0], start: m.index, end: m.index + m[0].length });
-  }
-  return words;
-}
-
-function findActiveWordIndex(words, offset) {
-  for (let i = 0; i < words.length; i++) {
-    if (offset >= words[i].start && offset < words[i].end) return i;
-  }
-  for (let i = words.length - 1; i >= 0; i--) {
-    if (offset >= words[i].start) return i;
-  }
-  return 0;
-}
-
-const WORD_SHADOW_STYLE = {
-  position: "absolute",
-  left: 2,
-  right: 2,
-  bottom: -6,
-  height: 5,
-  borderRadius: "50%",
-  boxShadow: "0 4px 7px rgba(0,0,0,0.38)",
-  pointerEvents: "none",
-};
-
-// نسخه‌ی «ردیاب‌دار» یه متن: هر کلمه یه span مجزاست، و فقط کلمه‌ای که
-// همین الان در حالِ خونده‌شدنه، زیرش یه سایه‌ی نرم می‌گیره (خودِ کلمه
-// بدونِ هیچ افکتی می‌مونه).
-function WordTrackedText({ text, relOffset, fontFamily, fontSize, fontWeight, color }) {
-  const words = useMemo(() => tokenizeWords(text), [text]);
-  const activeIdx = findActiveWordIndex(words, relOffset);
-
-  return (
-    <span style={{ fontFamily, fontSize, fontWeight, color }}>
-      {words.map((w, i) => (
-        <span key={i} style={{ position: "relative" }}>
-          {w.text}
-          {i === activeIdx && <span style={WORD_SHADOW_STYLE} />}
-          {i < words.length - 1 ? " " : ""}
-        </span>
-      ))}
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // جستجوی یکپارچه‌ی «یا از دیکشنری جستجو کن...» توی داستان‌ساز — به‌جای
 // این‌که فقط تو VOCAB (لیست محدودِ چندزبانه) بگرده، باید بتونه از تبِ
 // «لغات» (WORDS_AZ)، «لغات و اخبار» (NEWS_WORDS)، «مکالمه و روزمره»
@@ -4708,29 +4651,23 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   }
 
   // جمله‌ای که همین الان، در حینِ پخشِ «کل متن» از روی پلیر، داره خونده
-  // می‌شه — هم برای اسکرولِ خودکار، هم برای اینکه بدونیم ردیابِ خوانش (سایه‌ی
-  // کلمه) رو زیرِ کدوم جمله نشون بدیم. وقتی پخشِ فعلی چیز دیگه‌ای غیر از کلِ
-  // داستانه (مثلاً کاربر خودش رو یک جمله‌ی خاص زده)، این null می‌مونه.
+  // می‌شه — فقط برای اسکرولِ خودکار (اگه فعال باشه) استفاده می‌شه، نه برای
+  // هایلایتِ بصری. وقتی پخشِ فعلی چیز دیگه‌ای غیر از کلِ داستانه (مثلاً کاربر
+  // خودش رو یک جمله‌ی خاص زده)، این null می‌مونه.
   const [activeStorySentence, setActiveStorySentence] = useState(null); // {pi, si} | null
-  // آفستِ خامِ (نسبت به کلِ fullStoryText) کلمه‌ی در حال خوانده‌شدن —
-  // چون بسته به حالتِ نمایش (sentence/paragraph) پایه‌ی متفاوتی ازش کم
-  // می‌شه، خودِ عددِ خام رو نگه می‌داریم نه نسبی.
-  const [activeStoryWordOffset, setActiveStoryWordOffset] = useState(0);
   useEffect(() => {
     const myKey = `${TTS_LOCALE[storyLang] || "en-US"}::${fullStoryText}`;
     const update = (state) => {
       if (!fullStoryText || state.key !== myKey || state.status === "idle") {
         setActiveStorySentence(null);
-        setActiveStoryWordOffset(0);
         return;
       }
-      const offset = speechController.getWordOffset ? speechController.getWordOffset() : speechController.getCharOffset();
+      const offset = speechController.getCharOffset();
       let found = sentenceOffsets[0] || null;
       for (const s of sentenceOffsets) {
         if (offset >= s.start) found = s;
         else break;
       }
-      setActiveStoryWordOffset(offset);
       setActiveStorySentence((prev) => {
         const next = found ? { pi: found.pi, si: found.si } : null;
         if (prev && next && prev.pi === next.pi && prev.si === next.si) return prev;
@@ -6060,28 +5997,18 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                 WebkitTextStroke: `0.4px ${mainTextColor}`,
                               }}
                             >
-                              {activeStorySentence && activeStorySentence.pi === pi && activeStorySentence.si === si ? (
-                                <WordTrackedText
-                                  text={s.text}
-                                  relOffset={activeStoryWordOffset - (sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0)}
-                                  fontFamily={RTL_LANGS.includes(storyLang) ? fontFa : fontLatin}
-                                  fontWeight={900}
-                                  color={mainTextColor}
-                                />
-                              ) : (
-                                <ClickableSentence
-                                  text={s.text}
-                                  langCode={storyLang}
-                                  nativeLang={nativeLang}
-                                  nativeLabel={nativeLabel}
-                                  aiSettings={aiSettings}
-                                  color={mainTextColor}
-                                  fontWeight={900}
-                                  storyBaseOffset={sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0}
-                                  onSpeakOffset={(localEnd) => reportStoryWordSpoken(sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0, localEnd)}
-                                  originExtra={{ storyId: currentStoryId, pi, si }}
-                                />
-                              )}
+                              <ClickableSentence
+                                text={s.text}
+                                langCode={storyLang}
+                                nativeLang={nativeLang}
+                                nativeLabel={nativeLabel}
+                                aiSettings={aiSettings}
+                                color={mainTextColor}
+                                fontWeight={900}
+                                storyBaseOffset={sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0}
+                                onSpeakOffset={(localEnd) => reportStoryWordSpoken(sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0, localEnd)}
+                                originExtra={{ storyId: currentStoryId, pi, si }}
+                              />
                             </p>
                           </div>
                           {showTranslations &&
@@ -6157,15 +6084,6 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                             WebkitTextStroke: `0.4px ${mainTextColor}`,
                           }}
                         >
-                          {activeStorySentence && activeStorySentence.pi === pi ? (
-                            <WordTrackedText
-                              text={paragraphText}
-                              relOffset={activeStoryWordOffset - (paragraphBaseOffsetMap[pi] ?? 0)}
-                              fontFamily={RTL_LANGS.includes(storyLang) ? fontFa : fontLatin}
-                              fontWeight={900}
-                              color={mainTextColor}
-                            />
-                          ) : (
                           <ClickableSentence
                             text={paragraphText}
                             langCode={storyLang}
@@ -6178,7 +6096,6 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                             onSpeakOffset={(localEnd) => reportStoryWordSpoken(paragraphBaseOffsetMap[pi] ?? 0, localEnd)}
                             originExtra={{ storyId: currentStoryId, pi, si: null }}
                           />
-                          )}
                         </p>
                       </div>
                       {showTranslations &&
@@ -9160,25 +9077,19 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
   // لغتی که همین الان، در حینِ پخشِ «کل لیست» از روی پلیر، داره خونده
   // می‌شه — برای نشانگرِ کنارِ کارت و اسکرولِ خودکار.
   const [activeWordId, setActiveWordId] = useState(null);
-  // آفستِ کاراکتریِ کلمه‌ی در حال خوانده‌شدن، *نسبت به شروعِ همون کارتِ
-  // فعال* (نه کلِ fullText) — برای سایه‌دار کردنِ همون کلمه‌ی داخلِ متنِ
-  // لغت/عبارتِ کارت (ردیابِ خوانش، مثلِ تبِ «مکالمه و روزمره»).
-  const [activeWordRelOffset, setActiveWordRelOffset] = useState(0);
   useEffect(() => {
     const myKey = `en-US::${fullText}`;
     const update = (state) => {
       if (!fullText || state.key !== myKey || state.status === "idle") {
         setActiveWordId(null);
-        setActiveWordRelOffset(0);
         return;
       }
-      const offset = speechController.getWordOffset ? speechController.getWordOffset() : speechController.getCharOffset();
+      const offset = speechController.getCharOffset();
       let found = wordOffsets[0] || null;
       for (const w of wordOffsets) {
         if (offset >= w.start) found = w;
         else break;
       }
-      setActiveWordRelOffset(found ? Math.max(0, offset - found.start) : 0);
       setActiveWordId((prev) => {
         const next = found ? found.id : null;
         return prev === next ? prev : next;
@@ -9237,27 +9148,16 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                 ردیف) می‌مونه، هم‌راستا با بلندگوهای ردیف‌های ترجمه‌ی زیرش. */}
             <div className="flex items-start gap-2" style={{ direction: "ltr" }}>
               <div className="flex items-center flex-wrap gap-2" style={{ flex: 1 }}>
-                {activeWordId === w.id ? (
-                  <WordTrackedText
-                    text={w.en}
-                    relOffset={activeWordRelOffset}
-                    fontFamily={fontLatin}
-                    fontWeight={800}
-                    fontSize={19}
-                    color={mainTextColor}
-                  />
-                ) : (
-                  <ClickableSentence
-                    text={w.en}
-                    langCode="en"
-                    nativeLang={nativeLang}
-                    aiSettings={aiSettings}
-                    color={mainTextColor}
-                    fontFamily={fontLatin}
-                    fontWeight={800}
-                    fontSize={19}
-                  />
-                )}
+                <ClickableSentence
+                  text={w.en}
+                  langCode="en"
+                  nativeLang={nativeLang}
+                  aiSettings={aiSettings}
+                  color={mainTextColor}
+                  fontFamily={fontLatin}
+                  fontWeight={800}
+                  fontSize={19}
+                />
                 {w.level && <LevelBadge level={w.level} />}
                 {w.isUserSaved && (
                   <span
