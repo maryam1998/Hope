@@ -93,6 +93,11 @@ const colors = {
 // تم انتخابی) چون خودِ کاربر رنگ مشخص خواسته.
 const mainTextColor = "#0B1220";
 const translationColor = "#0F5C34";
+// رنگِ ثابتِ «ماژیک هایلایتِ خواندن» — دقیقاً همون مقداری که تو app.jsx
+// برای داستان‌ساز و لغات استفاده می‌شه (اینجا هم محلی تعریف شده، عیناً به
+// همون دلیلی که colors/mainTextColor بالا محلی تعریف شدن) تا هایلایتِ
+// جمله‌ی درحالِ‌خواندن، توی همه‌ی تب‌ها دقیقاً یک رنگ باشه.
+const READ_MARKER_COLOR = "#FFD54F";
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
 
@@ -229,6 +234,7 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
         }}
       >
         {items.map((it, i) => {
+          const isLineActive = activeLine && activeLine.variant === variant && activeLine.i === i;
           return (
           <div
             key={i}
@@ -237,9 +243,6 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
               position: "relative",
               padding: "9px 12px",
               borderBottom: i < items.length - 1 ? `1px dashed ${colors.cardBorder}` : "none",
-              backgroundColor: activeLine && activeLine.variant === variant && activeLine.i === i ? colors.goldSoft : "transparent",
-              boxShadow: activeLine && activeLine.variant === variant && activeLine.i === i ? `inset 0 0 0 2px ${colors.gold}` : "none",
-              transition: "background-color 0.4s ease, box-shadow 0.4s ease",
             }}
           >
             {/* ردیفِ متنِ اصلی و هر ردیفِ ترجمه (پایین‌تر) حالا هر کدوم یه
@@ -265,11 +268,25 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
                 {it.level}
               </span>
               <div style={{ direction: "ltr", textAlign: "left", flex: 1, fontSize: 16, fontWeight: 800, color: mainTextColor, fontFamily: fontLatin }}>
-                {ClickableSentence ? (
-                  <ClickableSentence text={it.en} langCode="en" nativeLang={nativeLang} aiSettings={aiSettings} color={mainTextColor} fontFamily={fontLatin} fontWeight={800} fontSize={16} />
-                ) : (
-                  it.en
-                )}
+                {/* هایلایتِ «همین الان داره خونده می‌شه» — دقیقاً همون مارکرِ
+                    زردِ تنگِ دورِ خودِ متن که تو داستان‌ساز و لغات هست، نه
+                    یه باکسِ تمام‌عرض دورِ کل ردیف. */}
+                <span
+                  style={{
+                    backgroundColor: isLineActive ? READ_MARKER_COLOR : "transparent",
+                    borderRadius: 5,
+                    padding: isLineActive ? "2px 4px" : "2px 0",
+                    WebkitBoxDecorationBreak: "clone",
+                    boxDecorationBreak: "clone",
+                    transition: "background-color 0.35s ease",
+                  }}
+                >
+                  {ClickableSentence ? (
+                    <ClickableSentence text={it.en} langCode="en" nativeLang={nativeLang} aiSettings={aiSettings} color={mainTextColor} fontFamily={fontLatin} fontWeight={800} fontSize={16} />
+                  ) : (
+                    it.en
+                  )}
+                </span>
               </div>
             </div>
             {langCodes.map((code) => (

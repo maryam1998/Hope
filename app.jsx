@@ -364,6 +364,13 @@ const colors = {
 // انتخابی کاربر توی تنظیمات) چون خودِ کاربر رنگ مشخص خواسته.
 const mainTextColor = "#0B1220";
 const translationColor = "#0F5C34";
+// رنگِ ثابتِ «ماژیک هایلایتِ خواندن» — همون زردِ روشنِ دموی مرجع (نه
+// طلایی/نارنجیِ colors.gold که وابسته به تمِ رنگیِ انتخابیِ کاربره و توی
+// بعضی تم‌ها به نارنجی می‌زنه). این رنگ عمداً ثابته و در همه‌ی تب‌ها
+// (داستان‌ساز، مکالمات روزمره، لغات/دیکشنری/علاقه‌مندی‌ها) برای نشونِ
+// جمله/کلمه‌ای که همین الان با «خواندنِ خودکار» داره خونده می‌شه استفاده
+// می‌شه — تا ظاهرِ هایلایت توی همه‌ی تب‌ها یکدست و دقیقاً مثلِ دموی مرجع باشه.
+const READ_MARKER_COLOR = "#FFD54F";
 // همون رنگِ پس‌زمینه‌ی نوارِ پلیرِ پایینِ صفحه (colors.paper) — تا این پنلِ
 // شناور با اون هم‌رنگ باشه؛ بردرِ طلاییِ کم‌رنگ (goldSoft) هم اضافه شده تا
 // با وجودِ هم‌رنگ بودنِ پس‌زمینه، پنل هنوز به‌وضوح از بقیه‌ی صفحه جدا دیده بشه.
@@ -6701,7 +6708,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                   می‌گیره — مو‌به‌مو مثلِ تصویرِ مرجع. */}
                               <span
                                 style={{
-                                  backgroundColor: isSentenceActive ? colors.goldSoft : "transparent",
+                                  backgroundColor: isSentenceActive ? READ_MARKER_COLOR : "transparent",
                                   borderRadius: 5,
                                   padding: isSentenceActive ? "2px 4px" : "2px 0",
                                   WebkitBoxDecorationBreak: "clone",
@@ -6795,7 +6802,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                             >
                               <span
                                 style={{
-                                  backgroundColor: isParaActive ? colors.goldSoft : "transparent",
+                                  backgroundColor: isParaActive ? READ_MARKER_COLOR : "transparent",
                                   borderRadius: 5,
                                   padding: isParaActive ? "2px 4px" : "2px 0",
                                   WebkitBoxDecorationBreak: "clone",
@@ -10215,10 +10222,9 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
           className="flex items-center justify-between p-3 rounded-lg"
           style={{
             position: "relative",
-            backgroundColor: activeWordId === w.id ? colors.goldSoft : "white",
-            border: `1px solid ${activeWordId === w.id ? colors.gold : colors.cardBorder}`,
-            boxShadow: activeWordId === w.id ? `0 0 0 2px ${colors.gold}` : "none",
-            transition: "background-color 0.4s ease, box-shadow 0.4s ease, border-color 0.4s ease",
+            backgroundColor: "white",
+            border: `1px solid ${colors.cardBorder}`,
+            transition: "border-color 0.4s ease",
           }}
         >
           <button onClick={() => toggleWordFavorite(w.id)} aria-label="افزودن به علاقه‌مندی‌ها" style={{ marginLeft: 4, flexShrink: 0 }}>
@@ -10232,16 +10238,30 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                 ردیف) می‌مونه، هم‌راستا با بلندگوهای ردیف‌های ترجمه‌ی زیرش. */}
             <div className="flex items-start gap-2" style={{ direction: "ltr" }}>
               <div className="flex items-center flex-wrap gap-2" style={{ flex: 1 }}>
-                <ClickableSentence
-                  text={w.en}
-                  langCode="en"
-                  nativeLang={nativeLang}
-                  aiSettings={aiSettings}
-                  color={mainTextColor}
-                  fontFamily={fontLatin}
-                  fontWeight={800}
-                  fontSize={19}
-                />
+                {/* هایلایتِ «همین الان داره خونده می‌شه» — دقیقاً همون مارکرِ
+                    زردِ تنگِ دورِ خودِ متن که تو داستان‌ساز و مکالمات روزمره
+                    هست، نه یه باکسِ تمام‌عرض دورِ کل ردیف. */}
+                <span
+                  style={{
+                    backgroundColor: activeWordId === w.id ? READ_MARKER_COLOR : "transparent",
+                    borderRadius: 5,
+                    padding: activeWordId === w.id ? "2px 4px" : "2px 0",
+                    WebkitBoxDecorationBreak: "clone",
+                    boxDecorationBreak: "clone",
+                    transition: "background-color 0.35s ease",
+                  }}
+                >
+                  <ClickableSentence
+                    text={w.en}
+                    langCode="en"
+                    nativeLang={nativeLang}
+                    aiSettings={aiSettings}
+                    color={mainTextColor}
+                    fontFamily={fontLatin}
+                    fontWeight={800}
+                    fontSize={19}
+                  />
+                </span>
                 {w.level && <LevelBadge level={w.level} />}
                 {w.isUserSaved && (
                   <span

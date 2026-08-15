@@ -80,6 +80,7 @@ var colors = {
 };
 var mainTextColor = "#0B1220";
 var translationColor = "#0F5C34";
+var READ_MARKER_COLOR = "#FFD54F";
 var fontFa = "var(--font-fa)";
 var fontLatin = "var(--font-latin)";
 function TopicCard({ meta, hasData, onClick }) {
@@ -191,6 +192,7 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
       }
     },
     items.map((it, i) => {
+      const isLineActive = activeLine && activeLine.variant === variant && activeLine.i === i;
       return /* @__PURE__ */ React.createElement(
         "div",
         {
@@ -199,10 +201,7 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
           style: {
             position: "relative",
             padding: "9px 12px",
-            borderBottom: i < items.length - 1 ? `1px dashed ${colors.cardBorder}` : "none",
-            backgroundColor: activeLine && activeLine.variant === variant && activeLine.i === i ? colors.goldSoft : "transparent",
-            boxShadow: activeLine && activeLine.variant === variant && activeLine.i === i ? `inset 0 0 0 2px ${colors.gold}` : "none",
-            transition: "background-color 0.4s ease, box-shadow 0.4s ease"
+            borderBottom: i < items.length - 1 ? `1px dashed ${colors.cardBorder}` : "none"
           }
         },
         /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: 8, direction: "rtl" } }, SpeakButton && /* @__PURE__ */ React.createElement(SpeakButton, { text: it.en, code: "en", color: colors.teal }), /* @__PURE__ */ React.createElement(
@@ -220,7 +219,20 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
             }
           },
           it.level
-        ), /* @__PURE__ */ React.createElement("div", { style: { direction: "ltr", textAlign: "left", flex: 1, fontSize: 16, fontWeight: 800, color: mainTextColor, fontFamily: fontLatin } }, ClickableSentence ? /* @__PURE__ */ React.createElement(ClickableSentence, { text: it.en, langCode: "en", nativeLang, aiSettings, color: mainTextColor, fontFamily: fontLatin, fontWeight: 800, fontSize: 16 }) : it.en)),
+        ), /* @__PURE__ */ React.createElement("div", { style: { direction: "ltr", textAlign: "left", flex: 1, fontSize: 16, fontWeight: 800, color: mainTextColor, fontFamily: fontLatin } }, /* @__PURE__ */ React.createElement(
+          "span",
+          {
+            style: {
+              backgroundColor: isLineActive ? READ_MARKER_COLOR : "transparent",
+              borderRadius: 5,
+              padding: isLineActive ? "2px 4px" : "2px 0",
+              WebkitBoxDecorationBreak: "clone",
+              boxDecorationBreak: "clone",
+              transition: "background-color 0.35s ease"
+            }
+          },
+          ClickableSentence ? /* @__PURE__ */ React.createElement(ClickableSentence, { text: it.en, langCode: "en", nativeLang, aiSettings, color: mainTextColor, fontFamily: fontLatin, fontWeight: 800, fontSize: 16 }) : it.en
+        ))),
         langCodes.map((code) => /* @__PURE__ */ React.createElement(
           LineTranslation,
           {
