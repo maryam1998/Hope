@@ -2289,6 +2289,13 @@ function removeGrammarNote(id) {
     window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
   } catch {}
 }
+// پاک‌کردنِ همه‌ی یادداشت‌های گرامریِ ذخیره‌شده، یک‌جا.
+function clearAllGrammarNotes() {
+  try {
+    window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify([]));
+    window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+  } catch {}
+}
 // همون منطقِ ادغامِ mergeSavedStoryWordsFromCloud بالا، برای یادداشت‌های
 // گرامری — چیزی که ابری داشت و محلی نداشت اضافه می‌شه، چیزی که محلی داشت
 // دست‌نخورده می‌مونه؛ هیچ‌وقت overwrite کامل نمی‌شه.
@@ -7796,6 +7803,15 @@ function GrammarPanel({
   const [chatError, setChatError] = useState("");
   const chatEndRef = useRef(null);
   const chatTextareaRef = useRef(null);
+  // ویرایشِ پیام‌هایی که خودِ کاربر توی این چت فرستاده — با تپ‌کردن رویِ
+  // پیام، اول یه دکمه‌ی «ویرایش» ظاهر می‌شه (tappedMsgIndex)؛ با زدنش،
+  // همون پیام به یه textarea تبدیل می‌شه (editingMsgIndex/editingMsgText).
+  // هیچ محدودیتی توی تعدادِ دفعاتِ ویرایش نیست — هر پیام هر چندبار که
+  // بخوای قابلِ بازکردن و اصلاح‌کردنه.
+  const [tappedMsgIndex, setTappedMsgIndex] = useState(null);
+  const [editingMsgIndex, setEditingMsgIndex] = useState(null);
+  const [editingMsgText, setEditingMsgText] = useState("");
+  const editMsgTextareaRef = useRef(null);
   // نوارِ «تمرین جمله‌سازی» یه Bottom Sheetِ آزادانه قابلِ‌کشیدنه، دقیقاً
   // مثلِ نقشه‌ی گوگل ولی بدونِ اسنپ‌شدن به نقاطِ از‌پیش‌تعیین‌شده — هرجا
   // کاربر با انگشتش رهاش کنه، ارتفاع دقیقاً همون‌جا می‌مونه (بینِ ارتفاعِ
@@ -8127,6 +8143,61 @@ function GrammarPanel({
     }
   }
 
+  // وقتی هوش مصنوعی خطا می‌ده، آخرین پیامِ کاربر (که جوابش نیومده) توی
+  // chatMessages می‌مونه بدونِ این‌که دوباره اضافه‌ش کنیم — فقط همون
+  // درخواست رو دوباره می‌فرستیم، با تاریخچه‌ی درست (بدونِ خودِ این پیام).
+  async function retryLastMessage() {
+    const last = chatMessages[chatMessages.length - 1];
+    if (!last || last.role !== "user" || chatLoading) return;
+    setChatError("");
+    setChatLoading(true);
+    try {
+      const reply = await askGrammarTeacher({
+        userSentence: last.text,
+        langCode: chatLang,
+        nativeLang,
+        nativeLabel,
+        aiSettings,
+        history: chatMessages.slice(0, -1),
+        targetOrder,
+      });
+      setChatMessages((m) => [...m, { role: "ai", text: reply, forSentence: last.text }]);
+    } catch (e) {
+      setChatError(e?.message?.replace(/^ai-backend-error:\s*/, "") || (isFa ? "خطا در دریافت پاسخ" : "Couldn't get a reply"));
+    } finally {
+      setChatLoading(false);
+    }
+  }
+
+  function startEditingMsg(i, currentText) {
+    setTappedMsgIndex(null);
+    setEditingMsgIndex(i);
+    setEditingMsgText(currentText);
+  }
+
+  function cancelEditingMsg() {
+    setEditingMsgIndex(null);
+    setEditingMsgText("");
+  }
+
+  function saveEditingMsg() {
+    const text = editingMsgText.trim();
+    if (!text || editingMsgIndex == null) {
+      cancelEditingMsg();
+      return;
+    }
+    setChatMessages((prev) => prev.map((msg, idx) => (idx === editingMsgIndex ? { ...msg, text } : msg)));
+    cancelEditingMsg();
+  }
+
+  // اتوگرو برای textareaـیِ ویرایشِ پیام، دقیقاً مثلِ اتوگروی کادرِ اصلی.
+  useEffect(() => {
+    const el = editMsgTextareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [editingMsgText, editingMsgIndex]);
+
   const langOptions = targetOrder && targetOrder.length ? targetOrder : LANGUAGES.map((l) => l.code);
 
   return (
@@ -8204,6 +8275,22 @@ function GrammarPanel({
           <p style={{ fontSize: 13, color: colors.inkSoft }}>
             هنوز نکته‌ی گرامری‌ای ذخیره نکردی. روی هر کلمه‌ی داخل داستان بزن و «افزودن به یادگیری گرامر» رو انتخاب کن.
           </p>
+        )}
+        {notes.length > 0 && (
+          <div className="flex justify-end">
+            <button
+              onClick={() => {
+                if (!window.confirm(`همه‌ی ${notes.length} یادداشتِ گرامریِ ذخیره‌شده پاک بشه؟`)) return;
+                clearAllGrammarNotes();
+                setExpandedNote(null);
+              }}
+              className="flex items-center gap-1"
+              style={{ fontSize: 12, color: colors.rose, fontWeight: 700 }}
+            >
+              <Trash2 size={13} />
+              پاک‌کردن همه
+            </button>
+          </div>
         )}
         {notes.map((n) => {
           const isOpen = expandedNote === n.id;
@@ -8364,7 +8451,11 @@ function GrammarPanel({
                 : practiceMoveDragOffset != null
                 ? "none"
                 : "height 0.24s cubic-bezier(.2,.8,.2,1), transform 0.24s cubic-bezier(.2,.8,.2,1)",
-            touchAction: "none",
+            // توجه: touchAction:none اینجا (روی کلِ باکس) عمداً گذاشته نشده —
+            // چون این ویژگی روی تمامِ فرزندها هم اثر می‌ذاره (فرزند نمی‌تونه
+            // با pan-y دوباره بازش کنه) و اسکرولِ لمسیِ لیستِ پیام‌ها رو
+            // می‌بست. به‌جاش فقط روی خودِ دستگیره‌ها (هدر/گریپِ جابجایی)
+            // که واقعاً از پوینترایونت‌های دستی استفاده می‌کنن گذاشته می‌شه.
           }}
         >
           {/* هدرِ رنگیِ نوار — تیل توپر با متنِ سفید؛ خودِ این هدر همون
@@ -8388,7 +8479,7 @@ function GrammarPanel({
                 ? "بازکردنِ گفتگوی تمرین جمله‌سازی و گرامر"
                 : "جمع‌کردنِ گفتگوی تمرین جمله‌سازی و گرامر"
             }
-            style={{ backgroundColor: colors.teal, cursor: "grab", userSelect: "none", flexShrink: 0 }}
+            style={{ backgroundColor: colors.teal, cursor: "grab", userSelect: "none", flexShrink: 0, touchAction: "none" }}
           >
             {/* دستگیره‌ی کوچیکِ بالا — نشونه‌ی بصریِ این‌که قابلِ‌کشیدنه. */}
             <div
@@ -8544,59 +8635,155 @@ function GrammarPanel({
               </p>
 
                 {chatMessages.length > 0 && (
-                  <div style={{ flex: 1, minHeight: 0, overflowY: "auto", marginBottom: 10, paddingRight: 2 }}>
-                    {chatMessages.map((m, i) => (
-                      <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-start" : "flex-end", marginBottom: 10 }}>
-                        <div
-                          dir="auto"
-                          style={{
-                            maxWidth: "90%",
-                            padding: "8px 12px",
-                            borderRadius: 12,
-                            fontSize: 13,
-                            backgroundColor: m.role === "user" ? colors.paper : colors.goldSoft,
-                            border: `1px solid ${colors.cardBorder}`,
-                          }}
-                        >
-                          {m.role === "user" ? m.text : <MiniMarkdown text={m.text} speakCode={chatLang} nativeLang={nativeLang} aiSettings={aiSettings} />}
-                          {m.role === "ai" && (
-                            <div className="flex justify-end" style={{ marginTop: 6 }}>
-                              {m.savedToGrammar ? (
-                                <span
-                                  className="flex items-center gap-1"
-                                  style={{ fontSize: 11, color: colors.gold, fontWeight: 700 }}
-                                >
-                                  <Bookmark size={12} fill={colors.gold} />
-                                  ذخیره شد
-                                </span>
-                              ) : (
-                                <button
-                                  onClick={() => {
-                                    saveGrammarNote({
-                                      langCode: chatLang,
-                                      word: m.forSentence || "جمله",
-                                      sentence: m.forSentence || "",
-                                      markdown: m.text,
-                                    });
-                                    // یه‌بار ذخیره کافیه — با تغییر همین پیام به حالت
-                                    // «ذخیره شد»، دکمه غیرفعال می‌شه و دیگه نیازی به
-                                    // زدن دوباره‌ش نیست (که قبلاً گیج‌کننده بود).
-                                    setChatMessages((prev) =>
-                                      prev.map((msg, idx) => (idx === i ? { ...msg, savedToGrammar: true } : msg))
-                                    );
+                  <div
+                    style={{
+                      flex: 1,
+                      minHeight: 0,
+                      overflowY: "auto",
+                      marginBottom: 10,
+                      paddingRight: 2,
+                      // پنلِ بیرونی برای امکانِ کشیدنِ دستی (تغییرِ ارتفاع/جابجایی)
+                      // touchAction:none داره؛ چون این ویژگی روی فرزندها هم اثر
+                      // می‌ذاره، اینجا صریحاً pan-y می‌ذاریم تا اسکرولِ عمودیِ
+                      // معمولیِ لمسی (مثلِ هر اپِ چتی) روی خودِ لیستِ پیام‌ها کار کنه.
+                      touchAction: "pan-y",
+                      WebkitOverflowScrolling: "touch",
+                    }}
+                  >
+                    {chatMessages.map((m, i) => {
+                      const isUser = m.role === "user";
+                      const isEditing = editingMsgIndex === i;
+                      return (
+                        <div key={i} style={{ display: "flex", justifyContent: isUser ? "flex-start" : "flex-end", marginBottom: 10 }}>
+                          <div style={{ maxWidth: "90%", display: "flex", flexDirection: "column", alignItems: isUser ? "flex-start" : "flex-end" }}>
+                            {isEditing ? (
+                              <div
+                                style={{
+                                  width: "100%",
+                                  minWidth: 180,
+                                  padding: 6,
+                                  borderRadius: 12,
+                                  backgroundColor: colors.paper,
+                                  border: `1.5px solid ${colors.teal}`,
+                                }}
+                              >
+                                <textarea
+                                  ref={editMsgTextareaRef}
+                                  dir="auto"
+                                  autoFocus
+                                  rows={1}
+                                  value={editingMsgText}
+                                  onChange={(e) => setEditingMsgText(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                                      e.preventDefault();
+                                      saveEditingMsg();
+                                    } else if (e.key === "Escape") {
+                                      cancelEditingMsg();
+                                    }
                                   }}
-                                  className="flex items-center gap-1"
-                                  style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}
-                                >
-                                  <Bookmark size={12} />
-                                  ذخیره در یادگیری گرامر
-                                </button>
-                              )}
-                            </div>
-                          )}
+                                  style={{
+                                    width: "100%",
+                                    border: "none",
+                                    outline: "none",
+                                    resize: "none",
+                                    padding: "4px 6px",
+                                    fontSize: 13,
+                                    fontFamily: "inherit",
+                                    lineHeight: 1.6,
+                                    maxHeight: 140,
+                                    backgroundColor: "transparent",
+                                    color: colors.ink,
+                                  }}
+                                />
+                                <div className="flex items-center justify-end gap-2" style={{ marginTop: 4 }}>
+                                  <button
+                                    onClick={cancelEditingMsg}
+                                    className="flex items-center gap-1"
+                                    style={{ fontSize: 11, color: colors.inkSoft }}
+                                  >
+                                    <X size={12} />
+                                    انصراف
+                                  </button>
+                                  <button
+                                    onClick={saveEditingMsg}
+                                    className="flex items-center gap-1"
+                                    style={{ fontSize: 11, color: "white", fontWeight: 700, backgroundColor: colors.teal, borderRadius: 8, padding: "3px 8px" }}
+                                  >
+                                    <Check size={12} />
+                                    ذخیره
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div
+                                dir="auto"
+                                onClick={() => isUser && setTappedMsgIndex((prev) => (prev === i ? null : i))}
+                                style={{
+                                  maxWidth: "100%",
+                                  padding: "8px 12px",
+                                  borderRadius: 12,
+                                  fontSize: 13,
+                                  backgroundColor: isUser ? colors.paper : colors.goldSoft,
+                                  border: `1px solid ${colors.cardBorder}`,
+                                  cursor: isUser ? "pointer" : "default",
+                                }}
+                              >
+                                {isUser ? m.text : <MiniMarkdown text={m.text} speakCode={chatLang} nativeLang={nativeLang} aiSettings={aiSettings} />}
+                                {m.role === "ai" && (
+                                  <div className="flex justify-end" style={{ marginTop: 6 }}>
+                                    {m.savedToGrammar ? (
+                                      <span
+                                        className="flex items-center gap-1"
+                                        style={{ fontSize: 11, color: colors.gold, fontWeight: 700 }}
+                                      >
+                                        <Bookmark size={12} fill={colors.gold} />
+                                        ذخیره شد
+                                      </span>
+                                    ) : (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          saveGrammarNote({
+                                            langCode: chatLang,
+                                            word: m.forSentence || "جمله",
+                                            sentence: m.forSentence || "",
+                                            markdown: m.text,
+                                          });
+                                          // یه‌بار ذخیره کافیه — با تغییر همین پیام به حالت
+                                          // «ذخیره شد»، دکمه غیرفعال می‌شه و دیگه نیازی به
+                                          // زدن دوباره‌ش نیست (که قبلاً گیج‌کننده بود).
+                                          setChatMessages((prev) =>
+                                            prev.map((msg, idx) => (idx === i ? { ...msg, savedToGrammar: true } : msg))
+                                          );
+                                        }}
+                                        className="flex items-center gap-1"
+                                        style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}
+                                      >
+                                        <Bookmark size={12} />
+                                        ذخیره در یادگیری گرامر
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {/* دکمه‌ی «ویرایش» — فقط با تپ‌کردن رویِ پیامِ خودِ کاربر
+                                ظاهر می‌شه؛ هیچ محدودیتی در تعدادِ دفعاتِ ویرایش نیست. */}
+                            {isUser && !isEditing && tappedMsgIndex === i && (
+                              <button
+                                onClick={() => startEditingMsg(i, m.text)}
+                                className="flex items-center gap-1"
+                                style={{ fontSize: 11, color: colors.teal, fontWeight: 700, marginTop: 4 }}
+                              >
+                                <Pencil size={12} />
+                                ویرایش
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {chatLoading && (
                       <div className="flex items-center gap-1" style={{ fontSize: 12, color: colors.inkSoft }}>
                         <Loader2 size={13} className="spin" />
@@ -8606,7 +8793,20 @@ function GrammarPanel({
                     <div ref={chatEndRef} />
                   </div>
                 )}
-                {chatError && <p style={{ fontSize: 12, color: colors.rose, marginBottom: 8, flexShrink: 0 }}>{chatError}</p>}
+                {chatError && (
+                  <div className="flex items-center justify-between gap-2" style={{ marginBottom: 8, flexShrink: 0 }}>
+                    <p style={{ fontSize: 12, color: colors.rose, margin: 0 }}>{chatError}</p>
+                    <button
+                      onClick={retryLastMessage}
+                      disabled={chatLoading}
+                      className="flex items-center gap-1"
+                      style={{ fontSize: 11, color: "white", fontWeight: 700, backgroundColor: colors.teal, borderRadius: 8, padding: "4px 10px", flexShrink: 0, opacity: chatLoading ? 0.6 : 1 }}
+                    >
+                      <RotateCcw size={12} />
+                      تلاش دوباره
+                    </button>
+                  </div>
+                )}
             </div>
 
             {/* کادرِ نوشتن — همیشه در دسترسه (در هر سه حالتِ جمع/نیمه/کامل)،
