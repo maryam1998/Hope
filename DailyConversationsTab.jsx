@@ -221,22 +221,24 @@ function findActiveWordIndex(words, offset) {
   return 0;
 }
 
-// استایلِ کلمه‌ای که همین الان داره خونده می‌شه: به‌جای خط زیرش، خودِ
-// کلمه یه سایه‌ی نرم می‌گیره (box-shadow) — یه حس برجسته/شناور، بدون
-// این‌که به شکلِ خط یا برجستگیِ تیز دربیاد.
-const ACTIVE_WORD_STYLE = {
-  position: "relative",
-  borderRadius: 5,
-  padding: "1px 4px",
-  margin: "-1px -4px",
-  boxShadow: "0 3px 10px rgba(0,0,0,0.25), 0 1px 2px rgba(0,0,0,0.18)",
-  transition: "box-shadow .15s ease",
+// سایه‌ی زیرِ کلمه: یه بلوبِ نرم و محو، دقیقاً به‌عرضِ خودِ کلمه، آویزون از
+// زیرش — نه خط با لبه‌ی تیز، نه افکتی روی خودِ کلمه (کلمه دقیقاً همون
+// استایلِ همیشگیشو داره).
+const WORD_SHADOW_STYLE = {
+  position: "absolute",
+  left: 2,
+  right: 2,
+  bottom: -6,
+  height: 5,
+  borderRadius: "50%",
+  boxShadow: "0 4px 7px rgba(0,0,0,0.38)",
+  pointerEvents: "none",
 };
 
 // نسخه‌ی «ردیاب‌دار» یه جمله: هر کلمه یه span مجزاست، و فقط کلمه‌ای که
-// همین الان در حالِ خونده‌شدنه سایه می‌گیره. فقط برای خطی که همین الان
-// در حالِ خونده‌شدنه صدا زده می‌شه (بقیه‌ی خط‌ها همون رندرِ قبلی/
-// ClickableSentence رو دارن).
+// همین الان در حالِ خونده‌شدنه، زیرش یه سایه‌ی نرم می‌گیره (خودِ کلمه بدونِ
+// هیچ افکتی می‌مونه). فقط برای خطی که همین الان در حالِ خونده‌شدنه صدا زده
+// می‌شه (بقیه‌ی خط‌ها همون رندرِ قبلی/ClickableSentence رو دارن).
 function WordTrackedText({ text, relOffset, fontFamily, fontSize, fontWeight, color }) {
   const words = useMemo(() => tokenizeWords(text), [text]);
   const activeIdx = findActiveWordIndex(words, relOffset);
@@ -244,8 +246,9 @@ function WordTrackedText({ text, relOffset, fontFamily, fontSize, fontWeight, co
   return (
     <span style={{ fontFamily, fontSize, fontWeight, color }}>
       {words.map((w, i) => (
-        <span key={i} style={i === activeIdx ? ACTIVE_WORD_STYLE : undefined}>
+        <span key={i} style={{ position: "relative" }}>
           {w.text}
+          {i === activeIdx && <span style={WORD_SHADOW_STYLE} />}
           {i < words.length - 1 ? " " : ""}
         </span>
       ))}
