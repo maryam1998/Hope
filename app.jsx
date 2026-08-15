@@ -3821,7 +3821,16 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
   const groupAt = {}; // starting token idx -> { start, end, text }
   const groupSkip = new Set(); // token idx that belong to a group but aren't its start
   if (savedNorms.size) {
-    const MAX_EXPR_WORDS = 4;
+    // قبلاً این عدد ثابت (۴) بود، یعنی محدوده‌های انتخابیِ بلندتر از ۴ کلمه
+    // (مثلاً یک جمله‌ی کامل که با «افزودن به داستان بعدی» ذخیره شده) هرگز
+    // به‌صورتِ یک واحد پیدا/زیرخط نمی‌شدن — نه در متنِ اصلی، نه معادلشون در
+    // ترجمه (crossTerms). حالا سقف رو از رویِ درازترین عبارتِ واقعاً
+    // ذخیره‌شده حساب می‌کنیم تا هر محدوده‌ای، هرچقدر هم بلند، دقیقاً همون‌طور
+    // که انتخاب و ذخیره شده زیرخط بخوره.
+    const phraseWordLens = [...savedTerms.map((e) => e.word), ...crossTerms]
+      .map((w) => (w.match(/\S+/g) || []).length)
+      .filter((n) => n > 0);
+    const MAX_EXPR_WORDS = phraseWordLens.length ? Math.min(60, Math.max(...phraseWordLens)) : 1;
     let p = 0;
     while (p < wordTokIdx.length) {
       let matched = false;
@@ -4777,6 +4786,11 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // می‌شه) به کاربر می‌گه کدوم لغت چند بار واقعاً استفاده شده.
   const [repeatNotice, setRepeatNotice] = useState("");
   const [showSaved, setShowSaved] = useState(false);
+  // فیلترِ سطح برای لیستِ «داستان‌های ذخیره‌شده» — دقیقاً همون الگوی
+  // LevelFilterRow که بقیه‌ی تب‌ها (واژگان، عبارت‌ها و ...) دارن؛ هر داستان
+  // از قبل با سطحِ خودش (storyLevel) ذخیره می‌شه، این فیلتر فقط برای پیداکردن
+  // و ساماندهیِ راحت‌ترِ همون داستان‌های ازقبل‌ذخیره‌شده‌ست.
+  const [savedStoriesLevelFilter, setSavedStoriesLevelFilter] = useState("all");
   const [justSaved, setJustSaved] = useState(false);
   // لغاتِ ذخیره‌شده‌ی همین زبان — به‌شکلِ چیپ‌های کوچیکِ قابل‌تپ همین‌جا هم
   // نشون داده می‌شن (نه فقط توی تبِ «لغات ذخیره‌شده») تا کاربر لازم نباشه
@@ -5515,37 +5529,68 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
 
       {showSaved ? (
         <div className="flex flex-col gap-3">
+          <LevelFilterRow levelFilter={savedStoriesLevelFilter} setLevelFilter={setSavedStoriesLevelFilter} />
           {savedStories.length === 0 && (
             <p style={{ fontSize: 13, color: colors.inkSoft }}>هنوز داستانی ذخیره نکردی.</p>
           )}
-          {savedStories.map((s) => (
-            <div
-              key={s.id}
-              style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 14 }}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p style={{ fontWeight: 700, fontSize: 13 }}>
-                    {LANGUAGES.find((l) => l.code === s.storyLang)?.label} · {s.storyLevel} ·{" "}
-                    {CONTENT_TYPES.find((c) => c.key === s.contentType)?.label || "عمومی"} ·{" "}
-                    {STORY_LENGTHS.find((l) => l.key === s.storyLength)?.label || "متوسط"}
+          {savedStories.length > 0 && (() => {
+            // هر داستان از قبل با سطحِ خودش (storyLevel) ذخیره شده؛ اینجا فقط
+            // بر همون اساس فیلتر/دسته‌بندی می‌کنیم — وقتی فیلترِ خاصی
+            // (مثلاً B1) انتخاب شده فقط داستان‌های همون سطح نشون داده می‌شن،
+            // وقتی «همه سطح‌ها»ست، داستان‌ها زیرِ عنوانِ سطحِ خودشون (به ترتیبِ
+            // A1→C2) دسته‌بندی می‌شن تا پیداکردن‌شون راحت‌تر باشه.
+            const groups =
+              savedStoriesLevelFilter !== "all"
+                ? [[savedStoriesLevelFilter, savedStories.filter((s) => s.storyLevel === savedStoriesLevelFilter)]]
+                : [
+                    ...LEVELS.map((lv) => [lv, savedStories.filter((s) => s.storyLevel === lv)]),
+                    ["نامشخص", savedStories.filter((s) => !LEVELS.includes(s.storyLevel))],
+                  ].filter(([, list]) => list.length > 0);
+            if (!groups.length) {
+              return (
+                <p style={{ fontSize: 13, color: colors.inkSoft }}>
+                  داستانی با سطح {savedStoriesLevelFilter} ذخیره نشده.
+                </p>
+              );
+            }
+            return groups.map(([lv, list]) => (
+              <div key={lv} className="flex flex-col gap-2">
+                {savedStoriesLevelFilter === "all" && (
+                  <p style={{ fontSize: 12, fontWeight: 700, color: colors.teal, margin: "4px 0 0" }}>
+                    سطح {lv} ({list.length})
                   </p>
-                  <p style={{ fontSize: 12, color: colors.inkSoft }}>{s.selectedWords.join("، ")}</p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => openSavedStory(s)}
-                    style={{ fontSize: 12, color: colors.teal, textDecoration: "underline" }}
+                )}
+                {list.map((s) => (
+                  <div
+                    key={s.id}
+                    style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 14 }}
                   >
-                    باز کردن
-                  </button>
-                  <button onClick={() => deleteSavedStory(s.id)} aria-label="حذف">
-                    <X size={16} color={colors.rose} />
-                  </button>
-                </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p style={{ fontWeight: 700, fontSize: 13 }}>
+                          {LANGUAGES.find((l) => l.code === s.storyLang)?.label} · {s.storyLevel} ·{" "}
+                          {CONTENT_TYPES.find((c) => c.key === s.contentType)?.label || "عمومی"} ·{" "}
+                          {STORY_LENGTHS.find((l) => l.key === s.storyLength)?.label || "متوسط"}
+                        </p>
+                        <p style={{ fontSize: 12, color: colors.inkSoft }}>{s.selectedWords.join("، ")}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => openSavedStory(s)}
+                          style={{ fontSize: 12, color: colors.teal, textDecoration: "underline" }}
+                        >
+                          باز کردن
+                        </button>
+                        <button onClick={() => deleteSavedStory(s.id)} aria-label="حذف">
+                          <X size={16} color={colors.rose} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
-          ))}
+            ));
+          })()}
         </div>
       ) : (
         <>
@@ -8842,6 +8887,22 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
   // می‌شه — دقیقاً همون باگیه که باعث می‌شد لغت خودبه‌خود «ذخیره در گرامر»
   // بشه و پاپ‌آپ هم دیگه با لمسِ بیرون بسته نشه.
   const openedAtRef = useRef(0);
+  // طبق درخواست: دیگه با تمومِ کشیدنِ محدوده (mouseup/touchend) بلافاصله
+  // پاپ‌آپ باز نمی‌شه. اول محدوده «آماده» می‌مونه (فقط هایلایتِ طلایی روش
+  // می‌مونه)، و پاپ‌آپ فقط وقتی باز می‌شه که کاربر روی همون محدوده انگشتش
+  // رو HOLD_TO_OPEN_MS میلی‌ثانیه بدونِ جابه‌جاییِ زیاد نگه داره — یعنی یه
+  // لمسِ طولانی/چندثانیه‌ای جدا، بعد از خودِ انتخاب. عددِ پایین رو می‌شه هر
+  // وقت خواستی همین‌جا تغییر داد.
+  const HOLD_TO_OPEN_MS = 1200;
+  const pendingRef = useRef(null); // { top, left, text, langCode, storyResumeOffset } | null — محدوده‌ی آماده، منتظرِ لمسِ طولانی
+  const holdRef = useRef({ timer: null, startX: 0, startY: 0 });
+  const [pendingActive, setPendingActive] = useState(false); // فقط برای رندرِ هایلایتِ CSS synced با وجودِ pendingRef
+  const clearHold = () => {
+    if (holdRef.current.timer) {
+      clearTimeout(holdRef.current.timer);
+      holdRef.current.timer = null;
+    }
+  };
   const [measuredHeight, setMeasuredHeight] = useState(null);
   // فقط برای این‌که دکمه‌ی 🔊ِ پاپ‌آپ بین آیکونِ پخش/توقف سوییچ کنه — دقیقاً
   // همون الگویی که SpeakButton خودش استفاده می‌کنه.
@@ -8854,6 +8915,15 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
         CSS.highlights.delete(STORY_SELECTION_HIGHLIGHT);
       }
     } catch {}
+  };
+
+  // لغوِ حالتِ «آماده» (محدوده‌ی انتخاب‌شده که هنوز پاپ‌آپش باز نشده) — با
+  // زدنِ جایی بیرون، اسکرول، یا شروعِ یه انتخابِ کاملاً تازه.
+  const clearPending = () => {
+    pendingRef.current = null;
+    clearHold();
+    setPendingActive(false);
+    clearSelectionHighlight();
   };
 
   const closePopup = () => {
@@ -8947,9 +9017,22 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       // فرم‌ها) باید دست‌نخورده بمونه.
       const active = document.activeElement;
       if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) return;
+      // اگه پاپ‌آپِ یه محدوده‌ی قبلی هنوز بازه و کاربر محدوده‌ی کاملاً تازه‌ای
+      // انتخاب کرده، اون پاپ‌آپِ قبلی رو ببند — محدوده‌ی جدید می‌ره تو حالتِ
+      // «آماده» و باز هم منتظرِ لمسِ طولانیِ خودش می‌مونه. (setPopup(null)
+      // حتی وقتی از قبل هم null بوده بی‌ضرره، پس شرط جداگانه لازم نیست —
+      // همین‌جوری هم گیرِ کلوژرِ قدیمیِ متغیرِ popup نمی‌افتیم.)
+      closePopup();
       let rect;
+      // این متغیر رو بیرونِ try نگه می‌داریم (قبلاً داخلِ همون try/catچِ
+      // اول با const تعریف شده بود و چون بلاک‌اسکوپ بود، توی try/catچِ بعدی
+      // که storyResumeOffset رو حساب می‌کنه اصلاً در دسترس نبود — یه
+      // ReferenceError که بی‌صدا قورت می‌رفت، و همین باعث می‌شد
+      // storyResumeOffset همیشه null بمونه و «نقطه‌ی ادامه‌ی پخش» برای
+      // محدوده‌های انتخابی هیچ‌وقت واقعاً ذخیره نشه).
+      let range;
       try {
-        const range = sel.getRangeAt(0);
+        range = sel.getRangeAt(0);
         rect = range.getBoundingClientRect();
       } catch {
         return;
@@ -8980,19 +9063,19 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       // جاش می‌مونه.
       try {
         if (typeof CSS !== "undefined" && CSS.highlights && typeof Highlight === "function") {
-          const range = sel.getRangeAt(0).cloneRange();
-          CSS.highlights.set(STORY_SELECTION_HIGHLIGHT, new Highlight(range));
+          const highlightRange = sel.getRangeAt(0).cloneRange();
+          CSS.highlights.set(STORY_SELECTION_HIGHLIGHT, new Highlight(highlightRange));
         }
       } catch {}
       setSaved(isWordSaved(selectedText, langCode));
       setGrammarSaved(false);
       setMeasuredHeight(null);
-      // یه تیکِ رندر جلوتر ثبت می‌کنیم (نه همین لحظه) چون خودِ همین
-      // touchend/mouseup ممکنه هنوز داخلِ زنجیره‌ی رویدادهای همون لمس
-      // باشه؛ گاردِ کلیکِ شبح پایین‌تر با همین timestamp مقایسه می‌شه.
-      openedAtRef.current = Date.now();
-      setPopup({ top: rect.top, left: rect.left + rect.width / 2, text: selectedText, langCode, storyResumeOffset });
-      // بلافاصله انتخابِ بومیِ مرورگر رو پاک می‌کنیم — دکمه‌ی شناورِ خودمون
+      // دیگه پاپ‌آپ همین‌جا باز نمی‌شه — محدوده فقط «آماده» می‌مونه (با
+      // هایلایتِ طلاییِ بالا) تا کاربر جدا روش یه لمسِ طولانی انجام بده
+      // (نگاه کن به بخشِ hold-to-open پایین‌تر).
+      pendingRef.current = { top: rect.top, left: rect.left + rect.width / 2, text: selectedText, langCode, storyResumeOffset };
+      setPendingActive(true);
+      // بلافاصله انتخابِ بومیِ مرورگر رو پاک می‌کنیم — هایلایتِ سفارشیِ خودمون
       // (که همین الان ست شد) جایگزینش می‌شه، و نوار ابزارِ سیستم دیگه چیزی
       // برای نشون‌دادن نداره. هایلایتِ سفارشیِ بالا از این کار متأثر نمی‌شه.
       try {
@@ -9006,7 +9089,10 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       e.preventDefault();
     };
 
-    const handleScroll = () => closePopup();
+    const handleScroll = () => {
+      closePopup();
+      clearPending();
+    };
 
     document.addEventListener("mouseup", handleUp);
     document.addEventListener("touchend", handleUp);
@@ -9021,14 +9107,81 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
     };
   }, [fallbackLangCode]);
 
+  // «لمسِ طولانی برای بازکردن»: تا وقتی محدوده‌ای «آماده»ست (pendingRef) و
+  // پاپ‌آپ هنوز باز نشده، هر لمسِ تازه‌ای که شروع می‌شه رو زیرِ نظر می‌گیریم —
+  // اگه HOLD_TO_OPEN_MS میلی‌ثانیه بدونِ جابه‌جاییِ زیاد (بیشتر از چند پیکسل،
+  // یعنی نه اسکرول و نه شروعِ یه انتخابِ تازه) ادامه پیدا کنه، پاپ‌آپ همون‌جا
+  // باز می‌شه؛ وگرنه (برداشتن زودهنگامِ انگشت، یا جابه‌جاییِ زیاد) لغو می‌شه و
+  // محدوده همچنان «آماده» می‌مونه تا کاربر دوباره امتحان کنه.
+  useEffect(() => {
+    const startHold = (x, y) => {
+      if (!pendingRef.current || popupElRef.current) return;
+      clearHold();
+      holdRef.current.startX = x;
+      holdRef.current.startY = y;
+      holdRef.current.timer = setTimeout(() => {
+        const p = pendingRef.current;
+        if (!p) return;
+        openedAtRef.current = Date.now();
+        setPopup(p);
+        pendingRef.current = null;
+        setPendingActive(false);
+      }, HOLD_TO_OPEN_MS);
+    };
+    const moveHold = (x, y) => {
+      if (!holdRef.current.timer) return;
+      const dx = Math.abs(x - holdRef.current.startX);
+      const dy = Math.abs(y - holdRef.current.startY);
+      if (dx > 12 || dy > 12) clearHold();
+    };
+    const onMouseDown = (e) => startHold(e.clientX, e.clientY);
+    const onMouseMove = (e) => moveHold(e.clientX, e.clientY);
+    const onTouchStart = (e) => {
+      const t = e.touches[0];
+      if (t) startHold(t.clientX, t.clientY);
+    };
+    const onTouchMove = (e) => {
+      const t = e.touches[0];
+      if (t) moveHold(t.clientX, t.clientY);
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", clearHold);
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchmove", onTouchMove, { passive: true });
+    document.addEventListener("touchend", clearHold);
+    document.addEventListener("touchcancel", clearHold);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", clearHold);
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", clearHold);
+      document.removeEventListener("touchcancel", clearHold);
+    };
+  }, []);
+
   // لمس/کلیک بیرون از پاپ‌آپ (بدون این‌که متن جدیدی انتخاب بشه) هم باید
   // هم پاپ‌آپ و هم هایلایتِ همراهش رو ببنده — وگرنه هایلایت تا ابد (یا تا
-  // اسکرول بعدی) روی صفحه می‌مونه.
+  // اسکرول بعدی) روی صفحه می‌مونه. همین‌طور، اگه محدوده هنوز فقط «آماده»ست
+  // (پاپ‌آپ باز نشده، منتظرِ لمسِ طولانیه) و کاربر یه‌جای دیگه رو لمس کنه
+  // بدونِ این‌که محدوده‌ی تازه‌ای انتخاب کنه، همون «آماده» هم لغو می‌شه.
   useEffect(() => {
-    if (!popup) return;
+    if (!popup && !pendingActive) return;
     const onOutside = (e) => {
-      if (popupElRef.current && popupElRef.current.contains(e.target)) return;
-      closePopup();
+      if (popup) {
+        if (popupElRef.current && popupElRef.current.contains(e.target)) return;
+        closePopup();
+        return;
+      }
+      // یه تیکِ رندر صبر می‌کنیم چون همین لمس ممکنه داره یه انتخابِ تازه رو
+      // شروع می‌کنه — اگه واقعاً همچین چیزی در جریان نبود، «آماده» رو پاک کن.
+      setTimeout(() => {
+        const sel = window.getSelection && window.getSelection();
+        if (sel && sel.toString().trim()) return;
+        clearPending();
+      }, 0);
     };
     document.addEventListener("mousedown", onOutside);
     document.addEventListener("touchstart", onOutside);
@@ -9036,7 +9189,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       document.removeEventListener("mousedown", onOutside);
       document.removeEventListener("touchstart", onOutside);
     };
-  }, [popup]);
+  }, [popup, pendingActive]);
 
   if (!popup) return null;
 
