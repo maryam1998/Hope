@@ -221,48 +221,31 @@ function findActiveWordIndex(words, offset) {
   return 0;
 }
 
-// خطِ سایه: یه خطِ سیاهِ «نیم‌باز» زیرِ کلمه — نازک در دو سر، ضخیم وسط. دو
-// منحنیِ Bezier که از دو سرِ یکسان شروع/تموم می‌شن ولی یکی بالاتر از خط
-// وسط رد می‌شه و یکی پایین‌تر، پس شکلِ نوک‌تیزِ باریکی می‌سازن.
-function ShadowLine({ width }) {
-  const w = Math.max(width, 10);
-  const h = 10;
-  const midX = w / 2;
-  const topY = h * 0.42;
-  const bottomY = h * 0.78;
-  const d = `M0,${h / 2} Q${midX},${topY} ${w},${h / 2} Q${midX},${bottomY} 0,${h / 2} Z`;
-  return (
-    <svg
-      width={w}
-      height={h}
-      viewBox={`0 0 ${w} ${h}`}
-      style={{ position: "absolute", left: 0, bottom: -7, pointerEvents: "none" }}
-    >
-      <path d={d} fill="#111111" />
-    </svg>
-  );
-}
+// استایلِ کلمه‌ای که همین الان داره خونده می‌شه: به‌جای خط زیرش، خودِ
+// کلمه یه سایه‌ی نرم می‌گیره (box-shadow) — یه حس برجسته/شناور، بدون
+// این‌که به شکلِ خط یا برجستگیِ تیز دربیاد.
+const ACTIVE_WORD_STYLE = {
+  position: "relative",
+  borderRadius: 5,
+  padding: "1px 4px",
+  margin: "-1px -4px",
+  boxShadow: "0 3px 10px rgba(0,0,0,0.25), 0 1px 2px rgba(0,0,0,0.18)",
+  transition: "box-shadow .15s ease",
+};
 
-// نسخه‌ی «ردیاب‌دار» یه جمله: هر کلمه یه span مجزاست تا بشه عرضِ دقیقِ
-// کلمه‌ی فعال رو خوند و خطِ سایه رو دقیقاً هم‌عرضش زیرش گذاشت. فقط برای
-// خطی که همین الان در حالِ خونده‌شدنه صدا زده می‌شه (بقیه‌ی خط‌ها همون
-// رندرِ قبلی/ClickableSentence رو دارن).
+// نسخه‌ی «ردیاب‌دار» یه جمله: هر کلمه یه span مجزاست، و فقط کلمه‌ای که
+// همین الان در حالِ خونده‌شدنه سایه می‌گیره. فقط برای خطی که همین الان
+// در حالِ خونده‌شدنه صدا زده می‌شه (بقیه‌ی خط‌ها همون رندرِ قبلی/
+// ClickableSentence رو دارن).
 function WordTrackedText({ text, relOffset, fontFamily, fontSize, fontWeight, color }) {
   const words = useMemo(() => tokenizeWords(text), [text]);
   const activeIdx = findActiveWordIndex(words, relOffset);
-  const wordRef = useRef(null);
-  const [wordWidth, setWordWidth] = useState(0);
-
-  useEffect(() => {
-    if (wordRef.current) setWordWidth(wordRef.current.getBoundingClientRect().width);
-  }, [activeIdx, text]);
 
   return (
     <span style={{ fontFamily, fontSize, fontWeight, color }}>
       {words.map((w, i) => (
-        <span key={i} style={{ position: "relative" }} ref={i === activeIdx ? wordRef : null}>
+        <span key={i} style={i === activeIdx ? ACTIVE_WORD_STYLE : undefined}>
           {w.text}
-          {i === activeIdx && wordWidth > 0 && <ShadowLine width={wordWidth} />}
           {i < words.length - 1 ? " " : ""}
         </span>
       ))}
