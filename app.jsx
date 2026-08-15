@@ -305,9 +305,30 @@ async function translateWithGoogle(text, targetLang) {
 // ترجمه‌شده‌ست و همیشه match می‌کنه — بدون نیاز به هوش مصنوعی یا بک‌اند.
 const ALIGN_L = "⟦";
 const ALIGN_R = "⟧";
+// جستجوی «کلمه‌ی کامل» به‌جای indexOf ساده — indexOf ساده ممکنه وسطِ یه
+// کلمه‌ی دیگه رو پیدا کنه (مثلاً جستجوی "man" داخلِ "woman")، که باعث
+// می‌شد نشانگرها دور نصفِ یه کلمه‌ی اشتباه گذاشته بشن و کل زیرخط‌کشی غلط
+// از آب دربیاد. اینجا با چک‌کردنِ کاراکترهای قبل/بعد (باید حرف/رقم نباشن)
+// مطمئن می‌شیم دقیقاً همون کلمه/عبارتِ کامل پیدا شده.
+function findWholeWordIndex(haystack, needle) {
+  if (!haystack || !needle) return -1;
+  const h = haystack.toLowerCase();
+  const n = needle.toLowerCase();
+  const isWordChar = (ch) => !!ch && /[\p{L}\p{N}]/u.test(ch);
+  let from = 0;
+  while (true) {
+    const idx = h.indexOf(n, from);
+    if (idx === -1) return -1;
+    const before = idx > 0 ? h[idx - 1] : "";
+    const after = idx + n.length < h.length ? h[idx + n.length] : "";
+    if (!isWordChar(before) && !isWordChar(after)) return idx;
+    from = idx + 1;
+  }
+}
 async function translateWordInContext(sentenceText, word, sourceLang, targetLang) {
   if (!sentenceText || !word) return null;
-  const idx = sentenceText.toLowerCase().indexOf(word.toLowerCase());
+  let idx = findWholeWordIndex(sentenceText, word);
+  if (idx === -1) idx = sentenceText.toLowerCase().indexOf(word.toLowerCase()); // فالبک برای عبارت‌های چندکلمه‌ای که مرزبندی «کلمه‌ی کامل» براشون صدق نمی‌کنه
   if (idx === -1) return null;
   const wrapped =
     sentenceText.slice(0, idx) +
@@ -3691,6 +3712,19 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
       if (!cancelled) setCrossTerms(cached);
       others.forEach((e) => {
         if (e.translations && e.translations[langCode]) return;
+        // این جمله (alignSourceText) فقط وقتی صاحبِ واقعیِ این لغته که خودِ
+        // لغت عیناً توش باشه. قبلاً اگه این ClickableSentence خاص جمله‌ی
+        // درستِ این لغت رو نداشت (چون هر نمونه از ClickableSentence برای
+        // *همه‌ی* لغاتِ ذخیره‌شده تلاش می‌کرد، نه فقط لغاتِ همون جمله)، باز
+        // هم می‌رفت سراغِ «ترجمه‌ی مجزای کلمه» (بی‌ربط به این جمله) و همون
+        // نتیجه‌ی نادرست رو *سراسری* (برای کل اپ) کش می‌کرد — و اگه این
+        // بره جلوتر از نمونه‌ای که واقعاً جمله‌ی درست رو داره، زیرخط همیشه
+        // رو کلمه‌ی اشتباه می‌افتاد. پس اگه این جمله زبانِ مبدأِ لغت رو داره
+        // ولی خودِ لغت توش نیست، این نمونه کلاً بی‌خیالِ این لغت می‌شه و
+        // می‌ذاره نمونه‌ای که واقعاً همون جمله رو داره حلش کنه.
+        if (alignSourceText && e.langCode === alignSourceLang && findWholeWordIndex(alignSourceText, e.word) === -1) {
+          return;
+        }
         const fetchKey = `${e.langCode}:${normalizeWord(e.word)}:${langCode}`;
         if (crossTranslateInFlight.has(fetchKey)) return;
         crossTranslateInFlight.add(fetchKey);
@@ -8800,6 +8834,15 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
   // با translateFree انجام می‌شه. { status: "loading" | "done" | "error", text? }
   const [translation, setTranslation] = useState(null);
   const popupElRef = useRef(null);
+  // زمانِ دقیقِ بازشدنِ پاپ‌آپ — برای نادیده‌گرفتنِ «کلیک‌های شبح» (ghost
+  // click)ی که بعضی موبایل‌براوزرها چند صدم‌ثانیه بعد از همون لمسی که
+  // انتخاب رو ساخته می‌فرستن. چون پاپ‌آپ دقیقاً همون‌جایی باز می‌شه که
+  // انگشت لمس کرده بود، اگه این کلیکِ تأخیریِ اضافه درست روی یکی از
+  // دکمه‌های «ذخیره» بیفته، بدونِ اینکه کاربر واقعاً لمسش کرده باشه فعال
+  // می‌شه — دقیقاً همون باگیه که باعث می‌شد لغت خودبه‌خود «ذخیره در گرامر»
+  // بشه و پاپ‌آپ هم دیگه با لمسِ بیرون بسته نشه.
+  const openedAtRef = useRef(0);
+  const [measuredHeight, setMeasuredHeight] = useState(null);
   // فقط برای این‌که دکمه‌ی 🔊ِ پاپ‌آپ بین آیکونِ پخش/توقف سوییچ کنه — دقیقاً
   // همون الگویی که SpeakButton خودش استفاده می‌کنه.
   const [speakState, setSpeakState] = useState(() => speechController.getState());
@@ -8818,6 +8861,21 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
     setTranslation(null);
     clearSelectionHighlight();
   };
+
+  // کلیک/تاچِ شبح: هر رویدادی که کمتر از ۴۰۰ میلی‌ثانیه بعد از بازشدنِ
+  // همین پاپ‌آپ برسه رو نادیده می‌گیریم. یه لمسِ واقعی و عمدی روی دکمه
+  // همیشه بعد از این فاصله می‌رسه (کاربر باید اول ببینه پاپ‌آپ باز شده،
+  // بعد جدا روش بزنه).
+  const isGhostEvent = () => Date.now() - openedAtRef.current < 400;
+
+  // ارتفاعِ واقعیِ پاپ‌آپ رو (به‌جای حدس ثابتِ ۸۸/۱۲۸ پیکسل قبلی) اندازه
+  // می‌گیریم تا همیشه درست بالای محدوده‌ی انتخاب‌شده بشینه، نه رویش —
+  // هم‌پوشانی با نقطه‌ی لمس دقیقاً همون چیزیه که احتمالِ گرفتارشدنِ یه
+  // کلیکِ شبح توسطِ یکی از دکمه‌ها رو زیاد می‌کرد.
+  useLayoutEffect(() => {
+    if (!popup || !popupElRef.current) return;
+    setMeasuredHeight(popupElRef.current.offsetHeight);
+  }, [popup, translation]);
 
   // هر بار محدوده‌ی تازه‌ای انتخاب می‌شه (popup عوض می‌شه)، ترجمه‌ی همون
   // محدوده رو به زبان مبدأ/مادریِ کاربر می‌گیریم — دقیقاً همون زنجیره‌ی
@@ -8928,6 +8986,11 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       } catch {}
       setSaved(isWordSaved(selectedText, langCode));
       setGrammarSaved(false);
+      setMeasuredHeight(null);
+      // یه تیکِ رندر جلوتر ثبت می‌کنیم (نه همین لحظه) چون خودِ همین
+      // touchend/mouseup ممکنه هنوز داخلِ زنجیره‌ی رویدادهای همون لمس
+      // باشه؛ گاردِ کلیکِ شبح پایین‌تر با همین timestamp مقایسه می‌شه.
+      openedAtRef.current = Date.now();
       setPopup({ top: rect.top, left: rect.left + rect.width / 2, text: selectedText, langCode, storyResumeOffset });
       // بلافاصله انتخابِ بومیِ مرورگر رو پاک می‌کنیم — دکمه‌ی شناورِ خودمون
       // (که همین الان ست شد) جایگزینش می‌شه، و نوار ابزارِ سیستم دیگه چیزی
@@ -9009,7 +9072,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       onTouchStart={(e) => e.stopPropagation()}
       style={{
         position: "fixed",
-        top: Math.max(8, popup.top - (translation ? 128 : 88)),
+        top: Math.max(8, popup.top - (measuredHeight != null ? measuredHeight + 10 : translation ? 128 : 88)),
         left: Math.min(Math.max(90, popup.left), window.innerWidth - 90),
         transform: "translateX(-50%)",
         display: "flex",
@@ -9077,6 +9140,30 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
             <Volume2 size={16} />
           )}
         </button>
+        {/* دکمه‌ی بستنِ صریح — همیشه یه راهِ مطمئن برای خارج‌شدن از این
+            پاپ‌آپ باشه، حتی اگه به هر دلیلی لمسِ بیرون کار نکرد. */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            closePopup();
+          }}
+          aria-label="بستن"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            width: 22,
+            height: 22,
+            color: colors.paper,
+            opacity: 0.7,
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+          }}
+        >
+          <X size={15} />
+        </button>
       </div>
 
       {/* ترجمه‌ی خودِ محدوده‌ی انتخاب‌شده — درست زیرِ متنِ اصلی، مطابقِ
@@ -9131,6 +9218,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
         <button
           onClick={(e) => {
             e.stopPropagation();
+            if (isGhostEvent()) return;
             const nowSaved = toggleSavedStoryWord(popup.text, popup.langCode, { nativeLang: nativeLang || fallbackLangCode });
             setSaved(nowSaved);
             if (nowSaved) {
@@ -9162,6 +9250,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
         <button
           onClick={(e) => {
             e.stopPropagation();
+            if (isGhostEvent()) return;
             saveSelectionToGrammar();
           }}
           style={{
