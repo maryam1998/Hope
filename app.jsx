@@ -628,6 +628,131 @@ function formatSavedDate(iso, calendarSystem) {
   return formatJalaliDateTime(date);
 }
 
+// ---------------------------------------------------------------------------
+// مرتب‌سازیِ داستان‌های ذخیره‌شده — «نام» یه داستان همون لغاتِ انتخابیِ
+// ذخیره‌شده باهاشه (چیزی که زیرِ هر کارت هم نشون داده می‌شه)، و «اندازه»
+// همون تعدادِ کلمه‌های کلِ داستانه (چون داستان‌ها فایل جداگونه نیستن که
+// حجمِ بایتی معنی‌دار داشته باشن).
+const SAVED_STORIES_SORT_OPTIONS = [
+  { key: "newest", label: "جدیدترین تاریخ" },
+  { key: "oldest", label: "قدیمی‌ترین تاریخ" },
+  { key: "wordsDesc", label: "بیشترین تعداد کلمه" },
+  { key: "wordsAsc", label: "کمترین تعداد کلمه" },
+  { key: "nameAsc", label: "نام: الف ← ی" },
+  { key: "nameDesc", label: "نام: ی ← الف" },
+];
+
+function getStoryWordCount(entry) {
+  const paragraphs = entry?.paragraphs || [];
+  let count = 0;
+  for (const p of paragraphs) {
+    for (const s of p?.sentences || []) {
+      const text = (s?.text || "").trim();
+      if (text) count += text.split(/\s+/).filter(Boolean).length;
+    }
+  }
+  return count;
+}
+
+function getStoryNameKey(entry) {
+  return (entry?.selectedWords || []).join("، ").trim();
+}
+
+function sortSavedStories(list, sortKey) {
+  const arr = [...list];
+  switch (sortKey) {
+    case "oldest":
+      return arr.sort((a, b) => new Date(a.savedAt || 0) - new Date(b.savedAt || 0));
+    case "wordsDesc":
+      return arr.sort((a, b) => getStoryWordCount(b) - getStoryWordCount(a));
+    case "wordsAsc":
+      return arr.sort((a, b) => getStoryWordCount(a) - getStoryWordCount(b));
+    case "nameAsc":
+      return arr.sort((a, b) => getStoryNameKey(a).localeCompare(getStoryNameKey(b), "fa"));
+    case "nameDesc":
+      return arr.sort((a, b) => getStoryNameKey(b).localeCompare(getStoryNameKey(a), "fa"));
+    case "newest":
+    default:
+      return arr.sort((a, b) => new Date(b.savedAt || 0) - new Date(a.savedAt || 0));
+  }
+}
+
+// دکمه‌ی «مرتب‌سازی» + منوی کشویی — با ظاهر و رفتاری شبیه به Sort byِ
+// سیستم (یه دکمه که با تپ، لیستِ گزینه‌ها رو باز می‌کنه).
+function SavedStoriesSortMenu({ sortKey, setSortKey }) {
+  const [open, setOpen] = useState(false);
+  const current = SAVED_STORIES_SORT_OPTIONS.find((o) => o.key === sortKey) || SAVED_STORIES_SORT_OPTIONS[0];
+  return (
+    <div style={{ position: "relative", flexShrink: 0 }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          fontFamily: fontFa,
+          fontSize: 12,
+          fontWeight: 600,
+          padding: "4px 12px",
+          borderRadius: 14,
+          border: `1px solid ${colors.cardBorder}`,
+          backgroundColor: "white",
+          color: colors.ink,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          whiteSpace: "nowrap",
+        }}
+      >
+        ⇅ مرتب‌سازی: {current.label}
+      </button>
+      {open && (
+        <>
+          <div
+            onClick={() => setOpen(false)}
+            style={{ position: "fixed", inset: 0, zIndex: 40 }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              top: "calc(100% + 6px)",
+              right: 0,
+              zIndex: 41,
+              backgroundColor: "white",
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: 12,
+              boxShadow: "0 6px 20px rgba(0,0,0,0.12)",
+              minWidth: 180,
+              overflow: "hidden",
+            }}
+          >
+            {SAVED_STORIES_SORT_OPTIONS.map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => {
+                  setSortKey(opt.key);
+                  setOpen(false);
+                }}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "right",
+                  fontFamily: fontFa,
+                  fontSize: 13,
+                  fontWeight: opt.key === sortKey ? 700 : 500,
+                  padding: "9px 14px",
+                  border: "none",
+                  backgroundColor: opt.key === sortKey ? colors.goldSoft : "white",
+                  color: colors.ink,
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // Plain localStorage wrapper — works in any real browser (deployed site, PWA
 // on a phone, etc). `window.storage` from the Claude preview environment
 // does NOT exist once this app is deployed on its own, so we don't rely on it.
@@ -5271,6 +5396,10 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // از قبل با سطحِ خودش (storyLevel) ذخیره می‌شه، این فیلتر فقط برای پیداکردن
   // و ساماندهیِ راحت‌ترِ همون داستان‌های ازقبل‌ذخیره‌شده‌ست.
   const [savedStoriesLevelFilter, setSavedStoriesLevelFilter] = useState("all");
+  // مرتب‌سازیِ لیستِ «داستان‌های ذخیره‌شده» — گزینه‌ها دقیقاً مثلِ منوی
+  // Sort byِ سیستم (جدیدترین/قدیمی‌ترین تاریخ، نام A→Z/Z→A، و تعدادِ
+  // کلمات کم/زیاد به‌جای اندازه‌ی فایل).
+  const [savedStoriesSort, setSavedStoriesSort] = useState("newest");
   const [justSaved, setJustSaved] = useState(false);
   // لغاتِ ذخیره‌شده‌ی همین زبان — به‌شکلِ چیپ‌های کوچیکِ قابل‌تپ همین‌جا هم
   // نشون داده می‌شن (نه فقط توی تبِ «لغات ذخیره‌شده») تا کاربر لازم نباشه
@@ -6010,7 +6139,14 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
 
       {showSaved ? (
         <div className="flex flex-col gap-3">
-          <LevelFilterRow levelFilter={savedStoriesLevelFilter} setLevelFilter={setSavedStoriesLevelFilter} />
+          <div className="flex items-center justify-between gap-2">
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <LevelFilterRow levelFilter={savedStoriesLevelFilter} setLevelFilter={setSavedStoriesLevelFilter} />
+            </div>
+            {savedStories.length > 1 && (
+              <SavedStoriesSortMenu sortKey={savedStoriesSort} setSortKey={setSavedStoriesSort} />
+            )}
+          </div>
           {savedStories.length === 0 && (
             <p style={{ fontSize: 13, color: colors.inkSoft }}>هنوز داستانی ذخیره نکردی.</p>
           )}
@@ -6020,13 +6156,14 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
             // (مثلاً B1) انتخاب شده فقط داستان‌های همون سطح نشون داده می‌شن،
             // وقتی «همه سطح‌ها»ست، داستان‌ها زیرِ عنوانِ سطحِ خودشون (به ترتیبِ
             // A1→C2) دسته‌بندی می‌شن تا پیداکردن‌شون راحت‌تر باشه.
-            const groups =
+            const groups = (
               savedStoriesLevelFilter !== "all"
                 ? [[savedStoriesLevelFilter, savedStories.filter((s) => s.storyLevel === savedStoriesLevelFilter)]]
                 : [
                     ...LEVELS.map((lv) => [lv, savedStories.filter((s) => s.storyLevel === lv)]),
                     ["نامشخص", savedStories.filter((s) => !LEVELS.includes(s.storyLevel))],
-                  ].filter(([, list]) => list.length > 0);
+                  ].filter(([, list]) => list.length > 0)
+            ).map(([lv, list]) => [lv, sortSavedStories(list, savedStoriesSort)]);
             if (!groups.length) {
               return (
                 <p style={{ fontSize: 13, color: colors.inkSoft }}>
@@ -6056,6 +6193,14 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                           fontSize: 10.5,
                           color: colors.inkSoft,
                           whiteSpace: "nowrap",
+                          // چون این برچسب داخلِ صفحه‌ی RTL می‌شینه، بدونِ این‌جهت‌دهیِ
+                          // صریح، الگوریتمِ Bidi ممکنه ترتیبِ تاریخ/ساعت رو برعکس
+                          // نشون بده. با direction: ltr همیشه از چپ به راست —
+                          // اول تاریخ، بعد ساعت — دقیقاً به همون ترتیبی که
+                          // formatSavedDate می‌سازه، نمایش داده می‌شه.
+                          direction: "ltr",
+                          unicodeBidi: "isolate",
+                          textAlign: "left",
                         }}
                       >
                         📅 {formatSavedDate(s.savedAt, calendarSystem)}
@@ -8688,7 +8833,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         }
       : tab === "conversations" && dailyPlayerText.text
       ? { text: dailyPlayerText.text, code: dailyPlayerText.code }
-      : (tab === "words" || tab === "vocab" || tab === "daily") && wordListPlayerText.text
+      : (tab === "words" || tab === "vocab" || tab === "daily" || tab === "favorites") && wordListPlayerText.text
       ? { text: wordListPlayerText.text, code: wordListPlayerText.code }
       : null;
 
@@ -8910,6 +9055,12 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                     aiSettings={aiSettings}
                     autoplayEnabled={tab === "favorites"}
                     emptyText=""
+                    // اگه عبارتِ علاقه‌مندی‌شده‌ای هست، دکمه‌ی مرکزیِ پخشِ پلیر
+                    // همینا رو می‌خونه (با هایلایتِ همینجا). اگه چیزی نبود،
+                    // نوبت به لیستِ لغاتِ زیرش می‌رسه (پایین‌تر).
+                    onFullTextChange={setWordListPlayerText}
+                    autoScrollActive={tab === "favorites"}
+                    highlightColor={appPrefs.highlightColor}
                   />
                 )}
                 {favoritedWords.length > 0 && (
@@ -8928,6 +9079,11 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                       aiSettings={aiSettings}
                       ClickableSentence={ClickableSentence}
                       autoplayEnabled={tab === "favorites"}
+                      // فقط وقتی عبارتِ علاقه‌مندی‌شده‌ای نیست، لیستِ لغات
+                      // مسئولِ متنِ دکمه‌ی مرکزیِ پلیر می‌شه — تا دو تا لیست
+                      // با هم رویِ یه دکمه رقابت نکنن.
+                      onFullTextChange={favorites.size > 0 ? undefined : setWordListPlayerText}
+                      autoScrollActive={tab === "favorites"}
                       highlightColor={appPrefs.highlightColor}
                     />
                   </div>
@@ -9239,7 +9395,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 // ---------------------------------------------------------------------------
 // Phrase list (used for both "all conversation " and "favorites")
 // ---------------------------------------------------------------------------
-function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleFavorite, emptyText, query, levelFilter, aiSettings, autoplayEnabled }) {
+function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleFavorite, emptyText, query, levelFilter, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, highlightColor }) {
   const q = (query || "").trim().toLowerCase();
   let filtered = levelFilter && levelFilter !== "all" ? conversation .filter((p) => p.level === levelFilter) : conversation ;
   filtered = q
@@ -9253,6 +9409,71 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
   const firstTargetCode = targetLangs[0]?.code;
   const autoplayItems = filtered.map((p) => ({ id: p.id, text: firstTargetCode ? p.t[firstTargetCode] : "", code: firstTargetCode }));
   const { registerRef } = useAutoplayOnScroll(autoplayEnabled, autoplayItems);
+
+  // «خواندنِ کل لیست» + هایلایتِ عبارتِ در حالِ پخش — دقیقاً همون الگویی
+  // که مکالمات روزمره (ConversationBox) و لیستِ لغات (WordList) دارن،
+  // اینجا هم برای لیستِ عبارت‌های علاقه‌مندی. متنِ خونده‌شده همون زبانِ
+  // مقصدِ اولِ کاربره (firstTargetCode) — دقیقاً همون متنی که هر ردیف با
+  // SpeakButtonِ خودش می‌خونه.
+  const fullText = firstTargetCode ? filtered.map((p) => p.t[firstTargetCode] || "").join(" ") : "";
+  const phraseOffsets = useMemo(() => {
+    let offset = 0;
+    return filtered.map((p) => {
+      const text = firstTargetCode ? p.t[firstTargetCode] || "" : "";
+      const start = offset;
+      offset += text.length + 1; // فاصله‌ی join(" ")
+      return { id: p.id, start, end: start + text.length };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullText]);
+
+  useEffect(() => {
+    if (onFullTextChange) onFullTextChange({ text: fullText, code: firstTargetCode });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullText]);
+  useEffect(() => {
+    return () => {
+      if (onFullTextChange) onFullTextChange({ text: "", code: "" });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const [activePhraseId, setActivePhraseId] = useState(null);
+  useEffect(() => {
+    const myKey = `${TTS_LOCALE[firstTargetCode] || "en-US"}::${fullText}`;
+    const update = (state) => {
+      if (!fullText || state.key !== myKey || state.status === "idle") {
+        setActivePhraseId(null);
+        return;
+      }
+      const offset = speechController.getCharOffset();
+      let found = phraseOffsets[0] || null;
+      for (const p of phraseOffsets) {
+        if (offset >= p.start) found = p;
+        else break;
+      }
+      setActivePhraseId((prev) => {
+        const next = found ? found.id : null;
+        return prev === next ? prev : next;
+      });
+    };
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [fullText, phraseOffsets, firstTargetCode]);
+
+  const phraseNodeMapRef = useRef(new Map());
+  useEffect(() => {
+    if (!autoScrollActive || activePhraseId == null) return;
+    const node = phraseNodeMapRef.current.get(String(activePhraseId));
+    if (node && node.scrollIntoView) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [autoScrollActive, activePhraseId]);
+  const registerPhraseRef = (id) => (node) => {
+    const key = String(id);
+    if (node) phraseNodeMapRef.current.set(key, node);
+    else phraseNodeMapRef.current.delete(key);
+  };
 
   if (filtered.length === 0) {
     return (
@@ -9279,9 +9500,16 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
             {items.map((p) => (
               <div
                 key={p.id}
-                ref={registerRef(p.id)}
+                ref={(el) => {
+                  registerRef(p.id)(el);
+                  registerPhraseRef(p.id)(el);
+                }}
                 className="flex items-center justify-between p-3 rounded-lg"
-                style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}` }}
+                style={{
+                  backgroundColor: activePhraseId === p.id ? (highlightColor || READ_MARKER_COLOR) : "white",
+                  border: `1px solid ${colors.cardBorder}`,
+                  transition: "background-color 0.35s ease",
+                }}
               >
                 <div className="flex-1">
                   <div className="flex items-center gap-2" style={{ direction: "ltr" }}>
