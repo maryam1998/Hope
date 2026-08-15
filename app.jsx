@@ -875,20 +875,24 @@ const speechController = (() => {
     return 0;
   }
 
-  // چیزی که موتورِ TTS واقعاً باهاش صدا کنیم — پایین‌ترِ چیزیه که کاربر
-  // انتخاب کرده، چون خیلی از موتورها (مخصوصاً صداهای شبکه‌ای/Google روی
-  // اندروید) زیرِ ۱ عملاً کند نمی‌شن؛ این جبرانِ اون کفِ داخلیِ موتوره. سرعتِ
-  // واقعیِ حس‌شده رو بیشتر مکثِ بینِ جمله‌ها (interChunkGapMs) تعیین می‌کنه که
-  // کاملاً دستِ خودمونه و مستقل از رفتار موتوره.
+  // چیزی که موتورِ TTS واقعاً باهاش صدا کنیم. زیرِ حدودِ ۰.۶ اکثرِ موتورهای
+  // مرورگر پروسودیِ طبیعی‌شون رو از دست می‌دن و شروع می‌کنن به مکثِ عجیب سرِ
+  // ویرگول/وسطِ کلمه (انگار دارن تک‌تک کلمه می‌خونن) — برای همین اینجا
+  // پایین‌تر از ۰.۶ نمی‌ریم. سرعتِ واقعیِ حس‌شده رو بیشتر مکثِ بینِ جمله‌ها
+  // (interChunkGapMs) تعیین می‌کنه که کاملاً دستِ خودمونه و مستقل از رفتار
+  // موتوره و پروسودیِ داخلِ جمله رو خراب نمی‌کنه.
   function engineRate(r) {
     if (r >= 1) return r;
-    return Math.max(0.1, r - (1 - r) * 0.6);
+    // r در بازه‌ی [0.25 .. 1] → engine rate در بازه‌ی [0.6 .. 1]
+    return 0.6 + ((r - 0.25) / 0.75) * 0.4;
   }
 
   // مکثِ بینِ دو جمله — پایه‌ش یه فاصله‌ی طبیعیه، و با کاهشِ rate بیشتر می‌شه.
   // چون این تایمر مستقلِ موتورِ TTSه، همیشه دقیقاً همونی که می‌خوایم اجرا می‌شه.
+  // این نسبت زیاد شده تا با engineRate بالاتر (که دیگه خودش خیلی کند نمی‌شه)
+  // بازم حسِ «آهسته» به‌طورِ کامل حفظ بشه — فقط بینِ جمله‌ها، نه وسطشون.
   function interChunkGapMs(r) {
-    const base = 160;
+    const base = 220;
     return Math.round(base / Math.min(Math.max(r, 0.2), 2));
   }
 
@@ -1122,9 +1126,10 @@ const speechController = (() => {
       if (status === "playing" && mode === "online") {
         if (onlineAudio) onlineAudio.playbackRate = rate;
         notify();
-      } else if (status === "playing") {
-        speakChunk(chunkIndex, true);
       } else {
+        // جمله‌ی درحالِ‌پخش رو قطع نمی‌کنیم (مرورگر هم اصلاً اجازه‌ی عوض‌کردنِ
+        // سرعتِ یه utterance رو وسطِ پخش نمی‌ده). سرعتِ جدید خودکار از جمله‌ی
+        // بعدی اعمال می‌شه؛ فعلاً فقط اعلامش می‌کنیم که UI آپدیت بشه.
         notify();
       }
     },
@@ -7957,15 +7962,15 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       {/* Tabs */}
       <nav className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ backgroundColor: colors.paperDark }}>
         <TabButton label="مکالمات روزمره" icon={MessageCircle} active={tab === "conversations"} onClick={() => setTab("conversations")} />
+        <TabButton label="داستان‌ساز" icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} />
+        <TabButton label="لغات ذخیره‌شده" icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} />
+        <TabButton label="گرامر" icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} />
         <TabButton label="لغات" icon={Layers} active={tab === "words"} onClick={() => setTab("words")} />
         <TabButton label="علاقه‌مندی‌ها" icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} />
         <TabButton label="لغات و اخبار" icon={Newspaper} active={tab === "vocab"} onClick={() => setTab("vocab")} />
         <TabButton label="مکالمه و روزمره" icon={Coffee} active={tab === "daily"} onClick={() => setTab("daily")} />
         <TabButton label="دیکشنری" icon={Search} active={tab === "dictionary"} onClick={() => setTab("dictionary")} />
         <TabButton label="مرور (جعبه لایتنر)" icon={RotateCcw} active={tab === "review"} onClick={() => { setTab("review"); setReviewIndex(0); setShowAnswer(false); }} />
-        <TabButton label="داستان‌ساز" icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} />
-        <TabButton label="لغات ذخیره‌شده" icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} />
-        <TabButton label="گرامر" icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} />
       </nav>
 
       {/* Level filter — applies to conversation , words, favorites, and vocabulary */}
