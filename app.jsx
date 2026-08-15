@@ -9310,6 +9310,32 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
     };
   }, []);
 
+  // باگ اصلی‌ای که باعث می‌شد لمسِ طولانیِ دوم (روی محدوده‌ی هایلایت‌شده)
+  // پاپ‌آپ رو باز نکنه: تا وقتی متنِ زیرش قابل‌انتخاب (user-select) بمونه،
+  // موبایل‌براوزرها خودشون این لمسِ طولانیِ دوم رو به‌عنوانِ یه ژستِ
+  // انتخاب/منوی سیستمی (Copy/Look Up) قورت می‌دن — و همون‌جا یه
+  // touchcancel می‌فرستن که تایمرِ ما (clearHold روی touchcancel چند خط
+  // پایین‌تر) رو لغو می‌کنه، پس هیچ‌وقت به HOLD_TO_OPEN_MS نمی‌رسه. راهِ حل:
+  // تا وقتی محدوده «آماده»ست، انتخابِ متن رو در کلِ صفحه موقتاً غیرفعال
+  // می‌کنیم تا لمسِ دوم به‌جای گرفتارشدنِ ژستِ سیستمی، مستقیم به تایمرِ خودمون برسه.
+  useEffect(() => {
+    if (!pendingActive) return;
+    const root = document.documentElement;
+    const prev = {
+      userSelect: root.style.userSelect,
+      webkitUserSelect: root.style.webkitUserSelect,
+      webkitTouchCallout: root.style.webkitTouchCallout,
+    };
+    root.style.userSelect = "none";
+    root.style.webkitUserSelect = "none";
+    root.style.webkitTouchCallout = "none";
+    return () => {
+      root.style.userSelect = prev.userSelect;
+      root.style.webkitUserSelect = prev.webkitUserSelect;
+      root.style.webkitTouchCallout = prev.webkitTouchCallout;
+    };
+  }, [pendingActive]);
+
   // لمس/کلیک بیرون از پاپ‌آپ (بدون این‌که متن جدیدی انتخاب بشه) هم باید
   // هم پاپ‌آپ و هم هایلایتِ همراهش رو ببنده — وگرنه هایلایت تا ابد (یا تا
   // اسکرول بعدی) روی صفحه می‌مونه. همین‌طور، اگه محدوده هنوز فقط «آماده»ست
@@ -9495,7 +9521,23 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
           {translation.status === "done" && (
             <div style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 13 }}>
               <SpeakButton text={translation.text} code={nativeLang || fallbackLangCode} color={colors.goldSoft} />
-              <span style={{ flex: 1, overflowWrap: "break-word" }}>{translation.text}</span>
+              <span
+                style={{
+                  flex: 1,
+                  overflowWrap: "break-word",
+                  // دقیقاً هم‌زمان با «ذخیره برای داستان بعدی» زده می‌شه: تا
+                  // وقتی محدوده ذخیره نشده زیرخط نداره، همین که saved=true
+                  // بشه (چه با زدنِ دکمه، چه چون از قبل ذخیره بوده) ترجمه‌ی
+                  // زبانِ مقصد هم مثلِ بقیه‌ی جاهای برنامه زیرخطِ نقطه‌چینِ
+                  // طلایی می‌گیره.
+                  textDecorationLine: saved ? "underline" : "none",
+                  textDecorationStyle: "dotted",
+                  textDecorationColor: colors.gold,
+                  textUnderlineOffset: 3,
+                }}
+              >
+                {translation.text}
+              </span>
             </div>
           )}
           {translation.status === "error" && (
