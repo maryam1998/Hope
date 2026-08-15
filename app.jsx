@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -1336,6 +1336,34 @@ const speechController = (() => {
         // بعدی اعمال می‌شه؛ فعلاً فقط اعلامش می‌کنیم که UI آپدیت بشه.
         notify();
       }
+    },
+    // --- برای نوارِ پیشرفتِ پلیرِ جدید (کِشیدنی/تپ‌کردنی) --------------------
+    // مرزهای هر جمله (start/end کاراکتری) داخلِ متنِ کاملِ در حالِ پخش —
+    // فقط برای تخمینِ بصریِ درصدِ پیشرفت لازمه، نه پخشِ واقعی.
+    getChunksMeta() {
+      return chunks.map((c) => ({ start: c.start, end: c.end }));
+    },
+    getFullTextLength() {
+      return fullText.length;
+    },
+    // پرش مستقیم به جمله‌یِ idx‌ام و ادامه‌ی پخش از همون‌جا — هم برای دکمه‌های
+    // «جمله‌ی قبل/بعد» و هم برای کشیدنِ نوارِ پیشرفت استفاده می‌شه. اگه هیچ
+    // متنی لود نشده باشه (idle)، کاری نمی‌کنه.
+    seekToChunk(idx) {
+      if (!key || !chunks.length) return "idle";
+      const clamped = Math.min(Math.max(Number(idx) || 0, 0), chunks.length - 1);
+      if (mode === "online") {
+        stopOnlineAudio();
+        const frac = chunks.length ? clamped / chunks.length : 0;
+        const onlineIdx = onlineChunks.length
+          ? Math.min(onlineChunks.length - 1, Math.floor(frac * onlineChunks.length))
+          : 0;
+        status = "playing";
+        playOnlineChunk(onlineIdx);
+      } else {
+        speakChunk(clamped, true);
+      }
+      return "ok";
     },
   };
 })();
@@ -3465,6 +3493,261 @@ function RepeatButton({ color }) {
         </span>
       )}
     </button>
+  );
+}
+// دکمه‌ی مرکزیِ Play/Pause تو طراحیِ جدیدِ پلیر (شبیهِ پلیرهای موزیک). دو
+// حالت داره:
+//  - وقتی صدایی از قبل فعاله (پخش/مکث): دقیقاً مثلِ PlayerCentralButtonِ
+//    قبلی، همون toggle رو رو همون متن صدا می‌زنه.
+//  - وقتی هیچی فعال نیست: اگه startText بهش داده شده باشه (متنِ کاملِ تبِ
+//    فعلی — داستان/مکالمه/لیست‌کلمات)، با زدنش همون متن با تنظیمِ تکرارِ
+//    سراسری شروع به پخش می‌کنه. این همون کاریه که قبلاً یه SpeakButtonِ
+//    جدا کنارِ پلیر انجامش می‌داد؛ الان همون قابلیت داخلِ دکمه‌ی مرکزیه.
+function MainPlayButton({ startText, startCode, resolveStartOffset, color, size }) {
+  const [state, setState] = useState(() => speechController.getState());
+  useEffect(() => speechController.subscribe(setState), []);
+
+  const isActive = state.status !== "idle" && !!state.key;
+  const isPlaying = isActive && state.status === "playing";
+  const canStart = !isActive && !!startText;
+  const disabled = !isActive && !canStart;
+  const c = color || colors.teal;
+  const btnSize = size || 30;
+
+  const handleClick = () => {
+    if (isActive) {
+      const parts = state.key?.split("::");
+      if (parts && parts.length === 2) {
+        const code = Object.keys(TTS_LOCALE).find((k) => TTS_LOCALE[k] === parts[0]) || "en";
+        speechController.toggle(parts[1], code);
+      }
+      return;
+    }
+    if (!startText) return;
+    const offset = resolveStartOffset ? resolveStartOffset() : undefined;
+    const result = speechController.toggle(startText, startCode, offset, { loop: true });
+    if (result === "unsupported") {
+      alert("این مرورگر از خوندن صوتی متن پشتیبانی نمی‌کنه.");
+    } else if (result === "error") {
+      alert("پخش صدا با مشکل مواجه شد. اتصال اینترنت رو چک کن و دوباره امتحان کن.");
+    }
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={disabled}
+      aria-label={isPlaying ? "توقف موقت" : "پخش"}
+      title={isPlaying ? "توقف موقت" : isActive ? "ادامه‌ی پخش" : canStart ? "پخشِ کل متن" : "متنی برای پخش نیست"}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: btnSize + 14,
+        height: btnSize + 14,
+        borderRadius: "50%",
+        background: "none",
+        border: "none",
+        cursor: disabled ? "default" : "pointer",
+        color: disabled ? colors.cardBorder : c,
+        opacity: disabled ? 0.45 : 1,
+        flexShrink: 0,
+        padding: 0,
+      }}
+    >
+      {isPlaying ? <Pause size={btnSize} /> : <PlayCircle size={btnSize} />}
+    </button>
+  );
+}
+// دکمه‌های «جمله‌ی قبل / جمله‌ی بعد» — تو نوارِ کنترلِ پلیرِ جدید، کنارِ دکمه‌ی
+// مرکزیِ پخش می‌شینن. فقط وقتی یه متن در حالِ پخش/مکث‌شدنه فعالن؛ با
+// speechController.seekToChunk جمله‌ی currentِ فعلی رو عوض می‌کنن (پخش هم
+// خودکار از همون‌جا ادامه پیدا می‌کنه).
+function ChunkNavButton({ direction, color }) {
+  const [state, setState] = useState(() => speechController.getState());
+  useEffect(() => speechController.subscribe(setState), []);
+
+  const isActive = state.status !== "idle" && !!state.key && state.total > 0;
+  const atStart = state.chunkIndex <= 0;
+  const atEnd = state.chunkIndex >= state.total - 1;
+  const disabled = !isActive || (direction === "prev" ? atStart : atEnd);
+  const c = color || colors.ink;
+
+  const handleClick = () => {
+    if (disabled) return;
+    speechController.seekToChunk(state.chunkIndex + (direction === "prev" ? -1 : 1));
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={disabled}
+      aria-label={direction === "prev" ? "جمله‌ی قبل" : "جمله‌ی بعد"}
+      title={direction === "prev" ? "جمله‌ی قبل" : "جمله‌ی بعد"}
+      style={{
+        background: "none",
+        border: "none",
+        cursor: disabled ? "default" : "pointer",
+        color: disabled ? colors.cardBorder : c,
+        opacity: disabled ? 0.45 : 1,
+        padding: 6,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+      }}
+    >
+      {direction === "prev" ? <SkipBack size={20} /> : <SkipForward size={20} />}
+    </button>
+  );
+}
+// نوارِ پیشرفتِ کِشیدنی/تپ‌کردنیِ پلیر — دقیقاً همون ایده‌ی دموی
+// «demo-progress-bar.html»: چون پخش با Web Speech API انجام می‌شه (نه یه
+// فایلِ صوتیِ واقعی)، مرورگر currentTime/duration واقعی بهمون نمی‌ده. برای
+// همین دقتِ این نوار «جمله‌به‌جمله»ست (نه میلی‌ثانیه‌ای)، و زمانِ نشون‌داده‌شده
+// یه تخمینه — بر اساسِ طولِ کاراکتریِ متن و سرعتِ فعلیِ پخش. کشیدن/تپ‌کردن
+// رو نوار، جمله‌ی متناظرش رو با speechController.seekToChunk صدا می‌زنه.
+const TTS_MS_PER_CHAR = 90; // فقط برای تخمینِ زمانِ نمایشی — نه پخشِ واقعی
+function PlayerProgressTrack({ color }) {
+  const [state, setState] = useState(() => speechController.getState());
+  useEffect(() => speechController.subscribe(setState), []);
+  const trackRef = useRef(null);
+  const [dragPct, setDragPct] = useState(null);
+  const draggingRef = useRef(false);
+
+  const isActive = state.status !== "idle" && !!state.key && state.total > 0;
+  const meta = isActive ? speechController.getChunksMeta() : [];
+  const fullLen = isActive ? speechController.getFullTextLength() : 0;
+  const msPerChar = TTS_MS_PER_CHAR / Math.max(state.rate || 1, 0.25);
+  const totalMs = fullLen * msPerChar;
+  const chunkStart = isActive && meta[state.chunkIndex] ? meta[state.chunkIndex].start : 0;
+  const restPct = fullLen ? (chunkStart / fullLen) * 100 : 0;
+  const shownPct = dragPct != null ? dragPct : restPct;
+  const c = color || colors.gold;
+
+  function fmtTime(ms) {
+    const s = Math.max(0, Math.round(ms / 1000));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return toFaDigits(`${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`);
+  }
+
+  function pctFromClientX(clientX) {
+    const el = trackRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    // dir="rtl": سمتِ راستِ نوار = صفر درصد، چپ = صد درصد
+    const pct = ((rect.right - clientX) / rect.width) * 100;
+    return Math.min(100, Math.max(0, pct));
+  }
+  function idxFromPct(pct) {
+    if (!meta.length || !fullLen) return 0;
+    const targetChar = (pct / 100) * fullLen;
+    let idx = 0;
+    for (let i = 0; i < meta.length; i++) {
+      if (targetChar >= meta[i].start) idx = i;
+    }
+    return idx;
+  }
+  function onMove(clientX) {
+    setDragPct(pctFromClientX(clientX));
+  }
+  function onEnd(clientX) {
+    const pct = pctFromClientX(clientX);
+    const idx = idxFromPct(pct);
+    setDragPct(null);
+    draggingRef.current = false;
+    speechController.seekToChunk(idx);
+  }
+  function startDrag(clientX) {
+    if (!isActive) return;
+    draggingRef.current = true;
+    onMove(clientX);
+  }
+
+  useEffect(() => {
+    function handleMouseMove(e) {
+      if (draggingRef.current) onMove(e.clientX);
+    }
+    function handleMouseUp(e) {
+      if (draggingRef.current) onEnd(e.clientX);
+    }
+    function handleTouchMove(e) {
+      if (draggingRef.current && e.touches[0]) onMove(e.touches[0].clientX);
+    }
+    function handleTouchEnd(e) {
+      if (draggingRef.current) {
+        const t = e.changedTouches[0];
+        onEnd(t ? t.clientX : 0);
+      }
+    }
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("touchmove", handleTouchMove, { passive: true });
+    window.addEventListener("touchend", handleTouchEnd);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive, fullLen]);
+
+  return (
+    <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2 }}>
+      <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 12, color: colors.inkSoft, minWidth: 36, textAlign: "center", flexShrink: 0 }}>
+        {isActive ? fmtTime((shownPct / 100) * totalMs) : "۰۰:۰۰"}
+      </span>
+      <div
+        ref={trackRef}
+        onMouseDown={(e) => startDrag(e.clientX)}
+        onTouchStart={(e) => {
+          const t = e.touches[0];
+          if (t) startDrag(t.clientX);
+        }}
+        style={{
+          position: "relative",
+          flex: 1,
+          height: 24,
+          display: "flex",
+          alignItems: "center",
+          cursor: isActive ? "pointer" : "default",
+          touchAction: "none",
+          opacity: isActive ? 1 : 0.45,
+        }}
+      >
+        <div style={{ position: "absolute", right: 0, left: 0, height: 4, borderRadius: 2, background: colors.goldSoft }} />
+        {isActive && meta.length > 1 && fullLen > 0 && (
+          <div style={{ position: "absolute", right: 0, left: 0, height: 4 }}>
+            {meta.slice(1).map((m, i) => (
+              <div
+                key={i}
+                style={{ position: "absolute", top: 0, width: 2, height: 4, background: "rgba(28,37,65,.3)", right: `${(m.start / fullLen) * 100}%` }}
+              />
+            ))}
+          </div>
+        )}
+        <div style={{ position: "absolute", right: 0, height: 4, borderRadius: 2, background: c, width: `${shownPct}%` }} />
+        <div
+          style={{
+            position: "absolute",
+            width: 15,
+            height: 15,
+            borderRadius: "50%",
+            background: c,
+            border: `2px solid ${colors.paper}`,
+            boxShadow: "0 1px 4px rgba(28,37,65,.35)",
+            right: `${shownPct}%`,
+            transform: "translateX(50%)",
+          }}
+        />
+      </div>
+      <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 12, color: colors.inkSoft, minWidth: 36, textAlign: "center", flexShrink: 0 }}>
+        {isActive ? fmtTime(totalMs) : "۰۰:۰۰"}
+      </span>
+      <SpeedControl color={colors.gold} />
+    </div>
   );
 }
 // دکمه‌ی «خواندن خودکار» — یک لیست از {text, code, el} می‌گیره (el اختیاریه،
@@ -7932,6 +8215,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   useEffect(() => {
     localStorage.setItem("phrasebook-player-opacity", String(playerOpacity));
   }, [playerOpacity]);
+  // پنلِ تنظیماتِ بیشترِ پلیر (شفافیت) — تو طراحیِ جدید، پشتِ دکمه‌ی «فهرست»
+  // (☰) جمع‌وجور شده تا نوارِ کنترلِ اصلی شلوغ نشه؛ خودِ قابلیت دقیقاً همونیه
+  // که قبلاً بود، فقط پیش‌فرض بسته‌ست.
+  const [showPlayerSettings, setShowPlayerSettings] = useState(false);
   // شفافیتِ پنلِ شناورِ «تمرین جمله‌سازی با هوش مصنوعی» — دقیقاً مثل
   // playerOpacity بالا، جدا و مستقل ذخیره می‌شه که با شفافیتِ پلیر تداخل
   // نکنه.
@@ -8318,6 +8605,23 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // اسکرول خودکار توشون فعاله.
   // پلیر چسبیده به کف صفحه — سرتاسری، تو همه‌ی تب‌ها نشون داده می‌شه.
   const showPlayerBar = true;
+  // متن/زبونِ مربوط به «پخشِ کل متنِ تبِ فعلی» — دقیقاً همون منطقی که قبلاً
+  // سه‌تا SpeakButtonِ جدا (یکی برای هر تب) پیاده‌سازیش می‌کردن؛ حالا فقط
+  // یه‌جا محاسبه می‌شه تا دکمه‌ی مرکزیِ پخشِ پلیرِ جدید (MainPlayButton)
+  // وقتی چیزی در حالِ پخش نیست، بدونه با زدنش چه متنی رو باید شروع کنه.
+  const activeTabAudio =
+    tab === "story" && storyPlayerText.text
+      ? {
+          text: storyPlayerText.text,
+          code: storyPlayerText.code,
+          resolveStartOffset: () =>
+            consumeMainTextResumeOffset(`${TTS_LOCALE[storyPlayerText.code] || "en-US"}::${storyPlayerText.text}`),
+        }
+      : tab === "conversations" && dailyPlayerText.text
+      ? { text: dailyPlayerText.text, code: dailyPlayerText.code }
+      : (tab === "words" || tab === "vocab" || tab === "daily") && wordListPlayerText.text
+      ? { text: wordListPlayerText.text, code: wordListPlayerText.code }
+      : null;
 
   if (!loaded) {
     return (
@@ -8768,44 +9072,56 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             WebkitTouchCallout: "none",
           }}
         >
-          <div className="px-4 pt-2 flex items-center gap-2 flex-wrap" style={{ justifyContent: "flex-end", rowGap: 8 }}>
-            {/* دکمه‌ی مرکزی Play/Pause + نمایش متن در حال پخش */}
-            <PlayerCentralButton />
-            <span style={{ fontSize: 11, color: colors.inkSoft }}>تکرار پخش</span>
+          {/* ردیفِ نوارِ پیشرفت: زمانِ فعلی — نوارِ کِشیدنی — زمانِ کل — سرعت */}
+          <PlayerProgressTrack color={colors.gold} />
+          {/* ردیفِ کنترل‌ها: تکرار، جمله‌ی قبل، پخش/توقفِ مرکزی، جمله‌ی بعد، تنظیمات */}
+          <div className="px-4" style={{ paddingTop: 2, paddingBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-around" }}>
             <RepeatButton color={colors.gold} />
-            {/* خواندنِ کل متن — فقط وقتی معنی داره که متنی برای خوندن باشه؛
-                فعلاً منبعِ این متن، داستانِ ساخته‌شده تو تبِ داستان‌سازه (قبلاً
-                دکمه‌ش بالای خودِ داستان بود، الان اینجا کنارِ تکرار نشسته). */}
-            {tab === "story" && storyPlayerText.text && (
-              <SpeakButton
-                text={storyPlayerText.text}
-                code={storyPlayerText.code}
-                color={colors.teal}
-                forceRepeat
-                resolveStartOffset={() => consumeMainTextResumeOffset(`${TTS_LOCALE[storyPlayerText.code] || "en-US"}::${storyPlayerText.text}`)}
-              />
-            )}
-            {tab === "conversations" && dailyPlayerText.text && (
-              <SpeakButton text={dailyPlayerText.text} code={dailyPlayerText.code} color={colors.teal} forceRepeat />
-            )}
-            {(tab === "words" || tab === "vocab" || tab === "daily") && wordListPlayerText.text && (
-              <SpeakButton text={wordListPlayerText.text} code={wordListPlayerText.code} color={colors.teal} forceRepeat />
-            )}
-            <SpeedControl color={colors.gold} />
-          </div>
-          <div className="px-4 flex items-center gap-2" style={{ paddingTop: 4, paddingBottom: 8 }}>
-            <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={playerOpacity}
-              onChange={(e) => setPlayerOpacity(Number(e.target.value))}
-              aria-label="شفافیت پلیر"
-              style={{ flex: 1, accentColor: colors.gold }}
+            <ChunkNavButton direction="prev" color={colors.ink} />
+            <MainPlayButton
+              startText={activeTabAudio?.text}
+              startCode={activeTabAudio?.code}
+              resolveStartOffset={activeTabAudio?.resolveStartOffset}
+              color={colors.teal}
             />
-            <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
+            <ChunkNavButton direction="next" color={colors.ink} />
+            <button
+              onClick={() => setShowPlayerSettings((v) => !v)}
+              aria-label="تنظیماتِ پلیر"
+              title="تنظیماتِ پلیر (شفافیت)"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: showPlayerSettings ? colors.gold : colors.ink,
+                padding: 6,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <ListMusic size={20} />
+            </button>
           </div>
+          {/* پنلِ تنظیماتِ بیشتر — شفافیتِ پلیر؛ همون قابلیتِ قبلی، فقط الان
+              پشتِ دکمه‌ی ☰ جمع‌وجور شده تا نوارِ کنترلِ اصلی شبیهِ پلیرِ عکسِ
+              فرستاده‌شده بمونه. */}
+          {showPlayerSettings && (
+            <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2, paddingBottom: 8 }}>
+              <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={playerOpacity}
+                onChange={(e) => setPlayerOpacity(Number(e.target.value))}
+                aria-label="شفافیت پلیر"
+                style={{ flex: 1, accentColor: colors.gold }}
+              />
+              <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
+            </div>
+          )}
         </div>
         {/* دکمه‌ی «بازنشانیِ شفافیت» — وقتی شفافیتِ پلیر خیلی پایین میاد (زیرِ
             ۷۰٪)، خودِ نوار (و اسلایدرِ توش) هم کم‌رنگ/کم‌کنتراست می‌شه و
