@@ -655,21 +655,15 @@ function vocabToMarkdown() {
 //     what the user picked (see engineRate below) to compensate for engines
 //     that have a rate floor.
 //
-// Word-level position (wordOffset / getWordOffset) is tracked via onboundary
-// INSIDE each sentence-chunk's utterance, purely for the reading-tracker
-// (shadow-line) UI. It does not affect chunking, pacing, or which SENTENCE
-// pause/resume/repeat operate on — that logic is untouched.
+// There is no per-word highlighting anymore — no onboundary tracking, no
+// word-position estimation. Pause/resume/repeat just track which SENTENCE
+// is currently playing.
 // ---------------------------------------------------------------------------
 
 const speechController = (() => {
   let fullText = "";
   let chunks = []; // [{start, end, text}] sentence-sized chunks of fullText
   let chunkIndex = 0; // index into chunks of the sentence currently playing/paused
-  // آفستِ کاراکتریِ کلمه‌ای که همین الان داره گفته می‌شه (داخلِ fullText) —
-  // برای ردیابِ خوانش/خطِ سایه‌ی زیرِ کلمه استفاده می‌شه. فقط توی مسیرِ
-  // local (speechSynthesis واقعیِ مرورگر) دقیقه؛ توی مسیرِ آنلاین به سطحِ
-  // شروعِ تکه (chunk) برمی‌گرده (getWordOffset پایین‌تر همین رو مدیریت می‌کنه).
-  let wordOffset = 0;
   let key = null; // `${locale}::${text}` — identifies what's currently loaded
   let locale = "en-US";
   let status = "idle"; // "idle" | "playing" | "paused"
@@ -816,7 +810,7 @@ const speechController = (() => {
 
   function notify() {
     listeners.forEach((cb) =>
-      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, wordOffset })
+      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining })
     );
   }
 
@@ -947,9 +941,6 @@ const speechController = (() => {
     clearGapTimer();
     if (forceRestart) cancelSpeech();
     chunkIndex = idx;
-    // آفستِ کلمه رو همین‌جا موقتاً به شروعِ همین تکه برمی‌گردونیم؛ به‌محضِ
-    // شروعِ واقعیِ گفتار، رویدادِ onboundary زیر دقیق‌ترش می‌کنه.
-    wordOffset = chunks[idx].start;
     status = "playing";
     notify();
 
@@ -959,18 +950,6 @@ const speechController = (() => {
 
     const bestVoice = getBestVoice(locale);
     if (bestVoice) utter.voice = bestVoice;
-
-    // این تکه (chunk) خودش حداکثر ۶ کلمه‌ست و به‌صورتِ یک utterance واحد
-    // پخش می‌شه، پس رویدادِ onboundary مرورگر (که فقط داخلِ یک utterance
-    // معنی داره) اینجا کاملاً معتبره — بدونِ اینکه چیزی از منطقِ تکه‌بندی/
-    // مکثِ بینِ‌جمله‌ها (که در بالا توضیح داده شده) رو تغییر بده.
-    utter.onboundary = (e) => {
-      if (status !== "playing") return;
-      if (e.name === "word" || e.name === undefined) {
-        wordOffset = chunks[idx].start + e.charIndex;
-        notify();
-      }
-    };
 
     utter.onend = () => {
       if (status !== "playing") return;
@@ -998,22 +977,16 @@ const speechController = (() => {
       return () => listeners.delete(cb);
     },
     getState() {
-      return { key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, wordOffset };
+      return { key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining };
     },
     // آفستِ کاراکتریِ شروعِ جمله‌ای که همین الان (یا آخرین‌بار) در حال
-    // پخشه — برای «ادامه‌ی پخش از همون‌جا» وقتی متنِ در حال پخش عوض می‌شه
-    // (مثلاً تغییرِ حالتِ نمایش ترجمه) استفاده می‌شه.
+    // پخشه — فقط برای «ادامه‌ی پخش از همون‌جا» وقتی متنِ در حال پخش عوض
+    // می‌شه (مثلاً تغییرِ حالتِ نمایش ترجمه) لازمه. دیگه هیچ‌جا برای
+    // هایلایتِ بصری استفاده نمی‌شه.
     getCharOffset() {
       if (!chunks.length) return 0;
       const idx = Math.min(Math.max(chunkIndex, 0), chunks.length - 1);
       return chunks[idx].start;
-    },
-    // آفستِ دقیقِ کلمه‌ای که همین الان گفته می‌شه — برای ردیابِ خوانش
-    // (خطِ سایه‌ی زیرِ کلمه). توی مسیرِ آنلاین (که رویدادِ onboundary نداره)
-    // به سطحِ شروعِ تکه/جمله برمی‌گرده، یعنی همون رفتارِ getCharOffset.
-    getWordOffset() {
-      if (mode !== "local") return this.getCharOffset();
-      return wordOffset;
     },
     getGlobalRepeatSetting() {
       return globalRepeatSetting;
@@ -1127,7 +1100,6 @@ const speechController = (() => {
       chunks = [];
       status = "idle";
       chunkIndex = 0;
-      wordOffset = 0;
       remaining = 0;
       singleShot = false;
       notify();
