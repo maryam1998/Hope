@@ -6,6 +6,7 @@ import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
 import { NEWS_WORDS } from "./NEWS_WORDS.js";
 import { DAILY_WORDS } from "./DAILY_WORDS.js";
+import { SLANG_WORDS } from "./SLANG_WORDS.js";
 import { DAILY_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
 import DailyConversationsTab from "./DailyConversationsTab.jsx";
 
@@ -20,6 +21,7 @@ const STORY_SEARCH_WORD_POOL = [
   ...WORDS_AZ.map((w) => ({ term: w.en, fa: w.fa, source: "لغات" })),
   ...NEWS_WORDS.map((w) => ({ term: w.en, fa: w.fa, source: "لغات و اخبار" })),
   ...DAILY_WORDS.map((w) => ({ term: w.en, fa: w.fa, source: "مکالمه و روزمره" })),
+  ...SLANG_WORDS.map((w) => ({ term: w.en, fa: w.fa, source: "اسلنگ" })),
 ];
 // همه‌ی خط‌های دوطرفِ مکالمه‌های روزمره، مسطح‌شده به یه آرایه‌ی ساده — تا
 // کاربر بتونه یه عبارتِ کاملِ یه مکالمه رو هم به‌عنوان لغتِ هدفِ داستان
@@ -496,6 +498,7 @@ const UI_STRINGS = {
   tabWords: { fa: "لغات", en: "Words" },
   tabFavorites: { fa: "علاقه‌مندی‌ها", en: "Favorites" },
   tabVocab: { fa: "لغات و اخبار", en: "Vocabulary & news" },
+  tabSlang: { fa: "اسلنگ", en: "Slang" },
   tabDaily: { fa: "مکالمه و روزمره", en: "Daily talk" },
   tabDictionary: { fa: "دیکشنری", en: "Dictionary" },
   tabReview: { fa: "مرور (جعبه لایتنر)", en: "Review (Leitner box)" },
@@ -6734,7 +6737,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
         <input
           value={vocabQuery}
           onChange={(e) => setVocabQuery(e.target.value)}
-          placeholder="یا از لغات، مکالمات روزمره، لغات و اخبار، لغات ذخیره‌شده جستجو کن..."
+          placeholder="یا از لغات، مکالمات روزمره، لغات و اخبار، اسلنگ، لغات ذخیره‌شده جستجو کن..."
           style={{
             width: "100%",
             border: `1px solid ${colors.cardBorder}`,
@@ -8992,7 +8995,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         }
       : tab === "conversations" && dailyPlayerText.text
       ? { text: dailyPlayerText.text, code: dailyPlayerText.code }
-      : (tab === "words" || tab === "vocab" || tab === "daily" || tab === "favorites") && wordListPlayerText.text
+      : (tab === "words" || tab === "vocab" || tab === "slang" || tab === "daily" || tab === "favorites") && wordListPlayerText.text
       ? { text: wordListPlayerText.text, code: wordListPlayerText.code }
       : null;
 
@@ -9129,20 +9132,21 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         <TabButton label={tr("tabWords", appPrefs.uiLang)} icon={Layers} active={tab === "words"} onClick={() => setTab("words")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabFavorites", appPrefs.uiLang)} icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabVocab", appPrefs.uiLang)} icon={Newspaper} active={tab === "vocab"} onClick={() => setTab("vocab")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabButton label={tr("tabSlang", appPrefs.uiLang)} icon={Sparkles} active={tab === "slang"} onClick={() => setTab("slang")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabDaily", appPrefs.uiLang)} icon={Coffee} active={tab === "daily"} onClick={() => setTab("daily")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabDictionary", appPrefs.uiLang)} icon={Search} active={tab === "dictionary"} onClick={() => setTab("dictionary")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabReview", appPrefs.uiLang)} icon={RotateCcw} active={tab === "review"} onClick={() => { setTab("review"); setReviewIndex(0); setShowAnswer(false); }} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
       </nav>
 
       {/* Level filter — applies to conversation , words, favorites, and vocabulary */}
-      {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "daily") && (
+      {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "slang" || tab === "daily") && (
         <div className="px-4 pt-3">
           <LevelFilterRow levelFilter={levelFilter} setLevelFilter={setLevelFilter} />
         </div>
       )}
 
       {/* Search — meaningful for the phrase and word list tabs */}
-      {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "daily") && (
+      {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "slang" || tab === "daily") && (
         <div className="px-4 pt-3">
           <div
             className="flex items-center gap-2 px-3"
@@ -9152,7 +9156,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={tab === "words" || tab === "vocab" || tab === "daily" ? "جستجوی لغت..." : tab === "conversations" ? "جستجوی مکالمه..." : "جستجوی عبارت..."}
+              placeholder={tab === "words" || tab === "vocab" || tab === "slang" || tab === "daily" ? "جستجوی لغت..." : tab === "conversations" ? "جستجوی مکالمه..." : "جستجوی عبارت..."}
               style={{ flex: 1, fontFamily: fontFa, border: "none", outline: "none", fontSize: 14, backgroundColor: "transparent" }}
             />
             {query && (
@@ -9292,6 +9296,26 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           />
         )}
 
+        {tab === "slang" && (
+          <WordList
+            words={SLANG_WORDS}
+            wordFavorites={wordFavorites}
+            toggleWordFavorite={toggleWordFavorite}
+            query={query}
+            levelFilter={levelFilter}
+            emptyText="لغتی برای نمایش نیست."
+            nativeLang={nativeLang}
+            nativeLabel={nativeLabel}
+            targetLangs={targetLangList}
+            aiSettings={aiSettings}
+            ClickableSentence={ClickableSentence}
+            autoplayEnabled={tab === "slang"}
+            onFullTextChange={setWordListPlayerText}
+            autoScrollActive={tab === "slang"}
+            highlightColor={appPrefs.highlightColor}
+          />
+        )}
+
         {tab === "daily" && (
           <WordList
             words={DAILY_WORDS}
@@ -9373,7 +9397,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               // علاقه‌مندی‌ها، لغات‌و‌اخبار، مکالمه‌روزمره)، همون کادرِ
               // جستجو رو با خودِ لغت پر می‌کنیم تا دقیقاً همون موردی که
               // این لغت ازش اومده، فیلتر و نشون داده بشه.
-              if (["conversations", "words", "favorites", "vocab", "daily"].includes(originTab)) {
+              if (["conversations", "words", "favorites", "vocab", "slang", "daily"].includes(originTab)) {
                 setQuery(entry.word);
               }
               return true;
