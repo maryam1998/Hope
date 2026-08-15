@@ -9221,7 +9221,14 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       // دیگه پاپ‌آپ همین‌جا باز نمی‌شه — محدوده فقط «آماده» می‌مونه (با
       // هایلایتِ طلاییِ بالا) تا کاربر جدا روش یه لمسِ طولانی انجام بده
       // (نگاه کن به بخشِ hold-to-open پایین‌تر).
-      pendingRef.current = { top: rect.top, left: rect.left + rect.width / 2, text: selectedText, langCode, storyResumeOffset };
+      // مستطیل‌های واقعیِ محدوده (ممکنه چندخطی باشه) رو هم نگه می‌داریم تا
+      // یه لایه‌ی لمسِ اختصاصی دقیقاً روی خودِ متنِ هایلایت‌شده بذاریم (نگاه
+      // کن به توضیحِ overlay پایین‌تر برای دلیلش).
+      let rects = [];
+      try {
+        rects = Array.from(range.getClientRects()).map((r) => ({ top: r.top, left: r.left, width: r.width, height: r.height }));
+      } catch {}
+      pendingRef.current = { top: rect.top, left: rect.left + rect.width / 2, text: selectedText, langCode, storyResumeOffset, rects };
       setPendingActive(true);
       // بلافاصله انتخابِ بومیِ مرورگر رو پاک می‌کنیم — هایلایتِ سفارشیِ خودمون
       // (که همین الان ست شد) جایگزینش می‌شه، و نوار ابزارِ سیستم دیگه چیزی
@@ -9256,85 +9263,68 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
   }, [fallbackLangCode]);
 
   // «لمسِ طولانی برای بازکردن»: تا وقتی محدوده‌ای «آماده»ست (pendingRef) و
-  // پاپ‌آپ هنوز باز نشده، هر لمسِ تازه‌ای که شروع می‌شه رو زیرِ نظر می‌گیریم —
-  // اگه HOLD_TO_OPEN_MS میلی‌ثانیه بدونِ جابه‌جاییِ زیاد (بیشتر از چند پیکسل،
-  // یعنی نه اسکرول و نه شروعِ یه انتخابِ تازه) ادامه پیدا کنه، پاپ‌آپ همون‌جا
-  // باز می‌شه؛ وگرنه (برداشتن زودهنگامِ انگشت، یا جابه‌جاییِ زیاد) لغو می‌شه و
-  // محدوده همچنان «آماده» می‌مونه تا کاربر دوباره امتحان کنه.
+  // پاپ‌آپ هنوز باز نشده، اگه HOLD_TO_OPEN_MS میلی‌ثانیه بدونِ جابه‌جاییِ زیاد
+  // (بیشتر از چند پیکسل) ادامه پیدا کنه، پاپ‌آپ همون‌جا باز می‌شه؛ وگرنه
+  // (برداشتن زودهنگامِ انگشت، یا جابه‌جاییِ زیاد) لغو می‌شه و محدوده همچنان
+  // «آماده» می‌مونه تا کاربر دوباره امتحان کنه.
+  //
+  // نکته‌ی مهم (دلیلِ اصلیِ اینکه قبلاً کار نمی‌کرد): این تایمر رو دیگه با
+  // شنودِ mousedown/touchstart روی کل document شروع نمی‌کنیم. چون متنِ زیرِ
+  // هایلایت هنوز از نظرِ مرورگر «متنِ قابل‌انتخاب»ه، یه لمسِ طولانیِ دوم
+  // درست روی همون متن رو خودِ موبایل‌براوزر به‌عنوانِ ژستِ سیستمیِ
+  // انتخاب/منوی Copy-Look‌Up قورت می‌ده — و همون‌جا یه touchcancel می‌فرسته
+  // که تایمرِ ما رو لغو می‌کنه، پس هیچ‌وقت به HOLD_TO_OPEN_MS نمی‌رسه (این
+  // اتفاق مستقل از تنظیمِ CSS مثلِ user-select هم می‌افته، چون OS جدا از
+  // CSS همچنان روی خودِ رویدادهای لمسی دست می‌ذاره).
+  //
+  // به‌جاش، یه لایه‌ی نامرئیِ اختصاصی (نه متن، یه <div> ساده) دقیقاً روی
+  // مستطیل‌های خودِ محدوده‌ی انتخاب‌شده (pendingRef.current.rects) می‌ذاریم؛
+  // چون این لایه اصلاً متن نیست، هیچ مرورگری روش ژستِ انتخاب/کپی سیستمی
+  // اجرا نمی‌کنه و لمسِ طولانی مستقیم و بدون مزاحمت به تایمرِ خودمون می‌رسه.
+  // شروعِ تایمر (startHold) پس فقط از رویدادهای onTouchStart/onMouseDown
+  // خودِ همون overlay صدا زده می‌شه (پایین‌تر، بخشِ رندر). حرکت و رهاکردنِ
+  // انگشت/ماوس همچنان سراسری زیرِ نظره تا اگه بیرون از overlay هم ادامه پیدا
+  // کرد (مثلاً کاربر انگشتش رو کشید) به‌درستی لغو بشه.
+  const startHold = (x, y) => {
+    if (!pendingRef.current || popupElRef.current) return;
+    clearHold();
+    holdRef.current.startX = x;
+    holdRef.current.startY = y;
+    holdRef.current.timer = setTimeout(() => {
+      const p = pendingRef.current;
+      if (!p) return;
+      openedAtRef.current = Date.now();
+      setPopup(p);
+      pendingRef.current = null;
+      setPendingActive(false);
+    }, HOLD_TO_OPEN_MS);
+  };
+  const moveHold = (x, y) => {
+    if (!holdRef.current.timer) return;
+    const dx = Math.abs(x - holdRef.current.startX);
+    const dy = Math.abs(y - holdRef.current.startY);
+    if (dx > 12 || dy > 12) clearHold();
+  };
+
   useEffect(() => {
-    const startHold = (x, y) => {
-      if (!pendingRef.current || popupElRef.current) return;
-      clearHold();
-      holdRef.current.startX = x;
-      holdRef.current.startY = y;
-      holdRef.current.timer = setTimeout(() => {
-        const p = pendingRef.current;
-        if (!p) return;
-        openedAtRef.current = Date.now();
-        setPopup(p);
-        pendingRef.current = null;
-        setPendingActive(false);
-      }, HOLD_TO_OPEN_MS);
-    };
-    const moveHold = (x, y) => {
-      if (!holdRef.current.timer) return;
-      const dx = Math.abs(x - holdRef.current.startX);
-      const dy = Math.abs(y - holdRef.current.startY);
-      if (dx > 12 || dy > 12) clearHold();
-    };
-    const onMouseDown = (e) => startHold(e.clientX, e.clientY);
     const onMouseMove = (e) => moveHold(e.clientX, e.clientY);
-    const onTouchStart = (e) => {
-      const t = e.touches[0];
-      if (t) startHold(t.clientX, t.clientY);
-    };
     const onTouchMove = (e) => {
       const t = e.touches[0];
       if (t) moveHold(t.clientX, t.clientY);
     };
-    document.addEventListener("mousedown", onMouseDown);
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", clearHold);
-    document.addEventListener("touchstart", onTouchStart, { passive: true });
     document.addEventListener("touchmove", onTouchMove, { passive: true });
     document.addEventListener("touchend", clearHold);
     document.addEventListener("touchcancel", clearHold);
     return () => {
-      document.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", clearHold);
-      document.removeEventListener("touchstart", onTouchStart);
       document.removeEventListener("touchmove", onTouchMove);
       document.removeEventListener("touchend", clearHold);
       document.removeEventListener("touchcancel", clearHold);
     };
   }, []);
-
-  // باگ اصلی‌ای که باعث می‌شد لمسِ طولانیِ دوم (روی محدوده‌ی هایلایت‌شده)
-  // پاپ‌آپ رو باز نکنه: تا وقتی متنِ زیرش قابل‌انتخاب (user-select) بمونه،
-  // موبایل‌براوزرها خودشون این لمسِ طولانیِ دوم رو به‌عنوانِ یه ژستِ
-  // انتخاب/منوی سیستمی (Copy/Look Up) قورت می‌دن — و همون‌جا یه
-  // touchcancel می‌فرستن که تایمرِ ما (clearHold روی touchcancel چند خط
-  // پایین‌تر) رو لغو می‌کنه، پس هیچ‌وقت به HOLD_TO_OPEN_MS نمی‌رسه. راهِ حل:
-  // تا وقتی محدوده «آماده»ست، انتخابِ متن رو در کلِ صفحه موقتاً غیرفعال
-  // می‌کنیم تا لمسِ دوم به‌جای گرفتارشدنِ ژستِ سیستمی، مستقیم به تایمرِ خودمون برسه.
-  useEffect(() => {
-    if (!pendingActive) return;
-    const root = document.documentElement;
-    const prev = {
-      userSelect: root.style.userSelect,
-      webkitUserSelect: root.style.webkitUserSelect,
-      webkitTouchCallout: root.style.webkitTouchCallout,
-    };
-    root.style.userSelect = "none";
-    root.style.webkitUserSelect = "none";
-    root.style.webkitTouchCallout = "none";
-    return () => {
-      root.style.userSelect = prev.userSelect;
-      root.style.webkitUserSelect = prev.webkitUserSelect;
-      root.style.webkitTouchCallout = prev.webkitTouchCallout;
-    };
-  }, [pendingActive]);
 
   // لمس/کلیک بیرون از پاپ‌آپ (بدون این‌که متن جدیدی انتخاب بشه) هم باید
   // هم پاپ‌آپ و هم هایلایتِ همراهش رو ببنده — وگرنه هایلایت تا ابد (یا تا
@@ -9375,7 +9365,45 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
     };
   }, [popup, pendingActive]);
 
-  if (!popup) return null;
+  // لایه‌ی نامرئیِ لمسِ طولانی — فقط وقتی محدوده «آماده»ست (هایلایتِ طلایی
+  // روشه) ولی پاپ‌آپ هنوز باز نشده رندر می‌شه. دقیقاً روی مستطیل‌های خودِ
+  // متنِ انتخاب‌شده می‌شینه (نه رویِ کلِ صفحه)، پس بیرون از محدوده هیچ اثری
+  // نداره و لمس/اسکرول توی بقیه‌ی صفحه دست‌نخورده می‌مونه.
+  if (!popup) {
+    if (!pendingActive || !pendingRef.current || !pendingRef.current.rects || !pendingRef.current.rects.length) return null;
+    return (
+      <div style={{ position: "fixed", inset: 0, zIndex: 9998, pointerEvents: "none" }}>
+        {pendingRef.current.rects.map((r, i) => (
+          <div
+            key={i}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              startHold(e.clientX, e.clientY);
+            }}
+            onTouchStart={(e) => {
+              e.stopPropagation();
+              const t = e.touches[0];
+              if (t) startHold(t.clientX, t.clientY);
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+            style={{
+              position: "fixed",
+              top: r.top,
+              left: r.left,
+              width: r.width,
+              height: r.height,
+              pointerEvents: "auto",
+              background: "transparent",
+              WebkitUserSelect: "none",
+              userSelect: "none",
+              WebkitTouchCallout: "none",
+              touchAction: "none",
+            }}
+          />
+        ))}
+      </div>
+    );
+  }
 
   // معنیِ فوریِ لغتیه که تازه ذخیره می‌شه — این‌جا لازم نیست، درست مثل بقیه‌ی
   // جاهای برنامه که ذخیره‌ی اولیه بدون معنی انجام می‌شه و بعداً (از پنل «لغات
