@@ -7819,6 +7819,18 @@ function GrammarPanel({
     typeof window === "undefined" ? 800 : Math.round((window.visualViewport && window.visualViewport.height) || window.innerHeight)
   );
 
+  // جابجاییِ آزادِ کلِ باکس (نه فقط ارتفاعش) — برای وقتی که کیبوردِ
+  // موبایل بازه و باکس رویِ متنی که کاربر می‌خواد ببینه رو می‌پوشونه.
+  // با دستگیره‌ی مخصوصِ «جابجایی» (کنارِ سرتیتر)، کاربر می‌تونه کلِ باکس
+  // رو با انگشتش هرجایی از صفحه ببره؛ practiceMoveOffset همون جابجاییِ
+  // ذخیره‌شده‌ست (نسبت به جای اصلیِ چسبیده‌به‌کف). با دکمه‌ی بازگشت
+  // (RotateCcw)، دقیقاً به همون جای اولش برمی‌گرده (offset صفر با انیمیشن).
+  const [practiceMoveOffset, setPracticeMoveOffset] = useState({ x: 0, y: 0 });
+  const [practiceMoveDragOffset, setPracticeMoveDragOffset] = useState(null); // آفستِ لحظه‌ایِ حینِ کشیدن
+  const practiceMoveDragInfoRef = useRef(null);
+  const practiceMoved = practiceMoveOffset.x !== 0 || practiceMoveOffset.y !== 0;
+  const practiceLiveMoveOffset = practiceMoveDragOffset || practiceMoveOffset;
+
   // ارتفاعِ واقعیِ خودِ سرتیتر رو اندازه می‌گیریم (وابسته به فونت/چیدمان)،
   // تا نقطه‌ی «peek» همیشه دقیقاً هم‌اندازه‌ی سرتیتر باشه، نه یه عددِ ثابتِ
   // حدسی.
@@ -7862,6 +7874,62 @@ function GrammarPanel({
   );
 
   const practiceCurrentHeight = practiceDragHeight != null ? practiceDragHeight : practiceSnapHeight(practiceSheet);
+
+  const handlePracticeMoveStart = useCallback(
+    (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      e.stopPropagation();
+      practiceMoveDragInfoRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        startOffset: practiceMoveOffset,
+      };
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {}
+    },
+    [practiceMoveOffset]
+  );
+
+  const handlePracticeMoveMove = useCallback(
+    (e) => {
+      const info = practiceMoveDragInfoRef.current;
+      if (!info) return;
+      e.stopPropagation();
+      const dx = e.clientX - info.startX;
+      const dy = e.clientY - info.startY;
+      const vw = typeof window === "undefined" ? 400 : window.innerWidth;
+      const panelH = practiceCurrentHeight;
+      // فقط اجازه‌ی بالابردن می‌دیم (نه پایین‌تر از جای اصلیِ چسبیده‌به‌کف)
+      // و اجازه‌ی چپ/راست تا جایی که حداقل بخشی از باکس رویِ صفحه بمونه.
+      const minY = -(Math.max(0, practiceViewportH - panelH));
+      const maxY = 0;
+      const maxX = Math.max(0, vw - 60);
+      const minX = -maxX;
+      const nextX = Math.min(maxX, Math.max(minX, info.startOffset.x + dx));
+      const nextY = Math.min(maxY, Math.max(minY, info.startOffset.y + dy));
+      setPracticeMoveDragOffset({ x: nextX, y: nextY });
+    },
+    [practiceViewportH, practiceCurrentHeight]
+  );
+
+  const handlePracticeMoveEnd = useCallback(
+    (e) => {
+      try {
+        e && e.currentTarget && e.currentTarget.releasePointerCapture && e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {}
+      const info = practiceMoveDragInfoRef.current;
+      practiceMoveDragInfoRef.current = null;
+      if (!info) return;
+      setPracticeMoveOffset((prev) => practiceMoveDragOffset || prev);
+      setPracticeMoveDragOffset(null);
+    },
+    [practiceMoveDragOffset]
+  );
+
+  const resetPracticePosition = useCallback(() => {
+    setPracticeMoveOffset({ x: 0, y: 0 });
+  }, []);
 
   const handlePracticeDragStart = useCallback(
     (e) => {
@@ -8289,7 +8357,13 @@ function GrammarPanel({
             border: `1px solid ${PRACTICE_PANEL_BORDER}`,
             borderTop: `1px solid ${PRACTICE_PANEL_BORDER}`,
             boxShadow: "0 -4px 14px rgba(28,37,65,0.12)",
-            transition: practiceDragHeight != null ? "none" : "height 0.24s cubic-bezier(.2,.8,.2,1)",
+            transform: `translate3d(${practiceLiveMoveOffset.x}px, ${practiceLiveMoveOffset.y}px, 0)`,
+            transition:
+              practiceDragHeight != null
+                ? "none"
+                : practiceMoveDragOffset != null
+                ? "none"
+                : "height 0.24s cubic-bezier(.2,.8,.2,1), transform 0.24s cubic-bezier(.2,.8,.2,1)",
             touchAction: "none",
           }}
         >
@@ -8365,6 +8439,57 @@ function GrammarPanel({
                 {practiceSheet === "peek" ? <ChevronUp size={16} color="#fff" /> : <ChevronDown size={16} color="#fff" />}
               </div>
               <div className="flex items-center gap-2" onPointerDown={(e) => e.stopPropagation()}>
+                {practiceMoved && (
+                  <button
+                    onClick={resetPracticePosition}
+                    className="flex items-center justify-center"
+                    style={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: "50%",
+                      backgroundColor: "rgba(255,255,255,0.18)",
+                      color: "#fff",
+                    }}
+                    title={isFa ? "بازگرداندنِ باکس به جای اولش" : "Reset box position"}
+                    aria-label={isFa ? "بازگرداندنِ باکس به جای اولش" : "Reset box position"}
+                  >
+                    <RotateCcw size={13} color="#fff" />
+                  </button>
+                )}
+                <div
+                  onPointerDown={handlePracticeMoveStart}
+                  onPointerMove={handlePracticeMoveMove}
+                  onPointerUp={handlePracticeMoveEnd}
+                  onPointerCancel={handlePracticeMoveEnd}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={isFa ? "جابجاکردنِ آزادِ باکس رویِ صفحه" : "Freely move this box"}
+                  title={isFa ? "نگه‌دار و بکش تا باکس رو جابجا کنی" : "Hold and drag to move this box"}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 26,
+                    height: 26,
+                    cursor: "grab",
+                    touchAction: "none",
+                    userSelect: "none",
+                  }}
+                >
+                  <div
+                    aria-hidden="true"
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(2, 3px)",
+                      gridAutoRows: "3px",
+                      gap: 3,
+                    }}
+                  >
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <span key={i} style={{ width: 3, height: 3, borderRadius: "50%", backgroundColor: "rgba(255,255,255,0.85)" }} />
+                    ))}
+                  </div>
+                </div>
                 {chatMessages.length > 0 && (
                   <button
                     onClick={clearChat}
