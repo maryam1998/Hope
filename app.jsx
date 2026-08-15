@@ -1506,7 +1506,7 @@ function toggleSavedStoryWord(word, langCode, opts) {
       langCode,
       savedAt: new Date().toISOString(),
       translations,
-      origin: { tab: currentOriginTab },
+      origin: { tab: currentOriginTab, ...((opts && opts.originExtra) || {}) },
     });
     nowSaved = true;
   }
@@ -1953,51 +1953,27 @@ async function localizeGrammarDetailMarkdown(englishText, nativeLang, aiSettings
 //     to redo the whole structured breakdown.
 async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history, targetOrder }) {
   const label = nativeLabel || "Persian";
+  const langLabel = LANGUAGES.find((l) => l.code === langCode)?.label || langCode;
+  const otherLangsLabel =
+    (targetOrder || [])
+      .filter((c) => c !== langCode && c !== nativeLang)
+      .map((c) => LANGUAGES.find((l) => l.code === c)?.label || c)
+      .join(", ") || "None";
   const historyText =
     (history || [])
       .slice(-8)
       .map((m) => `${m.role === "user" ? "Learner" : "Teacher"}: ${m.text}`)
       .join("\n") || "None";
-
-  const targetCodes = (targetOrder && targetOrder.length ? targetOrder : [langCode]).filter(
-    (c) => c && c !== nativeLang
-  );
-  const targetLabelsList = (targetCodes.length ? targetCodes : [langCode])
-    .map((c) => LANGUAGES.find((l) => l.code === c)?.label || c)
-    .filter(Boolean);
-  const targetLabels = [...new Set(targetLabelsList)].join(", ") || (LANGUAGES.find((l) => l.code === langCode)?.label || langCode);
-
   const prompt =
-    `You are a natural, intelligent language teacher helping the user learn the selected target languages.\n\n` +
-    `USER LANGUAGE SETTINGS:\n` +
-    `- Native/source language: ${label}\n` +
-    `- Target/learning languages: ${targetLabels}\n\n` +
-    `The user's main goal is to learn how to construct sentences in the target languages and understand their grammar.\n\n` +
-    `IMPORTANT: Use the SOURCE_LANGUAGE (${label}) as the key to understanding the user's intent.\n\n` +
-    `# RULE 1 — TARGET-LANGUAGE-ONLY INPUT\n` +
-    `If the user's message contains NO meaningful text in the source/native language and is written entirely in one or more target languages, treat it primarily as a LANGUAGE PRACTICE attempt.\n` +
-    `The user may simply be trying to practice sentence construction.\n` +
-    `Example: user writes only a target-language sentence → check whether it is correct. If correct, say so and briefly explain its meaning/grammar. If incorrect, provide the corrected sentence and explain the mistake in ${label}.\n` +
-    `The user does NOT need to explicitly ask "correct my sentence". When they write only in a target language, understand that they are practicing that language.\n` +
-    `Do NOT simply translate everything. First determine whether the text is a sentence/phrase that can be evaluated as language practice.\n\n` +
-    `# RULE 2 — SOURCE + TARGET LANGUAGE TOGETHER\n` +
-    `If the user's message contains the source/native language together with one or more target languages, assume the user is asking a QUESTION, REQUEST, or GRAMMAR EXPLANATION unless the context clearly indicates otherwise.\n` +
-    `Example: "فرق como و que چیست؟" or "hayamos معادل چی در انگلیسی است؟" — understand the actual question and answer it intelligently.\n` +
-    `Explain the answer in ${label}. Keep target-language words, sentences, examples, and corrections in their original target language. When explaining grammar, give approximately 3 clear examples when useful.\n\n` +
-    `# RULE 3 — MIXED TARGET LANGUAGES\n` +
-    `The user may learn multiple target languages at the same time (e.g. comparing a word in one target language with a word in another). This is completely valid. Do NOT complain about multiple languages. Do NOT ask the user to choose one language. Identify each word/expression and answer the actual question.\n\n` +
-    `# RULE 4 — SENTENCE CORRECTION\n` +
-    `When the user is practicing a target-language sentence:\n` +
-    `If it is incorrect, provide: "Correct: [correct sentence in the target language]" then "Why: [clear explanation in ${label}]", then up to 3 short examples in the target language when helpful.\n` +
-    `If the sentence is already correct: say that it is correct, do NOT invent an error, briefly explain its meaning or grammar, and if there is a more natural/native alternative, mention it separately.\n\n` +
-    `# RULE 5 — CONTEXT AND CONVERSATION MEMORY\n` +
-    `This is a continuous teaching conversation. Always use the recent conversation below to understand references such as "مثال قبلی را توضیح بده", "همان جمله را اصلاح کن", "فرق این دوتا چیست؟", "دومی چرا اینطوری شد؟", "برای مثال اول سه مثال بزن". Resolve references using the previous conversation context. Do NOT ask the user to repeat something that is already clear from the conversation. Maintain continuity with the previous explanation and examples.\n\n` +
-    `# RULE 6 — INTENT HAS PRIORITY\n` +
-    `Do NOT make decisions based only on language detection. First understand what the user means. Possible intents include: sentence practice, sentence correction, grammar question, word comparison, translation/meaning, explanation of a previous example, asking for more examples, follow-up question. Choose the response based on INTENT and CONTEXT.\n\n` +
-    `# RESPONSE LANGUAGE\n` +
-    `If the user uses ${label} together with target languages: explain in ${label}. If the user writes only in a target language: treat it as target-language practice, and explain corrections/grammar in ${label} when possible. Target-language sentences, examples, corrected sentences, and vocabulary should remain in the appropriate target language. Never force all content into one language. Be natural, patient, accurate, and concise.\n\n` +
+    `You are a friendly, knowledgeable AI chat assistant inside a language-learning app — talk with the learner the same natural way any general-purpose AI chat assistant would. You're not limited to grammar; you can help with anything they bring up. On top of that, you're great at ${langLabel} practice.\n\n` +
+    `Learner's native language: ${label}. Language they're currently practicing: ${langLabel}. Other languages they study: ${otherLangsLabel}.\n\n` +
     `Recent conversation:\n${historyText}\n\n` +
-    `Learner just wrote:\n"${userSentence}"`;
+    `Learner just wrote: "${userSentence}"\n\n` +
+    `How to respond:\n` +
+    `- If this reads like a sentence they wrote in ${langLabel} to practice: check it warmly. Say if it's correct or not, give the corrected version if needed, explain briefly and simply why (in ${label}) — especially if the mistake looks like it came from mixing ${label} and ${langLabel} structure — then add one more example sentence in ${langLabel} with a ${label} translation.\n` +
+    `- Otherwise, just answer naturally, like a normal, capable AI assistant would — any topic, any question, no restriction. Weave in an example phrase in ${langLabel} with translation only if it genuinely fits.\n` +
+    `- Default to ${langLabel} for any language-practice content (translated into ${label}); only bring in ${otherLangsLabel} or English if the learner specifically asks about them or it clearly helps.\n` +
+    `- Write in ${label}. Keep sentences in both languages clean and well-ordered, never jumbled. Keep the reply clear, well-organized, and not too long.`;
 
   const text = await callAI({ prompt, maxTokens: 1200, aiSettings });
   return text.trim();
@@ -3454,7 +3430,7 @@ function SpeedControl({ color }) {
 // a small popover with its part of speech + Persian meaning, looked up first
 // from the local VOCAB list, then (if not found) from the AI backend.
 // ---------------------------------------------------------------------------
-function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabelProp, aiSettings, color, fontFamily, fontWeight, fontSize, alignSourceText, alignSourceLang, storyBaseOffset, onSpeakOffset }) {
+function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabelProp, aiSettings, color, fontFamily, fontWeight, fontSize, alignSourceText, alignSourceLang, storyBaseOffset, onSpeakOffset, originExtra }) {
   const [openKey, setOpenKey] = useState(null); // `${startTokenIdx}-${endTokenIdx}` of the word/expression with popover open
   const [info, setInfo] = useState(null); // { pos, meaning } | "loading" | "error"
   const [anchorRect, setAnchorRect] = useState(null); // clicked word's screen position
@@ -3833,7 +3809,7 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                         e.stopPropagation();
                         if (!activeTerm) return;
                         const meaningNow = info && info !== "loading" && info !== "error" ? info.meaning : "";
-                        const nowSaved = toggleSavedStoryWord(activeTerm, langCode, { meaning: meaningNow, nativeLang });
+                        const nowSaved = toggleSavedStoryWord(activeTerm, langCode, { meaning: meaningNow, nativeLang, originExtra });
                         setSaved(nowSaved);
                         // فقط وقتی تازه ذخیره شد (نه وقتی داشت از حالتِ
                         // ذخیره درمی‌اومد) به داستان‌سازِ باز هم اضافه کن.
@@ -4534,6 +4510,22 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [translatingAll, setTranslatingAll] = useState(false);
   const [vocabQuery, setVocabQuery] = useState("");
   const [paragraphs, setParagraphs] = useState([]); // [{ sentences: [{text, t:{lang:text}}] }]
+  // شناسه‌ی داستانِ ذخیره‌شده‌ای که همین الان روی صفحه‌ست (اگه از «داستان‌های
+  // ذخیره‌شده» باز شده باشه یا تازه ذخیره شده باشه)؛ برای داستانِ تازه‌ساخته‌
+  // شده‌ای که هنوز ذخیره نشده، null می‌مونه. با هر لغتی که از وسطِ همین
+  // داستان (با پاپ‌آپِ لغت) ذخیره می‌شه، همین شناسه (به‌همراهِ شماره‌ی
+  // پاراگراف/جمله) به‌عنوانِ origin ذخیره می‌شه — تا لانگ‌پرس روی اون لغت
+  // توی «لغات ذخیره‌شده» بتونه دقیقاً به همین داستان و همین سطر برگرده.
+  const [currentStoryId, setCurrentStoryId] = useState(null);
+  // جمله‌ای که همین الان (به‌خاطرِ اومدن از یه لانگ‌پرسِ «لغات ذخیره‌شده»)
+  // باید چند لحظه هایلایت بشه تا کاربر بلافاصله بفهمه دقیقاً کدوم سطره —
+  // خودش به‌تنهایی باعثِ اسکرول نمی‌شه، فقط یه هایلایتِ موقته.
+  const [highlightSentence, setHighlightSentence] = useState(null); // {pi, si} | null
+  // موقعیتی که باید بهش اسکرول کنیم ولی هنوز DOMـش آماده نیست (مثلاً چون
+  // تازه داریم یه داستانِ ذخیره‌شده‌ی دیگه رو باز می‌کنیم و پاراگراف‌هاش
+  // هنوز رندر نشدن). یه useLayoutEffectِ بدونِ وابستگی (پایین‌تر) هر بار بعد
+  // از هر رندر چک می‌کنه که آیا نودِ موردنظر حالا در دسترسه یا نه.
+  const pendingScrollRef = useRef(null); // {pi, si} | null
   const [translationLangs, setTranslationLangs] = useState(
     Array.from(new Set([nativeLang, ...(targetOrder || [])])).filter((c) => c !== defaultStoryLang)
   );
@@ -4706,8 +4698,46 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         });
       }
     }
+    // لانگ‌پرسِ یه لغت توی «لغات ذخیره‌شده» — باید دقیقاً همون داستان و همون
+    // سطری که این لغت ازش ذخیره شده بود رو باز کنیم و بهش اسکرول کنیم.
+    if (jumpTo && jumpTo.pi != null) {
+      // اگه لغت از یه داستانِ ذخیره‌شده‌ی مشخص اومده، اول همون داستان رو باز
+      // کن (حتی اگه همون داستانیه که همین الانم بازه — بازکردنِ دوباره‌ش
+      // بی‌ضرره). اگه داستانِ اصلی دیگه بینِ داستان‌های ذخیره‌شده نیست
+      // (مثلاً پاک شده)، همون‌جوری که هست می‌مونیم و فقط تلاش می‌کنیم به
+      // pi/si موردنظر (اگه هنوز معتبره) اسکرول کنیم.
+      if (jumpTo.storyId != null) {
+        const match = savedStories.find((s) => s.id === jumpTo.storyId);
+        if (match) openSavedStory(match);
+      } else {
+        setShowSaved(false);
+      }
+      // برای این‌که نودِ دقیقِ همون جمله (نه فقط پاراگراف) روی صفحه باشه،
+      // اگه شماره‌ی جمله مشخصه، نمایش رو موقتاً روی «جمله به جمله» می‌ذاریم.
+      if (jumpTo.si != null) setGranularity("sentence");
+      pendingScrollRef.current = { pi: jumpTo.pi, si: jumpTo.si };
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jumpTo?.token]);
+
+  // بعد از هر رندر چک می‌کنه که آیا نودِ موردنظرِ pendingScrollRef حالا آماده‌ست
+  // یا نه (چون بازکردنِ یه داستانِ دیگه/تغییرِ granularity، یکی-دو رندر طول
+  // می‌کشه تا به DOM برسه). وقتی پیدا شد، بهش اسکرول می‌کنه و چند ثانیه
+  // هایلایتش می‌کنه، بعد پاک می‌شه که دیگه هر رندر بی‌خودی چک نکنه.
+  useLayoutEffect(() => {
+    const target = pendingScrollRef.current;
+    if (!target) return;
+    const node =
+      target.si != null
+        ? sentenceElsRef.current[`${target.pi}-${target.si}`]
+        : paragraphElsRef.current[target.pi];
+    if (!node) return;
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightSentence({ pi: target.pi, si: target.si });
+    pendingScrollRef.current = null;
+    const t = setTimeout(() => setHighlightSentence(null), 2400);
+    return () => clearTimeout(t);
+  });
 
   const activeCollection = collections.find((c) => c.id === activeCollectionId) || null;
 
@@ -5147,6 +5177,10 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
       // یه زبان دیگه هم اضافه/کم کنه) خودش رو به‌روز می‌کنه — نیازی به
       // ساختن دوباره‌ی کل داستان نیست.
       setParagraphs(storyParagraphs);
+      // داستانِ تازه‌ساخته‌شده هنوز ذخیره نشده — پس هنوز شناسه‌ای نداره؛ اگه
+      // قبلاً یه داستانِ ذخیره‌شده‌ی دیگه باز بوده، این‌جا اون ارتباط پاک
+      // می‌شه تا لغاتِ تازه‌ذخیره‌شده به اون داستانِ قدیمی نچسبن.
+      setCurrentStoryId(null);
       
       setQuestions(Array.isArray(parsed.questions) ? parsed.questions : []);
 
@@ -5181,6 +5215,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
       savedAt: new Date().toISOString(),
     };
     setSavedStories((prev) => [entry, ...prev]);
+    setCurrentStoryId(entry.id);
     setJustSaved(true);
     setTimeout(() => setJustSaved(false), 1800);
   };
@@ -5196,6 +5231,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
     setAnswers({});
     setSubmitted(false);
     setShowSaved(false);
+    setCurrentStoryId(entry.id);
   };
 
   const deleteSavedStory = (id) => {
@@ -5902,7 +5938,20 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                         <div
                           key={si}
                           ref={(el) => (sentenceElsRef.current[`${pi}-${si}`] = el)}
-                          style={{ position: "relative", paddingInlineStart: 10 }}
+                          style={{
+                            position: "relative",
+                            paddingInlineStart: 10,
+                            borderRadius: 10,
+                            transition: "background-color 0.4s ease, box-shadow 0.4s ease",
+                            backgroundColor:
+                              highlightSentence && highlightSentence.pi === pi && highlightSentence.si === si
+                                ? colors.goldSoft
+                                : "transparent",
+                            boxShadow:
+                              highlightSentence && highlightSentence.pi === pi && highlightSentence.si === si
+                                ? `0 0 0 2px ${colors.gold}`
+                                : "none",
+                          }}
                         >
                           <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                             <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
@@ -5930,6 +5979,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                 fontWeight={900}
                                 storyBaseOffset={sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0}
                                 onSpeakOffset={(localEnd) => reportStoryWordSpoken(sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0, localEnd)}
+                                originExtra={{ storyId: currentStoryId, pi, si }}
                               />
                             </p>
                           </div>
@@ -5967,6 +6017,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                         fontFamily={code === "fa" ? fontFa : fontLatin}
                                         alignSourceText={s.text}
                                         alignSourceLang={storyLang}
+                                        originExtra={{ storyId: currentStoryId, pi, si }}
                                       />
                                     ) : (
                                       <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
@@ -5982,7 +6033,16 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                   ) : (
                     <div
                       ref={(el) => (paragraphElsRef.current[pi] = el)}
-                      style={{ position: "relative", paddingInlineStart: 10 }}
+                      style={{
+                        position: "relative",
+                        paddingInlineStart: 10,
+                        borderRadius: 10,
+                        transition: "background-color 0.4s ease, box-shadow 0.4s ease",
+                        backgroundColor:
+                          highlightSentence && highlightSentence.pi === pi ? colors.goldSoft : "transparent",
+                        boxShadow:
+                          highlightSentence && highlightSentence.pi === pi ? `0 0 0 2px ${colors.gold}` : "none",
+                      }}
                     >
                       <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                         <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
@@ -6006,6 +6066,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                             fontWeight={900}
                             storyBaseOffset={paragraphBaseOffsetMap[pi] ?? 0}
                             onSpeakOffset={(localEnd) => reportStoryWordSpoken(paragraphBaseOffsetMap[pi] ?? 0, localEnd)}
+                            originExtra={{ storyId: currentStoryId, pi, si: null }}
                           />
                         </p>
                       </div>
@@ -6044,6 +6105,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                     fontFamily={code === "fa" ? fontFa : fontLatin}
                                     alignSourceText={paragraphText}
                                     alignSourceLang={storyLang}
+                                    originExtra={{ storyId: currentStoryId, pi, si: null }}
                                   />
                                 ) : (
                                   <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
@@ -6615,21 +6677,17 @@ function GrammarPanel({
   const [chatError, setChatError] = useState("");
   const chatEndRef = useRef(null);
   const chatTextareaRef = useRef(null);
-  // نوارِ «تمرین جمله‌سازی» یه Bottom Sheetِ کاملاً آزادانه‌قابلِ‌کشیدنه:
-  //   • peek — فقط سرتیترِ نوار دیده می‌شه (حالتِ جمع‌شده‌ی پیش‌فرض)
-  //   • open — هر ارتفاعی که خودِ کاربر با کشیدنِ سرتیتر انتخاب کنه، دقیقاً
-  //            همون می‌مونه؛ نه اسنپ به نقطه‌ی ثابتی در کار هست، نه سقفِ
-  //            مصنوعی‌ای پایین‌تر از خودِ صفحه. کشیدن به بالا/پایین ارتفاع
-  //            رو لحظه‌ای و پیوسته عوض می‌کنه؛ با رهاکردن، همون‌جا که
-  //            رهاش کرده ثابت می‌مونه (مگر خیلی نزدیکِ سرتیتر باشه که
-  //            به‌عنوانِ جمع‌شده در نظر گرفته می‌شه). تپ‌ِ ساده (بدونِ
-  //            کشیدنِ محسوس) هم بینِ peek و آخرین اندازه‌ی بازِ کاربر
-  //            سوییچ می‌کنه. خودِ گفتگو (chatMessages) در هر دو حالت
-  //            دست‌نخورده می‌مونه، چون این کامپوننت همیشه mount شده‌ست.
+  // نوارِ «تمرین جمله‌سازی» یه Bottom Sheetِ قابلِ‌کشیدنه، دقیقاً مثلِ نقشه‌ی
+  // گوگل، با سه نقطه‌ی قفل (snap point):
+  //   • peek  — فقط سرتیترِ نوار دیده می‌شه (حالتِ جمع‌شده‌ی پیش‌فرض)
+  //   • half  — نصفِ ارتفاعِ صفحه (برای تایپ/تمرینِ نوشتن، درحالی‌که
+  //             جمله‌های بالای صفحه هم دیده می‌مونن)
+  //   • full  — تقریباً کلِ صفحه (فقط وقتی خودِ کاربر کاملاً بکشتش بالا)
+  // با کشیدنِ سرتیتر (grip handle) ارتفاع لحظه‌ای تغییر می‌کنه؛ با رهاکردن،
+  // به نزدیک‌ترین نقطه قفل می‌شه. تپ‌ِ ساده (بدونِ حرکتِ محسوس) هم بینِ
+  // peek و half سوییچ می‌کنه. خودِ گفتگو (chatMessages) در هر سه حالت
+  // دست‌نخورده می‌مونه، چون این کامپوننت همیشه mount شده‌ست.
   const [practiceSheet, setPracticeSheet] = useState("peek");
-  // آخرین ارتفاعی (px) که خودِ کاربر با کشیدن، برای حالتِ «باز» انتخاب کرده.
-  // تا وقتی کاربر خودش نکشیده، null می‌مونه و پیش‌فرض نصفِ صفحه استفاده می‌شه.
-  const [practiceOpenHeight, setPracticeOpenHeight] = useState(null);
   const [practiceDragHeight, setPracticeDragHeight] = useState(null);
   const practicePanelRef = useRef(null);
   const practiceHeaderRef = useRef(null);
@@ -6673,36 +6731,30 @@ function GrammarPanel({
     };
   }, []);
 
-  // بیشترین ارتفاعی که واقعاً می‌شه بهش کشید — عملاً محدودیتی نداره، فقط
-  // چند پیکسل کمتر از خودِ صفحه که سرتیتر همیشه لمس‌پذیر بمونه.
-  const practiceMaxHeight = Math.max(practiceHeaderH, practiceViewportH - 4);
-
-  const practiceRestHeight = useCallback(
+  const practiceSnapHeight = useCallback(
     (state) => {
-      if (state === "peek") return practiceHeaderH;
-      // «باز»: دقیقاً همون ارتفاعی که خودِ کاربر آخرین‌بار با کشیدن انتخاب
-      // کرده؛ اگه هنوز چیزی نکشیده، پیش‌فرض نصفِ صفحه‌ست.
-      const h = practiceOpenHeight != null ? practiceOpenHeight : Math.round(practiceViewportH * 0.5);
-      return Math.min(practiceMaxHeight, Math.max(practiceHeaderH, h));
+      if (state === "half") return Math.round(practiceViewportH * 0.5);
+      if (state === "full") return Math.round(practiceViewportH * 0.92);
+      return practiceHeaderH;
     },
-    [practiceHeaderH, practiceOpenHeight, practiceMaxHeight, practiceViewportH]
+    [practiceViewportH, practiceHeaderH]
   );
 
-  const practiceCurrentHeight = practiceDragHeight != null ? practiceDragHeight : practiceRestHeight(practiceSheet);
+  const practiceCurrentHeight = practiceDragHeight != null ? practiceDragHeight : practiceSnapHeight(practiceSheet);
 
   const handlePracticeDragStart = useCallback(
     (e) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
       practiceDragInfoRef.current = {
         startY: e.clientY,
-        startHeight: practiceRestHeight(practiceSheet),
+        startHeight: practiceSnapHeight(practiceSheet),
         moved: false,
       };
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {}
     },
-    [practiceSheet, practiceRestHeight]
+    [practiceSheet, practiceSnapHeight]
   );
 
   const handlePracticeDragMove = useCallback(
@@ -6712,7 +6764,7 @@ function GrammarPanel({
       const delta = info.startY - e.clientY; // کشیدن به بالا = ارتفاع بیشتر
       if (Math.abs(delta) > 4) info.moved = true;
       const min = practiceHeaderH;
-      const max = Math.max(practiceHeaderH, practiceViewportH - 4);
+      const max = Math.round(practiceViewportH * 0.92);
       setPracticeDragHeight(Math.min(max, Math.max(min, info.startHeight + delta)));
     },
     [practiceHeaderH, practiceViewportH]
@@ -6723,26 +6775,27 @@ function GrammarPanel({
     practiceDragInfoRef.current = null;
     if (!info) return;
     if (!info.moved) {
-      // تپِ ساده (بدونِ کشیدنِ محسوس) — فقط بینِ جمع و آخرین اندازه‌ی
-      // بازِ کاربر سوییچ کن؛ اندازه‌ی ذخیره‌شده دست‌نخورده می‌مونه.
-      setPracticeSheet((prev) => (prev === "peek" ? "open" : "peek"));
+      // تپِ ساده (بدونِ کشیدنِ محسوس) — فقط بینِ جمع و نیمه سوییچ کن.
+      setPracticeSheet((prev) => (prev === "peek" ? "half" : "peek"));
       setPracticeDragHeight(null);
       return;
     }
-    // آزادِ آزاد: هر ارتفاعی که کاربر با کشیدن رهاش کرده، دقیقاً همون
-    // می‌مونه — نه اسنپ به نقطه‌ی ثابتی، نه گرد کردن. فقط اگه خیلی
-    // نزدیکِ سرتیتر رهاش کنه، به‌عنوانِ جمع‌شده در نظر می‌گیریمش تا بشه
-    // نوار رو کاملاً بست.
     const finalHeight = practiceDragHeight != null ? practiceDragHeight : info.startHeight;
-    const min = practiceHeaderH;
-    const max = Math.max(practiceHeaderH, practiceViewportH - 4);
-    const clamped = Math.min(max, Math.max(min, finalHeight));
-    if (clamped <= practiceHeaderH + 10) {
-      setPracticeSheet("peek");
-    } else {
-      setPracticeOpenHeight(clamped);
-      setPracticeSheet("open");
+    const candidates = {
+      peek: practiceHeaderH,
+      half: Math.round(practiceViewportH * 0.5),
+      full: Math.round(practiceViewportH * 0.92),
+    };
+    let nearest = "peek";
+    let minDiff = Infinity;
+    for (const key of ["peek", "half", "full"]) {
+      const diff = Math.abs(candidates[key] - finalHeight);
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearest = key;
+      }
     }
+    setPracticeSheet(nearest);
     setPracticeDragHeight(null);
   }, [practiceDragHeight, practiceHeaderH, practiceViewportH]);
 
@@ -7247,7 +7300,7 @@ function GrammarPanel({
               style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}
             >
               <p style={{ fontSize: 12, color: colors.inkSoft, margin: "8px 0 8px", flexShrink: 0 }}>
-                به هر زبونی که بنویسی خودم تشخیص می‌دم؛ اگه یه جمله برای تمرین باشه و غلط داشته باشه، اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. لازم نیست از رو منوی بالا زبون رو هماهنگ نگه داری — اون فقط یه پیش‌فرضِ کمکیه. هر سوالی هم غیر از تمرین زبون داشتی، به هر زبونی، همین‌جا بپرس.
+                یه جمله به {LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang} بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. یا هر سوال گرامری‌ای که داری — چه درباره‌ی این جمله، چه یه سوال کاملاً جدا — همین‌جا بپرس تا مثل یه معلم زبان جواب بدم.
               </p>
 
                 {chatMessages.length > 0 && (
@@ -7324,7 +7377,6 @@ function GrammarPanel({
             <div className="px-4" style={{ paddingBottom: 8, flexShrink: 0 }}>
               <div
                 className="flex gap-2 items-end"
-                dir="rtl"
                 style={{
                   backgroundColor: colors.paper,
                   border: `1.5px solid ${colors.teal}`,
@@ -7333,33 +7385,12 @@ function GrammarPanel({
                   marginTop: practiceSheet === "peek" ? 8 : 0,
                 }}
               >
-                <button
-                  onClick={() => {
-                    setPracticeSheet((s) => (s === "peek" ? "open" : s));
-                    sendChat();
-                  }}
-                  disabled={chatLoading || !chatInput.trim()}
-                  style={{
-                    backgroundColor: colors.teal,
-                    color: "#fff",
-                    borderRadius: 10,
-                    padding: "8px 14px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    opacity: chatLoading || !chatInput.trim() ? 0.5 : 1,
-                    boxShadow: chatLoading || !chatInput.trim() ? "none" : "0 2px 8px rgba(28,37,65,0.25)",
-                    flexShrink: 0,
-                  }}
-                >
-                  <Send size={16} color="#fff" />
-                </button>
                 <textarea
                   ref={chatTextareaRef}
                   dir="auto"
                   rows={1}
                   value={chatInput}
-                  onFocus={() => setPracticeSheet((s) => (s === "peek" ? "open" : s))}
+                  onFocus={() => setPracticeSheet((s) => (s === "peek" ? "half" : s))}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -7382,6 +7413,27 @@ function GrammarPanel({
                     color: colors.ink,
                   }}
                 />
+                <button
+                  onClick={() => {
+                    setPracticeSheet((s) => (s === "peek" ? "half" : s));
+                    sendChat();
+                  }}
+                  disabled={chatLoading || !chatInput.trim()}
+                  style={{
+                    backgroundColor: colors.teal,
+                    color: "#fff",
+                    borderRadius: 10,
+                    padding: "8px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: chatLoading || !chatInput.trim() ? 0.5 : 1,
+                    boxShadow: chatLoading || !chatInput.trim() ? "none" : "0 2px 8px rgba(28,37,65,0.25)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Send size={16} color="#fff" />
+                </button>
               </div>
             </div>
           </div>
@@ -7898,15 +7950,15 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       {/* Tabs */}
       <nav className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ backgroundColor: colors.paperDark }}>
         <TabButton label="مکالمات روزمره" icon={MessageCircle} active={tab === "conversations"} onClick={() => setTab("conversations")} />
-        <TabButton label="داستان‌ساز" icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} />
-        <TabButton label="لغات ذخیره‌شده" icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} />
-        <TabButton label="گرامر" icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} />
         <TabButton label="لغات" icon={Layers} active={tab === "words"} onClick={() => setTab("words")} />
         <TabButton label="علاقه‌مندی‌ها" icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} />
         <TabButton label="لغات و اخبار" icon={Newspaper} active={tab === "vocab"} onClick={() => setTab("vocab")} />
         <TabButton label="مکالمه و روزمره" icon={Coffee} active={tab === "daily"} onClick={() => setTab("daily")} />
         <TabButton label="دیکشنری" icon={Search} active={tab === "dictionary"} onClick={() => setTab("dictionary")} />
         <TabButton label="مرور (جعبه لایتنر)" icon={RotateCcw} active={tab === "review"} onClick={() => { setTab("review"); setReviewIndex(0); setShowAnswer(false); }} />
+        <TabButton label="داستان‌ساز" icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} />
+        <TabButton label="لغات ذخیره‌شده" icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} />
+        <TabButton label="گرامر" icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} />
       </nav>
 
       {/* Level filter — applies to conversation , words, favorites, and vocabulary */}
@@ -8115,6 +8167,19 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               const originTab = entry && entry.origin && entry.origin.tab;
               if (!originTab) return false;
               setTab(originTab);
+              // اگه این لغت وسطِ خوندنِ یه داستان (تبِ «داستان‌ساز») ذخیره شده
+              // بود، شماره‌ی پاراگراف/جمله‌ش (و شناسه‌ی داستان، اگه اون
+              // موقع ذخیره شده بود) رو هم داریم — پس به‌جای فقط بازکردنِ تب،
+              // دقیقاً همون داستان و همون سطر رو باز می‌کنیم و بهش اسکرول
+              // می‌کنیم.
+              if (originTab === "story" && entry.origin.pi != null) {
+                setStoryJump({
+                  storyId: entry.origin.storyId ?? null,
+                  pi: entry.origin.pi,
+                  si: entry.origin.si ?? null,
+                  token: Date.now(),
+                });
+              }
               // توی تب‌هایی که خودشون یه نوارِ جستجو دارن (مکالمات، لغات،
               // علاقه‌مندی‌ها، لغات‌و‌اخبار، مکالمه‌روزمره)، همون کادرِ
               // جستجو رو با خودِ لغت پر می‌کنیم تا دقیقاً همون موردی که
@@ -8267,39 +8332,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         </div>
       )}
 
-      {/* دکمه‌ی بازگردانی شفافیت — عمداً بیرون از دیوِ playerBarRef (که opacity
-          روش اعمال می‌شه) قرار گرفته؛ چون opacity یه استکینگ-کانتکسته و روی
-          همه‌ی بچه‌ها اثر می‌ذاره، اگه این دکمه داخل همون دیو می‌موند، خودش هم
-          کمرنگ می‌شد و در شفافیت‌های پایین اصلاً دیده نمی‌شد. این‌جوری همیشه
-          کاملاً واضحه، حتی وقتی شفافیتِ پلیر رو صفر بذاری. */}
-      {showPlayerBar && playerOpacity >= 0 && playerOpacity <= 7 && (
-        <button
-          onClick={() => setPlayerOpacity(100)}
-          title="بازگردانی شفافیت پلیر به ۱۰۰٪"
-          aria-label="بازگردانی شفافیت پلیر به ۱۰۰٪"
-          style={{
-            position: "fixed",
-            left: 16,
-            bottom: practicePanelHeight + 12,
-            zIndex: 41,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: colors.gold,
-            border: "none",
-            borderRadius: "50%",
-            width: 32,
-            height: 32,
-            padding: 0,
-            cursor: "pointer",
-            color: "#fff",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
-          }}
-        >
-          <RotateCcw size={16} />
-        </button>
-      )}
-
     </div>
   );
 }
@@ -8352,10 +8384,10 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
                 style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}` }}
               >
                 <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <p style={{ fontWeight: 800, fontSize: 15, color: mainTextColor }}>{p.t[nativeLang]}</p>
-                    <SpeakButton text={p.t[nativeLang]} code={nativeLang} />
+                  <div className="flex items-center gap-2" style={{ direction: "ltr" }}>
                     {p.level && <LevelBadge level={p.level} />}
+                    <p style={{ flex: 1, fontWeight: 800, fontSize: 15, color: mainTextColor }}>{p.t[nativeLang]}</p>
+                    <SpeakButton text={p.t[nativeLang]} code={nativeLang} edge="end" />
                   </div>
                   <div className="flex flex-col gap-1" style={{ marginTop: 4 }}>
                     {targetLangs.map((l) => (
@@ -9081,55 +9113,58 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
             <Star size={20} color={colors.gold} fill={wordFavorites.has(w.id) ? colors.gold : "none"} />
           </button>
           <div className="flex-1">
-            {/* لغت + بلندگو + نشان‌های سطح/نوع همه توی یه گروهِ چسبیده و
-                flex-wrap هستن (نه دو گروهِ جدا با justify-between) — این‌جوری
-                بلندگو همیشه دقیقاً کنارِ خودِ لغت می‌مونه، چه لغت کوتاه باشه
-                چه بلند و چندخطی، و کاربر مجبور نیست دنبالش روی صفحه بگرده. */}
-            <div className="flex items-center flex-wrap gap-2" style={{ direction: "ltr" }}>
-              <ClickableSentence
-                text={w.en}
-                langCode="en"
-                nativeLang={nativeLang}
-                aiSettings={aiSettings}
-                color={mainTextColor}
-                fontFamily={fontLatin}
-                fontWeight={800}
-                fontSize={19}
-              />
-              <SpeakButton text={w.en} code="en" color={colors.teal} edge="end" />
-              {w.level && <LevelBadge level={w.level} />}
-              {w.isUserSaved && (
-                <span
-                  style={{
-                    fontFamily: fontFa,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    color: colors.rose,
-                    border: `1px solid ${colors.rose}`,
-                    borderRadius: 6,
-                    padding: "1px 6px",
-                    flexShrink: 0,
-                  }}
-                >
-                  شخصی
-                </span>
-              )}
-              {w.pos && (
-                <span
-                  style={{
-                    fontFamily: fontFa,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    color: colors.teal,
-                    border: `1px solid ${colors.cardBorder}`,
-                    borderRadius: 6,
-                    padding: "1px 6px",
-                    flexShrink: 0,
-                  }}
-                >
-                  {POS_FA[w.pos] || w.pos}
-                </span>
-              )}
+            {/* لغت + نشان‌های سطح/نوع توی یه زیرجعبه‌ی flex-wrap جدا هستن، و
+                خودِ بلندگو بیرون از اون زیرجعبه، به‌عنوانِ یه خواهر/برادرِ
+                ثابت — این‌جوری هر چقدرم لغت بلند باشه و نشان‌ها به خط بعد
+                بیفتن، بلندگو همیشه دقیقاً روی یه ستونِ ثابت (لبه‌ی راستِ
+                ردیف) می‌مونه، هم‌راستا با بلندگوهای ردیف‌های ترجمه‌ی زیرش. */}
+            <div className="flex items-start gap-2" style={{ direction: "ltr" }}>
+              <div className="flex items-center flex-wrap gap-2" style={{ flex: 1 }}>
+                <ClickableSentence
+                  text={w.en}
+                  langCode="en"
+                  nativeLang={nativeLang}
+                  aiSettings={aiSettings}
+                  color={mainTextColor}
+                  fontFamily={fontLatin}
+                  fontWeight={800}
+                  fontSize={19}
+                />
+                {w.level && <LevelBadge level={w.level} />}
+                {w.isUserSaved && (
+                  <span
+                    style={{
+                      fontFamily: fontFa,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: colors.rose,
+                      border: `1px solid ${colors.rose}`,
+                      borderRadius: 6,
+                      padding: "1px 6px",
+                      flexShrink: 0,
+                    }}
+                  >
+                    شخصی
+                  </span>
+                )}
+                {w.pos && (
+                  <span
+                    style={{
+                      fontFamily: fontFa,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: colors.teal,
+                      border: `1px solid ${colors.cardBorder}`,
+                      borderRadius: 6,
+                      padding: "1px 6px",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {POS_FA[w.pos] || w.pos}
+                  </span>
+                )}
+              </div>
+              <SpeakButton text={w.en} code="en" color={colors.teal} />
             </div>
             {/* ترجمه‌ی این لغت به همه‌ی زبان‌های مقصدِ انتخاب‌شده — نه فقط
                 فارسی. رنگ متن‌ها مشکی و پررنگه (نه رنگ‌های کم‌کنتراست) تا

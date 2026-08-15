@@ -235,54 +235,54 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
             ref={(el) => registerLineRef && registerLineRef(variant, i, el)}
             style={{
               position: "relative",
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 8,
               padding: "9px 12px",
               borderBottom: i < items.length - 1 ? `1px dashed ${colors.cardBorder}` : "none",
-              direction: "rtl",
             }}
           >
-            {/* بلندگو همیشه اول (یعنی لبه‌ی راست، چون کانتینر rtl‌ه)،
-                بعد بجِ سطح، بعد خودِ متن که فضای باقی‌مونده رو پر می‌کنه. */}
-            {SpeakButton && <SpeakButton text={it.en} code="en" color={colors.teal} />}
-            <span
-              style={{
-                fontFamily: fontLatin,
-                fontSize: 10,
-                fontWeight: 700,
-                color: colors.ink,
-                backgroundColor: colors.goldSoft,
-                borderRadius: 6,
-                padding: "1px 6px",
-                flexShrink: 0,
-              }}
-            >
-              {it.level}
-            </span>
-            <div style={{ direction: "ltr", textAlign: "left", flex: 1 }}>
-              <div style={{ fontSize: 16, fontWeight: 800, color: mainTextColor, fontFamily: fontLatin }}>
+            {/* ردیفِ متنِ اصلی و هر ردیفِ ترجمه (پایین‌تر) حالا هر کدوم یه
+                ردیفِ کامل و هم‌عرض‌ان (نه یکی تو دیگری قایم شده) — این‌جوری
+                بلندگوی هر دو همیشه دقیقاً روی یه ستونِ ثابتِ سمت راست
+                می‌شینه، هم‌راستا با هم. */}
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, direction: "rtl" }}>
+              {/* بلندگو همیشه اول (یعنی لبه‌ی راست، چون کانتینر rtl‌ه)،
+                  بعد بجِ سطح، بعد خودِ متن که فضای باقی‌مونده رو پر می‌کنه. */}
+              {SpeakButton && <SpeakButton text={it.en} code="en" color={colors.teal} />}
+              <span
+                style={{
+                  fontFamily: fontLatin,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: colors.ink,
+                  backgroundColor: colors.goldSoft,
+                  borderRadius: 6,
+                  padding: "1px 6px",
+                  flexShrink: 0,
+                }}
+              >
+                {it.level}
+              </span>
+              <div style={{ direction: "ltr", textAlign: "left", flex: 1, fontSize: 16, fontWeight: 800, color: mainTextColor, fontFamily: fontLatin }}>
                 {ClickableSentence ? (
                   <ClickableSentence text={it.en} langCode="en" nativeLang={nativeLang} aiSettings={aiSettings} color={mainTextColor} fontFamily={fontLatin} fontWeight={800} fontSize={16} />
                 ) : (
                   it.en
                 )}
               </div>
-              {langCodes.map((code) => (
-                <LineTranslation
-                  key={code}
-                  text={it.en}
-                  langCode={code}
-                  knownFa={it.fa}
-                  aiSettings={aiSettings}
-                  translateFree={translateFree}
-                  SpeakButton={SpeakButton}
-                  ClickableSentence={ClickableSentence}
-                  nativeLang={nativeLang}
-                  nativeLabel={nativeLabel}
-                />
-              ))}
             </div>
+            {langCodes.map((code) => (
+              <LineTranslation
+                key={code}
+                text={it.en}
+                langCode={code}
+                knownFa={it.fa}
+                aiSettings={aiSettings}
+                translateFree={translateFree}
+                SpeakButton={SpeakButton}
+                ClickableSentence={ClickableSentence}
+                nativeLang={nativeLang}
+                nativeLabel={nativeLabel}
+              />
+            ))}
           </div>
           );
         })}
@@ -321,6 +321,15 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
   );
 }
 
+// موضوع/سناریوی بازِ همین‌الان — بیرونِ کامپوننت نگه داشته می‌شه چون این تب
+// (برخلاف تب‌های داستان/گرامر که با display:none زنده می‌مونن) با تعویضِ تب
+// کاملاً unmount می‌شه؛ بدونِ این، هر برگشت به تب مکالمات، state لوکال از نو
+// null می‌شد و کاربر می‌افتاد رو لیستِ موضوعات — حتی وسطِ پخشِ صدا. با
+// remount از همین‌جا شروع می‌شه و افکتِ activeLine/scrollIntoView پایین‌تر
+// (که به speechController گوش می‌ده) خودش کاربر رو دقیقاً به همون خطِ در
+// حالِ پخش می‌بره.
+let lastConversationsNav = { topic: null, scenario: null };
+
 export default function DailyConversationsTab({
   data,
   query,
@@ -337,8 +346,11 @@ export default function DailyConversationsTab({
   autoScrollActive,
 }) {
   const uiLang = nativeLang === "fa" ? "fa" : "en";
-  const [activeTopic, setActiveTopic] = useState(null);
-  const [openScenario, setOpenScenario] = useState(null);
+  const [activeTopic, setActiveTopic] = useState(() => lastConversationsNav.topic);
+  const [openScenario, setOpenScenario] = useState(() => lastConversationsNav.scenario);
+  useEffect(() => {
+    lastConversationsNav = { topic: activeTopic, scenario: openScenario };
+  }, [activeTopic, openScenario]);
 
   const t = UI_STRINGS[uiLang] || UI_STRINGS.fa;
 
@@ -405,6 +417,19 @@ export default function DailyConversationsTab({
   // خطی که همین الان، در حینِ پخشِ «کل متن» از روی پلیر، داره خونده می‌شه —
   // فقط برای اسکرولِ خودکار استفاده می‌شه (هایلایتِ بصری نداره).
   const [activeLine, setActiveLine] = useState(null); // {variant, i} | null
+
+  // موقع رفتن به سناریو یا موضوعِ دیگه، نشانگرِ خط قدیمی رو پاک کن. این افکت
+  // عمداً *قبل* از افکتِ محاسبه‌ی activeLine (پایین‌تر) اومده: هر دو افکت با
+  // تغییرِ activeTopic/openScenario یا موقعِ mount با هم اجرا می‌شن، و چون
+  // ترتیبِ اجرای افکت‌ها همون ترتیبِ نوشتنشونه، اگه این‌یکی زودتر باشه،
+  // setActiveLine(null) این افکت با setActiveLine(found) افکتِ بعدی
+  // overwrite نمی‌شه — وگرنه دقیقاً همون لحظه‌ی remount (برگشت به این تب
+  // وسطِ پخش) که باید activeLine درست محاسبه بشه، این افکت با اجرا شدنِ
+  // بعد از اون، دوباره می‌ذاشتش رو null.
+  useEffect(() => {
+    setActiveLine(null);
+  }, [activeTopic, openScenario]);
+
   useEffect(() => {
     if (!speechController) return;
     const myKey = `en-US::${fullText}`;
@@ -430,11 +455,6 @@ export default function DailyConversationsTab({
     // با تخمین)، پس دیگه نیازی به polling نیست.
     return speechController.subscribe(update);
   }, [fullText, lineOffsets, speechController]);
-
-  // موقع رفتن به سناریو یا موضوعِ دیگه، نشانگرِ خط قدیمی رو پاک کن.
-  useEffect(() => {
-    setActiveLine(null);
-  }, [activeTopic, openScenario]);
 
   const lineRefs = useRef({});
   const registerLineRef = (variant, i, el) => {
