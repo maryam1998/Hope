@@ -1027,6 +1027,15 @@ const speechController = (() => {
   // می‌کنه، چون چانک‌بندیِ اونجا (onlineChunks) بر اساسِ طولِ کاراکتر
   // نیست بر اساسِ مرزِ جمله، پس با مرزِ خط/جمله یکی نیست.
   let chunkRepeatsDone = 0;
+  // اگه تکرارِ سراسری رو «بی‌نهایت» بذاری، طبقِ همون توضیحِ بالا («همین جمله
+  // رو N بار بخون، بعد برو جمله‌ی بعد») باید یه جایی این N تموم بشه وگرنه
+  // پخش برای همیشه رو همون جمله‌ی اول گیر می‌کنه و هیچ‌وقت به جمله‌های
+  // بعدی (وسط/آخرِ متن) نمی‌رسه — دقیقاً همون هنگ‌کردن/ادامه‌ندادنی که
+  // باعثش می‌شه. برای همینه که «بی‌نهایت» رو، فقط وقتی متن بیش از یه جمله
+  // داره، به یه عددِ خیلی بزرگ ولی محدود سقف می‌زنیم؛ برای متنِ تک‌جمله‌ای
+  // (مثلاً یه کلمه/عبارتِ تنها) هیچ جمله‌ی بعدی‌ای برای رسیدن بهش نیست، پس
+  // همون‌جا واقعاً بی‌نهایت (تا کاربر خودش خاموشش کنه) می‌مونه.
+  const CHUNK_REPEAT_INFINITE_CAP = 40;
   // وقتی خودمون عمداً speechSynthesis.cancel() صدا می‌زنیم (برای مکث یا
   // شروع پخش جدید)، مرورگر یه onerror با error="interrupted" شلیک می‌کنه که
   // خطای واقعی نیست. این فلگ همون قطع‌شدن‌های عمدی رو از خطای واقعی جدا می‌کنه.
@@ -1335,7 +1344,13 @@ const speechController = (() => {
       // رو دوباره می‌خونه — به تعدادِ تنظیمِ ۳/۶/بی‌نهایت. فقط وقتی این
       // تعداد کامل شد (یا تکرار خاموش بود)، نوبتِ جمله‌ی بعدی می‌رسه.
       if (!loopWholeText && !singleShot) {
-        const repeatTarget = globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
+        const isMultiChunk = chunks.length > 1;
+        const repeatTarget =
+          globalRepeatSetting === "inf"
+            ? isMultiChunk
+              ? CHUNK_REPEAT_INFINITE_CAP
+              : Infinity
+            : Number(globalRepeatSetting) || 0;
         if (chunkRepeatsDone < repeatTarget) {
           chunkRepeatsDone += 1;
           gapTimer = setTimeout(() => {
@@ -7781,17 +7796,20 @@ function GrammarPanel({
   const [chatError, setChatError] = useState("");
   const chatEndRef = useRef(null);
   const chatTextareaRef = useRef(null);
-  // نوارِ «تمرین جمله‌سازی» یه Bottom Sheetِ قابلِ‌کشیدنه، دقیقاً مثلِ نقشه‌ی
-  // گوگل، با سه نقطه‌ی قفل (snap point):
-  //   • peek  — فقط سرتیترِ نوار دیده می‌شه (حالتِ جمع‌شده‌ی پیش‌فرض)
-  //   • half  — نصفِ ارتفاعِ صفحه (برای تایپ/تمرینِ نوشتن، درحالی‌که
-  //             جمله‌های بالای صفحه هم دیده می‌مونن)
-  //   • full  — تقریباً کلِ صفحه (فقط وقتی خودِ کاربر کاملاً بکشتش بالا)
+  // نوارِ «تمرین جمله‌سازی» یه Bottom Sheetِ آزادانه قابلِ‌کشیدنه، دقیقاً
+  // مثلِ نقشه‌ی گوگل ولی بدونِ اسنپ‌شدن به نقاطِ از‌پیش‌تعیین‌شده — هرجا
+  // کاربر با انگشتش رهاش کنه، ارتفاع دقیقاً همون‌جا می‌مونه (بینِ ارتفاعِ
+  // سرتیتر و ۹۲٪ صفحه). فقط دو حالت داریم:
+  //   • peek — فقط سرتیترِ نوار دیده می‌شه (حالتِ جمع‌شده‌ی پیش‌فرض)
+  //   • open — هر ارتفاعی که خودِ کاربر با کشیدن انتخاب کرده (practiceOpenHeight)
   // با کشیدنِ سرتیتر (grip handle) ارتفاع لحظه‌ای تغییر می‌کنه؛ با رهاکردن،
-  // به نزدیک‌ترین نقطه قفل می‌شه. تپ‌ِ ساده (بدونِ حرکتِ محسوس) هم بینِ
-  // peek و half سوییچ می‌کنه. خودِ گفتگو (chatMessages) در هر سه حالت
-  // دست‌نخورده می‌مونه، چون این کامپوننت همیشه mount شده‌ست.
+  // همون ارتفاعِ دقیق ذخیره می‌شه (مگه این‌که تا نزدیکِ ته کشیده بشه، که
+  // اون‌وقت کاملاً جمع می‌شه). تپ‌ِ ساده (بدونِ حرکتِ محسوس) هم بینِ
+  // peek و آخرین ارتفاعِ بازِ ذخیره‌شده سوییچ می‌کنه. خودِ گفتگو
+  // (chatMessages) در هر دو حالت دست‌نخورده می‌مونه، چون این کامپوننت
+  // همیشه mount شده‌ست.
   const [practiceSheet, setPracticeSheet] = useState("peek");
+  const [practiceOpenHeight, setPracticeOpenHeight] = useState(null);
   const [practiceDragHeight, setPracticeDragHeight] = useState(null);
   const practicePanelRef = useRef(null);
   const practiceHeaderRef = useRef(null);
@@ -7837,11 +7855,10 @@ function GrammarPanel({
 
   const practiceSnapHeight = useCallback(
     (state) => {
-      if (state === "half") return Math.round(practiceViewportH * 0.5);
-      if (state === "full") return Math.round(practiceViewportH * 0.92);
-      return practiceHeaderH;
+      if (state === "peek") return practiceHeaderH;
+      return practiceOpenHeight != null ? practiceOpenHeight : Math.round(practiceViewportH * 0.5);
     },
-    [practiceViewportH, practiceHeaderH]
+    [practiceViewportH, practiceHeaderH, practiceOpenHeight]
   );
 
   const practiceCurrentHeight = practiceDragHeight != null ? practiceDragHeight : practiceSnapHeight(practiceSheet);
@@ -7879,29 +7896,23 @@ function GrammarPanel({
     practiceDragInfoRef.current = null;
     if (!info) return;
     if (!info.moved) {
-      // تپِ ساده (بدونِ کشیدنِ محسوس) — فقط بینِ جمع و نیمه سوییچ کن.
-      setPracticeSheet((prev) => (prev === "peek" ? "half" : "peek"));
+      // تپِ ساده (بدونِ کشیدنِ محسوس) — فقط بینِ جمع و بازِ ذخیره‌شده سوییچ کن.
+      setPracticeSheet((prev) => (prev === "peek" ? "open" : "peek"));
       setPracticeDragHeight(null);
       return;
     }
     const finalHeight = practiceDragHeight != null ? practiceDragHeight : info.startHeight;
-    const candidates = {
-      peek: practiceHeaderH,
-      half: Math.round(practiceViewportH * 0.5),
-      full: Math.round(practiceViewportH * 0.92),
-    };
-    let nearest = "peek";
-    let minDiff = Infinity;
-    for (const key of ["peek", "half", "full"]) {
-      const diff = Math.abs(candidates[key] - finalHeight);
-      if (diff < minDiff) {
-        minDiff = diff;
-        nearest = key;
-      }
+    if (finalHeight <= practiceHeaderH + 2) {
+      // تا نزدیکِ ته کشیده شد => کاملاً جمع کن.
+      setPracticeSheet("peek");
+    } else {
+      // هر ارتفاعی که کاربر با انگشتش انتخاب کرده رو دقیقاً همون نگه دار —
+      // بدونِ اسنپ‌کردن به نقاطِ از‌پیش‌تعیین‌شده.
+      setPracticeSheet("open");
+      setPracticeOpenHeight(finalHeight);
     }
-    setPracticeSheet(nearest);
     setPracticeDragHeight(null);
-  }, [practiceDragHeight, practiceHeaderH, practiceViewportH]);
+  }, [practiceDragHeight, practiceHeaderH]);
 
   useLayoutEffect(() => {
     const el = practicePanelRef.current;
