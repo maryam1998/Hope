@@ -613,7 +613,12 @@ function formatJalaliDateTime(date) {
   const [jy, jm, jd] = gregorianToJalali(date.getFullYear(), date.getMonth() + 1, date.getDate());
   const hh = String(date.getHours()).padStart(2, "0");
   const mm = String(date.getMinutes()).padStart(2, "0");
-  return toFaDigits(`${jd} ${PERSIAN_MONTHS[jm - 1]} ${jy} · ${hh}:${mm}`);
+  const jmStr = String(jm).padStart(2, "0");
+  const jdStr = String(jd).padStart(2, "0");
+  // فرمتِ خواسته‌شده: ۱۴۰۵/۰۵/۲۰     ۲۰:۱۱ — سال/ماه/روزِ عددی (هرکدوم
+  // دو رقمی با صفرِ ابتدایی)، بعد چند فاصله‌ی ثابت (با نویسه‌ی nbsp تا
+  // مرورگر جمعشون نکنه)، بعد ساعت:دقیقه.
+  return toFaDigits(`${jy}/${jmStr}/${jdStr}\u00A0\u00A0\u00A0\u00A0\u00A0${hh}:${mm}`);
 }
 function formatGregorianDateTime(date) {
   return date.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -3486,9 +3491,18 @@ function TabButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyP
   );
 }
 
-function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolveStartOffset, onPlayed }) {
+// fullText (اختیاری): وقتی این دکمه کنارِ یه جمله/پاراگرافِ داخلِ یه متنِ
+// بزرگ‌تر (مثلاً یه جمله‌ی داخلِ داستان) نشسته و می‌خوایم کلیک روش، به‌جای
+// پخشِ *ایزوله‌ی* همون جمله‌ی کوچیک، دقیقاً از همون‌جا وسطِ پخشِ *کلِ* متن
+// بپره و ادامه بده (یعنی «خواندنِ کلی از همینجا شروع بشه») — fullText همون
+// متنِ کامله، و startOffset/resolveStartOffset آفستِ این جمله‌ی خاص داخلِ
+// اون متنِ کامله. کلیدِ speechController همیشه بر اساسِ fullText+code
+// حساب می‌شه (نه text)، طوری که این دکمه دقیقاً همون سِشنِ پخشِ کلِ متن رو
+// (چه در حالِ پخش، چه مکث‌شده) پیدا کنه.
+function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolveStartOffset, onPlayed, fullText }) {
   const locale = TTS_LOCALE[code] || "en-US";
-  const myKey = `${locale}::${text}`;
+  const jumpText = fullText || text;
+  const myKey = `${locale}::${jumpText}`;
   const [state, setState] = useState(() => speechController.getState());
 
   useEffect(() => speechController.subscribe(setState), []);
@@ -3507,6 +3521,36 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
     // باعث می‌شد «خواندنِ کل متن» بعد از یه پخشِ جزئی (کلمه/محدوده/جمله)
     // گاهی از همون نقطه ادامه پیدا نکنه و از اول شروع بشه.
     const effectiveStartOffset = resolveStartOffset ? resolveStartOffset() : startOffset;
+
+    if (fullText) {
+      // حالتِ «پرش داخلِ متنِ کامل» — اگه همین الان دقیقاً همین متنِ کامل
+      // (چه در حالِ پخش، چه مکث‌شده) لود شده، هیچ‌وقت نباید toggle معمولی
+      // صدا بزنیم (چون toggle با کلیدِ یکسان یعنی «پاز/ادامه»، نه «پرش»).
+      // به‌جاش seekToChunk رو مستقیم صدا می‌زنیم تا از دقیقاً همینجا ادامه
+      // بده. فقط وقتی کاربر دقیقاً روی همون جمله‌ای که همین الان داره
+      // خونده می‌شه دوباره کلیک کنه (یعنی چیزی برای «پرش» نیست)، توگل
+      // می‌کنیم تا رفتارِ آشنای «پاز/ادامه» حفظ بشه.
+      const st = speechController.getState();
+      if (st.key === myKey && st.status !== "idle") {
+        const meta = speechController.getChunksMeta();
+        const off = Number.isInteger(effectiveStartOffset) ? effectiveStartOffset : 0;
+        let idx = 0;
+        for (let i = 0; i < meta.length; i++) {
+          if (off >= meta[i].start) idx = i;
+          else break;
+        }
+        if (idx === st.chunkIndex) {
+          speechController.toggle(jumpText, code);
+        } else {
+          speechController.seekToChunk(idx);
+        }
+      } else {
+        speechController.toggle(jumpText, code, effectiveStartOffset, forceRepeat ? { loop: true } : undefined);
+      }
+      if (onPlayed) onPlayed();
+      return;
+    }
+
     const result = speechController.toggle(text, code, effectiveStartOffset, forceRepeat ? { loop: true } : undefined);
     if (onPlayed) onPlayed();
     // "no-voice" دیگه پیش نمی‌آد چون خودکار می‌ره سراغ سرویس آنلاین رایگان
@@ -3665,6 +3709,69 @@ function RepeatButton({ color }) {
           {label}
         </span>
       )}
+    </button>
+  );
+}
+// دکمه‌ی «رفرش / شروع مجدد» — کنارِ دکمه‌ی تکرارِ سراسری می‌شینه. با زدنش،
+// خواندنِ همون متنِ کاملِ تبِ فعلی (چیزی که MainPlayButton هم روش کار
+// می‌کنه — startText/startCode) از دقیقاً از ابتدا شروع می‌شه؛ چه الان
+// چیزی در حالِ پخش/مکث باشه چه نه، و چه این متن همون متنِ همین الان
+// لودشده باشه چه یه متنِ دیگه (مثلاً کاربر بینِ تب‌ها جابه‌جا شده و
+// حافظه‌ی «نقطه‌ی ادامه» یه‌جای وسط رو نگه داشته).
+// نکته‌ی مهم برای حفظِ هایلایت: اینجا کلیدِ speechController (key) رو
+// عوض نمی‌کنیم — فقط chunkIndex رو با seekToChunk(0) برمی‌گردونیم به صفر.
+// همه‌ی جاهایی که هایلایتِ زنده رو نشون می‌دن (StoryBuilder، PhraseList،
+// WordList و...) با subscribe شدن به همین speechController و مقایسه‌ی
+// key/chunkIndex کار می‌کنن؛ پس چون key دست‌نخورده می‌مونه، هایلایت هم
+// بدونِ هیچ تغییرِ اضافه‌ای، خودش با chunkIndexِ صفر هماهنگ می‌شه.
+function RestartButton({ color, startText, startCode }) {
+  const [state, setState] = useState(() => speechController.getState());
+  useEffect(() => speechController.subscribe(setState), []);
+
+  const locale = TTS_LOCALE[startCode] || "en-US";
+  const myKey = startText ? `${locale}::${startText}` : null;
+  const isLoaded = !!myKey && state.key === myKey && state.status !== "idle";
+  const disabled = !startText;
+
+  const handleClick = (e) => {
+    e.stopPropagation();
+    if (!startText) return;
+    if (isLoaded) {
+      // همین متن از قبل لود شده (چه در حالِ پخش، چه مکث‌شده) — فقط جهش به
+      // چانکِ صفر، بدونِ باز کردنِ یه سِشنِ جدید (که باعثِ ازدست‌رفتنِ
+      // پیوستگیِ key/هایلایت می‌شد).
+      speechController.seekToChunk(0);
+    } else {
+      // متنِ دیگه‌ای لود بود یا هیچی — یه سِشنِ تازه باز می‌کنیم. توگل با
+      // آفستِ ۰ رو صریح حساب نمی‌کنه (۰ یعنی «آفستِ صریح نداده»، پس ممکنه
+      // به‌جاش نقطه‌ی ادامه‌ی قبلاً ذخیره‌شده رو بردارد) — برای همین بلافاصله
+      // بعدش seekToChunk(0) رو هم صدا می‌زنیم تا مطمئن از ابتدا شروع بشه.
+      speechController.toggle(startText, startCode);
+      speechController.seekToChunk(0);
+    }
+  };
+
+  const c = color || colors.gold;
+  return (
+    <button
+      onClick={handleClick}
+      disabled={disabled}
+      aria-label="شروع مجدد از ابتدای این تب"
+      title="شروع مجدد از ابتدای همینِ متن — هایلایت هم همراهش از اول می‌شه"
+      style={{
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "none",
+        border: "none",
+        cursor: disabled ? "default" : "pointer",
+        padding: 2,
+        color: disabled ? colors.cardBorder : c,
+        opacity: disabled ? 0.4 : 1,
+      }}
+    >
+      <RotateCcw size={15} />
     </button>
   );
 }
@@ -6139,14 +6246,15 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
 
       {showSaved ? (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-2">
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <LevelFilterRow levelFilter={savedStoriesLevelFilter} setLevelFilter={setSavedStoriesLevelFilter} />
-            </div>
-            {savedStories.length > 1 && (
+          {/* سطح‌ها همیشه توی ردیفِ خودشون، تمام‌عرض و بدون تنگ‌شدن نشون
+              داده می‌شن؛ مرتب‌سازی یه ردیفِ جدا زیرشه — قبلاً کنارِ هم
+              بودن و دکمه‌ی مرتب‌سازی جای سطح‌ها رو تنگ می‌کرد. */}
+          <LevelFilterRow levelFilter={savedStoriesLevelFilter} setLevelFilter={setSavedStoriesLevelFilter} />
+          {savedStories.length > 1 && (
+            <div className="flex justify-start">
               <SavedStoriesSortMenu sortKey={savedStoriesSort} setSortKey={setSavedStoriesSort} />
-            )}
-          </div>
+            </div>
+          )}
           {savedStories.length === 0 && (
             <p style={{ fontSize: 13, color: colors.inkSoft }}>هنوز داستانی ذخیره نکردی.</p>
           )}
@@ -6871,7 +6979,14 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                           style={{ position: "relative", paddingInlineStart: 10 }}
                         >
                           <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
-                            <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
+                            <SpeakButton
+                              text={s.text}
+                              code={storyLang}
+                              color={colors.inkSoft}
+                              edge={dirFor(storyLang) === "ltr" ? "end" : undefined}
+                              fullText={fullStoryText}
+                              startOffset={sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0}
+                            />
                             <p
                               style={{
                                 fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin,
@@ -6975,7 +7090,14 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                           (activeStorySentence && activeStorySentence.pi === pi);
                         return (
                           <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
-                            <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
+                            <SpeakButton
+                              text={paragraphText}
+                              code={storyLang}
+                              color={colors.inkSoft}
+                              edge={dirFor(storyLang) === "ltr" ? "end" : undefined}
+                              fullText={fullStoryText}
+                              startOffset={paragraphBaseOffsetMap[pi] ?? 0}
+                            />
                             <p
                               style={{
                                 fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin,
@@ -9308,6 +9430,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           {/* ردیفِ کنترل‌ها: تکرار، جمله‌ی قبل، پخش/توقفِ مرکزی، جمله‌ی بعد، تنظیمات */}
           <div className="px-4" style={{ paddingTop: 2, paddingBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-around" }}>
             <RepeatButton color={colors.gold} />
+            <RestartButton color={colors.gold} startText={activeTabAudio?.text} startCode={activeTabAudio?.code} />
             <ChunkNavButton direction="prev" color={colors.ink} />
             <MainPlayButton
               startText={activeTabAudio?.text}
