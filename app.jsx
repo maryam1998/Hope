@@ -1011,6 +1011,20 @@ const speechController = (() => {
   })();
   let remaining = 0;
   let singleShot = false;
+  // وقتی true باشه یعنی این سِشن با options.loop باز شده (مثلاً دکمه‌ی
+  // مرکزیِ «پخشِ کل متن») — تنظیمِ تکرارِ سراسری (globalRepeatSetting) روش
+  // اثر نمی‌ذاره؛ به‌جاش کلِ متن، از اول تا آخر، همیشه از سر گرفته می‌شه.
+  let loopWholeText = false;
+  // چند بار همین جمله/چانکِ فعلی (که مسیرِ محلیِ speakChunk داره می‌خونتش)
+  // تا الان علاوه‌بر خواندنِ اولش تکرار شده — هر بار که واقعاً به یه چانکِ
+  // *دیگه* بریم صفر می‌شه. با این، تکرارِ سراسری دیگه «کلِ متن رو از اول
+  // دوباره بخون» نیست؛ «همین جمله رو N بار بخون، بعد برو جمله‌ی بعد»ه —
+  // دقیقاً همون چیزی که دکمه‌ی 🔁 از اولش قرار بود بکنه (تکرار روی «هر
+  // جمله‌ای که پخش می‌کنی»، نه کلِ پاراگراف). مسیرِ آنلاینِ جایگزین
+  // (playOnlineChunk) عمداً دست‌نخورده مونده و هنوز کلِ متن رو تکرار
+  // می‌کنه، چون چانک‌بندیِ اونجا (onlineChunks) بر اساسِ طولِ کاراکتر
+  // نیست بر اساسِ مرزِ جمله، پس با مرزِ خط/جمله یکی نیست.
+  let chunkRepeatsDone = 0;
   // وقتی خودمون عمداً speechSynthesis.cancel() صدا می‌زنیم (برای مکث یا
   // شروع پخش جدید)، مرورگر یه onerror با error="interrupted" شلیک می‌کنه که
   // خطای واقعی نیست. این فلگ همون قطع‌شدن‌های عمدی رو از خطای واقعی جدا می‌کنه.
@@ -1143,6 +1157,7 @@ const speechController = (() => {
     onlineChunks = splitForOnlineTts(text);
     onlineLangForTts = langCodeForTts;
     singleShot = !!forceSingle;
+    loopWholeText = !!forceLoop;
     remaining = singleShot ? 0 : forceLoop ? Infinity : globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
     let startChunk = 0;
     if (Number.isInteger(startCharOffset) && startCharOffset > 0 && text.length && onlineChunks.length) {
@@ -1269,19 +1284,18 @@ const speechController = (() => {
     return preferred || null;
   }
 
-  function speakChunk(idx, forceRestart = false) {
+  function speakChunk(idx, forceRestart = false, isRepeatContinuation = false) {
     if (!chunks.length) {
       status = "idle";
       notify();
       return;
     }
     if (idx >= chunks.length) {
-      if (!singleShot && globalRepeatSetting === "inf") {
-        speakChunk(0, true);
-        return;
-      }
-      if (!singleShot && remaining > 0) {
-        remaining -= 1;
+      // به آخرِ کلِ متن رسیدیم. تکرارِ سراسری دیگه اینجا اثری نداره — چون
+      // اگه روشن بود، همین‌الان قبلاً به‌ازای هر جمله/خط، جدا جدا اعمال
+      // شده (پایین‌تر، توی utter.onend). فقط سِشن‌های «loop»ی (پخشِ همیشگیِ
+      // کل متن) اینجا از اول شروع می‌شن.
+      if (!singleShot && loopWholeText) {
         speakChunk(0, true);
         return;
       }
@@ -1295,6 +1309,7 @@ const speechController = (() => {
     clearGapTimer();
     if (forceRestart) cancelSpeech();
     chunkIndex = idx;
+    if (!isRepeatContinuation) chunkRepeatsDone = 0;
     status = "playing";
     notify();
 
@@ -1312,9 +1327,26 @@ const speechController = (() => {
       // اضافه پشتِ‌سرِهم ادامه پیدا می‌کنن.
       const boundary = chunks[idx] && chunks[idx].boundary;
       const gap = boundary === "sentence" ? sentenceGapMs(rate) : 0;
+
+      // تکرارِ سراسری (اگه روشن باشه و سِشن «loop» نباشه) اینجا اعمال
+      // می‌شه: قبل از رفتن سراغِ جمله‌ی بعد، همینِ جمله‌ی همین‌الان‌تمام‌شده
+      // رو دوباره می‌خونه — به تعدادِ تنظیمِ ۳/۶/بی‌نهایت. فقط وقتی این
+      // تعداد کامل شد (یا تکرار خاموش بود)، نوبتِ جمله‌ی بعدی می‌رسه.
+      if (!loopWholeText && !singleShot) {
+        const repeatTarget = globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
+        if (chunkRepeatsDone < repeatTarget) {
+          chunkRepeatsDone += 1;
+          gapTimer = setTimeout(() => {
+            gapTimer = null;
+            speakChunk(idx, false, true);
+          }, gap);
+          return;
+        }
+      }
+
       gapTimer = setTimeout(() => {
         gapTimer = null;
-        speakChunk(chunkIndex + 1, false);
+        speakChunk(chunkIndex + 1, false, false);
       }, gap);
     };
     utter.onerror = (e) => {
@@ -1411,7 +1443,9 @@ const speechController = (() => {
               playOnlineChunk(onlineChunkIndex);
             }
           } else {
-            speakChunk(chunkIndex, false);
+            // ادامه بعد از مکث — همون جمله‌ست، نه جمله‌ی جدید، پس شمارشِ
+            // تکرارهاش (chunkRepeatsDone) نباید صفر بشه.
+            speakChunk(chunkIndex, false, true);
           }
           return "ok";
         }
@@ -1440,6 +1474,7 @@ const speechController = (() => {
           chunks = splitSentences(text);
           status = "playing";
           singleShot = forceSingle;
+          loopWholeText = !!forceLoop;
           remaining = forceSingle ? 0 : forceLoop ? Infinity : globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
           const startIdx = Number.isInteger(effectiveStartOffset) && effectiveStartOffset > 0
             ? chunkIndexForOffset(Math.min(effectiveStartOffset, Math.max(text.length - 1, 0)))
@@ -1469,6 +1504,8 @@ const speechController = (() => {
       chunkIndex = 0;
       remaining = 0;
       singleShot = false;
+      loopWholeText = false;
+      chunkRepeatsDone = 0;
       notify();
     },
     getRate() {

@@ -203,7 +203,7 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
   );
 }
 
-function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor }) {
+function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets }) {
   const isHear = variant === "hear";
   if (items.length === 0) return null;
   const accent = isHear ? colors.teal : colors.gold;
@@ -235,6 +235,11 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
       >
         {items.map((it, i) => {
           const isLineActive = activeLine && activeLine.variant === variant && activeLine.i === i;
+          // آفستِ همین خط داخلِ متنِ کاملِ سناریو — با این، زدنِ 🔊ِ همین خط
+          // (چه چیزِ دیگه‌ای از قبل در حالِ پخش باشه چه نه) به‌جای خواندنِ
+          // تک این یه خط، از دقیقاً همین‌جا وارد پخشِ کلِ سناریو می‌شه و
+          // خودش تا آخر ادامه پیدا می‌کنه.
+          const lineOffset = lineOffsets && lineOffsets.find((l) => l.variant === variant && l.i === i);
           return (
           <div
             key={i}
@@ -252,7 +257,15 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
             <div style={{ display: "flex", alignItems: "flex-start", gap: 8, direction: "rtl" }}>
               {/* بلندگو همیشه اول (یعنی لبه‌ی راست، چون کانتینر rtl‌ه)،
                   بعد بجِ سطح، بعد خودِ متن که فضای باقی‌مونده رو پر می‌کنه. */}
-              {SpeakButton && <SpeakButton text={it.en} code="en" color={colors.teal} />}
+              {SpeakButton && (
+                <SpeakButton
+                  text={it.en}
+                  code="en"
+                  color={colors.teal}
+                  fullText={fullText}
+                  startOffset={lineOffset ? lineOffset.start : undefined}
+                />
+              )}
               <span
                 style={{
                   fontFamily: fontLatin,
@@ -311,7 +324,7 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
   );
 }
 
-function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor }) {
+function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets }) {
   const filterFn = (arr) => (levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr);
   const speakerA = filterFn(sc.speakerA);
   const speakerB = filterFn(sc.speakerB);
@@ -333,8 +346,8 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
       {isOpen && (
         <div style={{ padding: "0 15px 15px" }}>
           {sc.context && <div style={{ fontFamily: fontFa, fontSize: 12, color: colors.inkSoft, marginBottom: 4 }}>{sc.context}</div>}
-          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} highlightColor={highlightColor} />
-          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} highlightColor={highlightColor} />
+          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} highlightColor={highlightColor} fullText={fullText} lineOffsets={lineOffsets} />
+          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} highlightColor={highlightColor} fullText={fullText} lineOffsets={lineOffsets} />
         </div>
       )}
     </div>
@@ -605,6 +618,8 @@ export default function DailyConversationsTab({
                 activeLine={activeLine}
                 registerLineRef={registerLineRef}
                 highlightColor={highlightColor}
+                fullText={fullText}
+                lineOffsets={lineOffsets}
               />
             ))
           ) : (
