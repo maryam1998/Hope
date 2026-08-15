@@ -817,53 +817,75 @@ const speechController = (() => {
   // حداکثر چند کلمه تو یه تکه (chunk) بگنجه. این فقط یه دریچه‌ی اطمینانه
   // برای متنِ خیلی بلندِ بدونِ علامتِ‌نگارشی (مثلاً «خواندنِ کل لیستِ لغات»
   // که کلی کلمه با فاصله به‌هم چسبیده‌ن) — جمله‌های عادی (که تقریباً همیشه
-  // کمتر از این عدد کلمه دارن) هیچ‌وقت بهش نمی‌رسن و کاملاً یک‌تکه و
-  // یک‌نفس خونده می‌شن.
+  // کمتر از این عدد کلمه دارن) هیچ‌وقت بهش نمی‌رسن.
   const MAX_WORDS_PER_CHUNK = 40;
 
-  // متن رو اول به جمله تقسیم می‌کنه (روی .!?؟ و غیره)، بعد فقط اگه یه
-  // «جمله» به‌طرز غیرعادی بلند بود (یعنی احتمالاً اصلاً جمله نیست، یه بلوکِ
-  // متنِ بدونِ نقطه‌ست) به تکه‌های چندکلمه‌ای می‌شکنه. تکه‌هایی که از این
-  // شکستنِ اضطراری میان `isSplit: true` می‌گیرن تا بین‌شون مکثِ طبیعیِ
-  // پایانِ‌جمله گذاشته نشه (نه یک جمله‌ی واقعی رو وسط قطع کن، نه بین
-  // تکه‌های اضطراری مکثِ اضافه بذار).
+  // متن رو اول به جمله تقسیم می‌کنه (روی .!?؟ و غیره)، بعد هر جمله رو سرِ
+  // ویرگول/سمی‌کالن (، ، ؛ ;) هم می‌شکنه — چون این‌ها خودشون نقطه‌ی مکثِ
+  // طبیعیِ زبونن، نه یه بریدنِ خودسرانه‌ی وسطِ عبارت. هر تکه یه `boundary`
+  // می‌گیره: "sentence" (پایانِ جمله‌ی واقعی → مکثِ کامل)، "comma" (پایانِ
+  // یه بندِ جمله سرِ ویرگول → مکثِ کوتاه‌تر ولی محسوس)، یا "none" (فقط برای
+  // شکستنِ اضطراریِ متنِ خیلی‌بلندِ بدونِ نقطه/ویرگول → بدونِ مکثِ اضافه).
   function splitSentences(text) {
     const t = text || "";
     if (!t) return [];
-    const re = /[^.!?؟。！]+[.!?؟。！]*/g;
+    const sentenceRe = /[^.!?؟。！]+[.!?؟。！]*/g;
     const sentences = [];
     let m;
-    while ((m = re.exec(t))) {
+    while ((m = sentenceRe.exec(t))) {
       const raw = m[0];
       const trimmed = raw.trim();
       if (!trimmed) continue;
       const start = m.index + raw.indexOf(trimmed[0]);
       sentences.push({ start, end: start + trimmed.length, text: trimmed });
     }
-    if (!sentences.length) return [{ start: 0, end: t.length, text: t }];
+    if (!sentences.length) sentences.push({ start: 0, end: t.length, text: t });
 
     const out = [];
     for (const seg of sentences) {
-      const wordRe = /\S+/g;
-      const wordPositions = [];
-      let wm;
-      while ((wm = wordRe.exec(seg.text))) wordPositions.push({ start: wm.index, end: wm.index + wm[0].length });
+      const commaRe = /[^,،؛;]+[,،؛;]*/g;
+      const clauses = [];
+      let cm;
+      while ((cm = commaRe.exec(seg.text))) {
+        const raw = cm[0];
+        const trimmed = raw.trim();
+        if (!trimmed) continue;
+        const start = cm.index + raw.indexOf(trimmed[0]);
+        clauses.push({ start, end: start + trimmed.length, text: trimmed });
+      }
+      if (!clauses.length) clauses.push({ start: 0, end: seg.text.length, text: seg.text });
 
-      if (wordPositions.length <= MAX_WORDS_PER_CHUNK) {
-        out.push(seg);
-        continue;
-      }
-      for (let i = 0; i < wordPositions.length; i += MAX_WORDS_PER_CHUNK) {
-        const lastIdx = Math.min(i + MAX_WORDS_PER_CHUNK, wordPositions.length) - 1;
-        const wStart = wordPositions[i].start;
-        const wEnd = wordPositions[lastIdx].end;
-        out.push({
-          start: seg.start + wStart,
-          end: seg.start + wEnd,
-          text: seg.text.slice(wStart, wEnd),
-          isSplit: true,
-        });
-      }
+      clauses.forEach((clause, ci) => {
+        const isLastClause = ci === clauses.length - 1;
+        const naturalBoundary = isLastClause ? "sentence" : "comma";
+
+        const wordRe = /\S+/g;
+        const wordPositions = [];
+        let wm;
+        while ((wm = wordRe.exec(clause.text))) wordPositions.push({ start: wm.index, end: wm.index + wm[0].length });
+
+        if (wordPositions.length <= MAX_WORDS_PER_CHUNK) {
+          out.push({
+            start: seg.start + clause.start,
+            end: seg.start + clause.end,
+            text: clause.text,
+            boundary: naturalBoundary,
+          });
+          return;
+        }
+        for (let i = 0; i < wordPositions.length; i += MAX_WORDS_PER_CHUNK) {
+          const lastIdx = Math.min(i + MAX_WORDS_PER_CHUNK, wordPositions.length) - 1;
+          const isLastSub = lastIdx === wordPositions.length - 1;
+          const wStart = wordPositions[i].start;
+          const wEnd = wordPositions[lastIdx].end;
+          out.push({
+            start: seg.start + clause.start + wStart,
+            end: seg.start + clause.start + wEnd,
+            text: clause.text.slice(wStart, wEnd),
+            boundary: isLastSub ? naturalBoundary : "none",
+          });
+        }
+      });
     }
     return out;
   }
@@ -876,23 +898,25 @@ const speechController = (() => {
   }
 
   // چیزی که موتورِ TTS واقعاً باهاش صدا کنیم. زیرِ حدودِ ۰.۵ اکثرِ موتورهای
-  // مرورگر پروسودیِ طبیعی‌شون رو از دست می‌دن و شروع می‌کنن به مکثِ عجیب سرِ
-  // ویرگول/وسطِ کلمه (انگار دارن تک‌تک کلمه می‌خونن) — برای همین اینجا
-  // پایین‌تر از ۰.۵ نمی‌ریم. سرعتِ واقعیِ حس‌شده رو بیشتر مکثِ بینِ جمله‌ها
-  // (interChunkGapMs) تعیین می‌کنه که کاملاً دستِ خودمونه و مستقل از رفتار
-  // موتوره و پروسودیِ داخلِ جمله رو خراب نمی‌کنه.
+  // مرورگر پروسودیِ طبیعی‌شون رو از دست می‌دن (مکثِ عجیب/تک‌کلمه‌خونی) —
+  // برای همین اینجا پایین‌تر از ۰.۵ نمی‌ریم. سرعتِ واقعیِ حس‌شده رو بیشتر
+  // مکثِ بینِ جمله‌ها/بندها تعیین می‌کنه که کاملاً دستِ خودمونه.
   function engineRate(r) {
     if (r >= 1) return r;
     // r در بازه‌ی [0.25 .. 1] → engine rate در بازه‌ی [0.5 .. 1]
     return 0.5 + ((r - 0.25) / 0.75) * 0.5;
   }
 
-  // مکثِ بینِ دو جمله — پایه‌ش یه فاصله‌ی طبیعیه، و با کاهشِ rate بیشتر می‌شه.
-  // چون این تایمر مستقلِ موتورِ TTSه، همیشه دقیقاً همونی که می‌خوایم اجرا می‌شه.
-  // این پایه بیشتر شده تا حسِ «آهسته» رو کاملاً از طریقِ مکثِ بینِ‌جمله‌ها
-  // (که هیچ‌وقت مصنوعی/خش‌دار نمی‌شه) جبران کنه.
-  function interChunkGapMs(r) {
-    const base = 320;
+  // مکثِ بعد از پایانِ یه جمله‌ی واقعی.
+  function sentenceGapMs(r) {
+    const base = 340;
+    return Math.round(base / Math.min(Math.max(r, 0.2), 2));
+  }
+
+  // مکثِ بعد از ویرگول/سمی‌کالن — کوتاه‌تر از پایانِ‌جمله، ولی برای مبتدی
+  // کاملاً قابلِ‌حس؛ چون سرِ یه مرزِ زبانیِ واقعیه، مصنوعی به‌نظر نمی‌رسه.
+  function commaGapMs(r) {
+    const base = 170;
     return Math.round(base / Math.min(Math.max(r, 0.2), 2));
   }
 
@@ -961,10 +985,11 @@ const speechController = (() => {
 
     utter.onend = () => {
       if (status !== "playing") return;
-      // تکه‌هایی که از شکستنِ اضطراریِ یه «جمله»ی خیلی بلند اومدن (isSplit)
-      // وسطِ یک جمله‌ی واقعی هستن، نه سرِ مرزِ دو جمله — پس مکثِ کاملِ
-      // پایانِ‌جمله رو روش‌شون نمی‌ذاریم تا جمله یک‌نفس و طبیعی به‌نظر بیاد.
-      const gap = chunks[idx] && chunks[idx].isSplit ? 0 : interChunkGapMs(rate);
+      // مکثِ بعدی رو بر اساسِ نوعِ مرزِ همین تکه تعیین می‌کنیم: پایانِ جمله
+      // (مکثِ کامل)، سرِ ویرگول (مکثِ کوتاه‌تر ولی محسوس)، یا شکستنِ
+      // اضطراریِ وسطِ عبارتِ بدونِ نقطه/ویرگول (بدونِ مکثِ اضافه).
+      const boundary = chunks[idx] && chunks[idx].boundary;
+      const gap = boundary === "sentence" ? sentenceGapMs(rate) : boundary === "comma" ? commaGapMs(rate) : 0;
       gapTimer = setTimeout(() => {
         gapTimer = null;
         speakChunk(chunkIndex + 1, false);
