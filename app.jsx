@@ -464,6 +464,10 @@ const UI_STRINGS = {
   fontSizeTitle: { fa: "اندازه‌ی فونت", en: "Font size" },
   languageSectionTitle: { fa: "زبان نرم‌افزار", en: "App language" },
   offlineDownload: { fa: "دانلود آفلاین لغات", en: "Download offline words" },
+  calendarSectionTitle: { fa: "تقویم تاریخ‌ها", en: "Date calendar" },
+  calendarJalali: { fa: "شمسی", en: "Persian (Jalali)" },
+  calendarGregorian: { fa: "میلادی", en: "Gregorian" },
+  calendarBoth: { fa: "هر دو", en: "Both" },
   tabConversations: { fa: "مکالمات روزمره", en: "Daily conversations" },
   tabStory: { fa: "داستان‌ساز", en: "Story generator" },
   tabSaved: { fa: "لغات ذخیره‌شده", en: "Saved words" },
@@ -516,6 +520,7 @@ const STORAGE_KEY = "phrasebook-state-v1";
 // to any one user, and should already apply on the login screen before
 // anyone's signed in.
 const APP_PREFS_KEY = "phrasebook-app-prefs";
+const CALENDAR_SYSTEMS = ["jalali", "gregorian", "both"];
 function loadAppPrefs() {
   try {
     const parsed = JSON.parse(localStorage.getItem(APP_PREFS_KEY) || "{}");
@@ -524,15 +529,81 @@ function loadAppPrefs() {
       font: APP_FONTS[parsed.font] ? parsed.font : "default",
       fontSize: APP_FONT_SIZES[parsed.fontSize] ? parsed.fontSize : "medium",
       uiLang: APP_LANGUAGES[parsed.uiLang] ? parsed.uiLang : "fa",
+      calendarSystem: CALENDAR_SYSTEMS.includes(parsed.calendarSystem) ? parsed.calendarSystem : "jalali",
     };
   } catch (e) {
-    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa" };
+    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali" };
   }
 }
 function saveAppPrefs(prefs) {
   try {
     localStorage.setItem(APP_PREFS_KEY, JSON.stringify(prefs));
   } catch (e) {}
+}
+
+// --- Jalali (Persian) calendar conversion --------------------------------
+// Well-known Gregorian→Jalali algorithm (accurate for the whole modern
+// range we care about). Used to show saved-story timestamps in Shamsi,
+// Gregorian, or both, based on the user's choice in Settings.
+const PERSIAN_MONTHS = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
+const FA_DIGITS = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
+function toFaDigits(str) {
+  return String(str).replace(/[0-9]/g, (d) => FA_DIGITS[+d]);
+}
+function gregorianToJalali(gy, gm, gd) {
+  const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+  let jy;
+  if (gy > 1600) {
+    jy = 979;
+    gy -= 1600;
+  } else {
+    jy = 0;
+    gy -= 621;
+  }
+  const gy2 = gm > 2 ? gy + 1 : gy;
+  let days =
+    365 * gy +
+    parseInt((gy2 + 3) / 4) -
+    parseInt((gy2 + 99) / 100) +
+    parseInt((gy2 + 399) / 400) -
+    80 +
+    gd +
+    g_d_m[gm - 1];
+  jy += 33 * parseInt(days / 12053);
+  days %= 12053;
+  jy += 4 * parseInt(days / 1461);
+  days %= 1461;
+  if (days > 365) {
+    jy += parseInt((days - 1) / 365);
+    days = (days - 1) % 365;
+  }
+  let jm, jd;
+  if (days < 186) {
+    jm = 1 + parseInt(days / 31);
+    jd = 1 + (days % 31);
+  } else {
+    jm = 7 + parseInt((days - 186) / 30);
+    jd = 1 + ((days - 186) % 30);
+  }
+  return [jy, jm, jd];
+}
+function formatJalaliDateTime(date) {
+  const [jy, jm, jd] = gregorianToJalali(date.getFullYear(), date.getMonth() + 1, date.getDate());
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  return toFaDigits(`${jd} ${PERSIAN_MONTHS[jm - 1]} ${jy} · ${hh}:${mm}`);
+}
+function formatGregorianDateTime(date) {
+  return date.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+// calendarSystem: "jalali" | "gregorian" | "both"
+function formatSavedDate(iso, calendarSystem) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return "";
+  if (calendarSystem === "gregorian") return formatGregorianDateTime(date);
+  if (calendarSystem === "both") return `${formatJalaliDateTime(date)} — ${formatGregorianDateTime(date)}`;
+  return formatJalaliDateTime(date);
 }
 
 // Plain localStorage wrapper — works in any real browser (deployed site, PWA
@@ -3125,6 +3196,34 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
             ))}
           </div>
 
+          {/* Calendar system for saved-story dates */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            📅 {tr("calendarSectionTitle", uiLang)}
+          </p>
+          <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
+            {[
+              ["jalali", "calendarJalali"],
+              ["gregorian", "calendarGregorian"],
+              ["both", "calendarBoth"],
+            ].map(([key, labelKey]) => (
+              <button
+                key={key}
+                onClick={() => update("calendarSystem", key)}
+                aria-pressed={(appPrefs.calendarSystem || "jalali") === key}
+                style={{
+                  padding: "5px 14px",
+                  borderRadius: 20,
+                  fontSize: 12,
+                  border: `1px solid ${(appPrefs.calendarSystem || "jalali") === key ? colors.gold : colors.cardBorder}`,
+                  backgroundColor: (appPrefs.calendarSystem || "jalali") === key ? colors.goldSoft : "white",
+                  color: colors.ink,
+                }}
+              >
+                {tr(labelKey, uiLang)}
+              </button>
+            ))}
+          </div>
+
           {/* Offline words download */}
           <button
             onClick={() => setOfflineModalOpen(true)}
@@ -4712,7 +4811,7 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
   );
 }
 
-function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, autoScrollActive }) {
+function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, autoScrollActive, calendarSystem }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
   // languages) — no separate picker duplicated here.
@@ -5563,8 +5662,23 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                 {list.map((s) => (
                   <div
                     key={s.id}
-                    style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 14 }}
+                    style={{ position: "relative", backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 14, paddingTop: s.savedAt ? 26 : 14 }}
                   >
+                    {s.savedAt && (
+                      <p
+                        style={{
+                          position: "absolute",
+                          top: 8,
+                          left: 10,
+                          margin: 0,
+                          fontSize: 10.5,
+                          color: colors.inkSoft,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        📅 {formatSavedDate(s.savedAt, calendarSystem)}
+                      </p>
+                    )}
                     <div className="flex items-center justify-between">
                       <div>
                         <p style={{ fontWeight: 700, fontSize: 13 }}>
@@ -8558,6 +8672,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             jumpTo={storyJump}
             onFullTextChange={setStoryPlayerText}
             autoScrollActive={tab === "story"}
+            calendarSystem={appPrefs.calendarSystem || "jalali"}
           />
         </div>
       </main>
