@@ -3259,7 +3259,7 @@ function TabButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyP
   );
 }
 
-function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, onPlayed }) {
+function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolveStartOffset, onPlayed }) {
   const locale = TTS_LOCALE[code] || "en-US";
   const myKey = `${locale}::${text}`;
   const [state, setState] = useState(() => speechController.getState());
@@ -3272,7 +3272,15 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, onPlay
 
   const handleToggle = (e) => {
     e.stopPropagation();
-    const result = speechController.toggle(text, code, startOffset, forceRepeat ? { loop: true } : undefined);
+    // نکته‌ی مهم: اگه resolveStartOffset پاس داده شده، به‌جای پراپِ
+    // startOffset (که موقعِ رندرِ قبلیِ این کامپوننت محاسبه شده و ممکنه
+    // کهنه باشه — چون rememberMainTextResumeOffset فقط یه Map رو مستقیم
+    // آپدیت می‌کنه و هیچ ری‌رندری رو تریگر نمی‌کنه)، همین لحظه که کاربر
+    // واقعاً دکمه رو زده دوباره از Map می‌خونیمش. این دقیقاً همون چیزیه که
+    // باعث می‌شد «خواندنِ کل متن» بعد از یه پخشِ جزئی (کلمه/محدوده/جمله)
+    // گاهی از همون نقطه ادامه پیدا نکنه و از اول شروع بشه.
+    const effectiveStartOffset = resolveStartOffset ? resolveStartOffset() : startOffset;
+    const result = speechController.toggle(text, code, effectiveStartOffset, forceRepeat ? { loop: true } : undefined);
     if (onPlayed) onPlayed();
     // "no-voice" دیگه پیش نمی‌آد چون خودکار می‌ره سراغ سرویس آنلاین رایگان
     // (result === "online-fallback")؛ فقط وقتی هیچ راهی — نه گوشی نه آنلاین —
@@ -8732,7 +8740,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                 code={storyPlayerText.code}
                 color={colors.teal}
                 forceRepeat
-                startOffset={consumeMainTextResumeOffset(`${TTS_LOCALE[storyPlayerText.code] || "en-US"}::${storyPlayerText.text}`)}
+                resolveStartOffset={() => consumeMainTextResumeOffset(`${TTS_LOCALE[storyPlayerText.code] || "en-US"}::${storyPlayerText.text}`)}
               />
             )}
             {tab === "conversations" && dailyPlayerText.text && (
@@ -9041,7 +9049,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
   // رو HOLD_TO_OPEN_MS میلی‌ثانیه بدونِ جابه‌جاییِ زیاد نگه داره — یعنی یه
   // لمسِ طولانی/چندثانیه‌ای جدا، بعد از خودِ انتخاب. عددِ پایین رو می‌شه هر
   // وقت خواستی همین‌جا تغییر داد.
-  const HOLD_TO_OPEN_MS = 1200;
+  const HOLD_TO_OPEN_MS = 350;
   const pendingRef = useRef(null); // { top, left, text, langCode, storyResumeOffset } | null — محدوده‌ی آماده، منتظرِ لمسِ طولانی
   const holdRef = useRef({ timer: null, startX: 0, startY: 0 });
   const [pendingActive, setPendingActive] = useState(false); // فقط برای رندرِ هایلایتِ CSS synced با وجودِ pendingRef
