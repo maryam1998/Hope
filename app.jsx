@@ -5306,9 +5306,10 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   }
 
   // جمله‌ای که همین الان، در حینِ پخشِ «کل متن» از روی پلیر، داره خونده
-  // می‌شه — فقط برای اسکرولِ خودکار (اگه فعال باشه) استفاده می‌شه، نه برای
-  // هایلایتِ بصری. وقتی پخشِ فعلی چیز دیگه‌ای غیر از کلِ داستانه (مثلاً کاربر
-  // خودش رو یک جمله‌ی خاص زده)، این null می‌مونه.
+  // می‌شه — هم برای هایلایتِ بصریِ زنده (متنِ اصلی + همه‌ی ترجمه‌هاش، چون
+  // هر دو داخلِ همون باکسِ jsهایلایت‌شونده‌ان) و هم برای اسکرولِ خودکار
+  // استفاده می‌شه. وقتی پخشِ فعلی چیز دیگه‌ای غیر از کلِ داستانه (مثلاً
+  // کاربر خودش رو یک جمله‌ی خاص زده)، این null می‌مونه.
   const [activeStorySentence, setActiveStorySentence] = useState(null); // {pi, si} | null
   useEffect(() => {
     const myKey = `${TTS_LOCALE[storyLang] || "en-US"}::${fullStoryText}`;
@@ -6673,11 +6674,13 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                             borderRadius: 10,
                             transition: "background-color 0.4s ease, box-shadow 0.4s ease",
                             backgroundColor:
-                              highlightSentence && highlightSentence.pi === pi && highlightSentence.si === si
+                              (highlightSentence && highlightSentence.pi === pi && highlightSentence.si === si) ||
+                              (activeStorySentence && activeStorySentence.pi === pi && activeStorySentence.si === si)
                                 ? colors.goldSoft
                                 : "transparent",
                             boxShadow:
-                              highlightSentence && highlightSentence.pi === pi && highlightSentence.si === si
+                              (highlightSentence && highlightSentence.pi === pi && highlightSentence.si === si) ||
+                              (activeStorySentence && activeStorySentence.pi === pi && activeStorySentence.si === si)
                                 ? `0 0 0 2px ${colors.gold}`
                                 : "none",
                           }}
@@ -6768,9 +6771,15 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                         borderRadius: 10,
                         transition: "background-color 0.4s ease, box-shadow 0.4s ease",
                         backgroundColor:
-                          highlightSentence && highlightSentence.pi === pi ? colors.goldSoft : "transparent",
+                          (highlightSentence && highlightSentence.pi === pi) ||
+                          (activeStorySentence && activeStorySentence.pi === pi)
+                            ? colors.goldSoft
+                            : "transparent",
                         boxShadow:
-                          highlightSentence && highlightSentence.pi === pi ? `0 0 0 2px ${colors.gold}` : "none",
+                          (highlightSentence && highlightSentence.pi === pi) ||
+                          (activeStorySentence && activeStorySentence.pi === pi)
+                            ? `0 0 0 2px ${colors.gold}`
+                            : "none",
                       }}
                     >
                       <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
@@ -10115,7 +10124,8 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
   }, []);
 
   // لغتی که همین الان، در حینِ پخشِ «کل لیست» از روی پلیر، داره خونده
-  // می‌شه — برای نشانگرِ کنارِ کارت و اسکرولِ خودکار.
+  // می‌شه — هم برای هایلایتِ بصریِ زنده‌ی کارتِ لغت (لغت + همه‌ی ترجمه‌هاش)
+  // و هم برای اسکرولِ خودکار استفاده می‌شه.
   const [activeWordId, setActiveWordId] = useState(null);
   useEffect(() => {
     const myKey = `en-US::${fullText}`;
@@ -10173,8 +10183,10 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
           className="flex items-center justify-between p-3 rounded-lg"
           style={{
             position: "relative",
-            backgroundColor: "white",
-            border: `1px solid ${colors.cardBorder}`,
+            backgroundColor: activeWordId === w.id ? colors.goldSoft : "white",
+            border: `1px solid ${activeWordId === w.id ? colors.gold : colors.cardBorder}`,
+            boxShadow: activeWordId === w.id ? `0 0 0 2px ${colors.gold}` : "none",
+            transition: "background-color 0.4s ease, box-shadow 0.4s ease, border-color 0.4s ease",
           }}
         >
           <button onClick={() => toggleWordFavorite(w.id)} aria-label="افزودن به علاقه‌مندی‌ها" style={{ marginLeft: 4, flexShrink: 0 }}>

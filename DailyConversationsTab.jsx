@@ -237,6 +237,9 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
               position: "relative",
               padding: "9px 12px",
               borderBottom: i < items.length - 1 ? `1px dashed ${colors.cardBorder}` : "none",
+              backgroundColor: activeLine && activeLine.variant === variant && activeLine.i === i ? colors.goldSoft : "transparent",
+              boxShadow: activeLine && activeLine.variant === variant && activeLine.i === i ? `inset 0 0 0 2px ${colors.gold}` : "none",
+              transition: "background-color 0.4s ease, box-shadow 0.4s ease",
             }}
           >
             {/* ردیفِ متنِ اصلی و هر ردیفِ ترجمه (پایین‌تر) حالا هر کدوم یه
