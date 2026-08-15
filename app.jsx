@@ -6664,26 +6664,18 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                   {granularity === "sentence" ? (
                     <div className="flex flex-col gap-3">
                       {(p.sentences || []).map((s, si) => {
+                        // فعال بودنِ این جمله — یا چون همین الان با «پخشِ کل
+                        // داستان» داره خونده می‌شه، یا چون تازه از یه
+                        // لانگ‌پرسِ «لغات ذخیره‌شده» بهش پرش شده (هایلایتِ
+                        // موقتِ ۲.۴ ثانیه‌ای).
+                        const isSentenceActive =
+                          (highlightSentence && highlightSentence.pi === pi && highlightSentence.si === si) ||
+                          (activeStorySentence && activeStorySentence.pi === pi && activeStorySentence.si === si);
                         return (
                         <div
                           key={si}
                           ref={(el) => (sentenceElsRef.current[`${pi}-${si}`] = el)}
-                          style={{
-                            position: "relative",
-                            paddingInlineStart: 10,
-                            borderRadius: 10,
-                            transition: "background-color 0.4s ease, box-shadow 0.4s ease",
-                            backgroundColor:
-                              (highlightSentence && highlightSentence.pi === pi && highlightSentence.si === si) ||
-                              (activeStorySentence && activeStorySentence.pi === pi && activeStorySentence.si === si)
-                                ? colors.goldSoft
-                                : "transparent",
-                            boxShadow:
-                              (highlightSentence && highlightSentence.pi === pi && highlightSentence.si === si) ||
-                              (activeStorySentence && activeStorySentence.pi === pi && activeStorySentence.si === si)
-                                ? `0 0 0 2px ${colors.gold}`
-                                : "none",
-                          }}
+                          style={{ position: "relative", paddingInlineStart: 10 }}
                         >
                           <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                             <SpeakButton text={s.text} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
@@ -6701,18 +6693,35 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                 WebkitTextStroke: `0.4px ${mainTextColor}`,
                               }}
                             >
-                              <ClickableSentence
-                                text={s.text}
-                                langCode={storyLang}
-                                nativeLang={nativeLang}
-                                nativeLabel={nativeLabel}
-                                aiSettings={aiSettings}
-                                color={mainTextColor}
-                                fontWeight={900}
-                                storyBaseOffset={sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0}
-                                onSpeakOffset={(localEnd) => reportStoryWordSpoken(sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0, localEnd)}
-                                originExtra={{ storyId: currentStoryId, pi, si }}
-                              />
+                              {/* هایلایتِ «جمله به جمله» — دقیقاً همون جلوه‌ی
+                                  دموی مرجع: یه هایلایتِ کِشیده و تنگ دورِ خودِ
+                                  متن (نه یه باکسِ تمام‌عرض)، با
+                                  box-decoration-break: clone که اگه جمله چند
+                                  خط بشه، هر خط هایلایتِ گردشده‌ی خودش رو
+                                  می‌گیره — مو‌به‌مو مثلِ تصویرِ مرجع. */}
+                              <span
+                                style={{
+                                  backgroundColor: isSentenceActive ? colors.goldSoft : "transparent",
+                                  borderRadius: 5,
+                                  padding: isSentenceActive ? "2px 4px" : "2px 0",
+                                  WebkitBoxDecorationBreak: "clone",
+                                  boxDecorationBreak: "clone",
+                                  transition: "background-color 0.35s ease",
+                                }}
+                              >
+                                <ClickableSentence
+                                  text={s.text}
+                                  langCode={storyLang}
+                                  nativeLang={nativeLang}
+                                  nativeLabel={nativeLabel}
+                                  aiSettings={aiSettings}
+                                  color={mainTextColor}
+                                  fontWeight={900}
+                                  storyBaseOffset={sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0}
+                                  onSpeakOffset={(localEnd) => reportStoryWordSpoken(sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0, localEnd)}
+                                  originExtra={{ storyId: currentStoryId, pi, si }}
+                                />
+                              </span>
                             </p>
                           </div>
                           {showTranslations &&
@@ -6765,49 +6774,52 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                   ) : (
                     <div
                       ref={(el) => (paragraphElsRef.current[pi] = el)}
-                      style={{
-                        position: "relative",
-                        paddingInlineStart: 10,
-                        borderRadius: 10,
-                        transition: "background-color 0.4s ease, box-shadow 0.4s ease",
-                        backgroundColor:
-                          (highlightSentence && highlightSentence.pi === pi) ||
-                          (activeStorySentence && activeStorySentence.pi === pi)
-                            ? colors.goldSoft
-                            : "transparent",
-                        boxShadow:
-                          (highlightSentence && highlightSentence.pi === pi) ||
-                          (activeStorySentence && activeStorySentence.pi === pi)
-                            ? `0 0 0 2px ${colors.gold}`
-                            : "none",
-                      }}
+                      style={{ position: "relative", paddingInlineStart: 10 }}
                     >
-                      <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
-                        <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
-                        <p
-                          style={{
-                            fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin,
-                            fontSize: 15,
-                            lineHeight: 1.8,
-                            textAlign: "justify",
-                            fontWeight: 900,
-                            WebkitTextStroke: `0.4px ${mainTextColor}`,
-                          }}
-                        >
-                          <ClickableSentence
-                            text={paragraphText}
-                            langCode={storyLang}
-                            nativeLang={nativeLang}
-                            nativeLabel={nativeLabel}
-                            aiSettings={aiSettings}
-                            color={mainTextColor}
-                            fontWeight={900}
-                            storyBaseOffset={paragraphBaseOffsetMap[pi] ?? 0}
-                            onSpeakOffset={(localEnd) => reportStoryWordSpoken(paragraphBaseOffsetMap[pi] ?? 0, localEnd)}
-                            originExtra={{ storyId: currentStoryId, pi, si: null }}
-                          />
-                        </p>
-                      </div>
+                      {(() => {
+                        const isParaActive =
+                          (highlightSentence && highlightSentence.pi === pi) ||
+                          (activeStorySentence && activeStorySentence.pi === pi);
+                        return (
+                          <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
+                            <SpeakButton text={paragraphText} code={storyLang} color={colors.inkSoft} edge={dirFor(storyLang) === "ltr" ? "end" : undefined} />
+                            <p
+                              style={{
+                                fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin,
+                                fontSize: 15,
+                                lineHeight: 1.8,
+                                textAlign: "justify",
+                                fontWeight: 900,
+                                WebkitTextStroke: `0.4px ${mainTextColor}`,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  backgroundColor: isParaActive ? colors.goldSoft : "transparent",
+                                  borderRadius: 5,
+                                  padding: isParaActive ? "2px 4px" : "2px 0",
+                                  WebkitBoxDecorationBreak: "clone",
+                                  boxDecorationBreak: "clone",
+                                  transition: "background-color 0.35s ease",
+                                }}
+                              >
+                                <ClickableSentence
+                                  text={paragraphText}
+                                  langCode={storyLang}
+                                  nativeLang={nativeLang}
+                                  nativeLabel={nativeLabel}
+                                  aiSettings={aiSettings}
+                                  color={mainTextColor}
+                                  fontWeight={900}
+                                  storyBaseOffset={paragraphBaseOffsetMap[pi] ?? 0}
+                                  onSpeakOffset={(localEnd) => reportStoryWordSpoken(paragraphBaseOffsetMap[pi] ?? 0, localEnd)}
+                                  originExtra={{ storyId: currentStoryId, pi, si: null }}
+                                />
+                              </span>
+                            </p>
+                          </div>
+                        );
+                      })()}
                       {showTranslations &&
                         translationLangs.map((code) => {
                           const sentencesList = p.sentences || [];
@@ -9416,7 +9428,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
   // رو HOLD_TO_OPEN_MS میلی‌ثانیه بدونِ جابه‌جاییِ زیاد نگه داره — یعنی یه
   // لمسِ طولانی/چندثانیه‌ای جدا، بعد از خودِ انتخاب. عددِ پایین رو می‌شه هر
   // وقت خواستی همین‌جا تغییر داد.
-  const HOLD_TO_OPEN_MS = 350;
+  const HOLD_TO_OPEN_MS = 160;
   const pendingRef = useRef(null); // { top, left, text, langCode, storyResumeOffset } | null — محدوده‌ی آماده، منتظرِ لمسِ طولانی
   const holdRef = useRef({ timer: null, startX: 0, startY: 0 });
   const [pendingActive, setPendingActive] = useState(false); // فقط برای رندرِ هایلایتِ CSS synced با وجودِ pendingRef
@@ -9459,7 +9471,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
   // همین پاپ‌آپ برسه رو نادیده می‌گیریم. یه لمسِ واقعی و عمدی روی دکمه
   // همیشه بعد از این فاصله می‌رسه (کاربر باید اول ببینه پاپ‌آپ باز شده،
   // بعد جدا روش بزنه).
-  const isGhostEvent = () => Date.now() - openedAtRef.current < 400;
+  const isGhostEvent = () => Date.now() - openedAtRef.current < 250;
 
   // ارتفاعِ واقعیِ پاپ‌آپ رو (به‌جای حدس ثابتِ ۸۸/۱۲۸ پیکسل قبلی) اندازه
   // می‌گیریم تا همیشه درست بالای محدوده‌ی انتخاب‌شده بشینه، نه رویش —
@@ -9531,7 +9543,19 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       return (host && host.getAttribute("data-lang-code")) || fallbackLangCode;
     };
 
-    const handleUp = () => {
+    const handleUp = (e) => {
+      // اگه این touchend/mouseup از خودِ پاپ‌آپِ بازشده (یا لایه‌ی نامرئیِ
+      // لمسِ طولانیِ pending) اومده — یعنی کاربر داره روی یکی از دکمه‌های
+      // داخلِ پاپ‌آپ (🔊 / ذخیره / گرامر) می‌زنه — این‌جا کاملاً بی‌خیالش
+      // می‌شیم. این‌جا دقیقاً همون باگی بود که باعث می‌شد با زدنِ دکمه‌های
+      // پاپ‌آپ، یا خودِ پاپ‌آپ ناخواسته بسته بشه، یا (چون این event تا
+      // اینجای تابع می‌رسید و window.getSelection() چیزی برمی‌گردوند) یه
+      // انتخابِ کاملاً جدید و اشتباه (معمولاً یه تک‌کلمه‌ی زیرِ انگشت) به‌جای
+      // تعاملِ واقعیِ کاربر با دکمه ثبت بشه.
+      if (e && e.target) {
+        if (popupElRef.current && popupElRef.current.contains(e.target)) return;
+        if (e.target.closest && e.target.closest("[data-hope-selection-overlay]")) return;
+      }
       const sel = window.getSelection && window.getSelection();
       const selectedText = sel ? sel.toString().trim() : "";
       if (!selectedText || !sel.rangeCount) return;
@@ -9747,7 +9771,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
   if (!popup) {
     if (!pendingActive || !pendingRef.current || !pendingRef.current.rects || !pendingRef.current.rects.length) return null;
     return (
-      <div style={{ position: "fixed", inset: 0, zIndex: 9998, pointerEvents: "none" }}>
+      <div data-hope-selection-overlay="1" style={{ position: "fixed", inset: 0, zIndex: 9998, pointerEvents: "none" }}>
         {pendingRef.current.rects.map((r, i) => (
           <div
             key={i}
@@ -9810,6 +9834,9 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       ref={popupElRef}
       onMouseDown={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
+      onMouseUp={(e) => e.stopPropagation()}
+      onTouchEnd={(e) => e.stopPropagation()}
+      onContextMenu={(e) => e.preventDefault()}
       style={{
         position: "fixed",
         top: Math.max(8, popup.top - (measuredHeight != null ? measuredHeight + 10 : translation ? 128 : 88)),
@@ -9828,6 +9855,10 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
         fontFamily: fontFa,
         zIndex: 9999,
         boxShadow: "0 4px 14px rgba(0,0,0,0.28)",
+        WebkitUserSelect: "none",
+        userSelect: "none",
+        WebkitTouchCallout: "none",
+        touchAction: "manipulation",
       }}
     >
       {/* متنِ اصلیِ انتخاب‌شده + دکمه‌ی خواندنِ صوتی، دقیقاً مطابقِ تصویرِ
@@ -9842,6 +9873,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
         <button
           onClick={(e) => {
             e.stopPropagation();
+            if (isGhostEvent()) return;
             const result = speechController.toggle(popup.text, popup.langCode);
             // اگه این محدوده از متنِ اصلیِ داستان بوده (آفستش شناخته شده)، همون
             // نقطه رو برای دفعه‌ی بعدِ زدنِ «پخشِ کل داستان» به‌خاطر می‌سپاریم —
