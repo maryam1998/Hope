@@ -8762,14 +8762,14 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             برگردوندنش به حالتِ عادی سخت می‌شه. این دکمه بیرونِ اون div ِ
             کم‌رنگ‌شده (خارج از اثرِ opacity والد) رندر می‌شه تا همیشه کاملاً
             واضح و قابل‌لمس بمونه، مهم نیست شفافیتِ پلیر چقدر پایین رفته باشه. */}
-        {playerOpacity < 70 && (
+        {playerOpacity <= 7 && (
           <button
             onClick={() => setPlayerOpacity(100)}
             aria-label="بازنشانی شفافیت پلیر به ۱۰۰٪"
             title="بازنشانی شفافیت"
             style={{
               position: "fixed",
-              right: 10,
+              left: 10,
               bottom: practicePanelHeight + 10,
               zIndex: 41,
               width: 34,
@@ -9328,6 +9328,16 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       setTimeout(() => {
         const sel = window.getSelection && window.getSelection();
         if (sel && sel.toString().trim()) return;
+        // اگه همین لمس، لحظه‌ای پیش (توی همین event، سینکرون) یه لمسِ
+        // طولانیِ تازه رو شروع کرده (یعنی داره دقیقاً روی محدوده‌ی هایلایت‌شده
+        // نگه داشته می‌شه)، این یعنی خودِ همون ژستِ «نگه‌داشتن برای باز کردن»ه،
+        // نه یه لمسِ واقعاً «بیرون». نباید همین‌جا لغوش کنیم — بذاریم
+        // useEffect ِ hold-to-open خودش تصمیم بگیره (یا پاپ‌آپ باز بشه، یا
+        // با جابه‌جاییِ زیاد/برداشتنِ زودهنگامِ انگشت لغو بشه).
+        // (holdRef.current.timer همین الان، پیش از رسیدنِ این setTimeout،
+        // توسطِ handler سینکرونِ startHold ست شده — چون هر دو به یه
+        // touchstart/mousedown واحد گوش می‌دن و اون یکی زودتر اجرا می‌شه.)
+        if (holdRef.current.timer) return;
         clearPending();
       }, 0);
     };
