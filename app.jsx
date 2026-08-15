@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -354,37 +354,59 @@ const PRACTICE_PANEL_BORDER = colors.goldSoft;
 // reverse for "midnight").
 const APP_THEMES = {
   vintage: {
-    label: "کلاسیک (پیش‌فرض)",
+    label: { fa: "کلاسیک (پیش‌فرض)", en: "Classic (default)" },
     swatch: "#B8862B",
     values: { paper: "#F1E8D6", paperDark: "#E4D8BE", ink: "#1C2541", inkSoft: "#3A4566", gold: "#B8862B", goldSoft: "#DDBB77", teal: "#2F6F62", rose: "#9E3B3B", cardBorder: "#C9BB98" },
   },
   ocean: {
-    label: "اقیانوسی",
+    label: { fa: "اقیانوسی", en: "Ocean" },
     swatch: "#1C7C93",
     values: { paper: "#EAF4F4", paperDark: "#D7E9EA", ink: "#0F2A38", inkSoft: "#2A4E5C", gold: "#1C7C93", goldSoft: "#8FCBD8", teal: "#1C7C93", rose: "#B4533F", cardBorder: "#BBD6D8" },
   },
   forest: {
-    label: "جنگلی",
+    label: { fa: "جنگلی", en: "Forest" },
     swatch: "#5C7A3A",
     values: { paper: "#F1F0E4", paperDark: "#E2E0CC", ink: "#26321D", inkSoft: "#41522C", gold: "#8A6D2F", goldSoft: "#C9B77E", teal: "#5C7A3A", rose: "#9C4A3A", cardBorder: "#CBCBA8" },
   },
   rosewine: {
-    label: "گلبهی",
+    label: { fa: "گلبهی", en: "Rosewine" },
     swatch: "#A34960",
     values: { paper: "#F7EAEA", paperDark: "#EBD6D8", ink: "#3A1F26", inkSoft: "#5C3540", gold: "#A34960", goldSoft: "#E3AFBC", teal: "#6E5A78", rose: "#A34960", cardBorder: "#DDBFC4" },
   },
   midnight: {
-    label: "تیره (شب)",
+    label: { fa: "تیره (شب)", en: "Midnight" },
     swatch: "#D9A441",
     values: { paper: "#1B1F2A", paperDark: "#262C3B", ink: "#F1E8D6", inkSoft: "#C9C2AE", gold: "#D9A441", goldSoft: "#8A6A2C", teal: "#5FA997", rose: "#D9776A", cardBorder: "#3A4258" },
+  },
+  sunset: {
+    label: { fa: "غروب", en: "Sunset" },
+    swatch: "#D9752E",
+    values: { paper: "#FCEFE2", paperDark: "#F5DFC6", ink: "#3A2313", inkSoft: "#6B4A2C", gold: "#D9752E", goldSoft: "#F0B784", teal: "#4E7A6E", rose: "#B23A3A", cardBorder: "#E6C79E" },
+  },
+  lavender: {
+    label: { fa: "بنفش (اسطوخودوس)", en: "Lavender" },
+    swatch: "#7A5FA8",
+    values: { paper: "#F1EEF8", paperDark: "#E1DAF0", ink: "#2C2140", inkSoft: "#4C3E68", gold: "#7A5FA8", goldSoft: "#C5B3E3", teal: "#4C7A8A", rose: "#A8517F", cardBorder: "#D2C5EA" },
+  },
+  mint: {
+    label: { fa: "نعنایی", en: "Mint" },
+    swatch: "#2E9E7B",
+    values: { paper: "#EAF7F1", paperDark: "#D6EEE2", ink: "#12332A", inkSoft: "#2E5548", gold: "#2E9E7B", goldSoft: "#9BDCC3", teal: "#2E9E7B", rose: "#B25353", cardBorder: "#BEE0D0" },
   },
 };
 
 // Font-family presets. Loaded in index.html via Google Fonts <link>.
+// The 3 new presets below (elegant / rounded / warm) need these Google
+// Fonts <link> tags added to index.html if not already present:
+//   Aref+Ruqaa, Playfair+Display, Noto+Kufi+Arabic, Poppins,
+//   Noto+Sans+Arabic, Nunito
 const APP_FONTS = {
-  default: { label: "پیش‌فرض", fa: "'Vazirmatn', sans-serif", latin: "'Lora', serif" },
-  modern: { label: "مدرن", fa: "'Vazirmatn', sans-serif", latin: "'Inter', sans-serif" },
-  classic: { label: "کلاسیک", fa: "'Noto Naskh Arabic', serif", latin: "'Merriweather', serif" },
+  default: { label: { fa: "پیش‌فرض", en: "Default" }, fa: "'Vazirmatn', sans-serif", latin: "'Lora', serif" },
+  modern: { label: { fa: "مدرن", en: "Modern" }, fa: "'Vazirmatn', sans-serif", latin: "'Inter', sans-serif" },
+  classic: { label: { fa: "کلاسیک", en: "Classic" }, fa: "'Noto Naskh Arabic', serif", latin: "'Merriweather', serif" },
+  elegant: { label: { fa: "شیک", en: "Elegant" }, fa: "'Aref Ruqaa', serif", latin: "'Playfair Display', serif" },
+  rounded: { label: { fa: "گرد", en: "Rounded" }, fa: "'Noto Kufi Arabic', sans-serif", latin: "'Poppins', sans-serif" },
+  warm: { label: { fa: "گرم", en: "Warm" }, fa: "'Noto Sans Arabic', sans-serif", latin: "'Nunito', sans-serif" },
 };
 
 // Font-size presets — applied as a CSS `zoom` on the app's root wrapper
@@ -393,11 +415,75 @@ const APP_FONTS = {
 // Chrome/Edge/Safari and current Firefox; on the rare browser without
 // `zoom` support the app still works, just always at 100% size.
 const APP_FONT_SIZES = {
-  small: { label: "کوچک", zoom: 0.9 },
-  medium: { label: "متوسط (پیش‌فرض)", zoom: 1 },
-  large: { label: "بزرگ", zoom: 1.15 },
-  xlarge: { label: "خیلی بزرگ", zoom: 1.3 },
+  small: { label: { fa: "کوچک", en: "Small" }, zoom: 0.9 },
+  medium: { label: { fa: "متوسط (پیش‌فرض)", en: "Medium (default)" }, zoom: 1 },
+  large: { label: { fa: "بزرگ", en: "Large" }, zoom: 1.15 },
+  xlarge: { label: { fa: "خیلی بزرگ", en: "Extra large" }, zoom: 1.3 },
 };
+
+// Supported UI (software) languages — independent from the "native
+// language" / "target languages" the user picks for practicing. This one
+// controls what language the app's own interface (menus, tabs, buttons)
+// is shown in.
+const APP_LANGUAGES = {
+  fa: { label: "فارسی", dir: "rtl" },
+  en: { label: "English", dir: "ltr" },
+};
+
+// Small translation dictionary for the app's own interface strings.
+// Currently covers the Settings panel and the main tab bar; more screens
+// can be added to this table the same way over time.
+const UI_STRINGS = {
+  settingsTitle: { fa: "تنظیمات", en: "Settings" },
+  account: { fa: "حساب کاربری", en: "Account" },
+  guestUser: { fa: "کاربر", en: "User" },
+  logout: { fa: "خروج از حساب", en: "Log out" },
+  themeSectionTitle: { fa: "رنگ و تم", en: "Color & theme" },
+  fontSectionTitle: { fa: "نوع فونت", en: "Font style" },
+  fontSizeTitle: { fa: "اندازه‌ی فونت", en: "Font size" },
+  languageSectionTitle: { fa: "زبان نرم‌افزار", en: "App language" },
+  offlineDownload: { fa: "دانلود آفلاین لغات", en: "Download offline words" },
+  tabConversations: { fa: "مکالمات روزمره", en: "Daily conversations" },
+  tabStory: { fa: "داستان‌ساز", en: "Story generator" },
+  tabSaved: { fa: "لغات ذخیره‌شده", en: "Saved words" },
+  tabGrammar: { fa: "گرامر", en: "Grammar" },
+  tabWords: { fa: "لغات", en: "Words" },
+  tabFavorites: { fa: "علاقه‌مندی‌ها", en: "Favorites" },
+  tabVocab: { fa: "لغات و اخبار", en: "Vocabulary & news" },
+  tabDaily: { fa: "مکالمه و روزمره", en: "Daily talk" },
+  tabDictionary: { fa: "دیکشنری", en: "Dictionary" },
+  tabReview: { fa: "مرور (جعبه لایتنر)", en: "Review (Leitner box)" },
+  // Login / signup screen
+  loginTitle: { fa: "ورود به کتاب مکالمه", en: "Sign in to Phrasebook" },
+  signupTitle: { fa: "ساخت حساب کاربری", en: "Create an account" },
+  loginSubtitle: { fa: "برای ذخیره‌ی پیشرفت و واژه‌هایتان وارد شوید", en: "Sign in to save your progress and words" },
+  continueWithGoogle: { fa: "ورود با حساب گوگل", en: "Continue with Google" },
+  orWithEmail: { fa: "یا با ایمیل", en: "or with email" },
+  namePlaceholder: { fa: "نام شما", en: "Your name" },
+  emailPlaceholder: { fa: "ایمیل", en: "Email" },
+  passwordPlaceholder: { fa: "رمز عبور", en: "Password" },
+  signupSubmit: { fa: "ساخت حساب", en: "Create account" },
+  loginSubmit: { fa: "ورود", en: "Sign in" },
+  haveAccount: { fa: "حساب دارید؟", en: "Already have an account?" },
+  noAccount: { fa: "حساب ندارید؟", en: "Don't have an account?" },
+  goToLogin: { fa: "وارد شوید", en: "Sign in" },
+  goToSignup: { fa: "بسازید", en: "Create one" },
+  fillAllFields: { fa: "همه‌ی فیلدها را پر کنید.", en: "Please fill in all fields." },
+  googleSignInFailed: { fa: "ورود با گوگل ناموفق بود: ", en: "Google sign-in failed: " },
+  tryAgain: { fa: "دوباره تلاش کنید.", en: "Please try again." },
+  verifyEmailSent: { fa: "یک ایمیل تایید برایتان فرستاده شد. لطفاً ایمیلتان را باز کنید و لینک را بزنید، بعد وارد شوید.", en: "A verification email has been sent. Please open it and click the link, then sign in." },
+  emailAlreadyRegistered: { fa: "این ایمیل قبلاً ثبت شده. وارد شوید.", en: "This email is already registered. Please sign in." },
+  invalidCredentials: { fa: "ایمیل یا رمز عبور اشتباه است.", en: "Incorrect email or password." },
+  emailNotConfirmed: { fa: "هنوز ایمیلتان را تایید نکرده‌اید — صندوق ورودی را چک کنید.", en: "Your email isn't verified yet — please check your inbox." },
+  genericError: { fa: "خطایی رخ داد. دوباره تلاش کنید.", en: "Something went wrong. Please try again." },
+};
+// t(key, uiLang) — looks up a UI string in the current software language,
+// falling back to Persian if the key or language is missing.
+function tr(key, uiLang) {
+  const entry = UI_STRINGS[key];
+  if (!entry) return key;
+  return entry[uiLang] || entry.fa;
+}
 
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
@@ -416,9 +502,10 @@ function loadAppPrefs() {
       theme: APP_THEMES[parsed.theme] ? parsed.theme : "vintage",
       font: APP_FONTS[parsed.font] ? parsed.font : "default",
       fontSize: APP_FONT_SIZES[parsed.fontSize] ? parsed.fontSize : "medium",
+      uiLang: APP_LANGUAGES[parsed.uiLang] ? parsed.uiLang : "fa",
     };
   } catch (e) {
-    return { theme: "vintage", font: "default", fontSize: "medium" };
+    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa" };
   }
 }
 function saveAppPrefs(prefs) {
@@ -1475,6 +1562,30 @@ const crossTranslateInFlight = new Set();
 let currentOriginTab = null;
 function setCurrentOriginTab(tab) {
   currentOriginTab = tab || null;
+}
+
+// دنبال‌کردنِ «پخشِ فعلی از کدوم تب شروع شده» — برای لانگ‌پرس روی نوارِ
+// پلیرِ پایینِ صفحه: کاربر ممکنه وقتی چیزی داره پخش می‌شه (یا مکث شده)
+// به یه تبِ دیگه بره؛ نوارِ پلیر همیشه روی صفحه می‌مونه، پس لانگ‌پرس روش
+// باید کاربر رو دقیقاً به همون تب و همون سطری که پخش ازش شروع شده برگردونه.
+// چون دکمه‌ی پخشِ هر آیتم فقط وقتی قابل‌کلیکه که تبِ خودش همین الان بازه
+// (تب‌های دیگه یا اصلاً mount نیستن یا با display:none غیرقابل‌لمسن)، همون
+// لحظه‌ای که یه پخشِ *تازه* (کلیدِ جدید، نه صرفاً ادامه/مکثِ همون متنِ قبلی)
+// شروع می‌شه، currentOriginTab دقیقاً همون تبِ مبدأشه. رفتنِ خودِ سطر
+// (نه فقط تب) رو منطقِ اسکرولِ خودکارِ هر لیست (که از قبل وجود داشت) بعد از
+// setTab خودش انجام می‌ده.
+let lastPlayOriginTab = null;
+let lastPlayOriginKey = null;
+speechController.subscribe((state) => {
+  if (state.key && state.key !== lastPlayOriginKey) {
+    lastPlayOriginKey = state.key;
+    lastPlayOriginTab = currentOriginTab;
+  } else if (!state.key) {
+    lastPlayOriginKey = null;
+  }
+});
+function getLastPlayOriginTab() {
+  return lastPlayOriginTab;
 }
 
 function loadSavedStoryWords() {
@@ -2833,6 +2944,9 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
   const [offlineModalOpen, setOfflineModalOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const panelRef = useRef(null);
+  const uiLang = appPrefs.uiLang || "fa";
+  const panelDir = APP_LANGUAGES[uiLang]?.dir || "rtl";
+  const panelFont = uiLang === "en" ? fontLatin : fontFa;
 
   useEffect(() => {
     if (!open) return;
@@ -2849,8 +2963,8 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
     <div style={{ position: "relative" }} ref={panelRef}>
       <button
         onClick={() => setOpen((v) => !v)}
-        aria-label="تنظیمات"
-        title="تنظیمات"
+        aria-label={tr("settingsTitle", uiLang)}
+        title={tr("settingsTitle", uiLang)}
         style={{ color: colors.goldSoft, display: "flex" }}
       >
         <Menu size={20} />
@@ -2858,7 +2972,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
 
       {open && (
         <div
-          dir="rtl"
+          dir={panelDir}
           style={{
             position: "absolute",
             top: "calc(100% + 10px)",
@@ -2873,10 +2987,11 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
             padding: 16,
             boxShadow: "0 12px 30px rgba(0,0,0,0.25)",
             zIndex: 50,
+            fontFamily: panelFont,
           }}
         >
           {/* Account */}
-          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>حساب کاربری</p>
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>{tr("account", uiLang)}</p>
           <div className="flex items-center gap-2" style={{ marginBottom: 14 }}>
             {user?.picture ? (
               <img src={user.picture} alt="" style={{ width: 30, height: 30, borderRadius: "50%" }} />
@@ -2886,7 +3001,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
               </div>
             )}
             <div style={{ minWidth: 0 }}>
-              <p style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user?.name || "کاربر"}</p>
+              <p style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user?.name || tr("guestUser", uiLang)}</p>
               <p style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user?.email}</p>
             </div>
           </div>
@@ -2895,25 +3010,49 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
             className="flex items-center gap-2"
             style={{ fontSize: 12, color: colors.rose, marginBottom: 16 }}
           >
-            <LogOut size={14} /> خروج از حساب
+            <LogOut size={14} /> {tr("logout", uiLang)}
           </button>
+
+          {/* Software language */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            <Globe size={14} /> {tr("languageSectionTitle", uiLang)}
+          </p>
+          <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
+            {Object.entries(APP_LANGUAGES).map(([key, l]) => (
+              <button
+                key={key}
+                onClick={() => update("uiLang", key)}
+                aria-pressed={uiLang === key}
+                style={{
+                  padding: "5px 14px",
+                  borderRadius: 20,
+                  fontSize: 12,
+                  border: `1px solid ${uiLang === key ? colors.gold : colors.cardBorder}`,
+                  backgroundColor: uiLang === key ? colors.goldSoft : "white",
+                  color: colors.ink,
+                }}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
 
           {/* Theme */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-            <Palette size={14} /> رنگ و تم
+            <Palette size={14} /> {tr("themeSectionTitle", uiLang)}
           </p>
           <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
-            {Object.entries(APP_THEMES).map(([key, t]) => (
+            {Object.entries(APP_THEMES).map(([key, th]) => (
               <button
                 key={key}
                 onClick={() => update("theme", key)}
-                title={t.label}
+                title={th.label[uiLang] || th.label.fa}
                 aria-pressed={appPrefs.theme === key}
                 style={{
                   width: 34,
                   height: 34,
                   borderRadius: "50%",
-                  backgroundColor: t.swatch,
+                  backgroundColor: th.swatch,
                   border: appPrefs.theme === key ? `3px solid ${colors.ink}` : `1px solid ${colors.cardBorder}`,
                   flexShrink: 0,
                 }}
@@ -2923,7 +3062,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
 
           {/* Font family */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-            <Type size={14} /> نوع فونت
+            <Type size={14} /> {tr("fontSectionTitle", uiLang)}
           </p>
           <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
             {Object.entries(APP_FONTS).map(([key, f]) => (
@@ -2939,13 +3078,13 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
                   color: colors.ink,
                 }}
               >
-                {f.label}
+                {f.label[uiLang] || f.label.fa}
               </button>
             ))}
           </div>
 
           {/* Font size */}
-          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>اندازه‌ی فونت</p>
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>{tr("fontSizeTitle", uiLang)}</p>
           <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
             {Object.entries(APP_FONT_SIZES).map(([key, s]) => (
               <button
@@ -2960,7 +3099,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
                   color: colors.ink,
                 }}
               >
-                {s.label}
+                {s.label[uiLang] || s.label.fa}
               </button>
             ))}
           </div>
@@ -2971,7 +3110,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
             className="flex items-center gap-2"
             style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: "9px 12px", width: "100%" }}
           >
-            <BookOpen size={14} /> دانلود آفلاین لغات
+            <BookOpen size={14} /> {tr("offlineDownload", uiLang)}
           </button>
         </div>
       )}
@@ -2981,13 +3120,13 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
   );
 }
 
-function TabButton({ label, icon: Icon, active, onClick }) {
+function TabButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyProp }) {
   return (
     <button
       onClick={onClick}
       className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium"
       style={{
-        fontFamily: fontFa,
+        fontFamily: fontFamilyProp || fontFa,
         backgroundColor: active ? colors.ink : "transparent",
         color: active ? colors.paper : colors.inkSoft,
         border: `1px solid ${active ? colors.ink : colors.cardBorder}`,
@@ -3052,6 +3191,59 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, onPlay
         {isPlaying ? <Pause size={16} /> : <Volume2 size={16} />}
       </button>
     </span>
+  );
+}
+// دکمه‌ی مرکزیِ Play/Pause توی نوارِ پلیرِ پایینِ صفحه. قبلاً این دکمه به‌جای
+// subscribe کردن به speechController، state رو فقط یک‌بار موقعِ رندر
+// می‌خوند — در نتیجه با یه وضعیتِ کهنه کار می‌کرد و کلیک روش گاهی به‌جای
+// «ادامه‌ی پخش» می‌رفت تو مسیرِ «متنِ جدید» (چون key کهنه بود) و از اول
+// شروع می‌شد. حالا مثلِ SpeakButton درست subscribe می‌کنه تا همیشه با
+// وضعیتِ واقعی و به‌روزِ speechController کار کنه.
+function PlayerCentralButton() {
+  const [state, setState] = useState(() => speechController.getState());
+  useEffect(() => speechController.subscribe(setState), []);
+
+  const isActive = state.status !== "idle" && !!state.key;
+  const isPlaying = isActive && state.status === "playing";
+  // متن کوتاه‌شده‌ای که در حال پخشه (حداکثر ۲۰ کاراکتر)
+  const shortText = isActive ? state.key?.split("::")?.[1]?.slice(0, 20) : "";
+
+  const handleClick = () => {
+    if (!isActive) return;
+    // اگر در حال پخش یا مکث است، همان toggle را روی همان متن صدا بزن
+    // باید کلید state.key را بشکافیم تا text و code را به دست آوریم
+    const parts = state.key?.split("::");
+    if (parts && parts.length === 2) {
+      const code = Object.keys(TTS_LOCALE).find(k => TTS_LOCALE[k] === parts[0]) || "en";
+      speechController.toggle(parts[1], code);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        color: isActive ? colors.gold : colors.cardBorder,
+        opacity: isActive ? 1 : 0.5,
+        padding: 2,
+        flexShrink: 0,
+      }}
+      title={isActive ? (isPlaying ? "توقف پخش" : "ادامه‌ی پخش") : "هیچ صدایی در حال پخش نیست"}
+      aria-label={isActive ? (isPlaying ? "توقف" : "ادامه") : "خاموش"}
+    >
+      {isPlaying ? <Pause size={18} /> : <PlayCircle size={18} />}
+      {isActive && (
+        <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap", maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis" }}>
+          {shortText}
+        </span>
+      )}
+    </button>
   );
 }
 // دکمه‌ی تکرار سراسری — یک تنظیم مشترکه که خودِ speechController نگهش
@@ -7522,6 +7714,56 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // لانگ‌پرس روی نوارِ پلیر — چه در حالِ پخش باشه چه مکث‌شده — کاربر رو به
+  // همون تب و همون سطری که این پخش ازش شروع شده برمی‌گردونه. خودِ برگشتن به
+  // سطرِ دقیق (نه فقط تب) رو منطقِ اسکرولِ خودکارِ هر لیست (که از قبل برای
+  // هایلایت/دنبال‌کردنِ پخش وجود داشت) بعد از عوض‌شدنِ تب خودکار انجام می‌ده؛
+  // اینجا فقط لازمه تبِ درست رو پیدا و ست کنیم.
+  const playerLongPressRef = useRef({ startX: 0, startY: 0, timer: null, active: false, fired: false });
+  function clearPlayerLongPress() {
+    const st = playerLongPressRef.current;
+    if (st.timer) {
+      clearTimeout(st.timer);
+      st.timer = null;
+    }
+    st.active = false;
+  }
+  function startPlayerLongPress(x, y) {
+    const st = playerLongPressRef.current;
+    clearPlayerLongPress();
+    st.startX = x;
+    st.startY = y;
+    st.active = true;
+    st.fired = false;
+    st.timer = setTimeout(() => {
+      if (!st.active) return;
+      st.active = false;
+      const state = speechController.getState();
+      // فقط وقتی معنی داره که همین الان چیزی واقعاً در حالِ پخش یا مکث باشه —
+      // وگرنه (پلیر خاموشه) این لمسِ طولانی رو اصلاً «شمرده‌شده» حساب نمی‌کنیم
+      // تا کلیکِ بعدی‌ش (مثلاً چیزِ دیگه‌ای زیرِ همون انگشت) طبیعی کار کنه.
+      if (!state.key) return;
+      st.fired = true;
+      const targetTab = getLastPlayOriginTab();
+      if (targetTab && targetTab !== tab) setTab(targetTab);
+    }, 550);
+  }
+  function movePlayerLongPress(x, y) {
+    const st = playerLongPressRef.current;
+    if (!st.active) return;
+    if (Math.abs(x - st.startX) > 12 || Math.abs(y - st.startY) > 12) clearPlayerLongPress();
+  }
+  // بعد از یه لانگ‌پرسِ موفق، کلیکِ طبیعی‌ای که مرورگر روی همون المنتِ زیرِ
+  // انگشت (مثلاً دکمه‌ی پخش) شلیک می‌کنه رو خنثی می‌کنیم — وگرنه بلافاصله
+  // بعدِ رفتن به تبِ مقصد، پخش هم قطع/شروع می‌شد.
+  function handlePlayerClickCapture(e) {
+    const st = playerLongPressRef.current;
+    if (st.fired) {
+      e.preventDefault();
+      e.stopPropagation();
+      st.fired = false;
+    }
+  }
   // ارتفاعِ واقعیِ پنلِ شناورِ تمرین (از خودِ GrammarPanel گزارش می‌شه)، تا
   // پدینگِ پایینِ <main> تو تبِ گرامر به‌اندازه‌ی کافی باشه و آخرین نکته‌ی
   // گرامری زیرِ پنلِ شناور گم نشه.
@@ -7960,16 +8202,16 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
       {/* Tabs */}
       <nav className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ backgroundColor: colors.paperDark }}>
-        <TabButton label="مکالمات روزمره" icon={MessageCircle} active={tab === "conversations"} onClick={() => setTab("conversations")} />
-        <TabButton label="داستان‌ساز" icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} />
-        <TabButton label="لغات ذخیره‌شده" icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} />
-        <TabButton label="گرامر" icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} />
-        <TabButton label="لغات" icon={Layers} active={tab === "words"} onClick={() => setTab("words")} />
-        <TabButton label="علاقه‌مندی‌ها" icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} />
-        <TabButton label="لغات و اخبار" icon={Newspaper} active={tab === "vocab"} onClick={() => setTab("vocab")} />
-        <TabButton label="مکالمه و روزمره" icon={Coffee} active={tab === "daily"} onClick={() => setTab("daily")} />
-        <TabButton label="دیکشنری" icon={Search} active={tab === "dictionary"} onClick={() => setTab("dictionary")} />
-        <TabButton label="مرور (جعبه لایتنر)" icon={RotateCcw} active={tab === "review"} onClick={() => { setTab("review"); setReviewIndex(0); setShowAnswer(false); }} />
+        <TabButton label={tr("tabConversations", appPrefs.uiLang)} icon={MessageCircle} active={tab === "conversations"} onClick={() => setTab("conversations")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabButton label={tr("tabStory", appPrefs.uiLang)} icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabButton label={tr("tabSaved", appPrefs.uiLang)} icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabButton label={tr("tabGrammar", appPrefs.uiLang)} icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabButton label={tr("tabWords", appPrefs.uiLang)} icon={Layers} active={tab === "words"} onClick={() => setTab("words")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabButton label={tr("tabFavorites", appPrefs.uiLang)} icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabButton label={tr("tabVocab", appPrefs.uiLang)} icon={Newspaper} active={tab === "vocab"} onClick={() => setTab("vocab")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabButton label={tr("tabDaily", appPrefs.uiLang)} icon={Coffee} active={tab === "daily"} onClick={() => setTab("daily")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabButton label={tr("tabDictionary", appPrefs.uiLang)} icon={Search} active={tab === "dictionary"} onClick={() => setTab("dictionary")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabButton label={tr("tabReview", appPrefs.uiLang)} icon={RotateCcw} active={tab === "review"} onClick={() => { setTab("review"); setReviewIndex(0); setShowAnswer(false); }} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
       </nav>
 
       {/* Level filter — applies to conversation , words, favorites, and vocabulary */}
@@ -8248,6 +8490,24 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       {showPlayerBar && (
         <div
           ref={playerBarRef}
+          onMouseDown={(e) => startPlayerLongPress(e.clientX, e.clientY)}
+          onMouseMove={(e) => movePlayerLongPress(e.clientX, e.clientY)}
+          onMouseUp={clearPlayerLongPress}
+          onMouseLeave={clearPlayerLongPress}
+          onTouchStart={(e) => {
+            const t = e.touches[0];
+            if (t) startPlayerLongPress(t.clientX, t.clientY);
+          }}
+          onTouchMove={(e) => {
+            const t = e.touches[0];
+            if (t) movePlayerLongPress(t.clientX, t.clientY);
+          }}
+          onTouchEnd={clearPlayerLongPress}
+          onTouchCancel={clearPlayerLongPress}
+          onClickCapture={handlePlayerClickCapture}
+          onContextMenu={(e) => {
+            if (playerLongPressRef.current.fired) e.preventDefault();
+          }}
           style={{
             position: "fixed",
             left: 0,
@@ -8258,53 +8518,14 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             opacity: playerOpacity / 100,
             borderTop: `1px solid ${colors.cardBorder}`,
             boxShadow: "0 -4px 14px rgba(28,37,65,0.12)",
+            WebkitUserSelect: "none",
+            userSelect: "none",
+            WebkitTouchCallout: "none",
           }}
         >
           <div className="px-4 pt-2 flex items-center gap-2 flex-wrap" style={{ justifyContent: "flex-end", rowGap: 8 }}>
             {/* دکمه‌ی مرکزی Play/Pause + نمایش متن در حال پخش */}
-            {(() => {
-              const state = speechController.getState();
-              const isActive = state.status !== "idle" && state.key;
-              const isPlaying = isActive && state.status === "playing";
-              // متن کوتاه‌شده‌ای که در حال پخشه (حداکثر ۲۰ کاراکتر)
-              const shortText = isActive ? state.key?.split("::")?.[1]?.slice(0, 20) : "";
-              return (
-                <button
-                  onClick={() => {
-                    if (isActive) {
-                      // اگر در حال پخش یا مکث است، همان toggle را روی همان متن صدا بزن
-                      // باید کلید state.key را بشکافیم تا text و code را به دست آوریم
-                      const parts = state.key?.split("::");
-                      if (parts && parts.length === 2) {
-                        const code = Object.keys(TTS_LOCALE).find(k => TTS_LOCALE[k] === parts[0]) || "en";
-                        speechController.toggle(parts[1], code);
-                      }
-                    }
-                  }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    color: isActive ? colors.gold : colors.cardBorder,
-                    opacity: isActive ? 1 : 0.5,
-                    padding: 2,
-                    flexShrink: 0,
-                  }}
-                  title={isActive ? (isPlaying ? "توقف پخش" : "ادامه‌ی پخش") : "هیچ صدایی در حال پخش نیست"}
-                  aria-label={isActive ? (isPlaying ? "توقف" : "ادامه") : "خاموش"}
-                >
-                  {isPlaying ? <Pause size={18} /> : <PlayCircle size={18} />}
-                  {isActive && (
-                    <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap", maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {shortText}
-                    </span>
-                  )}
-                </button>
-              );
-            })()}
+            <PlayerCentralButton />
             <span style={{ fontSize: 11, color: colors.inkSoft }}>تکرار پخش</span>
             <RepeatButton color={colors.gold} />
             {/* خواندنِ کل متن — فقط وقتی معنی داره که متنی برای خوندن باشه؛
@@ -9664,7 +9885,7 @@ function AuthField({ icon, placeholder, value, onChange, type = "text" }) {
   );
 }
 
-function LoginScreen({ onAuthenticated }) {
+function LoginScreen({ onAuthenticated, uiLang = "fa" }) {
   const [mode, setMode] = useState("login"); // "login" | "signup"
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -9673,6 +9894,8 @@ function LoginScreen({ onAuthenticated }) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
+  const dir = APP_LANGUAGES[uiLang]?.dir || "rtl";
+  const loginFont = uiLang === "en" ? fontLatin : fontFa;
 
   // ورود واقعی با گوگل از طریق Supabase (نه Firebase، نه GIS محلی).
   // بعد از این‌که Google را در Supabase → Authentication → Providers فعال
@@ -9695,7 +9918,7 @@ function LoginScreen({ onAuthenticated }) {
       // مرورگر همین‌جا به صفحه‌ی گوگل ریدایرکت می‌شه؛ ادامه‌ی کار (ساخت
       // سشن) تو App، با onAuthStateChange انجام می‌شه.
     } catch (e) {
-      setError("ورود با گوگل ناموفق بود: " + (e?.message || "دوباره تلاش کنید."));
+      setError(tr("googleSignInFailed", uiLang) + (e?.message || tr("tryAgain", uiLang)));
       setGoogleBusy(false);
     }
   }
@@ -9705,7 +9928,7 @@ function LoginScreen({ onAuthenticated }) {
     setError("");
     setNotice("");
     if (!email.trim() || !password.trim() || (mode === "signup" && !name.trim())) {
-      setError("همه‌ی فیلدها را پر کنید.");
+      setError(tr("fillAllFields", uiLang));
       return;
     }
     setBusy(true);
@@ -9722,7 +9945,7 @@ function LoginScreen({ onAuthenticated }) {
           onAuthenticated(supabaseUserToSession(data.user));
         } else {
           // Supabase یه ایمیل تاییدیه فرستاده؛ تا کلیک نکنه نمی‌تونه وارد شه
-          setNotice("یک ایمیل تایید برایتان فرستاده شد. لطفاً ایمیلتان را باز کنید و لینک را بزنید، بعد وارد شوید.");
+          setNotice(tr("verifyEmailSent", uiLang));
           setMode("login");
         }
       } else {
@@ -9735,10 +9958,10 @@ function LoginScreen({ onAuthenticated }) {
       }
     } catch (e) {
       const msg = e?.message || "";
-      if (/already registered|already exists/i.test(msg)) setError("این ایمیل قبلاً ثبت شده. وارد شوید.");
-      else if (/invalid login credentials/i.test(msg)) setError("ایمیل یا رمز عبور اشتباه است.");
-      else if (/email not confirmed/i.test(msg)) setError("هنوز ایمیلتان را تایید نکرده‌اید — صندوق ورودی را چک کنید.");
-      else setError(msg || "خطایی رخ داد. دوباره تلاش کنید.");
+      if (/already registered|already exists/i.test(msg)) setError(tr("emailAlreadyRegistered", uiLang));
+      else if (/invalid login credentials/i.test(msg)) setError(tr("invalidCredentials", uiLang));
+      else if (/email not confirmed/i.test(msg)) setError(tr("emailNotConfirmed", uiLang));
+      else setError(msg || tr("genericError", uiLang));
     } finally {
       setBusy(false);
     }
@@ -9746,12 +9969,12 @@ function LoginScreen({ onAuthenticated }) {
 
   return (
     <div
-      dir="rtl"
-      lang="fa"
+      dir={dir}
+      lang={uiLang}
       style={{
         minHeight: "100vh",
         background: colors.paper,
-        fontFamily: fontFa,
+        fontFamily: loginFont,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -9788,10 +10011,10 @@ function LoginScreen({ onAuthenticated }) {
             {mode === "signup" ? <UserPlus size={26} /> : <LogIn size={26} />}
           </div>
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: colors.ink }}>
-            {mode === "signup" ? "ساخت حساب کاربری" : "ورود به کتاب مکالمه"}
+            {mode === "signup" ? tr("signupTitle", uiLang) : tr("loginTitle", uiLang)}
           </h1>
           <p style={{ margin: "6px 0 0", fontSize: 13, color: colors.inkSoft }}>
-            برای ذخیره‌ی پیشرفت و واژه‌هایتان وارد شوید
+            {tr("loginSubtitle", uiLang)}
           </p>
         </div>
 
@@ -9811,7 +10034,7 @@ function LoginScreen({ onAuthenticated }) {
               border: `1px solid ${colors.cardBorder}`,
               background: "#fff",
               color: colors.ink,
-              fontFamily: fontFa,
+              fontFamily: loginFont,
               fontWeight: 600,
               fontSize: 14,
               cursor: googleBusy ? "default" : "pointer",
@@ -9827,24 +10050,24 @@ function LoginScreen({ onAuthenticated }) {
                 <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.3 5.6l6.5 5.4C41.4 35.9 44 30.5 44 24c0-1.2-.1-2.4-.4-3.5z" />
               </svg>
             )}
-            ورود با حساب گوگل
+            {tr("continueWithGoogle", uiLang)}
           </button>
         </div>
 
         <div className="flex items-center gap-2" style={{ margin: "18px 0" }}>
           <div style={{ flex: 1, height: 1, background: colors.cardBorder }} />
-          <span style={{ fontSize: 12, color: colors.inkSoft }}>یا با ایمیل</span>
+          <span style={{ fontSize: 12, color: colors.inkSoft }}>{tr("orWithEmail", uiLang)}</span>
           <div style={{ flex: 1, height: 1, background: colors.cardBorder }} />
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           {mode === "signup" && (
-            <AuthField icon={<User size={16} />} placeholder="نام شما" value={name} onChange={setName} />
+            <AuthField icon={<User size={16} />} placeholder={tr("namePlaceholder", uiLang)} value={name} onChange={setName} />
           )}
-          <AuthField icon={<Mail size={16} />} placeholder="ایمیل" value={email} onChange={setEmail} type="email" />
+          <AuthField icon={<Mail size={16} />} placeholder={tr("emailPlaceholder", uiLang)} value={email} onChange={setEmail} type="email" />
           <AuthField
             icon={<Lock size={16} />}
-            placeholder="رمز عبور"
+            placeholder={tr("passwordPlaceholder", uiLang)}
             value={password}
             onChange={setPassword}
             type="password"
@@ -9863,7 +10086,7 @@ function LoginScreen({ onAuthenticated }) {
               border: "none",
               background: colors.ink,
               color: colors.paper,
-              fontFamily: fontFa,
+              fontFamily: loginFont,
               fontWeight: 700,
               fontSize: 14,
               cursor: busy ? "default" : "pointer",
@@ -9874,12 +10097,12 @@ function LoginScreen({ onAuthenticated }) {
             }}
           >
             {busy && <Loader2 size={16} className="spin" />}
-            {mode === "signup" ? "ساخت حساب" : "ورود"}
+            {mode === "signup" ? tr("signupSubmit", uiLang) : tr("loginSubmit", uiLang)}
           </button>
         </form>
 
         <div style={{ textAlign: "center", marginTop: 18, fontSize: 13, color: colors.inkSoft }}>
-          {mode === "signup" ? "حساب دارید؟" : "حساب ندارید؟"}{" "}
+          {mode === "signup" ? tr("haveAccount", uiLang) : tr("noAccount", uiLang)}{" "}
           <button
             onClick={() => {
               setMode(mode === "signup" ? "login" : "signup");
@@ -9892,11 +10115,11 @@ function LoginScreen({ onAuthenticated }) {
               color: colors.teal,
               fontWeight: 700,
               cursor: "pointer",
-              fontFamily: fontFa,
+              fontFamily: loginFont,
               fontSize: 13,
             }}
           >
-            {mode === "signup" ? "وارد شوید" : "بسازید"}
+            {mode === "signup" ? tr("goToLogin", uiLang) : tr("goToSignup", uiLang)}
           </button>
         </div>
       </div>
@@ -10022,7 +10245,7 @@ export default function App() {
   return (
     <div style={rootStyle}>
       {!user ? (
-        <LoginScreen onAuthenticated={setUser} />
+        <LoginScreen onAuthenticated={setUser} uiLang={appPrefs.uiLang} />
       ) : (
         <PhrasebookMain
           key={user.email}
