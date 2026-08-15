@@ -198,7 +198,79 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
   );
 }
 
-function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef }) {
+// متن رو به کلمه‌های \S+ می‌شکنه و آفستِ start/end هر کلمه (نسبتِ به شروعِ
+// همون متن) رو نگه می‌داره — دقیقاً همون الگوریتمی که speechController خودش
+// برای تکه‌بندی به‌کار می‌بره، پس ایندکس‌ها با هم سازگارن.
+function tokenizeWords(text) {
+  const words = [];
+  const re = /\S+/g;
+  let m;
+  while ((m = re.exec(text || "")) !== null) {
+    words.push({ text: m[0], start: m.index, end: m.index + m[0].length });
+  }
+  return words;
+}
+
+function findActiveWordIndex(words, offset) {
+  for (let i = 0; i < words.length; i++) {
+    if (offset >= words[i].start && offset < words[i].end) return i;
+  }
+  for (let i = words.length - 1; i >= 0; i--) {
+    if (offset >= words[i].start) return i;
+  }
+  return 0;
+}
+
+// خطِ سایه: یه خطِ سیاهِ «نیم‌باز» زیرِ کلمه — نازک در دو سر، ضخیم وسط. دو
+// منحنیِ Bezier که از دو سرِ یکسان شروع/تموم می‌شن ولی یکی بالاتر از خط
+// وسط رد می‌شه و یکی پایین‌تر، پس شکلِ نوک‌تیزِ باریکی می‌سازن.
+function ShadowLine({ width }) {
+  const w = Math.max(width, 10);
+  const h = 10;
+  const midX = w / 2;
+  const topY = h * 0.42;
+  const bottomY = h * 0.78;
+  const d = `M0,${h / 2} Q${midX},${topY} ${w},${h / 2} Q${midX},${bottomY} 0,${h / 2} Z`;
+  return (
+    <svg
+      width={w}
+      height={h}
+      viewBox={`0 0 ${w} ${h}`}
+      style={{ position: "absolute", left: 0, bottom: -7, pointerEvents: "none" }}
+    >
+      <path d={d} fill="#111111" />
+    </svg>
+  );
+}
+
+// نسخه‌ی «ردیاب‌دار» یه جمله: هر کلمه یه span مجزاست تا بشه عرضِ دقیقِ
+// کلمه‌ی فعال رو خوند و خطِ سایه رو دقیقاً هم‌عرضش زیرش گذاشت. فقط برای
+// خطی که همین الان در حالِ خونده‌شدنه صدا زده می‌شه (بقیه‌ی خط‌ها همون
+// رندرِ قبلی/ClickableSentence رو دارن).
+function WordTrackedText({ text, relOffset, fontFamily, fontSize, fontWeight, color }) {
+  const words = useMemo(() => tokenizeWords(text), [text]);
+  const activeIdx = findActiveWordIndex(words, relOffset);
+  const wordRef = useRef(null);
+  const [wordWidth, setWordWidth] = useState(0);
+
+  useEffect(() => {
+    if (wordRef.current) setWordWidth(wordRef.current.getBoundingClientRect().width);
+  }, [activeIdx, text]);
+
+  return (
+    <span style={{ fontFamily, fontSize, fontWeight, color }}>
+      {words.map((w, i) => (
+        <span key={i} style={{ position: "relative" }} ref={i === activeIdx ? wordRef : null}>
+          {w.text}
+          {i === activeIdx && wordWidth > 0 && <ShadowLine width={wordWidth} />}
+          {i < words.length - 1 ? " " : ""}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, activeWordRelOffset, registerLineRef }) {
   const isHear = variant === "hear";
   if (items.length === 0) return null;
   const accent = isHear ? colors.teal : colors.gold;
@@ -262,7 +334,12 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
                 {it.level}
               </span>
               <div style={{ direction: "ltr", textAlign: "left", flex: 1, fontSize: 16, fontWeight: 800, color: mainTextColor, fontFamily: fontLatin }}>
-                {ClickableSentence ? (
+                {activeLine && activeLine.variant === variant && activeLine.i === i ? (
+                  // این دقیقاً همون خطیه که همین الان از روی پلیرِ «خواندنِ
+                  // کل متن» داره خونده می‌شه — به‌جای رندرِ عادی، ردیابِ
+                  // خوانش (خطِ سایه‌ی زیرِ کلمه) رو نشون می‌ده.
+                  <WordTrackedText text={it.en} relOffset={activeWordRelOffset} fontFamily={fontLatin} fontSize={16} fontWeight={800} color={mainTextColor} />
+                ) : ClickableSentence ? (
                   <ClickableSentence text={it.en} langCode="en" nativeLang={nativeLang} aiSettings={aiSettings} color={mainTextColor} fontFamily={fontLatin} fontWeight={800} fontSize={16} />
                 ) : (
                   it.en
@@ -291,7 +368,7 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
   );
 }
 
-function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef }) {
+function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, activeWordRelOffset, registerLineRef }) {
   const filterFn = (arr) => (levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr);
   const speakerA = filterFn(sc.speakerA);
   const speakerB = filterFn(sc.speakerB);
@@ -313,8 +390,8 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
       {isOpen && (
         <div style={{ padding: "0 15px 15px" }}>
           {sc.context && <div style={{ fontFamily: fontFa, fontSize: 12, color: colors.inkSoft, marginBottom: 4 }}>{sc.context}</div>}
-          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} />
-          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} />
+          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} activeWordRelOffset={activeWordRelOffset} registerLineRef={isOpen ? registerLineRef : undefined} />
+          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} activeWordRelOffset={activeWordRelOffset} registerLineRef={isOpen ? registerLineRef : undefined} />
         </div>
       )}
     </div>
@@ -415,8 +492,12 @@ export default function DailyConversationsTab({
   }, [fullText]);
 
   // خطی که همین الان، در حینِ پخشِ «کل متن» از روی پلیر، داره خونده می‌شه —
-  // فقط برای اسکرولِ خودکار استفاده می‌شه (هایلایتِ بصری نداره).
+  // برای اسکرولِ خودکار و برای اینکه بدونیم ردیابِ خوانش (خطِ سایه) رو زیرِ
+  // کدوم خط نشون بدیم.
   const [activeLine, setActiveLine] = useState(null); // {variant, i} | null
+  // آفستِ کاراکتریِ کلمه‌ی در حال خوانده‌شدن، *نسبت به شروعِ همون خطِ فعال*
+  // (نه کلِ fullText). فقط وقتی activeLine غیرِnull‌ه معنی داره.
+  const [activeWordRelOffset, setActiveWordRelOffset] = useState(0);
 
   // موقع رفتن به سناریو یا موضوعِ دیگه، نشانگرِ خط قدیمی رو پاک کن. این افکت
   // عمداً *قبل* از افکتِ محاسبه‌ی activeLine (پایین‌تر) اومده: هر دو افکت با
@@ -428,6 +509,7 @@ export default function DailyConversationsTab({
   // بعد از اون، دوباره می‌ذاشتش رو null.
   useEffect(() => {
     setActiveLine(null);
+    setActiveWordRelOffset(0);
   }, [activeTopic, openScenario]);
 
   useEffect(() => {
@@ -436,14 +518,24 @@ export default function DailyConversationsTab({
     const update = (state) => {
       if (!fullText || state.key !== myKey || state.status === "idle") {
         setActiveLine(null);
+        setActiveWordRelOffset(0);
         return;
       }
-      const offset = speechController.getCharOffset();
+      // getWordOffset (اگه موجود باشه) دقتِ سطحِ کلمه می‌ده؛ روی
+      // speechControllerهای قدیمی‌تر که این متد رو ندارن، به همون
+      // getCharOffset (سطحِ جمله) برمی‌گرده.
+      const offset = speechController.getWordOffset
+        ? speechController.getWordOffset()
+        : speechController.getCharOffset();
       let found = lineOffsets[0] || null;
       for (const l of lineOffsets) {
         if (offset >= l.start) found = l;
         else break;
       }
+      // این عدد هر بار (حتی وسطِ همون خط، کلمه‌به‌کلمه) عوض می‌شه، برخلافِ
+      // activeLine که فقط سرِ عوض‌شدنِ خط آپدیت می‌شه — برای همینه که اینجا
+      // بدونِ دیدوپ مستقیم set می‌شه.
+      setActiveWordRelOffset(found ? Math.max(0, offset - found.start) : 0);
       setActiveLine((prev) => {
         const next = found ? { variant: found.variant, i: found.i } : null;
         if (prev && next && prev.variant === next.variant && prev.i === next.i) return prev;
@@ -582,6 +674,7 @@ export default function DailyConversationsTab({
                 targetLangs={targetLangs}
                 translateFree={translateFree}
                 activeLine={activeLine}
+                activeWordRelOffset={activeWordRelOffset}
                 registerLineRef={registerLineRef}
               />
             ))
