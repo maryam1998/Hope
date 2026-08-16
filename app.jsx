@@ -3833,7 +3833,15 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
           speechController.seekToChunk(idx);
         }
       } else {
-        speechController.toggle(jumpText, code, effectiveStartOffset, forceRepeat ? { loop: true } : undefined);
+        // نکته‌ی مهمِ رفعِ باگ: هر دکمه‌ای که با fullText صدا زده می‌شه یعنی
+        // «کلِ متن رو از همین‌جا بخون» — پس صرف‌نظر از اینکه کدوم دکمه
+        // (پلیرِ مرکزی، یه جمله‌ی خاص، یا یه پاراگراف) این پخش رو شروع
+        // کرده، باید همون‌قدر «loop» باشه که پلیرِ مرکزی هست؛ وگرنه با
+        // شروعِ پخش از یه جمله‌ی وسط (نه از دکمه‌ی مرکزی) وقتی به آخرِ متن
+        // می‌رسید، به‌جای برگشتن به اول، پخش کامل متوقف می‌شد. فقط وقتی
+        // صراحتاً forceRepeat === false داده بشه (که فعلاً هیچ‌جا این‌طور
+        // نیست)، لوپ خاموش می‌مونه.
+        speechController.toggle(jumpText, code, effectiveStartOffset, forceRepeat === false ? undefined : { loop: true });
       }
       if (onPlayed) onPlayed();
       return;
@@ -5879,6 +5887,62 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     });
     return map;
   }, [sentenceOffsets]);
+  // نسخه‌ی «ترجمه‌شده»ی fullStoryText/sentenceOffsets — برای هر زبانِ
+  // ترجمه‌ای که فعلاً نمایش داده می‌شه (translationLangs)، متنِ کاملِ همون
+  // ترجمه (به همون ترتیبِ جمله‌ها، با join(" ") دقیقاً مثلِ متنِ اصلی) و
+  // آفستِ شروعِ هر جمله‌ش رو می‌سازیم — تا دکمه‌ی 🔊ِ روی هر ترجمه هم بتونه
+  // (دقیقاً مثلِ متنِ اصلی) کلِ ترجمه رو با هایلایت/اسکرولِ خودکار و رفتنِ
+  // خودکار به جمله‌ی بعد بخونه، نه فقط همون یک جمله رو.
+  const fullTranslatedTextByLang = useMemo(() => {
+    const map = {};
+    (translationLangs || []).forEach((code) => {
+      if (allSentences.length && allSentences.every((s) => s?.t?.[code])) {
+        map[code] = allSentences.map((s) => s.t[code]).join(" ");
+      }
+    });
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allSentences, translationLangs.join(",")]);
+
+  const translatedSentenceOffsetsByLang = useMemo(() => {
+    const map = {};
+    Object.keys(fullTranslatedTextByLang).forEach((code) => {
+      let offset = 0;
+      map[code] = allSentences.map((s, idx) => {
+        const t = s?.t?.[code] || "";
+        const start = offset;
+        offset += t.length;
+        if (idx < allSentences.length - 1) offset += 1; // فاصله‌ی join(" ")
+        return { pi: s._pi, si: s._si, start, end: start + t.length };
+      });
+    });
+    return map;
+  }, [fullTranslatedTextByLang, allSentences]);
+
+  const translatedSentenceOffsetMapByLang = useMemo(() => {
+    const map = {};
+    Object.keys(translatedSentenceOffsetsByLang).forEach((code) => {
+      const inner = {};
+      translatedSentenceOffsetsByLang[code].forEach((s) => {
+        inner[`${s.pi}-${s.si}`] = s;
+      });
+      map[code] = inner;
+    });
+    return map;
+  }, [translatedSentenceOffsetsByLang]);
+
+  const translatedParagraphBaseOffsetMapByLang = useMemo(() => {
+    const map = {};
+    Object.keys(translatedSentenceOffsetsByLang).forEach((code) => {
+      const inner = {};
+      translatedSentenceOffsetsByLang[code].forEach((s) => {
+        if (!(s.pi in inner)) inner[s.pi] = s.start;
+      });
+      map[code] = inner;
+    });
+    return map;
+  }, [translatedSentenceOffsetsByLang]);
+
   const mainStoryKey = fullStoryText ? `${TTS_LOCALE[storyLang] || "en-US"}::${fullStoryText}` : null;
   // وقتی از پاپ‌آپِ کلمه یا محدوده‌ی انتخابی، دکمه‌ی پخش زده می‌شه، همین‌جا
   // موقعیت (نسبت به کلِ fullStoryText) به‌خاطر سپرده می‌شه — تا دفعه‌ی بعد
@@ -5920,6 +5984,48 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     return speechController.subscribe(update);
   }, [fullStoryText, storyLang, sentenceOffsets]);
 
+  // دقیقاً همون مکانیزمِ activeStorySentence بالا، ولی برای «پخشِ کلِ یه
+  // ترجمه» — وقتی کاربر روی 🔊ِ کنارِ یه ترجمه می‌زنه، حالا (به‌جای فقط
+  // همون یک جمله) کلِ ترجمه‌ی همون زبان از همونجا تا آخر خونده می‌شه؛ این
+  // افکت هر بار که speechController آپدیت می‌شه چک می‌کنه که آیا کلیدِ
+  // فعلیِ پخش، دقیقاً مطابقِ یکی از fullTranslatedTextByLang هاست یا نه، و
+  // اگه بود pi/si/code اون جمله رو نگه می‌داره — هم برای هایلایت، هم برای
+  // اسکرولِ خودکار.
+  const [activeTranslation, setActiveTranslation] = useState(null); // {code, pi, si} | null
+  const translationLangsKey = (translationLangs || []).join(",");
+  useEffect(() => {
+    const update = (state) => {
+      if (!state.key || state.status === "idle") {
+        setActiveTranslation(null);
+        return;
+      }
+      for (const code of translationLangs || []) {
+        const text = fullTranslatedTextByLang[code];
+        if (!text) continue;
+        const myKey = `${TTS_LOCALE[code] || "en-US"}::${text}`;
+        if (state.key === myKey) {
+          const offset = speechController.getCharOffset();
+          const offs = translatedSentenceOffsetsByLang[code] || [];
+          let found = offs[0] || null;
+          for (const s of offs) {
+            if (offset >= s.start) found = s;
+            else break;
+          }
+          setActiveTranslation((prev) => {
+            const next = found ? { code, pi: found.pi, si: found.si } : null;
+            if (prev && next && prev.code === next.code && prev.pi === next.pi && prev.si === next.si) return prev;
+            return next;
+          });
+          return;
+        }
+      }
+      setActiveTranslation(null);
+    };
+    update(speechController.getState());
+    return speechController.subscribe(update);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [translationLangsKey, fullTranslatedTextByLang, translatedSentenceOffsetsByLang]);
+
   // موقع پخشِ سراسریِ داستان، اگه اسکرولِ خودکار (همون دکمه‌ی کنارِ پلیر)
   // فعال باشه، خطِ در حالِ خواندن رو خودکار وسطِ صفحه نگه می‌داره — کاربر
   // خطش رو گم نمی‌کنه.
@@ -5934,6 +6040,21 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoScrollActive, activeStorySentence?.pi, activeStorySentence?.si, granularity]);
+
+  // همون قابلیتِ بالا، ولی برای پخشِ کلِ یه ترجمه — وقتی کاربر 🔊ِ کنارِ یه
+  // ترجمه رو می‌زنه و اسکرولِ خودکار فعاله، خطِ در حالِ خواندنِ همون ترجمه
+  // رو خودکار وسطِ صفحه نگه می‌داره.
+  useEffect(() => {
+    if (!autoScrollActive || !activeTranslation) return;
+    const node =
+      granularity === "sentence"
+        ? sentenceElsRef.current[`${activeTranslation.pi}-${activeTranslation.si}`]
+        : paragraphElsRef.current[activeTranslation.pi];
+    if (node && node.scrollIntoView) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoScrollActive, activeTranslation?.pi, activeTranslation?.si, granularity]);
 
   // هر بار متنِ داستان یا زبانش عوض می‌شه، به بالا (App) گزارش می‌دیم تا
   // دکمه‌ی 🔊ِ روی نوارِ پلیر — همون‌جایی که قبلاً بالای این باکس بود —
@@ -7335,6 +7456,13 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                           {showTranslations &&
                             translationLangs.map((code) => {
                               const translated = s.t?.[code];
+                              // فعال بودنِ همین جمله‌ی ترجمه — یعنی همین الان
+                              // دقیقاً همین زبان/جمله در حالِ پخشِ «کلِ ترجمه»ست؛
+                              // دقیقاً مثلِ isSentenceActی متنِ اصلی بالا.
+                              const isTranslationSentenceActive =
+                                activeTranslation && activeTranslation.code === code && activeTranslation.pi === pi && activeTranslation.si === si;
+                              const fullTranslated = fullTranslatedTextByLang[code];
+                              const translatedStartOffset = translatedSentenceOffsetMapByLang[code]?.[`${pi}-${si}`]?.start ?? 0;
                               return (
                                 <div
                                   key={code}
@@ -7344,7 +7472,16 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                     marginTop: 3,
                                   }}
                                 >
-                                  {translated && <SpeakButton text={translated} code={code} color={translationColor} edge={dirFor(code) === "ltr" ? "end" : undefined} />}
+                                  {translated && (
+                                    <SpeakButton
+                                      text={translated}
+                                      code={code}
+                                      color={translationColor}
+                                      edge={dirFor(code) === "ltr" ? "end" : undefined}
+                                      fullText={fullTranslated || translated}
+                                      startOffset={translatedStartOffset}
+                                    />
+                                  )}
                                   <p
                                     style={{
                                       fontSize: 13.5,
@@ -7356,18 +7493,30 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                   >
                                     <span style={{ fontSize: 10, color: colors.gold }}>[{code}]</span>{" "}
                                     {translated ? (
-                                      <ClickableSentence
-                                        text={translated}
-                                        langCode={code}
-                                        nativeLang={nativeLang}
-                                        nativeLabel={nativeLabel}
-                                        aiSettings={aiSettings}
-                                        color={translationColor}
-                                        fontFamily={code === "fa" ? fontFa : fontLatin}
-                                        alignSourceText={s.text}
-                                        alignSourceLang={storyLang}
-                                        originExtra={{ storyId: currentStoryId, pi, si }}
-                                      />
+                                      <span
+                                        style={{
+                                          backgroundColor: isTranslationSentenceActive ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+                                          borderRadius: 5,
+                                          padding: isTranslationSentenceActive ? "2px 4px" : "2px 0",
+                                          WebkitBoxDecorationBreak: "clone",
+                                          boxDecorationBreak: "clone",
+                                          transition: "background-color 0.35s ease",
+                                        }}
+                                      >
+                                        <ClickableSentence
+                                          text={translated}
+                                          langCode={code}
+                                          nativeLang={nativeLang}
+                                          nativeLabel={nativeLabel}
+                                          aiSettings={aiSettings}
+                                          color={translationColor}
+                                          fontFamily={code === "fa" ? fontFa : fontLatin}
+                                          alignSourceText={s.text}
+                                          alignSourceLang={storyLang}
+                                          storyBaseOffset={translatedStartOffset}
+                                          originExtra={{ storyId: currentStoryId, pi, si }}
+                                        />
+                                      </span>
                                     ) : (
                                       <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
                                     )}
@@ -7441,6 +7590,12 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                           const translated = sentencesList.length && sentencesList.every((s) => s?.t?.[code])
                             ? sentencesList.map((s) => s.t[code]).join(" ")
                             : null;
+                          // فعال بودنِ این پاراگرافِ ترجمه — یعنی همین الان
+                          // دقیقاً همین زبان/پاراگراف در حالِ پخشِ «کلِ ترجمه»ست.
+                          const isTranslationParaActive =
+                            activeTranslation && activeTranslation.code === code && activeTranslation.pi === pi;
+                          const fullTranslated = fullTranslatedTextByLang[code];
+                          const translatedStartOffset = translatedParagraphBaseOffsetMapByLang[code]?.[pi] ?? 0;
                           return (
                             <div
                               key={code}
@@ -7448,7 +7603,16 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                               dir={dirFor(code)}
                               style={{ marginTop: 4 }}
                             >
-                              {translated && <SpeakButton text={translated} code={code} color={translationColor} edge={dirFor(code) === "ltr" ? "end" : undefined} />}
+                              {translated && (
+                                <SpeakButton
+                                  text={translated}
+                                  code={code}
+                                  color={translationColor}
+                                  edge={dirFor(code) === "ltr" ? "end" : undefined}
+                                  fullText={fullTranslated || translated}
+                                  startOffset={translatedStartOffset}
+                                />
+                              )}
                               <p
                                 style={{
                                   fontSize: 13.5,
@@ -7460,18 +7624,30 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                               >
                                 <span style={{ fontSize: 10, color: colors.gold }}>[{code}]</span>{" "}
                                 {translated ? (
-                                  <ClickableSentence
-                                    text={translated}
-                                    langCode={code}
-                                    nativeLang={nativeLang}
-                                    nativeLabel={nativeLabel}
-                                    aiSettings={aiSettings}
-                                    color={translationColor}
-                                    fontFamily={code === "fa" ? fontFa : fontLatin}
-                                    alignSourceText={paragraphText}
-                                    alignSourceLang={storyLang}
-                                    originExtra={{ storyId: currentStoryId, pi, si: null }}
-                                  />
+                                  <span
+                                    style={{
+                                      backgroundColor: isTranslationParaActive ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+                                      borderRadius: 5,
+                                      padding: isTranslationParaActive ? "2px 4px" : "2px 0",
+                                      WebkitBoxDecorationBreak: "clone",
+                                      boxDecorationBreak: "clone",
+                                      transition: "background-color 0.35s ease",
+                                    }}
+                                  >
+                                    <ClickableSentence
+                                      text={translated}
+                                      langCode={code}
+                                      nativeLang={nativeLang}
+                                      nativeLabel={nativeLabel}
+                                      aiSettings={aiSettings}
+                                      color={translationColor}
+                                      fontFamily={code === "fa" ? fontFa : fontLatin}
+                                      alignSourceText={paragraphText}
+                                      alignSourceLang={storyLang}
+                                      storyBaseOffset={translatedStartOffset}
+                                      originExtra={{ storyId: currentStoryId, pi, si: null }}
+                                    />
+                                  </span>
                                 ) : (
                                   <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
                                 )}
