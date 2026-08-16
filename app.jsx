@@ -7292,12 +7292,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                 fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin,
                                 fontSize: 15,
                                 lineHeight: 1.8,
-                                // قبلاً "justify" بود؛ وقتی متنِ فارسی/عربی کلماتِ
-                                // انگلیسی یا سایرِ زبان‌ها رو وسطش داشت (bidi
-                                // مخلوط)، justify باعثِ فاصله‌های نامنظم و
-                                // به‌هم‌ریختگیِ چیدمان می‌شد. "start" این مشکل
-                                // رو نداره.
-                                textAlign: "start",
+                                textAlign: "justify",
                                 fontWeight: 900,
                                 // برخی فونت‌های سریف بارگذاری‌شده (مثل Lora) وزن ۸۰۰/۹۰۰ واقعی
                                 // ندارن و مرورگر بی‌سروصدا همون رگولار رو نشون می‌ده؛ این
@@ -7355,7 +7350,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                       fontSize: 13.5,
                                       color: translationColor,
                                       fontWeight: 900,
-                                      textAlign: "start",
+                                      textAlign: "justify",
                                       fontFamily: code === "fa" ? fontFa : fontLatin,
                                     }}
                                   >
@@ -7408,7 +7403,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                 fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin,
                                 fontSize: 15,
                                 lineHeight: 1.8,
-                                textAlign: "start",
+                                textAlign: "justify",
                                 fontWeight: 900,
                                 WebkitTextStroke: `0.4px ${mainTextColor}`,
                               }}
@@ -7459,7 +7454,7 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
                                   fontSize: 13.5,
                                   color: translationColor,
                                   fontWeight: 900,
-                                  textAlign: "start",
+                                  textAlign: "justify",
                                   fontFamily: code === "fa" ? fontFa : fontLatin,
                                 }}
                               >
@@ -8103,27 +8098,7 @@ function GrammarPanel({
   }
 
   const [chatLang, setChatLang] = useState((targetOrder && targetOrder[0]) || "en");
-  // تاریخچه‌ی این چت قبلاً فقط توی state بود و با هر رفرش/بستنِ صفحه (مثلاً
-  // وقتی مرورگرِ موبایل تب رو از حافظه خالی می‌کرد) بدونِ اینکه کاربر خودش
-  // پاکش کرده باشه از بین می‌رفت. حالا با localStorage ذخیره و بازیابی
-  // می‌شه تا فقط با زدنِ دکمه‌ی «پاک‌کردن گفتگو» (clearChat) خالی بشه.
-  const [chatMessages, setChatMessages] = useState(() => {
-    try {
-      const saved = localStorage.getItem("phrasebook-practice-chat");
-      const parsed = saved ? JSON.parse(saved) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }); // [{ role: "user"|"ai", text }]
-  useEffect(() => {
-    try {
-      localStorage.setItem("phrasebook-practice-chat", JSON.stringify(chatMessages));
-    } catch {
-      // ذخیره‌سازی شکست بخوره (مثلاً حافظه پره)، مشکلی نیست — گفتگو همچنان
-      // توی همین سشن کار می‌کنه، فقط بینِ رفرش‌ها موندگار نمی‌مونه.
-    }
-  }, [chatMessages]);
+  const [chatMessages, setChatMessages] = useState([]); // [{ role: "user"|"ai", text }]
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
@@ -8410,9 +8385,6 @@ function GrammarPanel({
   function clearChat() {
     setChatMessages([]);
     setChatError("");
-    try {
-      localStorage.removeItem("phrasebook-practice-chat");
-    } catch {}
   }
 
   async function askAboutNote(note) {
@@ -9322,32 +9294,6 @@ function GrammarPanel({
                   marginTop: practiceSheet === "peek" ? 8 : 0,
                 }}
               >
-                {/* دکمه‌ی ارسال قبلاً دومین فرزندِ این ردیفِ فلکس بود، یعنی
-                    توی چیدمانِ راست‌به‌چپِ کلِ اپ دقیقاً سمتِ چپِ باکس
-                    می‌افتاد (لبه‌ی «انتها»). طبق درخواست، حالا اول از
-                    تکست‌اریا اومده تا لبه‌ی «ابتدا» (سمتِ راست) رو بگیره،
-                    دقیقاً مثلِ اپ‌های چتِ فارسی. */}
-                <button
-                  onClick={() => {
-                    setPracticeSheet((s) => (s === "peek" ? "half" : s));
-                    sendChat();
-                  }}
-                  disabled={chatLoading || !chatInput.trim()}
-                  style={{
-                    backgroundColor: colors.teal,
-                    color: "#fff",
-                    borderRadius: 10,
-                    padding: "8px 14px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    opacity: chatLoading || !chatInput.trim() ? 0.5 : 1,
-                    boxShadow: chatLoading || !chatInput.trim() ? "none" : "0 2px 8px rgba(28,37,65,0.25)",
-                    flexShrink: 0,
-                  }}
-                >
-                  <Send size={16} color="#fff" />
-                </button>
                 <textarea
                   ref={chatTextareaRef}
                   dir="auto"
@@ -9376,6 +9322,27 @@ function GrammarPanel({
                     color: colors.ink,
                   }}
                 />
+                <button
+                  onClick={() => {
+                    setPracticeSheet((s) => (s === "peek" ? "half" : s));
+                    sendChat();
+                  }}
+                  disabled={chatLoading || !chatInput.trim()}
+                  style={{
+                    backgroundColor: colors.teal,
+                    color: "#fff",
+                    borderRadius: 10,
+                    padding: "8px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: chatLoading || !chatInput.trim() ? 0.5 : 1,
+                    boxShadow: chatLoading || !chatInput.trim() ? "none" : "0 2px 8px rgba(28,37,65,0.25)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Send size={16} color="#fff" />
+                </button>
               </div>
             </div>
           </div>
