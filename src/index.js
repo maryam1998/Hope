@@ -146,18 +146,29 @@ async function callHuggingFace(prompt, maxTokens, env) {
 // --- Groq (OpenAI-compatible) ------------------------------------------------
 // llama-3.3-70b-versatile and llama-3.1-8b-instant were both deprecated by
 // Groq — openai/gpt-oss-120b is their current recommended general-purpose
-// replacement (openai/gpt-oss-20b if you want the smaller/faster one). If
-// GROQ_MODEL is set in the dashboard to an old name (e.g. the very old
-// mixtral-8x7b-32768 default), update it there — this fallback only kicks
-// in when GROQ_MODEL isn't set at all.
-async function callGroq(prompt, maxTokens, env) {
-  const key = env.GROQ_API_KEY;
-  if (!key) throw new Error("GROQ_API_KEY not set");
+// replacement (openai/gpt-oss-20b if you want the smaller/faster one).
+//
+// GROQ_MODEL می‌تونه چند مدل، جدا شده با کاما، داشته باشه (مثلاً
+// "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile") — هر
+// درخواست، مدل‌ها رو دقیقاً به همین ترتیب امتحان می‌کنه؛ اگه یکی خطا داد
+// (مثلاً rate limit یا هر خطای دیگه‌ای)، بلافاصله سراغ مدلِ بعدیِ همین
+// لیست می‌ره، نه اینکه مستقیم بره سراغِ provider بعدی (openrouter/mistral و
+// غیره) توی زنجیره‌ی اصلی. فقط وقتی همه‌ی مدل‌های این لیست هم شکست
+// بخورن، به provider بعدیِ زنجیره‌ی اصلی می‌رسیم.
+function groqModelList(env) {
+  const raw = env.GROQ_MODEL || "openai/gpt-oss-120b";
+  return raw
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+}
+
+async function callGroqModel(model, prompt, maxTokens, key) {
   const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: env.GROQ_MODEL || "openai/gpt-oss-120b",
+      model,
       messages: [{ role: "user", content: prompt }],
       max_tokens: maxTokens,
     }),
@@ -167,6 +178,21 @@ async function callGroq(prompt, maxTokens, env) {
   const text = data.choices?.[0]?.message?.content || "";
   if (!text) throw new Error("Groq returned empty response");
   return text;
+}
+
+async function callGroq(prompt, maxTokens, env) {
+  const key = env.GROQ_API_KEY;
+  if (!key) throw new Error("GROQ_API_KEY not set");
+  const models = groqModelList(env);
+  const errors = [];
+  for (const model of models) {
+    try {
+      return await callGroqModel(model, prompt, maxTokens, key);
+    } catch (e) {
+      errors.push(`${model}: ${e.message}`);
+    }
+  }
+  throw new Error(errors.join(" | ") || "Groq: no models configured");
 }
 
 // --- Gemini -------------------------------------------------------------------
