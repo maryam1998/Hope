@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -2250,6 +2250,47 @@ async function generateWordExample({ word, langCode, meaningNative, nativeLabel,
 const GRAMMAR_NOTES_KEY = "phrasebook-grammar-notes-v1";
 const GRAMMAR_NOTES_CHANGED_EVENT = "phrasebook:grammarNotesChanged";
 
+// تنظیماتِ نمایشِ متنِ زبان‌های مقصد — اندازه‌ی فونت (به‌صورتِ درصدِ
+// مقیاس، با نوارِ پیمایشِ کم/زیاد در تنظیمات) و حالتِ بولدشدن (برای متنِ
+// اصلی، ترجمه، هردو، یا هیچ‌کدوم). این جدا از «اندازه‌ی فونتِ کلیِ اپ»یِ
+// APP_FONT_SIZES هست؛ فقط روی متن‌های زبانِ خارجی/ترجمه (که از
+// ClickableSentence رد می‌شن) اثر می‌ذاره، نه رابط کاربریِ فارسیِ اپ.
+const TARGET_TEXT_PREFS_KEY = "phrasebook-target-text-prefs-v1";
+const TARGET_TEXT_PREFS_CHANGED_EVENT = "phrasebook:targetTextPrefsChanged";
+const DEFAULT_TARGET_TEXT_PREFS = { scale: 100, bold: "both" }; // bold: "both" | "text" | "translation" | "none"
+function loadTargetTextPrefs() {
+  try {
+    const raw = window.localStorage.getItem(TARGET_TEXT_PREFS_KEY);
+    if (!raw) return { ...DEFAULT_TARGET_TEXT_PREFS };
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_TARGET_TEXT_PREFS, ...parsed };
+  } catch {
+    return { ...DEFAULT_TARGET_TEXT_PREFS };
+  }
+}
+function saveTargetTextPrefs(prefs) {
+  try {
+    window.localStorage.setItem(TARGET_TEXT_PREFS_KEY, JSON.stringify(prefs));
+    window.dispatchEvent(new Event(TARGET_TEXT_PREFS_CHANGED_EVENT));
+  } catch {}
+}
+// هوکِ کوچیکِ مشترک — هر جایی که متنِ زبانِ مقصد رندر می‌شه (اینجا: خودِ
+// ClickableSentence) با همین هوک به تنظیماتِ بالا گوش می‌ده و بلافاصله
+// با تغییرشون (مثلاً از تبِ تنظیمات) به‌روز می‌شه.
+function useTargetTextPrefs() {
+  const [prefs, setPrefs] = useState(loadTargetTextPrefs);
+  useEffect(() => {
+    const refresh = () => setPrefs(loadTargetTextPrefs());
+    window.addEventListener(TARGET_TEXT_PREFS_CHANGED_EVENT, refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener(TARGET_TEXT_PREFS_CHANGED_EVENT, refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
+  return prefs;
+}
+
 function loadGrammarNotes() {
   try {
     const raw = window.localStorage.getItem(GRAMMAR_NOTES_KEY);
@@ -2293,6 +2334,16 @@ function removeGrammarNote(id) {
 function clearAllGrammarNotes() {
   try {
     window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify([]));
+    window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+  } catch {}
+}
+// حذفِ دسته‌ایِ چند یادداشتِ انتخاب‌شده با آی‌دی — برای حالتِ «انتخاب» در
+// تبِ گرامر (حذف براساسِ تاریخچه، مثلِ مدیریتِ فایل).
+function removeGrammarNotesBulk(ids) {
+  if (!ids || !ids.size) return;
+  const list = loadGrammarNotes().filter((n) => !ids.has(n.id));
+  try {
+    window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(list));
     window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
   } catch {}
 }
@@ -2537,7 +2588,76 @@ function stripMdInline(s) {
     .replace(/`(.*?)`/g, "$1");
 }
 
-function MiniMarkdown({ text, speakCode, nativeLang, aiSettings }) {
+// یه لایه‌ی سبک برای «روی لغت زدن → دیدنِ ترجمه» — مخصوصِ متن‌هایی که به
+// زبانِ مادریِ کاربر نوشته شدن (مثل توضیحِ گرامری) و ClickableSentence
+// معمولی (که برعکس، از زبانِ خارجی به مادری ترجمه می‌کنه) روشون فعال
+// نمی‌شه. اینجا هر کلمه‌ای که لمس/کلیک بشه، با translateFree به
+// targetLangCode (مثلاً اولین زبانِ مقصدِ چیده‌شده‌ی کاربر) ترجمه و توی
+// یه حبابِ کوچیک زیرِ همون کلمه نشون داده می‌شه.
+function TapWordTranslate({ text, targetLangCode }) {
+  const [openIdx, setOpenIdx] = useState(null);
+  const [results, setResults] = useState({});
+  if (!text || !targetLangCode) return text || null;
+  const tokens = String(text).split(/(\s+)/);
+  const handleTap = async (idx, raw) => {
+    const word = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+    if (!word) return;
+    if (openIdx === idx) {
+      setOpenIdx(null);
+      return;
+    }
+    setOpenIdx(idx);
+    if (results[idx]) return;
+    setResults((r) => ({ ...r, [idx]: "loading" }));
+    try {
+      const t = await translateFree(word, targetLangCode, "auto");
+      setResults((r) => ({ ...r, [idx]: t || "—" }));
+    } catch {
+      setResults((r) => ({ ...r, [idx]: "—" }));
+    }
+  };
+  return (
+    <span dir="auto">
+      {tokens.map((tok, idx) => {
+        if (!tok || /^\s+$/.test(tok)) return <React.Fragment key={idx}>{tok}</React.Fragment>;
+        return (
+          <span key={idx} style={{ position: "relative", display: "inline-block" }}>
+            <span
+              onClick={() => handleTap(idx, tok)}
+              style={{ cursor: "pointer", borderBottom: `1px dotted ${colors.inkSoft}` }}
+            >
+              {tok}
+            </span>
+            {openIdx === idx && (
+              <span
+                dir="auto"
+                style={{
+                  position: "absolute",
+                  top: "100%",
+                  insetInlineStart: 0,
+                  backgroundColor: colors.gold,
+                  color: "white",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 6,
+                  padding: "2px 6px",
+                  whiteSpace: "nowrap",
+                  zIndex: 5,
+                  marginTop: 2,
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.18)",
+                }}
+              >
+                {results[idx] === "loading" ? "…" : results[idx] || ""}
+              </span>
+            )}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+function MiniMarkdown({ text, speakCode, nativeLang, aiSettings, wordTapTarget }) {
   if (!text) return null;
   // اگه زبان مقصد خودش فارسی/عربیه، نمی‌شه با اسکریپت تشخیص داد کدوم خط
   // ترجمه‌ست و کدوم جمله‌ی هدف؛ پس همیشه دکمه‌ی خوانش رو نشون بده.
@@ -2557,6 +2677,14 @@ function MiniMarkdown({ text, speakCode, nativeLang, aiSettings }) {
           aiSettings={aiSettings}
         />
       );
+    }
+    // خط‌هایی که به زبانِ مادریِ کاربرن (توضیحاتِ گرامری) از ClickableSentence
+    // معمولی رد می‌شن (چون اون برعکس، از زبانِ خارجی به مادری ترجمه می‌کنه)؛
+    // اگه wordTapTarget داده شده باشه (مثلاً توی چتِ تمرین)، همین‌جا با
+    // TapWordTranslate قابلِ‌لمس‌شدن می‌کنیمشون تا هر کلمه به اولین زبانِ
+    // مقصدِ کاربر ترجمه بشه.
+    if (wordTapTarget) {
+      return <TapWordTranslate key={key} text={stripMdInline(content)} targetLangCode={wordTapTarget} />;
     }
     return mdInline(content, key);
   };
@@ -3306,6 +3434,18 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
   const uiLang = appPrefs.uiLang || "fa";
   const panelDir = APP_LANGUAGES[uiLang]?.dir || "rtl";
   const panelFont = uiLang === "en" ? fontLatin : fontFa;
+  // اندازه/بولدِ متنِ زبان‌های مقصد (جدا از اندازه‌ی فونتِ کلیِ اپ بالا) —
+  // در localStorage با کلیدِ خودش ذخیره می‌شه (نه appPrefs)، چون از یه
+  // هوکِ سبکِ مشترک (useTargetTextPrefs) توسطِ خودِ ClickableSentence هم
+  // خونده می‌شه.
+  const [targetTextPrefs, setTargetTextPrefsState] = useState(loadTargetTextPrefs);
+  const updateTargetTextPrefs = (patch) => {
+    setTargetTextPrefsState((prev) => {
+      const next = { ...prev, ...patch };
+      saveTargetTextPrefs(next);
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -3459,6 +3599,93 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
                 }}
               >
                 {s.label[uiLang] || s.label.fa}
+              </button>
+            ))}
+          </div>
+
+          {/* اندازه‌ی فونتِ زبان‌های مقصد — جدا از اندازه‌ی فونتِ کلیِ اپ
+              بالا؛ فقط روی متنِ زبانِ خارجی/ترجمه (همون‌جاهایی که
+              ClickableSentence رندرشون می‌کنه: تبِ داستان، مکالمات
+              روزمره، لغات، و…) اثر می‌ذاره. با یه نوارِ پیمایشِ ساده
+              (کم/زیاد) به‌جای دکمه‌های ثابت. */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            <Type size={14} /> {uiLang === "en" ? "Target-language font size" : "اندازه‌ی فونتِ زبان‌های مقصد"}
+          </p>
+          <div className="flex items-center gap-3" style={{ marginBottom: 16 }}>
+            <button
+              onClick={() => updateTargetTextPrefs({ scale: Math.max(70, (targetTextPrefs.scale || 100) - 10) })}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                border: `1px solid ${colors.cardBorder}`,
+                backgroundColor: "white",
+                color: colors.ink,
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+              aria-label={uiLang === "en" ? "Decrease" : "کم کردن"}
+            >
+              −
+            </button>
+            <input
+              type="range"
+              min={70}
+              max={160}
+              step={5}
+              value={targetTextPrefs.scale || 100}
+              onChange={(e) => updateTargetTextPrefs({ scale: Number(e.target.value) })}
+              style={{ flex: 1, accentColor: colors.gold }}
+            />
+            <button
+              onClick={() => updateTargetTextPrefs({ scale: Math.min(160, (targetTextPrefs.scale || 100) + 10) })}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                border: `1px solid ${colors.cardBorder}`,
+                backgroundColor: "white",
+                color: colors.ink,
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+              aria-label={uiLang === "en" ? "Increase" : "زیاد کردن"}
+            >
+              +
+            </button>
+            <span style={{ fontSize: 12, color: colors.inkSoft, minWidth: 36, textAlign: "center" }}>
+              {(targetTextPrefs.scale || 100).toLocaleString(uiLang === "en" ? "en-US" : "fa-IR")}٪
+            </span>
+          </div>
+
+          {/* حالتِ بولدشدنِ متنِ زبانِ مقصد — می‌تونه فقط رویِ «متنِ اصلی»
+              (زبانی که یاد می‌گیره)، فقط رویِ «ترجمه»، هر دو، یا هیچ‌کدوم
+              اعمال بشه. */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
+            {uiLang === "en" ? "Bold target text" : "بولدشدنِ متنِ زبانِ مقصد"}
+          </p>
+          <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
+            {[
+              ["none", uiLang === "en" ? "None" : "هیچ‌کدام"],
+              ["text", uiLang === "en" ? "Original text" : "متن اصلی"],
+              ["translation", uiLang === "en" ? "Translation" : "ترجمه"],
+              ["both", uiLang === "en" ? "Both" : "هر دو (متن و ترجمه)"],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => updateTargetTextPrefs({ bold: key })}
+                aria-pressed={(targetTextPrefs.bold || "both") === key}
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 20,
+                  fontSize: 12,
+                  border: `1px solid ${(targetTextPrefs.bold || "both") === key ? colors.gold : colors.cardBorder}`,
+                  backgroundColor: (targetTextPrefs.bold || "both") === key ? colors.goldSoft : "white",
+                  color: colors.ink,
+                  fontWeight: key === "none" ? 400 : 700,
+                }}
+              >
+                {label}
               </button>
             ))}
           </div>
@@ -4464,6 +4691,18 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
   const nativeLabel = nativeLabelProp || LANGUAGES.find((l) => l.code === nativeLang)?.label || "Persian";
   const popDir = dirFor(nativeLang || "fa");
   const popFont = RTL_LANGS.includes(nativeLang || "fa") ? fontFa : fontLatin;
+  // تنظیماتِ سراسریِ اندازه/بولدِ متنِ زبانِ مقصد — alignSourceText فقط
+  // وقتی پر می‌شه که این نمونه داره یه «ترجمه» رو نشون می‌ده (نه خودِ
+  // متنِ اصلی)؛ همون علامتیه که برای تفکیکِ «متن اصلی» از «ترجمه» در
+  // تنظیماتِ بولد استفاده می‌کنیم.
+  const targetTextPrefs = useTargetTextPrefs();
+  const isTranslationInstance = !!alignSourceText;
+  const targetShouldBold =
+    targetTextPrefs.bold === "both" ||
+    (targetTextPrefs.bold === "text" && !isTranslationInstance) ||
+    (targetTextPrefs.bold === "translation" && isTranslationInstance);
+  const targetEffectiveWeight = targetShouldBold ? fontWeight || 700 : 400;
+  const targetEffectiveSize = Math.round((fontSize || 14) * ((targetTextPrefs.scale || 100) / 100));
 
   useEffect(() => {
     const refresh = () => setSavedTerms(loadSavedStoryWords().filter((e) => e.langCode === langCode));
@@ -4728,8 +4967,8 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
               style={{
                 fontFamily: fontFamily || fontLatin,
                 color: color || colors.teal,
-                fontWeight: fontWeight || undefined,
-                fontSize: fontSize || 14,
+                fontWeight: targetEffectiveWeight,
+                fontSize: targetEffectiveSize,
                 cursor: "pointer",
                 textDecorationLine: isUnderlined ? "underline" : "none",
                 textDecorationStyle: "dotted",
@@ -7795,6 +8034,68 @@ function GrammarPanel({
   const [notes, setNotes] = useState([]);
   const [expandedNote, setExpandedNote] = useState(null);
   const [pending, setPending] = useState(null); // { word, sentence, langCode, markdown: "loading" | "error" | string }
+  // حالتِ «انتخاب» برای حذفِ دسته‌ایِ یادداشت‌های گرامری، دسته‌بندی‌شده
+  // براساسِ تاریخِ ذخیره — دقیقاً مثلِ صفحه‌ی «چندتا انتخاب‌شده»یِ مدیریتِ
+  // فایلِ اندروید: هر گروهِ تاریخ یه چک‌باکسِ «انتخابِ همه‌ی این گروه»
+  // داره، و یه دکمه‌ی «انتخابِ همه» هم کلِ لیست رو انتخاب می‌کنه.
+  const [noteSelectMode, setNoteSelectMode] = useState(false);
+  const [selectedNoteIds, setSelectedNoteIds] = useState(() => new Set());
+  const grammarLocale = TTS_LOCALE[nativeLang] || "en-US";
+  const formatNoteDateKey = useCallback(
+    (iso) => {
+      const d = new Date(iso);
+      if (isNaN(d)) return (nativeLang === "fa") ? "بدون تاریخ" : "No date";
+      return d.toLocaleDateString(grammarLocale, { weekday: "short", year: "numeric", month: "short", day: "numeric" });
+    },
+    [grammarLocale, nativeLang]
+  );
+  const formatNoteTime = useCallback(
+    (iso) => {
+      const d = new Date(iso);
+      if (isNaN(d)) return "";
+      return d.toLocaleTimeString(grammarLocale, { hour: "2-digit", minute: "2-digit" });
+    },
+    [grammarLocale]
+  );
+  const noteGroups = useMemo(() => {
+    const map = new Map();
+    for (const n of notes) {
+      const key = formatNoteDateKey(n.savedAt);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(n);
+    }
+    return Array.from(map.entries()).map(([label, items]) => ({ label, items }));
+  }, [notes, formatNoteDateKey]);
+  function toggleNoteSelected(id) {
+    setSelectedNoteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleGroupSelected(items) {
+    setSelectedNoteIds((prev) => {
+      const next = new Set(prev);
+      const allSelected = items.every((n) => next.has(n.id));
+      items.forEach((n) => (allSelected ? next.delete(n.id) : next.add(n.id)));
+      return next;
+    });
+  }
+  function selectAllNotes() {
+    setSelectedNoteIds(new Set(notes.map((n) => n.id)));
+  }
+  function exitNoteSelectMode() {
+    setNoteSelectMode(false);
+    setSelectedNoteIds(new Set());
+  }
+  function deleteSelectedNotes() {
+    if (!selectedNoteIds.size) return;
+    if (!window.confirm((nativeLang === "fa") ? `${selectedNoteIds.size} یادداشتِ انتخاب‌شده پاک بشه؟` : `Delete ${selectedNoteIds.size} selected notes?`)) return;
+    removeGrammarNotesBulk(selectedNoteIds);
+    setExpandedNote(null);
+    exitNoteSelectMode();
+  }
 
   const [chatLang, setChatLang] = useState((targetOrder && targetOrder[0]) || "en");
   const [chatMessages, setChatMessages] = useState([]); // [{ role: "user"|"ai", text }]
@@ -7944,6 +8245,12 @@ function GrammarPanel({
   );
 
   const resetPracticePosition = useCallback(() => {
+    // اگه به هر دلیلی (مثلاً از‌دست‌رفتنِ رویدادِ pointerup روی موبایل)
+    // یه کشیدنِ نیمه‌کاره‌ی جابجایی گیر کرده باشه، اول اون رو هم پاک
+    // می‌کنیم — وگرنه فرمولِ practiceLiveMoveOffset همچنان از آفستِ
+    // گیرکرده استفاده می‌کنه و باکس با دکمه‌ی بازگشت جابجا نمی‌شه.
+    practiceMoveDragInfoRef.current = null;
+    setPracticeMoveDragOffset(null);
     setPracticeMoveOffset({ x: 0, y: 0 });
   }, []);
 
@@ -8199,6 +8506,35 @@ function GrammarPanel({
   }, [editingMsgText, editingMsgIndex]);
 
   const langOptions = targetOrder && targetOrder.length ? targetOrder : LANGUAGES.map((l) => l.code);
+  // ترجمه‌ی توضیحِ هر پیامِ هوش‌مصنوعی (که به زبانِ مادریِ کاربر نوشته
+  // می‌شه) به هر کدوم از زبان‌های مقصدی که خودِ کاربر از تنظیماتِ اپ
+  // چیده — با زدنِ تراشه‌ی هر زبان، همون‌جا زیرِ پیام باز/بسته می‌شه.
+  // کلید: `${msgIndex}:${langCode}` → "loading" | متنِ ترجمه‌شده.
+  const [msgTranslations, setMsgTranslations] = useState({});
+  const [openMsgTranslation, setOpenMsgTranslation] = useState({}); // msgIndex -> langCode | null
+  async function toggleMessageTranslation(msgIndex, text, langCode) {
+    setOpenMsgTranslation((prev) => ({ ...prev, [msgIndex]: prev[msgIndex] === langCode ? null : langCode }));
+    const key = `${msgIndex}:${langCode}`;
+    if (msgTranslations[key]) return;
+    setMsgTranslations((prev) => ({ ...prev, [key]: "loading" }));
+    try {
+      const plain = String(text || "")
+        .split(/\r?\n/)
+        .map((l) => stripMdInline(l))
+        .join("\n");
+      const result = await translateFree(plain, langCode, "auto", aiSettings);
+      setMsgTranslations((prev) => ({ ...prev, [key]: result || "—" }));
+    } catch {
+      setMsgTranslations((prev) => ({ ...prev, [key]: "—" }));
+    }
+  }
+  // چون کرکره‌ی انتخابِ زبانِ تمرین از هدرِ باکس حذف شد، زبانِ تمرین همیشه
+  // به اولین زبانِ مقصدی که کاربر از تنظیماتِ اصلیِ اپ چیده (targetOrder[0])
+  // گره می‌خوره؛ با عوض‌شدنِ اون ترتیب، این هم خودکار به‌روز می‌شه.
+  useEffect(() => {
+    const first = targetOrder && targetOrder.length ? targetOrder[0] : null;
+    if (first) setChatLang(first);
+  }, [targetOrder && targetOrder[0]]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -8276,71 +8612,132 @@ function GrammarPanel({
             هنوز نکته‌ی گرامری‌ای ذخیره نکردی. روی هر کلمه‌ی داخل داستان بزن و «افزودن به یادگیری گرامر» رو انتخاب کن.
           </p>
         )}
-        {notes.length > 0 && (
+        {notes.length > 0 && !noteSelectMode && (
           <div className="flex justify-end">
             <button
-              onClick={() => {
-                if (!window.confirm(`همه‌ی ${notes.length} یادداشتِ گرامریِ ذخیره‌شده پاک بشه؟`)) return;
-                clearAllGrammarNotes();
-                setExpandedNote(null);
-              }}
+              onClick={() => setNoteSelectMode(true)}
               className="flex items-center gap-1"
               style={{ fontSize: 12, color: colors.rose, fontWeight: 700 }}
             >
-              <Trash2 size={13} />
-              پاک‌کردن همه
+              <ListChecks size={13} />
+              انتخاب / حذف
             </button>
           </div>
         )}
-        {notes.map((n) => {
-          const isOpen = expandedNote === n.id;
-          const langLabel = LANGUAGES.find((l) => l.code === n.langCode)?.label || n.langCode;
-          const wordSaved = isWordSaved(n.word, n.langCode);
-          return (
-            <div
-              key={n.id}
-              ref={(el) => (noteElsRef.current[n.id] = el)}
-              style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12 }}
-            >
-              <div
-                className="flex items-center justify-between"
-                onClick={() => setExpandedNote(isOpen ? null : n.id)}
-                style={{ cursor: "pointer" }}
+        {notes.length > 0 && noteSelectMode && (
+          <div
+            className="flex items-center justify-between flex-wrap"
+            style={{ gap: 8, backgroundColor: colors.goldSoft, borderRadius: 12, padding: "8px 10px" }}
+          >
+            <div className="flex items-center gap-2" style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>
+              {selectedNoteIds.size > 0 ? `${selectedNoteIds.size} مورد انتخاب شد` : "انتخاب کن"}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={selectAllNotes}
+                className="flex items-center gap-1"
+                style={{ fontSize: 12, fontWeight: 700, color: colors.teal }}
               >
-                <div className="flex items-center gap-2">
-                  <SpeakButton text={extractSpeakableText(n.markdown) || n.word} code={n.langCode} />
-                  <div>
-                    <p dir="auto" style={{ fontWeight: 700, fontSize: 14 }}>
-                      {n.word}
-                    </p>
-                    <p style={{ fontSize: 11, color: colors.inkSoft }}>{langLabel}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
+                <ListChecks size={13} />
+                انتخاب همه
+              </button>
+              <button
+                onClick={deleteSelectedNotes}
+                disabled={!selectedNoteIds.size}
+                className="flex items-center gap-1"
+                style={{ fontSize: 12, fontWeight: 700, color: colors.rose, opacity: selectedNoteIds.size ? 1 : 0.5 }}
+              >
+                <Trash2 size={13} />
+                حذف
+              </button>
+              <button onClick={exitNoteSelectMode} style={{ fontSize: 12, color: colors.inkSoft, fontWeight: 700 }}>
+                انصراف
+              </button>
+            </div>
+          </div>
+        )}
+        {noteGroups.map((group) => {
+          const groupAllSelected = noteSelectMode && group.items.every((n) => selectedNoteIds.has(n.id));
+          return (
+            <div key={group.label} className="flex flex-col gap-2">
+              <div className="flex items-center gap-2" style={{ marginTop: 4 }}>
+                {noteSelectMode && (
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleSavedStoryWord(n.word, n.langCode);
-                    }}
-                    style={{ color: wordSaved ? colors.gold : colors.inkSoft, display: "flex" }}
-                    title={wordSaved ? "حذف از لغات ذخیره‌شده" : "ذخیره‌ی لغت"}
+                    onClick={() => toggleGroupSelected(group.items)}
+                    style={{ color: groupAllSelected ? colors.gold : colors.inkSoft, display: "flex" }}
+                    title="انتخابِ همه‌ی این تاریخ"
                   >
-                    <Bookmark size={14} fill={wordSaved ? colors.gold : "none"} />
+                    {groupAllSelected ? <CheckSquare size={15} /> : <Square size={15} />}
                   </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeGrammarNote(n.id);
-                    }}
-                    style={{ color: colors.inkSoft, display: "flex" }}
-                    title="حذف"
-                  >
-                    <X size={14} />
-                  </button>
-                  {isOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-                </div>
+                )}
+                <p style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft }}>{group.label}</p>
               </div>
-              {isOpen && (
+              {group.items.map((n) => {
+                const isOpen = expandedNote === n.id;
+                const langLabel = LANGUAGES.find((l) => l.code === n.langCode)?.label || n.langCode;
+                const wordSaved = isWordSaved(n.word, n.langCode);
+                const isSelected = selectedNoteIds.has(n.id);
+                return (
+                  <div
+                    key={n.id}
+                    ref={(el) => (noteElsRef.current[n.id] = el)}
+                    style={{
+                      backgroundColor: "white",
+                      border: `1px solid ${isSelected ? colors.gold : colors.cardBorder}`,
+                      borderRadius: 14,
+                      padding: 12,
+                    }}
+                  >
+                    <div
+                      className="flex items-center justify-between"
+                      onClick={() => (noteSelectMode ? toggleNoteSelected(n.id) : setExpandedNote(isOpen ? null : n.id))}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <div className="flex items-center gap-2">
+                        {noteSelectMode ? (
+                          <span style={{ color: isSelected ? colors.gold : colors.inkSoft, display: "flex" }}>
+                            {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
+                          </span>
+                        ) : (
+                          <SpeakButton text={extractSpeakableText(n.markdown) || n.word} code={n.langCode} />
+                        )}
+                        <div>
+                          <p dir="auto" style={{ fontWeight: 700, fontSize: 14 }}>
+                            {n.word}
+                          </p>
+                          <p style={{ fontSize: 11, color: colors.inkSoft }}>
+                            {langLabel}
+                            {n.savedAt ? ` · ${formatNoteTime(n.savedAt)}` : ""}
+                          </p>
+                        </div>
+                      </div>
+                      {!noteSelectMode && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleSavedStoryWord(n.word, n.langCode);
+                            }}
+                            style={{ color: wordSaved ? colors.gold : colors.inkSoft, display: "flex" }}
+                            title={wordSaved ? "حذف از لغات ذخیره‌شده" : "ذخیره‌ی لغت"}
+                          >
+                            <Bookmark size={14} fill={wordSaved ? colors.gold : "none"} />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeGrammarNote(n.id);
+                            }}
+                            style={{ color: colors.inkSoft, display: "flex" }}
+                            title="حذف"
+                          >
+                            <X size={14} />
+                          </button>
+                          {isOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+                        </div>
+                      )}
+                    </div>
+                    {isOpen && !noteSelectMode && (
                 <div style={{ marginTop: 8, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 8 }}>
                   <MiniMarkdown text={n.markdown} speakCode={n.langCode} nativeLang={nativeLang} aiSettings={aiSettings} />
 
@@ -8412,6 +8809,9 @@ function GrammarPanel({
                   )}
                 </div>
               )}
+            </div>
+          );
+        })}
             </div>
           );
         })}
@@ -8492,8 +8892,8 @@ function GrammarPanel({
                 margin: "6px auto 0",
               }}
             />
-            <div className="px-4 py-2 flex items-center justify-between gap-2 flex-wrap" style={{ rowGap: 6 }}>
-              <div className="flex items-center gap-2" style={{ fontWeight: 700, color: "#fff" }}>
+            <div className="px-3 py-2 flex items-center justify-between gap-1" style={{ flexWrap: "nowrap" }}>
+              <div className="flex items-center gap-1" style={{ fontWeight: 700, color: "#fff", minWidth: 0, flex: "1 1 auto" }}>
                 <span
                   aria-hidden="true"
                   style={{
@@ -8501,15 +8901,15 @@ function GrammarPanel({
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    width: 22,
-                    height: 22,
+                    width: 20,
+                    height: 20,
                     borderRadius: "50%",
                     backgroundColor: colors.teal,
                     border: "2px solid rgba(255,255,255,0.85)",
                     flexShrink: 0,
                   }}
                 >
-                  <MessageCircle size={12} color="#ffffff" fill="rgba(255,255,255,0.15)" strokeWidth={2.25} />
+                  <MessageCircle size={11} color="#ffffff" fill="rgba(255,255,255,0.15)" strokeWidth={2.25} />
                   {chatMessages.length > 0 && practiceSheet === "peek" && (
                     <span
                       aria-hidden="true"
@@ -8526,25 +8926,40 @@ function GrammarPanel({
                     />
                   )}
                 </span>
-                <span>تمرین جمله‌سازی و گرامر با هوش مصنوعی</span>
-                {practiceSheet === "peek" ? <ChevronUp size={16} color="#fff" /> : <ChevronDown size={16} color="#fff" />}
+                <span
+                  style={{
+                    fontSize: 12,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    minWidth: 0,
+                  }}
+                >
+                  تمرین جمله‌سازی و گرامر
+                </span>
+                {practiceSheet === "peek" ? <ChevronUp size={15} color="#fff" /> : <ChevronDown size={15} color="#fff" />}
               </div>
-              <div className="flex items-center gap-2" onPointerDown={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-1" style={{ flexShrink: 0 }} onPointerDown={(e) => e.stopPropagation()}>
                 {practiceMoved && (
                   <button
-                    onClick={resetPracticePosition}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      resetPracticePosition();
+                    }}
                     className="flex items-center justify-center"
                     style={{
-                      width: 26,
-                      height: 26,
+                      width: 24,
+                      height: 24,
                       borderRadius: "50%",
                       backgroundColor: "rgba(255,255,255,0.18)",
                       color: "#fff",
+                      flexShrink: 0,
                     }}
                     title={isFa ? "بازگرداندنِ باکس به جای اولش" : "Reset box position"}
                     aria-label={isFa ? "بازگرداندنِ باکس به جای اولش" : "Reset box position"}
                   >
-                    <RotateCcw size={13} color="#fff" />
+                    <RotateCcw size={12} color="#fff" />
                   </button>
                 )}
                 <div
@@ -8560,11 +8975,12 @@ function GrammarPanel({
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    width: 26,
-                    height: 26,
+                    width: 24,
+                    height: 24,
                     cursor: "grab",
                     touchAction: "none",
                     userSelect: "none",
+                    flexShrink: 0,
                   }}
                 >
                   <div
@@ -8584,25 +9000,14 @@ function GrammarPanel({
                 {chatMessages.length > 0 && (
                   <button
                     onClick={clearChat}
-                    className="flex items-center gap-1"
-                    style={{ fontSize: 11, color: "#fff", opacity: 0.9 }}
+                    className="flex items-center justify-center"
+                    style={{ width: 24, height: 24, color: "#fff", opacity: 0.9, flexShrink: 0 }}
                     title={isFa ? "پاک‌کردن گفتگو" : "Clear conversation"}
+                    aria-label={isFa ? "پاک‌کردن گفتگو" : "Clear conversation"}
                   >
-                    <Trash2 size={12} />
-                    {isFa ? "پاک‌کردن گفتگو" : "Clear"}
+                    <Trash2 size={13} />
                   </button>
                 )}
-                <select
-                  value={chatLang}
-                  onChange={(e) => setChatLang(e.target.value)}
-                  style={{ fontSize: 12, border: "none", borderRadius: 8, padding: "3px 6px" }}
-                >
-                  {langOptions.map((code) => (
-                    <option key={code} value={code}>
-                      {LANGUAGES.find((l) => l.code === code)?.label || code}
-                    </option>
-                  ))}
-                </select>
               </div>
             </div>
           </div>
@@ -8729,7 +9134,66 @@ function GrammarPanel({
                                   cursor: isUser ? "pointer" : "default",
                                 }}
                               >
-                                {isUser ? m.text : <MiniMarkdown text={m.text} speakCode={chatLang} nativeLang={nativeLang} aiSettings={aiSettings} />}
+                                {isUser ? m.text : <MiniMarkdown text={m.text} speakCode={chatLang} nativeLang={nativeLang} aiSettings={aiSettings} wordTapTarget={targetOrder && targetOrder[0]} />}
+                                {m.role === "ai" && langOptions.length > 0 && (
+                                  <div className="flex items-center gap-1 flex-wrap" style={{ marginTop: 8, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 6 }}>
+                                    <Globe size={12} color={colors.inkSoft} />
+                                    {langOptions.map((code) => {
+                                      const label = LANGUAGES.find((l) => l.code === code)?.label || code;
+                                      const isOpenLang = openMsgTranslation[i] === code;
+                                      return (
+                                        <button
+                                          key={code}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            toggleMessageTranslation(i, m.text, code);
+                                          }}
+                                          style={{
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            borderRadius: 999,
+                                            padding: "2px 8px",
+                                            backgroundColor: isOpenLang ? colors.teal : "white",
+                                            color: isOpenLang ? "white" : colors.inkSoft,
+                                            border: `1px solid ${isOpenLang ? colors.teal : colors.cardBorder}`,
+                                          }}
+                                        >
+                                          {label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                {m.role === "ai" &&
+                                  openMsgTranslation[i] &&
+                                  (() => {
+                                    const key = `${i}:${openMsgTranslation[i]}`;
+                                    const val = msgTranslations[key];
+                                    return (
+                                      <div
+                                        dir="auto"
+                                        style={{
+                                          marginTop: 6,
+                                          fontSize: 12,
+                                          color: colors.ink,
+                                          backgroundColor: "white",
+                                          borderRadius: 8,
+                                          padding: "6px 8px",
+                                          border: `1px solid ${colors.cardBorder}`,
+                                          whiteSpace: "pre-wrap",
+                                        }}
+                                      >
+                                        {val === "loading" ? (
+                                          <span className="flex items-center gap-1" style={{ color: colors.inkSoft }}>
+                                            <Loader2 size={12} className="spin" />
+                                            در حال ترجمه...
+                                          </span>
+                                        ) : (
+                                          val
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
                                 {m.role === "ai" && (
                                   <div className="flex justify-end" style={{ marginTop: 6 }}>
                                     {m.savedToGrammar ? (
