@@ -6455,13 +6455,8 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
 
       // شمارش تقریبی تعداد تکرار هر لغت (و اشکال صرفی نزدیکش) تو متن داستان —
       // برای اینکه بفهمیم مدل واقعاً به تعداد درخواستی پایبند بوده یا نه.
-      // شمارش قبلی روی \b (مرزِ کلمه‌ی ASCII) بود که برای هر اسکریپتِ غیرلاتین
-      // (فارسی/عربی/روسی و...) و حتی حروفِ لاتینِ با علامت (é, ü, ...) اصلاً
-      // کار نمی‌کرد — چون \b فقط بینِ [A-Za-z0-9_] و بقیه‌ی کاراکترها مرز
-      // می‌بینه، برای مثلاً فارسی هیچ مرزی پیدا نمی‌شد و شمارش همیشه ۰ برمی‌گشت.
-      // نتیجه‌ش این بود که رتراىِ اصلاحِ تعداد تکرار عملاً کور بود و هیچ‌وقت
-      // واقعاً کار نمی‌کرد. اینجا با \p{L}/\p{N} (یونیکد) مرزِ کلمه رو دستی
-      // می‌سازیم که برای هر زبانی درست کار کنه.
+      // با \p{L}/\p{N} (یونیکد) مرزِ کلمه رو دستی می‌سازیم که برای هر زبانی
+      // (فارسی/عربی/روسی/لاتینِ با علامت و ...) درست کار کنه.
       const countWordOccurrences = (text, word) => {
         const esc = word.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         if (!esc) return 0;
@@ -6470,11 +6465,45 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         return matches ? matches.length : 0;
       };
 
+      // ============================================================
+      // 🔥 بودجه‌بندیِ تکرار به‌ازای هر پاراگراف
+      // به‌جای اینکه از مدل بخوایم یه شمارنده‌ی سراسری («۸ بار تو کل داستان»)
+      // رو تو ذهنش نگه داره — که هم کند بود هم نادقیق — خودمون از قبل حساب
+      // می‌کنیم هر پاراگراف چند بار از هر لغت رو باید ببره (جمعش دقیقاً
+      // repeatCount می‌شه) و این جدول رو مستقیم تو پرامپت می‌دیم. «چند بار
+      // تو همین یه پاراگراف» یه تسکِ لوکاله که مدل خیلی بهتر رعایتش می‌کنه.
+      // برای اینکه بودجه‌بندی معنا داشته باشه، به‌جای یه بازه (کوتاه/متوسط/
+      // بلند) یه عددِ ثابت (میانگینِ بازه) به‌عنوانِ تعداد پاراگراف می‌خوایم —
+      // این هم به مدل کمک می‌کنه دقیق‌تر باشه (عددِ ثابت رو راحت‌تر از بازه
+      // رعایت می‌کنه).
+      const targetParagraphs = Math.round((lengthCfg.paragraphMin + lengthCfg.paragraphMax) / 2);
+      const buildParagraphBudget = (numParagraphs) => {
+        const budget = Array.from({ length: numParagraphs }, () => ({}));
+        selectedWords.forEach((w) => {
+          const base = Math.floor(repeatCount / numParagraphs);
+          const remainder = repeatCount % numParagraphs;
+          const order = Array.from({ length: numParagraphs }, (_, i) => i).sort(() => Math.random() - 0.5);
+          for (let i = 0; i < numParagraphs; i++) budget[i][w] = base;
+          for (let i = 0; i < remainder; i++) budget[order[i]][w] += 1;
+        });
+        return budget;
+      };
+      const paraBudget = buildParagraphBudget(targetParagraphs);
+      const budgetTable = paraBudget
+        .map((b, i) => {
+          const entries = Object.entries(b).filter(([, c]) => c > 0);
+          const line = entries.length
+            ? entries.map(([w, c]) => `"${w}" ×${c}`).join(", ")
+            : "(no target word required here — just continue the narrative)";
+          return `Paragraph ${i + 1}: ${line}`;
+        })
+        .join("\n");
+
       const buildPrompt = (correction) => `You are a skilled storyteller writing ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}.
 
 TOPIC/GENRE — hard requirement, not a suggestion: the story MUST genuinely be ${genre.prompt}. Its plot, tone, setting, and vocabulary must clearly and unmistakably belong to this genre from the first sentence — do not default to a generic everyday story if the genre is something else.
 
-LENGTH — hard requirement: write EXACTLY ${lengthCfg.paragraphMin === lengthCfg.paragraphMax ? lengthCfg.paragraphMin : `between ${lengthCfg.paragraphMin} and ${lengthCfg.paragraphMax}`} paragraphs in total (not fewer, not more), each with ${lengthCfg.sentencesHint}. The "paragraphs" array in your JSON output must contain exactly this many paragraph objects.
+LENGTH — hard requirement: write EXACTLY ${targetParagraphs} paragraphs in total (not fewer, not more), each with ${lengthCfg.sentencesHint}. The "paragraphs" array in your JSON output must contain exactly ${targetParagraphs} paragraph objects, in order.
 
 NARRATIVE QUALITY:
 - Write ONE genuinely coherent, connected story with a real narrative arc (setup → development → payoff/ending appropriate to the genre) — NOT a disconnected list of example sentences that merely happen to sit next to each other.
@@ -6483,9 +6512,12 @@ NARRATIVE QUALITY:
 - You do NOT need to introduce the target words in the order they're listed — use whatever order serves the story best.
 - Paragraphs must flow into each other (later paragraphs should refer back to people, places, or events from earlier ones), not restart the scene each time.
 
-REPETITION — important guideline: each target word below should appear as close to ${repeatCount} times as possible (all grammatical forms/inflections of the word counted together as one). A variation of 1 or 2 more or fewer is acceptable — please try to avoid large deviations (e.g., don't use a word 0 times if the budget is ${repeatCount}). The story should feel natural, coherent, and interesting — do not sacrifice quality just to hit an exact number. However, if you notice a word appears much more or much less than ${repeatCount} (e.g., more than double or less than half), try to balance it in your final version. Count roughly before finalizing, but perfection is not required. Target words and their target count: ${selectedWords.map((w) => `"${w}" → about ${repeatCount} times`).join(", ")}.${correction ? " " + correction : ""}
+REPETITION — follow this PER-PARAGRAPH budget exactly, instead of trying to track a global count yourself. Each line below lists which target words (and how many times each, counting all grammatical forms/inflections together) should appear in THAT paragraph specifically. This budget already sums to the right total across the whole story, so just follow it paragraph by paragraph — being off by 1 in a single paragraph is fine, but don't ignore the split. Weave the words naturally into the sentence flow — don't just list them mechanically.
 
-Do NOT lengthen the story beyond the paragraph count above just to fit more repetitions of a word; if a word's target doesn't fit naturally within that length, reuse it within an existing sentence instead of adding new sentences or paragraphs.
+${budgetTable}
+${correction ? "\n" + correction : ""}
+
+Do NOT lengthen any paragraph far beyond the sentence-count guideline above just to fit more repetitions of a word; if a word's budget doesn't fit naturally, reuse it within an existing sentence instead of adding new sentences.
 
 After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
 
@@ -6502,41 +6534,95 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
       };
 
       const scoreAttempt = (parsedAttempt) => {
-        const paraCount = (parsedAttempt.paragraphs || []).length;
-        const text = (parsedAttempt.paragraphs || []).flatMap((p) => (p.sentences || []).map((s) => s.text)).join(" ");
+        const paras = parsedAttempt.paragraphs || [];
+        const paraTexts = paras.map((p) => (p.sentences || []).map((s) => s.text).join(" "));
+        const text = paraTexts.join(" ");
         const attemptCounts = selectedWords.map((w) => ({ word: w, count: countWordOccurrences(text, w) }));
         const repDeviation = attemptCounts.reduce((sum, c) => sum + Math.abs(c.count - repeatCount), 0);
         // این دیگه نیازی به «دقیقاً» رسیدن به repeatCount نداره — یه کلمه فقط
         // وقتی offender حساب می‌شه که انحرافش واقعاً بزرگ باشه (بیش از ۲ تا
         // فاصله، و بیشتر از دو برابر یا کمتر از نصفِ عددِ خواسته‌شده)؛ فاصله‌ی
-        // ۱ یا ۲ تایی طبیعیه و باعثِ ریترای نمی‌شه.
+        // ۱ یا ۲ تایی طبیعیه و باعثِ پچ/ریترای نمی‌شه.
         const offenders = attemptCounts.filter(
           (c) => Math.abs(c.count - repeatCount) > 2 && (c.count > repeatCount * 2 || c.count < repeatCount / 2)
         );
-        // فاصله‌ی تعداد پاراگراف‌ها از بازه‌ی خواسته‌شده (کوتاه/متوسط/بلند) —
-        // هر پاراگراف اضافه/کم شمرده می‌شه، وزنِ سنگین‌تری از یه اختلافِ
-        // معمولیِ تعداد تکرار می‌گیره چون خودِ ساختارِ داستان رو به هم می‌زنه.
-        const paraDeviation =
-          paraCount < lengthCfg.paragraphMin ? (lengthCfg.paragraphMin - paraCount) * 3
-          : paraCount > lengthCfg.paragraphMax ? (paraCount - lengthCfg.paragraphMax) * 3
-          : 0;
+        const paraCount = paras.length;
+        const paraDeviation = paraCount !== targetParagraphs ? Math.abs(paraCount - targetParagraphs) * 3 : 0;
         const lengthOk = paraCount >= lengthCfg.paragraphMin && paraCount <= lengthCfg.paragraphMax;
-        return { counts: attemptCounts, paraCount, lengthOk, deviation: repDeviation + paraDeviation, offenders };
+        return { counts: attemptCounts, paraTexts, paraCount, lengthOk, deviation: repDeviation + paraDeviation, offenders };
       };
 
       let parsed = await runAttempt();
       let best = { parsed, ...scoreAttempt(parsed) };
 
-      // اگه تعداد تکرارها یا تعداد پاراگراف‌ها با درخواست فاصله داشت، تا ۲ بار
-      // دیگه با بازخوردِ دقیق (چند بار واقعاً استفاده شده، چند پاراگراف واقعاً
-      // نوشته شده) دوباره امتحان می‌کنیم و در نهایت بهترین نسخه (کمترین
-      // فاصله‌ی کل از عددهای درخواستی) رو نگه می‌داریم.
-      for (let attempt = 0; attempt < 3 && (best.offenders.length > 0 || !best.lengthOk); attempt++) {
+      // ============================================================
+      // 🔥 پچِ هدفمند به‌جای regenerate کامل
+      // به‌جای اینکه (مثل قبل) تا ۳ بار کل داستان رو از صفر بسازیم، اگه
+      // تعداد پاراگراف‌ها دقیقاً همون targetParagraphs بود، فقط همون
+      // پاراگراف‌هایی که با بودجه‌ی خودشون فاصله‌ی محسوسی دارن رو (موازی، با
+      // Promise.allSettled) بازنویسی می‌کنیم — هر کالِ پچ فقط یه پاراگراف
+      // کوچیکه، پس خیلی سریع‌تر از تولید کل داستانه.
+      if (best.paraCount === targetParagraphs && best.offenders.length > 0) {
+        const paragraphsToPatch = [];
+        best.paraTexts.forEach((ptext, i) => {
+          const needs = [];
+          selectedWords.forEach((w) => {
+            const target = paraBudget[i][w] || 0;
+            const actual = countWordOccurrences(ptext, w);
+            if (Math.abs(actual - target) > 1) needs.push({ word: w, target, actual });
+          });
+          if (needs.length) paragraphsToPatch.push({ index: i, needs });
+        });
+
+        if (paragraphsToPatch.length) {
+          const buildPatchPrompt = ({ index, needs }) => {
+            const prev = best.paraTexts[index - 1] || "(this is the first paragraph — no previous context)";
+            const next = best.paraTexts[index + 1] || "(this is the last paragraph — no next context)";
+            const current = best.paraTexts[index];
+            const needsList = needs
+              .map((n) => `"${n.word}": currently appears ${n.actual} time(s), should appear ${n.target} time(s)`)
+              .join("; ");
+            return `You are lightly editing ONE paragraph of an existing ${storyLangLabel} story (CEFR ${storyLevel}) to fix word-usage counts, WITHOUT changing the plot, characters, or events.
+
+Previous paragraph (context only — do NOT rewrite this): ${prev}
+
+Paragraph to rewrite: ${current}
+
+Next paragraph (context only — do NOT rewrite this): ${next}
+
+Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the previous/next paragraphs and keeps roughly the same length and tone, but adjusts these word counts (counting all grammatical forms/inflections together): ${needsList}. Weave the words naturally into the sentences — don't just repeat them mechanically or list them. Respond ONLY with strict JSON, no markdown fences, no extra text: {"sentences": [{"text": "..."}]}`;
+          };
+
+          const patchResults = await Promise.allSettled(
+            paragraphsToPatch.map((item) =>
+              callAI({ prompt: buildPatchPrompt(item), maxTokens: 900, aiSettings }).then((res) => {
+                const cleaned = res.replace(/```json|```/g, "").trim();
+                return { index: item.index, parsed: JSON.parse(cleaned) };
+              })
+            )
+          );
+
+          const patchedParagraphs = [...best.parsed.paragraphs];
+          patchResults.forEach((r) => {
+            if (r.status === "fulfilled" && r.value?.parsed?.sentences?.length) {
+              patchedParagraphs[r.value.index] = { sentences: r.value.parsed.sentences };
+            }
+          });
+          const patchedAttempt = { ...best.parsed, paragraphs: patchedParagraphs };
+          const patchedScore = { parsed: patchedAttempt, ...scoreAttempt(patchedAttempt) };
+          if (patchedScore.deviation < best.deviation) best = patchedScore;
+        }
+      }
+
+      // اگه بعد از پچِ پاراگرافی هنوزم مشکل داشت (یا اصلاً تعداد پاراگراف‌ها
+      // درست نبود که پچ اصلاً قابل‌اعمال نبود)، فقط یه بار — نه سه بار مثل
+      // قبل — کل داستان رو با بازخوردِ دقیق از نو می‌سازیم.
+      if (best.offenders.length > 0 || !best.lengthOk) {
         const repDetail = best.offenders.map((c) => `"${c.word}": you used it ${c.count} times, but the target is about ${repeatCount}`).join("; ");
         const lengthDetail = best.lengthOk
           ? ""
-          : ` Also, your previous attempt had ${best.paraCount} paragraphs, but it must have ${lengthCfg.paragraphMin === lengthCfg.paragraphMax ? lengthCfg.paragraphMin : `between ${lengthCfg.paragraphMin} and ${lengthCfg.paragraphMax}`} paragraphs — fix the paragraph count too.`;
-        const correction = `Your previous attempt had a large repetition imbalance for some words (${repDetail || "see above"}).${lengthDetail} Rewrite the story from scratch and this time get each target word closer to its target of ${repeatCount} mentions — being off by 1 or 2 is totally fine, just avoid using a word way more than double or way less than half of its target. AND land the paragraph count exactly in the required range. Keep the story just as natural, coherent, and connected as before (or more so) while you do this — don't turn it into disconnected example sentences to make counting easier.`;
+          : ` Also, your previous attempt had ${best.paraCount} paragraphs, but it must have exactly ${targetParagraphs} paragraphs — fix the paragraph count too.`;
+        const correction = `Your previous attempt had a large repetition imbalance for some words (${repDetail || "see above"}).${lengthDetail} Rewrite the story from scratch and this time follow the per-paragraph budget closely — being off by 1 in a single paragraph is fine, just avoid using a word way more than double or way less than half of its total target across the story. Keep the story just as natural, coherent, and connected as before (or more so) while you do this — don't turn it into disconnected example sentences to make counting easier.`;
         try {
           const retryParsed = await runAttempt(correction);
           const retryScore = { parsed: retryParsed, ...scoreAttempt(retryParsed) };
@@ -6544,12 +6630,12 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
             best = retryScore;
           }
         } catch {
-          // اگه یه تلاش خطا داد، بهترین نسخه‌ی موجود رو نگه می‌داریم و ادامه می‌دیم
+          // اگه این تلاش هم خطا داد، بهترین نسخه‌ی موجود رو نگه می‌داریم
         }
       }
       parsed = best.parsed;
 
-      // بعد از تمومِ ریترای‌ها، اگه هنوزم بعضی لغات دقیقاً به تعدادِ درخواستی
+      // بعد از تمومِ پچ/ریترای، اگه هنوزم بعضی لغات دقیقاً به تعدادِ درخواستی
       // نرسیده بودن، شفاف به کاربر می‌گیم — داستان رو (بهترین نسخه‌ی موجود)
       // بازم نشون می‌دیم، فقط دیگه ادعا نمی‌کنیم که تکرارها ۱۰۰٪ دقیقن.
       if (best.offenders && best.offenders.length > 0) {
