@@ -1339,11 +1339,20 @@ const speechController = (() => {
       const boundary = chunks[idx] && chunks[idx].boundary;
       const gap = boundary === "sentence" ? sentenceGapMs(rate) : 0;
 
-      // تکرارِ سراسری (اگه روشن باشه و سِشن «loop» نباشه) اینجا اعمال
-      // می‌شه: قبل از رفتن سراغِ جمله‌ی بعد، همینِ جمله‌ی همین‌الان‌تمام‌شده
-      // رو دوباره می‌خونه — به تعدادِ تنظیمِ ۳/۶/بی‌نهایت. فقط وقتی این
-      // تعداد کامل شد (یا تکرار خاموش بود)، نوبتِ جمله‌ی بعدی می‌رسه.
-      if (!loopWholeText && !singleShot) {
+      // تکرارِ سراسری (اگه روشن باشه) اینجا اعمال می‌شه: قبل از رفتن سراغِ
+      // جمله‌ی بعد، همینِ جمله‌ی همین‌الان‌تمام‌شده رو دوباره می‌خونه — به
+      // تعدادِ تنظیمِ ۳/۶/بی‌نهایت. فقط وقتی این تعداد کامل شد (یا تکرار
+      // خاموش بود)، نوبتِ جمله‌ی بعدی می‌رسه. توجه: این دیگه به loopWholeText
+      // بستگی نداره — چون همه‌ی دکمه‌های 🔊 (کنار هر خط) الان با
+      // options.loop=true صدا زده می‌شن (برای اینکه رسیدن به آخرِ متن به‌جای
+      // توقف، از اول ادامه پیدا کنه)، و اگه اینجا رو به loopWholeText گیر
+      // می‌دادیم، همون true‌بودنش باعث می‌شد تکرارِ هر خط/جمله کلاً غیرفعال
+      // بشه — دقیقاً همون باگی که کاربر گزارش کرد (دکمه‌ی تکرار ۳/۶/∞ اثر
+      // نداشت). loopWholeText فقط پایین‌تر، توی speakChunk، برای تصمیمِ
+      // «رسیدن به آخرِ متن → از اول شروع کن یا نه» استفاده می‌شه؛ اینجا
+      // فقط singleShot (پخشِ تک‌ضربه‌ی بدونِ تکرار و بدونِ لوپ) باید
+      // خاموشش کنه.
+      if (!singleShot) {
         const isMultiChunk = chunks.length > 1;
         const repeatTarget =
           globalRepeatSetting === "inf"
@@ -6465,6 +6474,22 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         return matches ? matches.length : 0;
       };
 
+      // بعضی از «لغات» انتخاب‌شده، به‌جای یه کلمه‌ی تکی، عبارت یا جمله‌ی کامل
+      // مکالمه‌ان (طبق طراحیِ عمدی STORY_SEARCH_CONVERSATION_POOL — کاربر
+      // می‌تونه یه خط کامل از مکالمه رو هم به‌عنوان هدف انتخاب کنه). تکرار
+      // عینِ یه جمله‌ی ۲۰ کلمه‌ای ۸ بار تو یه داستان کوتاه نه طبیعیه نه اصلاً
+      // ممکن — و باعث می‌شد این آیتم همیشه offender بمونه و چرخه‌ی پچ/ریترای
+      // رو بی‌فایده و کند کنه. اینجا برای آیتم‌های طولانی، هدفِ تکرارِ
+      // واقع‌بینانه‌تری حساب می‌کنیم؛ همه‌ی محاسبات (بودجه‌ی پاراگرافی،
+      // offender-تشخیصی، پچ) از همین تابع استفاده می‌کنن.
+      const wordUnitCount = (w) => w.trim().split(/\s+/).filter(Boolean).length;
+      const effectiveTarget = (w) => {
+        const units = wordUnitCount(w);
+        if (units <= 3) return repeatCount;
+        if (units <= 6) return Math.max(1, Math.min(repeatCount, 3));
+        return 1;
+      };
+
       // ============================================================
       // 🔥 بودجه‌بندیِ تکرار به‌ازای هر پاراگراف
       // به‌جای اینکه از مدل بخوایم یه شمارنده‌ی سراسری («۸ بار تو کل داستان»)
@@ -6480,8 +6505,9 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       const buildParagraphBudget = (numParagraphs) => {
         const budget = Array.from({ length: numParagraphs }, () => ({}));
         selectedWords.forEach((w) => {
-          const base = Math.floor(repeatCount / numParagraphs);
-          const remainder = repeatCount % numParagraphs;
+          const target = effectiveTarget(w);
+          const base = Math.floor(target / numParagraphs);
+          const remainder = target % numParagraphs;
           const order = Array.from({ length: numParagraphs }, (_, i) => i).sort(() => Math.random() - 0.5);
           for (let i = 0; i < numParagraphs; i++) budget[i][w] = base;
           for (let i = 0; i < remainder; i++) budget[order[i]][w] += 1;
@@ -6512,7 +6538,7 @@ NARRATIVE QUALITY:
 - You do NOT need to introduce the target words in the order they're listed — use whatever order serves the story best.
 - Paragraphs must flow into each other (later paragraphs should refer back to people, places, or events from earlier ones), not restart the scene each time.
 
-REPETITION — follow this PER-PARAGRAPH budget exactly, instead of trying to track a global count yourself. Each line below lists which target words (and how many times each, counting all grammatical forms/inflections together) should appear in THAT paragraph specifically. This budget already sums to the right total across the whole story, so just follow it paragraph by paragraph — being off by 1 in a single paragraph is fine, but don't ignore the split. Weave the words naturally into the sentence flow — don't just list them mechanically.
+REPETITION — follow this PER-PARAGRAPH budget exactly, instead of trying to track a global count yourself. Each line below lists which target words (and how many times each, counting all grammatical forms/inflections together) should appear in THAT paragraph specifically. This budget already sums to the right total across the whole story, so just follow it paragraph by paragraph — being off by 1 in a single paragraph is fine, but don't ignore the split. Weave the words naturally into the sentence flow — don't just list them mechanically. Note: some target items below are full sentences or phrases rather than single words — for those, a budget of "×1" simply means work that sentence/phrase into the story naturally once; you do NOT need to repeat a long phrase verbatim multiple times.
 
 ${budgetTable}
 ${correction ? "\n" + correction : ""}
@@ -6537,14 +6563,17 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
         const paras = parsedAttempt.paragraphs || [];
         const paraTexts = paras.map((p) => (p.sentences || []).map((s) => s.text).join(" "));
         const text = paraTexts.join(" ");
-        const attemptCounts = selectedWords.map((w) => ({ word: w, count: countWordOccurrences(text, w) }));
-        const repDeviation = attemptCounts.reduce((sum, c) => sum + Math.abs(c.count - repeatCount), 0);
-        // این دیگه نیازی به «دقیقاً» رسیدن به repeatCount نداره — یه کلمه فقط
-        // وقتی offender حساب می‌شه که انحرافش واقعاً بزرگ باشه (بیش از ۲ تا
-        // فاصله، و بیشتر از دو برابر یا کمتر از نصفِ عددِ خواسته‌شده)؛ فاصله‌ی
+        const attemptCounts = selectedWords.map((w) => {
+          const target = effectiveTarget(w);
+          return { word: w, count: countWordOccurrences(text, w), target };
+        });
+        const repDeviation = attemptCounts.reduce((sum, c) => sum + Math.abs(c.count - c.target), 0);
+        // این دیگه نیازی به «دقیقاً» رسیدن به target نداره — یه لغت فقط وقتی
+        // offender حساب می‌شه که انحرافش واقعاً بزرگ باشه (بیش از ۲ تا فاصله،
+        // و بیشتر از دو برابر یا کمتر از نصفِ عددِ خواسته‌شده‌ی خودش)؛ فاصله‌ی
         // ۱ یا ۲ تایی طبیعیه و باعثِ پچ/ریترای نمی‌شه.
         const offenders = attemptCounts.filter(
-          (c) => Math.abs(c.count - repeatCount) > 2 && (c.count > repeatCount * 2 || c.count < repeatCount / 2)
+          (c) => Math.abs(c.count - c.target) > 2 && (c.count > c.target * 2 || c.count < c.target / 2)
         );
         const paraCount = paras.length;
         const paraDeviation = paraCount !== targetParagraphs ? Math.abs(paraCount - targetParagraphs) * 3 : 0;
@@ -6618,7 +6647,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       // درست نبود که پچ اصلاً قابل‌اعمال نبود)، فقط یه بار — نه سه بار مثل
       // قبل — کل داستان رو با بازخوردِ دقیق از نو می‌سازیم.
       if (best.offenders.length > 0 || !best.lengthOk) {
-        const repDetail = best.offenders.map((c) => `"${c.word}": you used it ${c.count} times, but the target is about ${repeatCount}`).join("; ");
+        const repDetail = best.offenders.map((c) => `"${c.word}": you used it ${c.count} times, but the target is about ${c.target}`).join("; ");
         const lengthDetail = best.lengthOk
           ? ""
           : ` Also, your previous attempt had ${best.paraCount} paragraphs, but it must have exactly ${targetParagraphs} paragraphs — fix the paragraph count too.`;
