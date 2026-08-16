@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { ChevronDown } from "lucide-react";
 
 /* =============================================================================
@@ -100,6 +100,27 @@ const translationColor = "#0F5C34";
 const READ_MARKER_COLOR = "#FFD54F";
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
+// نسخه‌ی محلیِ نگاشتِ لوکالِ TTS — عیناً همون چیزی که app.jsx داره (برای
+// ساختِ کلیدِ speechController: `${locale}::${text}`). این‌جا فقط برای
+// تشخیصِ این‌که «همین الان کدوم زبانِ ترجمه داره خونده می‌شه» لازمه، پس
+// یه کپیِ محلی (مثلِ colors/mainTextColor بالاتر) کافیه.
+const TTS_LOCALE_MINI = {
+  fa: "fa-IR",
+  en: "en-US",
+  de: "de-DE",
+  es: "es-ES",
+  fr: "fr-FR",
+  ar: "ar-SA",
+  tr: "tr-TR",
+  zh: "zh-CN",
+  ru: "ru-RU",
+  it: "it-IT",
+  ko: "ko-KR",
+  ja: "ja-JP",
+  hi: "hi-IN",
+  ga: "ga-IE",
+  uk: "uk-UA",
+};
 
 function TopicCard({ meta, hasData, onClick }) {
   return (
@@ -132,7 +153,7 @@ function TopicCard({ meta, hasData, onClick }) {
 // برای بقیه‌ی زبان‌ها (هر چی که کاربر بالای صفحه اضافه کنه) با همون
 // translateFree که به کل اپ وصله می‌گیره — و چون translateFree خودش کش
 // IndexedDB داره، دفعه‌ی بعد همون ترجمه بدون اینترنت هم در دسترسه.
-function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, SpeakButton, ClickableSentence, nativeLang, nativeLabel, speechController, autoScrollActive, highlightColor }) {
+function LineTranslation({ text, langCode, variant, i, knownFa, aiSettings, translateFree, SpeakButton, ClickableSentence, nativeLang, nativeLabel, autoScrollActive, highlightColor, fullText, lineOffsets, isActiveLine, onResolved }) {
   const [value, setValue] = useState(langCode === "fa" ? knownFa || "" : "");
   const [loading, setLoading] = useState(langCode !== "fa" && !knownFa);
 
@@ -157,43 +178,46 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
     };
   }, [text, langCode, knownFa]);
 
-  // درست مثلِ خطِ اصلی (متنِ انگلیسی): وقتی خودِ همین ترجمه در حالِ خوندنه
-  // (چه با زدنِ بلندگوی همین خط، چه با «ادامه»)، هایلایتش کن و به‌صورتِ
-  // خودکار به دیدش بیار — نیازی به ردیابیِ آفستِ داخلِ متن نیست، چون هر
-  // خطِ ترجمه یه SpeakButton مستقلِ با متنِ خودشه، پس کلیدِ speechController
-  // (که بعد از "::" دقیقاً همون متنه) به‌تنهایی مشخص می‌کنه همین خط در
-  // حالِ پخشه یا نه.
-  const [ttsState, setTtsState] = useState(() => (speechController ? speechController.getState() : null));
+  // به محضِ این‌که ترجمه‌ی این خط آماده شد، به بالا (DailyConversationsTab)
+  // خبر می‌دیم — والد از روی مقدارِ همه‌ی خط‌ها، «متنِ کاملِ ترجمه‌ها»یِ
+  // همین زبان رو می‌سازه؛ دقیقاً همون الگویی که برای متنِ اصلیِ انگلیسی
+  // (fullText/lineOffsets در سطحِ تب) استفاده شده، این‌جا هم برای هر زبانِ
+  // ترجمه تکرار می‌شه.
   useEffect(() => {
-    if (!speechController) return;
-    return speechController.subscribe(setTtsState);
-  }, [speechController]);
+    if (!loading && value && onResolved && variant != null && i != null) {
+      onResolved(langCode, variant, i, value);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, value, langCode, variant, i]);
 
-  const isLineActive = useMemo(() => {
-    if (!value || !ttsState || !ttsState.key || ttsState.status === "idle") return false;
-    const sepIdx = ttsState.key.indexOf("::");
-    const keyText = sepIdx >= 0 ? ttsState.key.slice(sepIdx + 2) : null;
-    return keyText === value;
-  }, [ttsState, value]);
-
+  // isActiveLine از والد میاد (بر اساسِ آفستِ واقعیِ پخشِ speechController
+  // داخلِ fullTextِ همین زبان) — دقیقاً همون مکانیزمی که خطِ اصلیِ انگلیسی
+  // استفاده می‌کنه، نه یه مقایسه‌ی سادهٔ متنیِ محلی مثلِ قبل (که با پخشِ
+  // پیوسته/ادامه‌دار کار نمی‌کرد).
   const rowRef = useRef(null);
   useEffect(() => {
-    if (!autoScrollActive || !isLineActive) return;
+    if (!autoScrollActive || !isActiveLine) return;
     if (rowRef.current && rowRef.current.scrollIntoView) {
       rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  }, [autoScrollActive, isLineActive]);
+  }, [autoScrollActive, isActiveLine]);
 
   if (!value && !loading) return null;
 
   const highlightStyle = {
-    backgroundColor: isLineActive ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+    backgroundColor: isActiveLine ? (highlightColor || READ_MARKER_COLOR) : "transparent",
     borderRadius: 5,
-    padding: isLineActive ? "2px 4px" : "2px 0",
+    padding: isActiveLine ? "2px 4px" : "2px 0",
     WebkitBoxDecorationBreak: "clone",
     boxDecorationBreak: "clone",
     transition: "background-color 0.35s ease",
   };
+
+  // آفستِ همین خطِ ترجمه داخلِ fullTextِ کاملِ همین زبان — با این، زدنِ
+  // 🔊ِ این خط، دقیقاً از همینجا وارد پخشِ پیوسته‌ی همه‌ی ترجمه‌های همین
+  // زبان می‌شه (نه فقط همین یه خط)، و خودش تا آخر ادامه پیدا می‌کنه؛
+  // درست مثلِ رفتارِ بلندگوی متنِ اصلیِ انگلیسی.
+  const myOffset = lineOffsets && lineOffsets.find((o) => o.variant === variant && o.i === i);
 
   return (
     // طبق درخواست: این ردیف هم مثل متنِ اصلی چپ‌به‌راست نوشته می‌شه، ولی
@@ -201,7 +225,16 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
     // edge="end" بگیره — وگرنه چون ردیف رو ltr کردیم ولی این پراپ رو ندادیم،
     // بلندگو با فرضِ پیش‌فرضِ راست‌چین می‌رفت سمت چپ (دقیقاً برعکسِ خواسته).
     <div ref={rowRef} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, direction: "ltr" }}>
-      {value && SpeakButton && <SpeakButton text={value} code={langCode} color={translationColor} edge="end" />}
+      {value && SpeakButton && (
+        <SpeakButton
+          text={value}
+          code={langCode}
+          color={translationColor}
+          edge="end"
+          fullText={fullText}
+          startOffset={myOffset ? myOffset.start : undefined}
+        />
+      )}
       <span
         style={{
           fontFamily: fontFa,
@@ -239,7 +272,7 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
   );
 }
 
-function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, speechController, autoScrollActive }) {
+function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine, onResolveTranslation }) {
   const isHear = variant === "hear";
   if (items.length === 0) return null;
   const accent = isHear ? colors.teal : colors.gold;
@@ -338,23 +371,31 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
                 </span>
               </div>
             </div>
-            {langCodes.map((code) => (
-              <LineTranslation
-                key={code}
-                text={it.en}
-                langCode={code}
-                knownFa={it.fa}
-                aiSettings={aiSettings}
-                translateFree={translateFree}
-                SpeakButton={SpeakButton}
-                ClickableSentence={ClickableSentence}
-                nativeLang={nativeLang}
-                nativeLabel={nativeLabel}
-                speechController={speechController}
-                autoScrollActive={autoScrollActive}
-                highlightColor={highlightColor}
-              />
-            ))}
+            {langCodes.map((code) => {
+              const info = translationTextInfo && translationTextInfo[code];
+              return (
+                <LineTranslation
+                  key={code}
+                  text={it.en}
+                  langCode={code}
+                  variant={variant}
+                  i={i}
+                  knownFa={it.fa}
+                  aiSettings={aiSettings}
+                  translateFree={translateFree}
+                  SpeakButton={SpeakButton}
+                  ClickableSentence={ClickableSentence}
+                  nativeLang={nativeLang}
+                  nativeLabel={nativeLabel}
+                  autoScrollActive={autoScrollActive}
+                  highlightColor={highlightColor}
+                  fullText={info ? info.fullText : ""}
+                  lineOffsets={info ? info.lineOffsets : []}
+                  isActiveLine={!!(activeTranslationLine && activeTranslationLine.langCode === code && activeTranslationLine.variant === variant && activeTranslationLine.i === i)}
+                  onResolved={onResolveTranslation}
+                />
+              );
+            })}
           </div>
           );
         })}
@@ -363,7 +404,7 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
   );
 }
 
-function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, speechController, autoScrollActive }) {
+function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine, onResolveTranslation }) {
   const filterFn = (arr) => (levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr);
   const speakerA = filterFn(sc.speakerA);
   const speakerB = filterFn(sc.speakerB);
@@ -385,8 +426,8 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
       {isOpen && (
         <div style={{ padding: "0 15px 15px" }}>
           {sc.context && <div style={{ fontFamily: fontFa, fontSize: 12, color: colors.inkSoft, marginBottom: 4 }}>{sc.context}</div>}
-          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} highlightColor={highlightColor} fullText={fullText} lineOffsets={lineOffsets} speechController={speechController} autoScrollActive={autoScrollActive} />
-          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} highlightColor={highlightColor} fullText={fullText} lineOffsets={lineOffsets} speechController={speechController} autoScrollActive={autoScrollActive} />
+          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} highlightColor={highlightColor} fullText={fullText} lineOffsets={lineOffsets} autoScrollActive={autoScrollActive} translationTextInfo={translationTextInfo} activeTranslationLine={isOpen ? activeTranslationLine : null} onResolveTranslation={onResolveTranslation} />
+          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} highlightColor={highlightColor} fullText={fullText} lineOffsets={lineOffsets} autoScrollActive={autoScrollActive} translationTextInfo={translationTextInfo} activeTranslationLine={isOpen ? activeTranslationLine : null} onResolveTranslation={onResolveTranslation} />
         </div>
       )}
     </div>
@@ -529,6 +570,94 @@ export default function DailyConversationsTab({
     return speechController.subscribe(update);
   }, [fullText, lineOffsets, speechController]);
 
+  // -------------------------------------------------------------------------
+  // «خواندنِ پیوسته‌ی ترجمه‌ها» — دقیقاً همون سیستمِ متنِ اصلیِ انگلیسی
+  // (fullText + lineOffsets + activeLine + اسکرولِ خودکار) بالاتر، اما این‌بار
+  // برای هر زبانِ ترجمه‌ی هدف جدا جدا. چون ترجمه‌ی هر خط lazy و async لود
+  // می‌شه (LineTranslation)، نمی‌شه از قبل fullText رو ساخت؛ به‌جاش هر خط،
+  // به محضِ آماده‌شدنِ مقدارش، از طریق onResolveTranslation به بالا خبر
+  // می‌ده و اینجا، از رویِ مقادیرِ جمع‌شده، fullText/offsetِ هر زبان
+  // ساخته می‌شه.
+  const [translationValues, setTranslationValues] = useState({}); // { [langCode]: { [`${variant}-${i}`]: text } }
+  const reportTranslation = useCallback((langCode, variant, i, value) => {
+    setTranslationValues((prev) => {
+      const langMap = prev[langCode] || {};
+      const key = `${variant}-${i}`;
+      if (langMap[key] === value) return prev;
+      return { ...prev, [langCode]: { ...langMap, [key]: value } };
+    });
+  }, []);
+  useEffect(() => {
+    setTranslationValues({});
+  }, [activeTopic, openScenario]);
+
+  const targetLangCodes = useMemo(
+    () => (targetLangs && targetLangs.length ? targetLangs.map((l) => l.code) : ["fa"]).filter((c) => c !== "en"),
+    [targetLangs]
+  );
+
+  const translationTextInfo = useMemo(() => {
+    const info = {};
+    targetLangCodes.forEach((code) => {
+      const langMap = translationValues[code] || {};
+      let offset = 0;
+      const parts = [];
+      const offsets = [];
+      readableLines.forEach((l) => {
+        const val = langMap[`${l.variant}-${l.i}`];
+        if (!val) return;
+        const start = offset;
+        parts.push(val);
+        offset += val.length + 1; // فاصله‌ی join(" ")
+        offsets.push({ variant: l.variant, i: l.i, start, end: start + val.length });
+      });
+      info[code] = { fullText: parts.join(" "), lineOffsets: offsets };
+    });
+    return info;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetLangCodes, translationValues, readableLines]);
+
+  // خطِ ترجمه‌ای که همین الان، در حینِ پخشِ پیوسته‌ی ترجمه‌های یک زبان، داره
+  // خونده می‌شه — {langCode, variant, i} | null. دقیقاً همون الگویی که
+  // activeLine بالاتر برای متنِ انگلیسی داره.
+  const [activeTranslationLine, setActiveTranslationLine] = useState(null);
+
+  useEffect(() => {
+    setActiveTranslationLine(null);
+  }, [activeTopic, openScenario]);
+
+  useEffect(() => {
+    if (!speechController) return;
+    const update = (state) => {
+      if (!state.key || state.status === "idle") {
+        setActiveTranslationLine(null);
+        return;
+      }
+      for (const code of targetLangCodes) {
+        const info = translationTextInfo[code];
+        if (!info || !info.fullText) continue;
+        const myKey = `${TTS_LOCALE_MINI[code] || "en-US"}::${info.fullText}`;
+        if (state.key !== myKey) continue;
+        const offset = speechController.getCharOffset();
+        let found = info.lineOffsets[0] || null;
+        for (const l of info.lineOffsets) {
+          if (offset >= l.start) found = l;
+          else break;
+        }
+        if (found) {
+          setActiveTranslationLine((prev) => {
+            if (prev && prev.langCode === code && prev.variant === found.variant && prev.i === found.i) return prev;
+            return { langCode: code, variant: found.variant, i: found.i };
+          });
+        }
+        return;
+      }
+      setActiveTranslationLine(null);
+    };
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [targetLangCodes, translationTextInfo, speechController]);
+
   const lineRefs = useRef({});
   const registerLineRef = (variant, i, el) => {
     lineRefs.current[`${variant}-${i}`] = el;
@@ -662,8 +791,10 @@ export default function DailyConversationsTab({
                 highlightColor={highlightColor}
                 fullText={fullText}
                 lineOffsets={lineOffsets}
-                speechController={speechController}
                 autoScrollActive={autoScrollActive}
+                translationTextInfo={translationTextInfo}
+                activeTranslationLine={activeTranslationLine}
+                onResolveTranslation={reportTranslation}
               />
             ))
           ) : (

@@ -8894,54 +8894,10 @@ function GrammarPanel({
             />
             <div className="px-3 py-2 flex items-center justify-between gap-1" style={{ flexWrap: "nowrap" }}>
               <div className="flex items-center gap-1" style={{ fontWeight: 700, color: "#fff", minWidth: 0, flex: "1 1 auto" }}>
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: "relative",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 20,
-                    height: 20,
-                    borderRadius: "50%",
-                    backgroundColor: colors.teal,
-                    border: "2px solid rgba(255,255,255,0.85)",
-                    flexShrink: 0,
-                  }}
-                >
-                  <MessageCircle size={11} color="#ffffff" fill="rgba(255,255,255,0.15)" strokeWidth={2.25} />
-                  {chatMessages.length > 0 && practiceSheet === "peek" && (
-                    <span
-                      aria-hidden="true"
-                      style={{
-                        position: "absolute",
-                        top: -2,
-                        insetInlineEnd: -2,
-                        width: 9,
-                        height: 9,
-                        borderRadius: "50%",
-                        backgroundColor: colors.gold,
-                        border: `2px solid ${colors.teal}`,
-                      }}
-                    />
-                  )}
-                </span>
-                <span
-                  style={{
-                    fontSize: 15,
-                    fontWeight: 800,
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    minWidth: 0,
-                  }}
-                >
-                  تمرین جمله‌سازی و گرامر
-                </span>
-                {practiceSheet === "peek" ? <ChevronUp size={15} color="#fff" /> : <ChevronDown size={15} color="#fff" />}
-                {/* دستگیره‌ی جابجایی و دکمه‌ی ریست، طبق درخواست، حالا کنارِ
-                    عنوان و توی همین گروهِ سمت‌راست (نه توی یه بلوکِ جدا که
-                    سمت چپ می‌افتاد) — همه در یک ردیفِ واحد. */}
+                {/* دستگیره‌ی جابجایی و دکمه‌ی ریست، طبق درخواستِ جدید، حالا
+                    کاملاً اولِ همین گروهِ سمت‌راست می‌شینن (یعنی لبه‌ی
+                    راستِ نوار، چون کانتینر راست‌چینه) و بعدشون آیکون/عنوان
+                    میاد — نه برعکس مثلِ قبل. */}
                 <div
                   onPointerDown={(e) => { e.stopPropagation(); handlePracticeMoveStart(e); }}
                   onPointerMove={handlePracticeMoveMove}
@@ -8999,6 +8955,51 @@ function GrammarPanel({
                     <RotateCcw size={12} color="#fff" />
                   </button>
                 )}
+                <span
+                  aria-hidden="true"
+                  style={{
+                    position: "relative",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 20,
+                    height: 20,
+                    borderRadius: "50%",
+                    backgroundColor: colors.teal,
+                    border: "2px solid rgba(255,255,255,0.85)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <MessageCircle size={11} color="#ffffff" fill="rgba(255,255,255,0.15)" strokeWidth={2.25} />
+                  {chatMessages.length > 0 && practiceSheet === "peek" && (
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        position: "absolute",
+                        top: -2,
+                        insetInlineEnd: -2,
+                        width: 9,
+                        height: 9,
+                        borderRadius: "50%",
+                        backgroundColor: colors.gold,
+                        border: `2px solid ${colors.teal}`,
+                      }}
+                    />
+                  )}
+                </span>
+                <span
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 800,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    minWidth: 0,
+                  }}
+                >
+                  تمرین جمله‌سازی و گرامر
+                </span>
+                {practiceSheet === "peek" ? <ChevronUp size={15} color="#fff" /> : <ChevronDown size={15} color="#fff" />}
               </div>
               <div className="flex items-center gap-1" style={{ flexShrink: 0 }} onPointerDown={(e) => e.stopPropagation()}>
                 {chatMessages.length > 0 && (
@@ -10378,20 +10379,35 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
 
   // «خواندنِ کل لیست» + هایلایتِ عبارتِ در حالِ پخش — دقیقاً همون الگویی
   // که مکالمات روزمره (ConversationBox) و لیستِ لغات (WordList) دارن،
-  // اینجا هم برای لیستِ عبارت‌های علاقه‌مندی. متنِ خونده‌شده همون زبانِ
-  // مقصدِ اولِ کاربره (firstTargetCode) — دقیقاً همون متنی که هر ردیف با
-  // SpeakButtonِ خودش می‌خونه.
+  // اینجا هم برای لیستِ عبارت‌های علاقه‌مندی. متنِ خونده‌شده‌ی پیش‌فرضِ
+  // نوارِ پلیر همون زبانِ مقصدِ اولِ کاربره (firstTargetCode).
+  //
+  // طبق درخواستِ جدید، این دیگه فقط مخصوصِ firstTargetCode نیست: برای
+  // *هر* زبانِ ترجمه‌ی انتخاب‌شده (targetLangs) جدا جدا یه fullText/آفست
+  // ساخته می‌شه، تا زدنِ بلندگوی هر خطِ ترجمه (به هر زبونی)، دقیقاً از
+  // همون‌جا وارد پخشِ پیوسته‌ی همون زبان بشه و خودکار جلو بره — نه فقط
+  // یه پخشِ تکیِ ایزوله.
   const fullText = firstTargetCode ? filtered.map((p) => p.t[firstTargetCode] || "").join(" ") : "";
-  const phraseOffsets = useMemo(() => {
-    let offset = 0;
-    return filtered.map((p) => {
-      const text = firstTargetCode ? p.t[firstTargetCode] || "" : "";
-      const start = offset;
-      offset += text.length + 1; // فاصله‌ی join(" ")
-      return { id: p.id, start, end: start + text.length };
+
+  const translationInfo = useMemo(() => {
+    const info = {};
+    targetLangs.forEach((l) => {
+      let offset = 0;
+      const parts = [];
+      const offsets = [];
+      filtered.forEach((p) => {
+        const val = p.t[l.code];
+        if (!val) return;
+        const start = offset;
+        parts.push(val);
+        offset += val.length + 1; // فاصله‌ی join(" ")
+        offsets.push({ id: p.id, start, end: start + val.length });
+      });
+      info[l.code] = { fullText: parts.join(" "), offsets };
     });
+    return info;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fullText]);
+  }, [filtered, targetLangs]);
 
   useEffect(() => {
     if (onFullTextChange) onFullTextChange({ text: fullText, code: firstTargetCode });
@@ -10404,28 +10420,41 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [activePhraseId, setActivePhraseId] = useState(null);
+  // خط/زبانی که همین الان در حالِ پخشه — {code, id} | null. جایگزینِ
+  // activePhraseIdِ قبلی (که فقط firstTargetCode رو می‌شناخت) — حالا با
+  // چک‌کردنِ کلیدِ speechController رویِ fullTextِ *همه‌ی* زبان‌های هدف،
+  // هر کدوم که در حالِ پخش باشه رو (چه از پلیرِ پایین، چه با کلیک روی
+  // بلندگوی یه خطِ خاص) پیدا می‌کنه.
+  const [activeTranslation, setActiveTranslation] = useState(null);
   useEffect(() => {
-    const myKey = `${TTS_LOCALE[firstTargetCode] || "en-US"}::${fullText}`;
     const update = (state) => {
-      if (!fullText || state.key !== myKey || state.status === "idle") {
-        setActivePhraseId(null);
+      if (!state.key || state.status === "idle") {
+        setActiveTranslation(null);
         return;
       }
-      const offset = speechController.getCharOffset();
-      let found = phraseOffsets[0] || null;
-      for (const p of phraseOffsets) {
-        if (offset >= p.start) found = p;
-        else break;
+      for (const l of targetLangs) {
+        const info = translationInfo[l.code];
+        if (!info || !info.fullText) continue;
+        const myKey = `${TTS_LOCALE[l.code] || "en-US"}::${info.fullText}`;
+        if (state.key !== myKey) continue;
+        const offset = speechController.getCharOffset();
+        let found = info.offsets[0] || null;
+        for (const p of info.offsets) {
+          if (offset >= p.start) found = p;
+          else break;
+        }
+        setActiveTranslation((prev) => {
+          if (prev && prev.code === l.code && found && prev.id === found.id) return prev;
+          return found ? { code: l.code, id: found.id } : null;
+        });
+        return;
       }
-      setActivePhraseId((prev) => {
-        const next = found ? found.id : null;
-        return prev === next ? prev : next;
-      });
+      setActiveTranslation(null);
     };
     update(speechController.getState());
     return speechController.subscribe(update);
-  }, [fullText, phraseOffsets, firstTargetCode]);
+  }, [targetLangs, translationInfo]);
+  const activePhraseId = activeTranslation ? activeTranslation.id : null;
 
   const phraseNodeMapRef = useRef(new Map());
   useEffect(() => {
@@ -10484,7 +10513,11 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
                     <SpeakButton text={p.t[nativeLang]} code={nativeLang} edge="end" />
                   </div>
                   <div className="flex flex-col gap-1" style={{ marginTop: 4 }}>
-                    {targetLangs.map((l) => (
+                    {targetLangs.map((l) => {
+                      const info = translationInfo[l.code];
+                      const myOffset = info && info.offsets.find((o) => o.id === p.id);
+                      const isTransActive = activeTranslation && activeTranslation.code === l.code && activeTranslation.id === p.id;
+                      return (
                       <div key={l.code} style={{ display: "flex", alignItems: "center", gap: 8, direction: "ltr" }}>
                         <span
                           style={{
@@ -10500,7 +10533,17 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
                         >
                           {l.abbr}
                         </span>
-                        <p style={{ flex: 1, fontWeight: 800, color: translationColor }}>
+                        <p
+                          style={{
+                            flex: 1,
+                            fontWeight: 800,
+                            color: translationColor,
+                            backgroundColor: isTransActive ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+                            borderRadius: 5,
+                            padding: isTransActive ? "2px 4px" : "2px 0",
+                            transition: "background-color 0.35s ease",
+                          }}
+                        >
                           {p.t[l.code] ? (
                             <ClickableSentence
                               text={p.t[l.code]}
@@ -10513,9 +10556,19 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
                             "—"
                           )}
                         </p>
-                        {p.t[l.code] && <SpeakButton text={p.t[l.code]} code={l.code} color={translationColor} edge="end" />}
+                        {p.t[l.code] && (
+                          <SpeakButton
+                            text={p.t[l.code]}
+                            code={l.code}
+                            color={translationColor}
+                            edge="end"
+                            fullText={info ? info.fullText : undefined}
+                            startOffset={myOffset ? myOffset.start : undefined}
+                          />
+                        )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
                 <button onClick={() => toggleFavorite(p.id)} aria-label="افزودن به علاقه‌مندی‌ها" style={{ marginRight: 4 }}>
@@ -11460,6 +11513,77 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
     else listNodeMapRef.current.delete(key);
   };
 
+  // -------------------------------------------------------------------------
+  // «خواندنِ پیوسته‌ی ترجمه‌ها» — طبق درخواست، همون سیستمِ بالا (fullText +
+  // wordOffsets + activeWordId + اسکرولِ خودکار) برایِ متنِ اصلیِ انگلیسی،
+  // این‌جا هم برایِ هر زبانِ ترجمه‌ی هدف (effectiveDisplayLangs) جدا جدا
+  // پیاده می‌شه. چون ترجمه‌ی هر لغت lazy و async لود می‌شه
+  // (WordTargetTranslation)، نمی‌شه از قبل fullText رو ساخت؛ به‌جاش هر
+  // لغت، به محضِ آماده‌شدنِ ترجمه‌ش، از طریق onResolveTranslation به بالا
+  // خبر می‌ده و اینجا، از رویِ مقادیرِ جمع‌شده، fullText/آفستِ هر زبان
+  // ساخته می‌شه.
+  const [wordTranslationValues, setWordTranslationValues] = useState({}); // { [langCode]: { [wordId]: text } }
+  const reportWordTranslation = useCallback((langCode, wordId, value) => {
+    setWordTranslationValues((prev) => {
+      const langMap = prev[langCode] || {};
+      if (langMap[wordId] === value) return prev;
+      return { ...prev, [langCode]: { ...langMap, [wordId]: value } };
+    });
+  }, []);
+
+  const wordTranslationInfo = useMemo(() => {
+    const info = {};
+    effectiveDisplayLangs.forEach((l) => {
+      const langMap = wordTranslationValues[l.code] || {};
+      let offset = 0;
+      const parts = [];
+      const offsets = [];
+      filtered.forEach((w) => {
+        const val = langMap[w.id];
+        if (!val) return;
+        const start = offset;
+        parts.push(val);
+        offset += val.length + 1; // فاصله‌ی join(" ")
+        offsets.push({ id: w.id, start, end: start + val.length });
+      });
+      info[l.code] = { fullText: parts.join(" "), offsets };
+    });
+    return info;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveDisplayLangs, wordTranslationValues, filtered]);
+
+  // لغت/زبانی که همین الان، در حینِ پخشِ پیوسته‌ی ترجمه‌های یک زبان، داره
+  // خونده می‌شه — {code, id} | null.
+  const [activeWordTranslation, setActiveWordTranslation] = useState(null);
+  useEffect(() => {
+    const update = (state) => {
+      if (!state.key || state.status === "idle") {
+        setActiveWordTranslation(null);
+        return;
+      }
+      for (const l of effectiveDisplayLangs) {
+        const info = wordTranslationInfo[l.code];
+        if (!info || !info.fullText) continue;
+        const myKey = `${TTS_LOCALE[l.code] || "en-US"}::${info.fullText}`;
+        if (state.key !== myKey) continue;
+        const offset = speechController.getCharOffset();
+        let found = info.offsets[0] || null;
+        for (const w of info.offsets) {
+          if (offset >= w.start) found = w;
+          else break;
+        }
+        setActiveWordTranslation((prev) => {
+          if (prev && prev.code === l.code && found && prev.id === found.id) return prev;
+          return found ? { code: l.code, id: found.id } : null;
+        });
+        return;
+      }
+      setActiveWordTranslation(null);
+    };
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [effectiveDisplayLangs, wordTranslationInfo]);
+
   if (filtered.length === 0) {
     return (
       <p style={{ color: colors.inkSoft, fontSize: 14, textAlign: "center", marginTop: 40 }}>
@@ -11560,19 +11684,30 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                 فارسی. رنگ متن‌ها مشکی و پررنگه (نه رنگ‌های کم‌کنتراست) تا
                 خوندنش چشم رو خسته نکنه. */}
             <div className="flex flex-col gap-1" style={{ marginTop: 4 }}>
-              {effectiveDisplayLangs.map((l) => (
-                <WordTargetTranslation
-                  key={l.code}
-                  word={w.en}
-                  langCode={l.code}
-                  abbr={l.abbr}
-                  knownText={l.code === "fa" ? w.fa : ""}
-                  nativeLang={nativeLang}
-                  nativeLabel={nativeLabel}
-                  aiSettings={aiSettings}
-                  ClickableSentence={ClickableSentence}
-                />
-              ))}
+              {effectiveDisplayLangs.map((l) => {
+                const info = wordTranslationInfo[l.code];
+                const isTransActive = !!(activeWordTranslation && activeWordTranslation.code === l.code && activeWordTranslation.id === w.id);
+                return (
+                  <WordTargetTranslation
+                    key={l.code}
+                    word={w.en}
+                    wordId={w.id}
+                    langCode={l.code}
+                    abbr={l.abbr}
+                    knownText={l.code === "fa" ? w.fa : ""}
+                    nativeLang={nativeLang}
+                    nativeLabel={nativeLabel}
+                    aiSettings={aiSettings}
+                    ClickableSentence={ClickableSentence}
+                    fullText={info ? info.fullText : ""}
+                    lineOffsets={info ? info.offsets : []}
+                    isActiveLine={isTransActive}
+                    autoScrollActive={autoScrollActive}
+                    highlightColor={highlightColor}
+                    onResolved={reportWordTranslation}
+                  />
+                );
+              })}
             </div>
             <WordExamples word={w.en} langCode="en" meaningNative={w.fa} nativeLang={nativeLang} targetLangs={effectiveDisplayLangs} aiSettings={aiSettings} />
           </div>
@@ -11590,7 +11725,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
 // می‌کنه (تا دفعه‌ی بعد دیگه درخواستی به سرور نره). متن با رنگ مشکی‌پررنگ
 // (colors.ink) و bold نشون داده می‌شه — نه رنگ‌های کم‌کنتراست — تا خوندنِ
 // پشت‌سرهمِ چند زبان چشم رو خسته نکنه.
-function WordTargetTranslation({ word, langCode, abbr, knownText, nativeLang, nativeLabel, aiSettings, ClickableSentence }) {
+function WordTargetTranslation({ word, wordId, langCode, abbr, knownText, nativeLang, nativeLabel, aiSettings, ClickableSentence, fullText, lineOffsets, isActiveLine, autoScrollActive, highlightColor, onResolved }) {
   const [text, setText] = useState(knownText || (() => loadWordTranslation(word, langCode)));
 
   useEffect(() => {
@@ -11617,8 +11752,37 @@ function WordTargetTranslation({ word, langCode, abbr, knownText, nativeLang, na
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [word, langCode, knownText]);
 
+  // به محضِ آماده‌شدنِ ترجمه، به بالا (WordList) خبر می‌دیم — والد از رویِ
+  // این مقادیر، «متنِ کاملِ ترجمه‌ها»یِ همین زبان رو می‌سازه تا زدنِ بلندگوی
+  // هر لغت، دقیقاً مثلِ لیستِ اصلیِ انگلیسی، از همون‌جا وارد پخشِ پیوسته و
+  // خودکارِ همه‌ی لغاتِ بعدی بشه (با اسکرول و هایلایتِ خودکار).
+  useEffect(() => {
+    if (text && onResolved && wordId != null) {
+      onResolved(langCode, wordId, text);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, langCode, wordId]);
+
+  const rowRef = useRef(null);
+  useEffect(() => {
+    if (!autoScrollActive || !isActiveLine) return;
+    if (rowRef.current && rowRef.current.scrollIntoView) {
+      rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [autoScrollActive, isActiveLine]);
+
+  const myOffset = lineOffsets && lineOffsets.find((o) => o.id === wordId);
+  const highlightStyle = {
+    backgroundColor: isActiveLine ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+    borderRadius: 5,
+    padding: isActiveLine ? "2px 4px" : "2px 0",
+    WebkitBoxDecorationBreak: "clone",
+    boxDecorationBreak: "clone",
+    transition: "background-color 0.35s ease",
+  };
+
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, direction: "ltr" }}>
+    <div ref={rowRef} style={{ display: "flex", alignItems: "center", gap: 8, direction: "ltr" }}>
       <span
         style={{
           fontFamily: fontFa,
@@ -11636,7 +11800,7 @@ function WordTargetTranslation({ word, langCode, abbr, knownText, nativeLang, na
       {text ? (
         <>
           {ClickableSentence ? (
-            <p style={{ flex: 1, fontSize: 14, fontWeight: 700, color: colors.inkSoft }}>
+            <p style={{ flex: 1, fontSize: 14, fontWeight: 700, color: colors.inkSoft, ...highlightStyle }}>
               <ClickableSentence
                 text={text}
                 langCode={langCode}
@@ -11649,9 +11813,16 @@ function WordTargetTranslation({ word, langCode, abbr, knownText, nativeLang, na
               />
             </p>
           ) : (
-            <p style={{ flex: 1, fontSize: 14, fontWeight: 700, color: colors.inkSoft }}>{text}</p>
+            <p style={{ flex: 1, fontSize: 14, fontWeight: 700, color: colors.inkSoft, ...highlightStyle }}>{text}</p>
           )}
-          <SpeakButton text={text} code={langCode} color={colors.teal} edge="end" />
+          <SpeakButton
+            text={text}
+            code={langCode}
+            color={colors.teal}
+            edge="end"
+            fullText={fullText}
+            startOffset={myOffset ? myOffset.start : undefined}
+          />
         </>
       ) : (
         <p style={{ flex: 1, fontSize: 12, color: colors.inkSoft }}>در حال ترجمه...</p>
