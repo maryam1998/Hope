@@ -132,7 +132,7 @@ function TopicCard({ meta, hasData, onClick }) {
 // برای بقیه‌ی زبان‌ها (هر چی که کاربر بالای صفحه اضافه کنه) با همون
 // translateFree که به کل اپ وصله می‌گیره — و چون translateFree خودش کش
 // IndexedDB داره، دفعه‌ی بعد همون ترجمه بدون اینترنت هم در دسترسه.
-function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, SpeakButton, ClickableSentence, nativeLang, nativeLabel }) {
+function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, SpeakButton, ClickableSentence, nativeLang, nativeLabel, speechController, autoScrollActive, highlightColor }) {
   const [value, setValue] = useState(langCode === "fa" ? knownFa || "" : "");
   const [loading, setLoading] = useState(langCode !== "fa" && !knownFa);
 
@@ -157,14 +157,50 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
     };
   }, [text, langCode, knownFa]);
 
+  // درست مثلِ خطِ اصلی (متنِ انگلیسی): وقتی خودِ همین ترجمه در حالِ خوندنه
+  // (چه با زدنِ بلندگوی همین خط، چه با «ادامه»)، هایلایتش کن و به‌صورتِ
+  // خودکار به دیدش بیار — نیازی به ردیابیِ آفستِ داخلِ متن نیست، چون هر
+  // خطِ ترجمه یه SpeakButton مستقلِ با متنِ خودشه، پس کلیدِ speechController
+  // (که بعد از "::" دقیقاً همون متنه) به‌تنهایی مشخص می‌کنه همین خط در
+  // حالِ پخشه یا نه.
+  const [ttsState, setTtsState] = useState(() => (speechController ? speechController.getState() : null));
+  useEffect(() => {
+    if (!speechController) return;
+    return speechController.subscribe(setTtsState);
+  }, [speechController]);
+
+  const isLineActive = useMemo(() => {
+    if (!value || !ttsState || !ttsState.key || ttsState.status === "idle") return false;
+    const sepIdx = ttsState.key.indexOf("::");
+    const keyText = sepIdx >= 0 ? ttsState.key.slice(sepIdx + 2) : null;
+    return keyText === value;
+  }, [ttsState, value]);
+
+  const rowRef = useRef(null);
+  useEffect(() => {
+    if (!autoScrollActive || !isLineActive) return;
+    if (rowRef.current && rowRef.current.scrollIntoView) {
+      rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [autoScrollActive, isLineActive]);
+
   if (!value && !loading) return null;
+
+  const highlightStyle = {
+    backgroundColor: isLineActive ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+    borderRadius: 5,
+    padding: isLineActive ? "2px 4px" : "2px 0",
+    WebkitBoxDecorationBreak: "clone",
+    boxDecorationBreak: "clone",
+    transition: "background-color 0.35s ease",
+  };
 
   return (
     // طبق درخواست: این ردیف هم مثل متنِ اصلی چپ‌به‌راست نوشته می‌شه، ولی
     // بلندگو طبق قانونِ کلیِ خودِ SpeakButton («همیشه سمت راستِ ردیف») باید
     // edge="end" بگیره — وگرنه چون ردیف رو ltr کردیم ولی این پراپ رو ندادیم،
     // بلندگو با فرضِ پیش‌فرضِ راست‌چین می‌رفت سمت چپ (دقیقاً برعکسِ خواسته).
-    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, direction: "ltr" }}>
+    <div ref={rowRef} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, direction: "ltr" }}>
       {value && SpeakButton && <SpeakButton text={value} code={langCode} color={translationColor} edge="end" />}
       <span
         style={{
@@ -183,7 +219,7 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
       {loading ? (
         <span style={{ fontSize: 12, color: colors.inkSoft, flex: 1 }}>...</span>
       ) : ClickableSentence ? (
-        <span style={{ flex: 1 }}>
+        <span style={{ flex: 1, ...highlightStyle }}>
           <ClickableSentence
             text={value}
             langCode={langCode}
@@ -197,13 +233,13 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
           />
         </span>
       ) : (
-        <span style={{ fontSize: 13, color: translationColor, fontWeight: 900, fontFamily: fontFa, flex: 1 }}>{value}</span>
+        <span style={{ fontSize: 13, color: translationColor, fontWeight: 900, fontFamily: fontFa, flex: 1, ...highlightStyle }}>{value}</span>
       )}
     </div>
   );
 }
 
-function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets }) {
+function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, speechController, autoScrollActive }) {
   const isHear = variant === "hear";
   if (items.length === 0) return null;
   const accent = isHear ? colors.teal : colors.gold;
@@ -314,6 +350,9 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
                 ClickableSentence={ClickableSentence}
                 nativeLang={nativeLang}
                 nativeLabel={nativeLabel}
+                speechController={speechController}
+                autoScrollActive={autoScrollActive}
+                highlightColor={highlightColor}
               />
             ))}
           </div>
@@ -324,7 +363,7 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
   );
 }
 
-function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets }) {
+function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, speechController, autoScrollActive }) {
   const filterFn = (arr) => (levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr);
   const speakerA = filterFn(sc.speakerA);
   const speakerB = filterFn(sc.speakerB);
@@ -346,8 +385,8 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
       {isOpen && (
         <div style={{ padding: "0 15px 15px" }}>
           {sc.context && <div style={{ fontFamily: fontFa, fontSize: 12, color: colors.inkSoft, marginBottom: 4 }}>{sc.context}</div>}
-          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} highlightColor={highlightColor} fullText={fullText} lineOffsets={lineOffsets} />
-          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} highlightColor={highlightColor} fullText={fullText} lineOffsets={lineOffsets} />
+          <ConversationBox items={speakerA} variant="hear" label={t.youHear} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} highlightColor={highlightColor} fullText={fullText} lineOffsets={lineOffsets} speechController={speechController} autoScrollActive={autoScrollActive} />
+          <ConversationBox items={speakerB} variant="say" label={t.youSay} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} ClickableSentence={ClickableSentence} SpeakButton={SpeakButton} targetLangs={targetLangs} translateFree={translateFree} activeLine={isOpen ? activeLine : null} registerLineRef={isOpen ? registerLineRef : undefined} highlightColor={highlightColor} fullText={fullText} lineOffsets={lineOffsets} speechController={speechController} autoScrollActive={autoScrollActive} />
         </div>
       )}
     </div>
@@ -555,6 +594,9 @@ export default function DailyConversationsTab({
                 SpeakButton={SpeakButton}
                 targetLangs={targetLangs}
                 translateFree={translateFree}
+                speechController={speechController}
+                autoScrollActive={autoScrollActive}
+                highlightColor={highlightColor}
               />
             </div>
           ))
@@ -620,6 +662,8 @@ export default function DailyConversationsTab({
                 highlightColor={highlightColor}
                 fullText={fullText}
                 lineOffsets={lineOffsets}
+                speechController={speechController}
+                autoScrollActive={autoScrollActive}
               />
             ))
           ) : (

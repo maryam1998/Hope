@@ -8928,7 +8928,8 @@ function GrammarPanel({
                 </span>
                 <span
                   style={{
-                    fontSize: 12,
+                    fontSize: 15,
+                    fontWeight: 800,
                     whiteSpace: "nowrap",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -8938,32 +8939,11 @@ function GrammarPanel({
                   تمرین جمله‌سازی و گرامر
                 </span>
                 {practiceSheet === "peek" ? <ChevronUp size={15} color="#fff" /> : <ChevronDown size={15} color="#fff" />}
-              </div>
-              <div className="flex items-center gap-1" style={{ flexShrink: 0 }} onPointerDown={(e) => e.stopPropagation()}>
-                {practiceMoved && (
-                  <button
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      resetPracticePosition();
-                    }}
-                    className="flex items-center justify-center"
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: "50%",
-                      backgroundColor: "rgba(255,255,255,0.18)",
-                      color: "#fff",
-                      flexShrink: 0,
-                    }}
-                    title={isFa ? "بازگرداندنِ باکس به جای اولش" : "Reset box position"}
-                    aria-label={isFa ? "بازگرداندنِ باکس به جای اولش" : "Reset box position"}
-                  >
-                    <RotateCcw size={12} color="#fff" />
-                  </button>
-                )}
+                {/* دستگیره‌ی جابجایی و دکمه‌ی ریست، طبق درخواست، حالا کنارِ
+                    عنوان و توی همین گروهِ سمت‌راست (نه توی یه بلوکِ جدا که
+                    سمت چپ می‌افتاد) — همه در یک ردیفِ واحد. */}
                 <div
-                  onPointerDown={handlePracticeMoveStart}
+                  onPointerDown={(e) => { e.stopPropagation(); handlePracticeMoveStart(e); }}
                   onPointerMove={handlePracticeMoveMove}
                   onPointerUp={handlePracticeMoveEnd}
                   onPointerCancel={handlePracticeMoveEnd}
@@ -8997,6 +8977,30 @@ function GrammarPanel({
                     ))}
                   </div>
                 </div>
+                {practiceMoved && (
+                  <button
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      resetPracticePosition();
+                    }}
+                    className="flex items-center justify-center"
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: "50%",
+                      backgroundColor: "rgba(255,255,255,0.18)",
+                      color: "#fff",
+                      flexShrink: 0,
+                    }}
+                    title={isFa ? "بازگرداندنِ باکس به جای اولش" : "Reset box position"}
+                    aria-label={isFa ? "بازگرداندنِ باکس به جای اولش" : "Reset box position"}
+                  >
+                    <RotateCcw size={12} color="#fff" />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-1" style={{ flexShrink: 0 }} onPointerDown={(e) => e.stopPropagation()}>
                 {chatMessages.length > 0 && (
                   <button
                     onClick={clearChat}
