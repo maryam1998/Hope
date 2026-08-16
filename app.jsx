@@ -11378,13 +11378,30 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
   // (نه فقط چیزی که تا الان اسکرول شده) خونده می‌شه؛ هرچی پخش جلوتر بره،
   // صفحه با اسکرولِ خودکار پایین‌تر می‌ره و همون IntersectionObserver
   // بالا خودش بخش‌های بعدی رو لود می‌کنه.
-  const fullText = filtered.map((w) => w.en).join(" ");
+  //
+  // نکته‌ی مهم: برخلافِ داستان‌ساز/مکالمات (که خط‌هاشون خودشون نقطه‌ی پایانِ
+  // جمله دارن و همین باعث می‌شه speechController هر خط رو یه «جمله»ی
+  // جدا و مستقل حساب کنه)، این‌جا فقط کلمه‌های تک‌افتاده‌ی بدونِ علامتِ
+  // نگارشی پشتِ‌سرِ‌همن. speechController اگه یه بلوکِ متنِ بدونِ نقطه رو
+  // خیلی طولانی ببینه (که کلِ این لیست قطعاً هست)، مجبور می‌شه به‌صورتِ
+  // اضطراری هر ۴۰ کلمه رو یه‌جا تو یه chunk بریزه (MAX_WORDS_PER_CHUNK) —
+  // یعنی هایلایت/اسکرول فقط هر ۴۰ کلمه یه‌بار به‌روز می‌شد، و چون این ۴۰
+  // کلمه همه با هم توی یه نفس (یه Utterance) خونده می‌شدن، برای کاربر
+  // مثلِ این بود که کلمه‌ها خیلی سریع و بدونِ هیچ هایلایتِ قابلِ‌دنبال‌کردنی
+  // رد می‌شن. برای همین این‌جا بینِ هر کلمه یه نقطه می‌ذاریم — این‌جوری
+  // خودِ همون منطقِ تقسیمِ جمله‌ایِ speechController هر کلمه رو یه جمله‌ی
+  // مستقل حساب می‌کنه: هم چانک/آفست دقیقاً روی همون کلمه می‌ایسته (هایلایتِ
+  // لحظه‌به‌لحظه‌ی هر کلمه)، هم بینِ دو کلمه همون مکثِ طبیعیِ بینِ‌جمله‌ای
+  // (sentenceGapMs) میفته که سرعتِ خوندن رو قابلِ‌دنبال‌کردن می‌کنه.
+  const fullText = filtered.map((w) => w.en).join(". ") + (filtered.length ? "." : "");
   const wordOffsets = useMemo(() => {
     let offset = 0;
-    return filtered.map((w) => {
+    return filtered.map((w, idx) => {
       const start = offset;
-      offset += w.en.length + 1; // فاصله‌ی join(" ")
-      return { id: w.id, start, end: start + w.en.length };
+      offset += w.en.length;
+      const end = offset;
+      offset += idx < filtered.length - 1 ? 2 : 1; // "." یا ". " بینِ کلمه‌ها
+      return { id: w.id, start, end };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fullText]);
