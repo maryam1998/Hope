@@ -10184,7 +10184,12 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       : tab === "conversations" && dailyPlayerText.text
       ? { text: dailyPlayerText.text, code: dailyPlayerText.code }
       : (tab === "words" || tab === "vocab" || tab === "slang" || tab === "favorites") && wordListPlayerText.text
-      ? { text: wordListPlayerText.text, code: wordListPlayerText.code }
+      ? {
+          text: wordListPlayerText.text,
+          code: wordListPlayerText.code,
+          resolveStartOffset: () =>
+            consumeMainTextResumeOffset(`${TTS_LOCALE[wordListPlayerText.code] || "en-US"}::${wordListPlayerText.text}`),
+        }
       : null;
 
   if (!loaded) {
@@ -11919,18 +11924,28 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
     const info = {};
     effectiveDisplayLangs.forEach((l) => {
       const langMap = wordTranslationValues[l.code] || {};
+      // نکته‌ی مهم (عیناً همون دلیلی که fullText/wordOffsetsِ لیستِ انگلیسیِ
+      // بالا بینِ لغت‌ها نقطه می‌ذاره): لغاتِ ترجمه‌شده هم مثلِ خودِ لغتِ
+      // انگلیسی هیچ علامتِ‌نگارشیِ پایانی ندارن. اگه اینجا فقط با یه فاصله
+      // به‌هم بچسبونیمشون، speechController کلِ رشته رو یه «جمله»ی
+      // غیرعادی‌بلند می‌بینه و مجبور می‌شه هر ۴۰ لغت رو یه‌جا (یه نفس) بخونه
+      // (MAX_WORDS_PER_CHUNK) — هم خیلی سریع/نامفهوم می‌شه، هم هایلایت/اسکرول
+      // فقط هر ۴۰ لغت یه‌بار به‌روز می‌شه (تو لیست‌های کوتاه‌تر از ۴۰ اصلاً
+      // انگار کاری نمی‌کنه). با گذاشتنِ «.» بینِ لغت‌ها، هر ترجمه دقیقاً مثلِ
+      // خودِ لغتِ انگلیسی یه جمله‌ی مستقل حساب می‌شه.
+      const entries = filtered.filter((w) => langMap[w.id]);
       let offset = 0;
       const parts = [];
       const offsets = [];
-      filtered.forEach((w) => {
+      entries.forEach((w, idx) => {
         const val = langMap[w.id];
-        if (!val) return;
         const start = offset;
         parts.push(val);
-        offset += val.length + 1; // فاصله‌ی join(" ")
-        offsets.push({ id: w.id, start, end: start + val.length });
+        offset += val.length;
+        offsets.push({ id: w.id, start, end: offset });
+        offset += idx < entries.length - 1 ? 2 : 1; // "." یا ". " بینِ لغت‌ها
       });
-      info[l.code] = { fullText: parts.join(" "), offsets };
+      info[l.code] = { fullText: parts.join(". ") + (entries.length ? "." : ""), offsets };
     });
     return info;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -12026,6 +12041,16 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                     fontFamily={fontLatin}
                     fontWeight={800}
                     fontSize={19}
+                    // همون مکانیزمِ «نقطه‌ی ادامه»ای که داستان‌ساز داره
+                    // (storyBaseOffset/onSpeakOffset → rememberMainTextResumeOffset)
+                    // اینجا هم وصل می‌شه: با زدنِ 🔊ِ همین لغت از پاپ‌آپ، نقطه‌ش
+                    // به‌خاطر سپرده می‌شه تا دفعه‌ی بعد که دکمه‌ی پخشِ کلِ لیست
+                    // (روی پلیرِ پایین) زده بشه، از همین‌جا ادامه پیدا کنه — قبلاً
+                    // این وایرینگ فقط توی داستان‌ساز بود، نه لیستِ لغات.
+                    storyBaseOffset={wordOffsets.find((o) => o.id === w.id)?.start ?? 0}
+                    onSpeakOffset={(localEnd) =>
+                      rememberMainTextResumeOffset(`${TTS_LOCALE.en || "en-US"}::${fullText}`, (wordOffsets.find((o) => o.id === w.id)?.start ?? 0) + (localEnd || 0))
+                    }
                   />
                 </span>
                 {w.level && <LevelBadge level={w.level} />}
