@@ -557,6 +557,33 @@ const UI_STRINGS = {
   invalidCredentials: { fa: "ایمیل یا رمز عبور اشتباه است.", en: "Incorrect email or password." },
   emailNotConfirmed: { fa: "هنوز ایمیلتان را تایید نکرده‌اید — صندوق ورودی را چک کنید.", en: "Your email isn't verified yet — please check your inbox." },
   genericError: { fa: "خطایی رخ داد. دوباره تلاش کنید.", en: "Something went wrong. Please try again." },
+  // زبان‌های خواندنِ بلند (Settings)
+  voiceSectionTitle: { fa: "زبان‌های خواندن با صدای بلند", en: "Read-aloud languages" },
+  installLanguagePacks: { fa: "نصب بسته‌های زبان", en: "Install language packages" },
+  installLanguagePacksHint: {
+    fa: "برای اینکه گوشی بتواند زبان‌های بیشتری را با صدای بلند بخواند، از تنظیمات گوشی بسته‌ی صوتی همان زبان را نصب کنید.",
+    en: "To let your phone read more languages aloud, install that language's voice package from your phone's settings.",
+  },
+  voiceNotInstalled: { fa: "روی این گوشی نصب نیست", en: "Not installed on this device" },
+  voiceInstalledCount: { fa: "صدای نصب‌شده", en: "installed voice(s)" },
+  voicePickLabel: { fa: "انتخاب صدا", en: "Choose voice" },
+  voiceAutoOption: { fa: "خودکار (پیشنهاد نرم‌افزار)", en: "Automatic (app default)" },
+  persianVoiceNote: {
+    fa: "فارسی به‌صورت خودکار و رایگان از اینترنت خوانده می‌شود؛ نیازی به نصب چیزی نیست.",
+    en: "Persian is read automatically over the internet for free; nothing to install.",
+  },
+  androidInstallSteps: {
+    fa: "اگر دکمه‌ی بالا تنظیمات را باز نکرد، به این مسیر بروید: تنظیمات گوشی ⟵ زبان و ورودی ⟵ تبدیل متن به گفتار ⟵ موتور گوگل ⟵ نصب داده‌ی صوتی زبان‌ها",
+    en: "If the button above doesn't open settings, go to: Phone Settings ⟶ Language & input ⟶ Text-to-speech output ⟶ Google engine ⟶ Install voice data",
+  },
+  iosInstallSteps: {
+    fa: "به این مسیر بروید: تنظیمات آیفون ⟵ دسترس‌پذیری ⟵ محتوای گفتاری ⟵ صداها، و زبان مورد نظر را دانلود کنید.",
+    en: "Go to: iPhone Settings ⟶ Accessibility ⟶ Spoken Content ⟶ Voices, and download the language you need.",
+  },
+  desktopInstallSteps: {
+    fa: "ویندوز: تنظیمات ⟵ زمان و زبان ⟵ گفتار ⟵ مدیریت صداها. مک: تنظیمات سیستم ⟵ دسترس‌پذیری ⟵ محتوای گفتاری ⟵ مدیریت صداها.",
+    en: "Windows: Settings ⟶ Time & language ⟶ Speech ⟶ Manage voices. Mac: System Settings ⟶ Accessibility ⟶ Spoken Content ⟶ Manage Voices.",
+  },
 };
 // t(key, uiLang) — looks up a UI string in the current software language,
 // falling back to Persian if the key or language is missing.
@@ -1356,11 +1383,15 @@ const speechController = (() => {
   function onlineTtsProviders(chunkText, langCode) {
     const voice = EDGE_TTS_VOICE[langCode] || EDGE_TTS_VOICE.en;
     const q = encodeURIComponent(sanitizeForTTS(chunkText));
-    return [
-      { kind: "edge", text: chunkText, voice },
-      { kind: "url", url: `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}` },
-      { kind: "url", url: `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}` },
-    ];
+    const googleTranslate = { kind: "url", url: `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}` };
+    const edge = { kind: "edge", text: chunkText, voice };
+    const streamElements = { kind: "url", url: `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}` };
+    // Google Translate TTS رو اول امتحان می‌کنیم، نه Edge/Azure — چون دامنه‌ی
+    // خودِ Microsoft/Bing (speech.platform.bing.com) در بعضی کشورها (مثلاً
+    // ایران) فیلتره، درحالی‌که translate.google.com معمولاً در دسترسه.
+    // Edge به‌عنوانِ پشتیبانِ دوم می‌مونه (کیفیتش بالاتره، برای کاربرهایی
+    // که فیلتر نیستن)، و StreamElements آخرین گزینه.
+    return [googleTranslate, edge, streamElements];
   }
 
   function stopOnlineAudio() {
@@ -1612,6 +1643,16 @@ const speechController = (() => {
   function getBestVoice(langCode) {
     const voices = window.speechSynthesis.getVoices();
     const langPrefix = langCode.split("-")[0];
+
+    // اگه کاربر خودش از تنظیمات یه صدای مشخص برای این زبون انتخاب کرده
+    // (از بینِ صداهایی که گوشی‌اش واقعاً نصب داره)، همیشه همون اولویت داره.
+    try {
+      const savedURI = loadVoicePrefs()[langPrefix];
+      if (savedURI) {
+        const savedVoice = voices.find(v => v.voiceURI === savedURI);
+        if (savedVoice) return savedVoice;
+      }
+    } catch (e) {}
 
     let preferred = voices.find(v =>
       v.lang.startsWith(langPrefix) &&
@@ -2653,6 +2694,35 @@ const GRAMMAR_NOTES_CHANGED_EVENT = "phrasebook:grammarNotesChanged";
 const TARGET_TEXT_PREFS_KEY = "phrasebook-target-text-prefs-v1";
 const TARGET_TEXT_PREFS_CHANGED_EVENT = "phrasebook:targetTextPrefsChanged";
 const DEFAULT_TARGET_TEXT_PREFS = { scale: 100, bold: "both" }; // bold: "both" | "text" | "translation" | "none"
+// ---------------------------------------------------------------------------
+// ترجیحِ صدای هر زبان — کاربر توی تنظیمات می‌تونه از بینِ صداهایی که خودِ
+// گوشی‌اش (سیستم‌عامل/مرورگر) براش نصب داره، یکی رو مشخص انتخاب کنه (به‌جای
+// انتخابِ خودکارِ getBestVoice). با voiceURI ذخیره می‌شه چون یکتاست؛ فارسی
+// اینجا نیست چون فارسی همیشه از مسیرِ آنلاینِ رایگان خونده می‌شه (پایین‌تر).
+// ---------------------------------------------------------------------------
+const VOICE_PREFS_KEY = "phrasebook-voice-prefs-v1";
+const VOICE_PREFS_CHANGED_EVENT = "phrasebook:voicePrefsChanged";
+function loadVoicePrefs() {
+  try {
+    const raw = window.localStorage.getItem(VOICE_PREFS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+function saveVoicePrefs(prefs) {
+  try {
+    window.localStorage.setItem(VOICE_PREFS_KEY, JSON.stringify(prefs));
+    window.dispatchEvent(new Event(VOICE_PREFS_CHANGED_EVENT));
+  } catch {}
+}
+function setVoicePrefForLang(langPrefix, voiceURI) {
+  const prefs = loadVoicePrefs();
+  if (voiceURI) prefs[langPrefix] = voiceURI;
+  else delete prefs[langPrefix];
+  saveVoicePrefs(prefs);
+}
+
 function loadTargetTextPrefs() {
   try {
     const raw = window.localStorage.getItem(TARGET_TEXT_PREFS_KEY);
@@ -3850,6 +3920,138 @@ function OfflineWordsModal({ open, onClose, aiSettings }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// بخشِ «زبان‌های خواندن با صدای بلند» توی تنظیمات — به کاربر نشون می‌ده
+// گوشی‌اش برای هر زبون صدای نصب‌شده داره یا نه، اجازه می‌ده از بینِ
+// صداهای نصب‌شده یکی رو انتخاب کنه، و یه دکمه‌ی «نصب بسته‌های زبان» داره که
+// سعی می‌کنه (فقط در اندروید) مستقیم صفحه‌ی تنظیماتِ گوشی رو باز کنه؛ در
+// غیرِ این‌صورت (iOS/دسکتاپ، یا اگه بازکردنِ خودکار جواب نداد) یه راهنمای
+// متنیِ کوتاه نشون می‌ده. فارسی این‌جا نیست، چون همیشه از مسیرِ آنلاینِ
+// رایگان (بالاتر، onlineTtsProviders) پخش می‌شه و نیازی به نصب نداره.
+// ---------------------------------------------------------------------------
+function detectPlatform() {
+  const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+  if (/android/i.test(ua)) return "android";
+  if (/iphone|ipad|ipod/i.test(ua)) return "ios";
+  return "desktop";
+}
+
+function openLanguagePackSettings(platform) {
+  if (platform === "android") {
+    // این intent-uri فقط داخلِ کروم/اندروید کار می‌کنه؛ روی مرورگرها/
+    // دستگاه‌های دیگه بی‌اثره (بی‌خطر) و کاربر راهنمای متنی رو می‌بینه.
+    try {
+      window.location.href =
+        "intent://#Intent;action=com.android.settings.TTS_SETTINGS;end";
+    } catch (e) {}
+  }
+}
+
+function LanguageVoiceSettings({ uiLang, colors }) {
+  const [voices, setVoices] = useState(() =>
+    typeof window !== "undefined" && window.speechSynthesis ? window.speechSynthesis.getVoices() : []
+  );
+  const [voicePrefs, setVoicePrefsState] = useState(loadVoicePrefs);
+  const platform = useMemo(detectPlatform, []);
+
+  useEffect(() => {
+    if (!window.speechSynthesis) return;
+    const refresh = () => setVoices(window.speechSynthesis.getVoices());
+    refresh();
+    window.speechSynthesis.addEventListener("voiceschanged", refresh);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", refresh);
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => setVoicePrefsState(loadVoicePrefs());
+    window.addEventListener(VOICE_PREFS_CHANGED_EVENT, refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener(VOICE_PREFS_CHANGED_EVENT, refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
+
+  const installSteps =
+    platform === "android" ? tr("androidInstallSteps", uiLang) : platform === "ios" ? tr("iosInstallSteps", uiLang) : tr("desktopInstallSteps", uiLang);
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+        🔊 {tr("voiceSectionTitle", uiLang)}
+      </p>
+
+      <button
+        onClick={() => openLanguagePackSettings(platform)}
+        className="flex items-center gap-2"
+        style={{
+          fontSize: 12.5,
+          fontWeight: 700,
+          color: colors.ink,
+          border: `1px solid ${colors.cardBorder}`,
+          borderRadius: 12,
+          padding: "9px 12px",
+          width: "100%",
+          marginBottom: 6,
+        }}
+      >
+        📥 {tr("installLanguagePacks", uiLang)}
+      </button>
+      <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 6, lineHeight: 1.6 }}>{tr("installLanguagePacksHint", uiLang)}</p>
+      <p style={{ fontSize: 10.5, color: colors.inkSoft, marginBottom: 12, lineHeight: 1.6, opacity: 0.85 }}>{installSteps}</p>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 4 }}>
+        {LANGUAGES.filter((l) => l.code !== "fa").map((l) => {
+          const matches = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith(l.code));
+          const hasVoices = matches.length > 0;
+          const currentURI = voicePrefs[l.code] || "";
+          return (
+            <div
+              key={l.code}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+                border: `1px solid ${colors.cardBorder}`,
+                borderRadius: 10,
+                padding: "7px 10px",
+              }}
+            >
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: colors.ink, flexShrink: 0 }}>{l.label}</span>
+              {hasVoices ? (
+                <select
+                  value={currentURI}
+                  onChange={(e) => setVoicePrefForLang(l.code, e.target.value || null)}
+                  style={{
+                    fontSize: 11.5,
+                    border: `1px solid ${colors.cardBorder}`,
+                    borderRadius: 8,
+                    padding: "4px 6px",
+                    color: colors.ink,
+                    flex: 1,
+                    minWidth: 0,
+                  }}
+                >
+                  <option value="">{tr("voiceAutoOption", uiLang)}</option>
+                  {matches.map((v) => (
+                    <option key={v.voiceURI} value={v.voiceURI}>
+                      {v.name} ({v.lang})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span style={{ fontSize: 11, color: colors.inkSoft, opacity: 0.8 }}>{tr("voiceNotInstalled", uiLang)}</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ fontSize: 10.5, color: colors.inkSoft, marginTop: 6, lineHeight: 1.6, opacity: 0.85 }}>🌐 {tr("persianVoiceNote", uiLang)}</p>
+    </div>
+  );
+}
+
 function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
   const [offlineModalOpen, setOfflineModalOpen] = useState(false);
   const [open, setOpen] = useState(false);
@@ -4166,6 +4368,9 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
               />
             ))}
           </div>
+
+          {/* زبان‌های خواندن با صدای بلند — نصب بسته‌های زبان + انتخاب صدا */}
+          <LanguageVoiceSettings uiLang={uiLang} colors={colors} />
 
           {/* Offline words download */}
           <button
