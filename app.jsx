@@ -7961,11 +7961,15 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
   // که اون لغت/عبارت اونجا ذخیره شده بود (origin.tab — نگاه کن به
   // toggleSavedStoryWord/ensureSavedStoryWord). یه ref مشترکِ بینِ همه‌ی
   // کارت‌ها کافیه چون همیشه فقط یک لمس/کلیک در آنِ واحد فعاله.
-  const pressStateRef = useRef({ key: null, timer: null, moved: false, startX: 0, startY: 0 });
+  const pressStateRef = useRef({ key: null, timer: null, moved: false, startX: 0, startY: 0, fired: false });
 
+  // توجه: touchend/mouseup فقط تایمر/موقعیت رو پاک می‌کنه، نه fired رو —
+  // چون fired باید تا لحظه‌ی رسیدنِ رویدادِ click (که درست بعد از
+  // touchend شلیک می‌شه) زنده بمونه تا handleCardClickCapture بتونه
+  // جلوش رو بگیره (دقیقاً همون الگویی که برای پلیرِ پایینِ صفحه هست).
   const clearPress = () => {
     if (pressStateRef.current.timer) clearTimeout(pressStateRef.current.timer);
-    pressStateRef.current = { key: null, timer: null, moved: false, startX: 0, startY: 0 };
+    pressStateRef.current = { ...pressStateRef.current, key: null, timer: null, moved: false, startX: 0, startY: 0 };
   };
 
   const jumpToOrigin = (entry) => {
@@ -7979,21 +7983,36 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
   };
 
   const beginPress = (key, clientX, clientY, entry, target) => {
-    // اگه لمس/کلیک روی خودِ یکی از دکمه‌های داخلِ کارت (پخش صدا، حذف،
-    // ویرایش...) شروع شده، لانگ‌پرس فعال نمی‌شه — همون دکمه کارِ خودش رو بکنه.
-    if (target && target.closest && target.closest("button")) return;
+    // فقط اگه لمس/کلیک روی دکمه‌ی پخشِ صدا یا دکمه‌ی حذف (که با
+    // data-jump-exclude مشخص شدن) شروع شده باشه، لانگ‌پرس غیرفعال می‌مونه —
+    // خودِ دکمه‌ی لغت دیگه مستثنا نیست، چون دقیقاً همون‌جاست که کاربر
+    // طبیعتاً انگشتش رو نگه می‌داره تا به منبعِ لغت بره.
+    if (target && target.closest && target.closest("[data-jump-exclude]")) return;
     clearPress();
     pressStateRef.current = {
       key,
       startX: clientX,
       startY: clientY,
       moved: false,
+      fired: false,
       timer: setTimeout(() => {
         if (pressStateRef.current.key === key && !pressStateRef.current.moved) {
+          pressStateRef.current.fired = true;
           jumpToOrigin(entry);
         }
       }, 550),
     };
+  };
+
+  // بعد از یه لانگ‌پرسِ موفق (که به تبِ مبدأ پرید)، کلیکِ طبیعی‌ای که
+  // مرورگر بلافاصله بعدِ touchend روی همون دکمه‌ی لغت شلیک می‌کنه رو خنثی
+  // می‌کنیم — وگرنه همون لغت هم‌زمان «انتخاب» (برای داستان‌ساز) می‌شد.
+  const handleCardClickCapture = (ev) => {
+    if (pressStateRef.current.fired) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      pressStateRef.current.fired = false;
+    }
   };
 
   const movePress = (clientX, clientY) => {
@@ -8306,6 +8325,7 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                       onTouchEnd={clearPress}
                       onTouchCancel={clearPress}
                       onContextMenu={(ev) => ev.preventDefault()}
+                      onClickCapture={handleCardClickCapture}
                       style={{
                         display: "flex",
                         flexDirection: "column",
@@ -8317,6 +8337,9 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                         backgroundColor: isPicked ? colors.goldSoft : colors.paper,
                         padding: "7px 10px",
                         touchAction: "pan-y",
+                        WebkitUserSelect: "none",
+                        userSelect: "none",
+                        WebkitTouchCallout: "none",
                       }}
                     >
                       <div className="flex items-center justify-between gap-2" style={{ direction: "ltr" }}>
@@ -8333,7 +8356,7 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                         >
                           {e.word}
                         </button>
-                        <span className="flex items-center gap-1" style={{ flexShrink: 0 }}>
+                        <span className="flex items-center gap-1" style={{ flexShrink: 0 }} data-jump-exclude="1">
                           <SpeakButton text={e.word} code={code} color={colors.gold} />
                           <button
                             onClick={() => removeSavedStoryWord(e.word, code)}
