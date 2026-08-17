@@ -2743,6 +2743,13 @@ function MiniMarkdown({ text, speakCode, nativeLang, aiSettings, wordTapTarget, 
   // متن)؛ plaintext باعث می‌شه مرورگر جهتِ هر پاراگراف رو مستقیماً از رو
   // اولین حرفِ قوی‌ش تشخیص بده و چیدمانِ justify درست دربیاد.
   const blockAlignStyle = justify ? { textAlign: "justify", unicodeBidi: "plaintext" } : { textAlign: "start" };
+  // dir="auto" جهتِ کل خط رو فقط از رو اولین حرفِ قوی‌ش تشخیص می‌ده — این
+  // دقیقاً چیزیه که تو نمونه‌ی کاربر خرابش کرد: خطِ "1. ¿Qué? → بین انتخاب..."
+  // با یه کلمه‌ی اسپانیاییِ لاتین (Qué) شروع می‌شه، پس dir="auto" کلِ خط رو
+  // (با اینکه ۹۰٪ فارسیه) ltr حساب می‌کنه و ترتیبِ کلمه‌ها/پرانتزها به‌هم
+  // می‌ریزه. به‌جاش، وقتی justify=true باشه، جهتِ هر بلاک رو از رو غالبِ
+  // اسکریپتِ خودِ خط (isPersianScriptLine) تعیین می‌کنیم، نه اولین حرفش.
+  const blockDir = (content) => (justify ? (isPersianScriptLine(content) ? "rtl" : "ltr") : "auto");
   // اگه زبان مقصد خودش فارسی/عربیه، نمی‌شه با اسکریپت تشخیص داد کدوم خط
   // ترجمه‌ست و کدوم جمله‌ی هدف؛ پس همیشه دکمه‌ی خوانش رو نشون بده.
   const alwaysSpeak = speakCode && ["fa", "ar"].includes(speakCode);
@@ -2785,7 +2792,7 @@ function MiniMarkdown({ text, speakCode, nativeLang, aiSettings, wordTapTarget, 
             // جهتِ کلیِ ثابت (که معمولاً فارسیه) برای کل کارت پیروی کنه —
             // وگرنه جمله‌های انگلیسیِ خالص هم بر عکس/به‌هم‌ریخته نشون داده
             // می‌شن، دقیقاً همون مشکلی که توی مثال‌ها پیش اومده بود.
-            <li key={i} dir="auto" className="flex items-start gap-1" style={{ marginBottom: 2, lineHeight: 1.8, ...blockAlignStyle }}>
+            <li key={i} dir={blockDir(li)} className="flex items-start gap-1" style={{ marginBottom: 2, lineHeight: 1.8, ...blockAlignStyle }}>
               {/* dir="auto" روی همین ردیف باعث می‌شه محورِ اصلیِ فلکس هم عوض
                   بشه: خط‌های فارسی rtl می‌مونن (بلندگو با order پیش‌فرض درست
                   سمت راست می‌شینه)، ولی خط‌های زبانِ خارجی auto می‌شن ltr —
@@ -2813,7 +2820,7 @@ function MiniMarkdown({ text, speakCode, nativeLang, aiSettings, wordTapTarget, 
       blocks.push(
         <p
           key={blocks.length}
-          dir="auto"
+          dir={blockDir(content)}
           className="flex items-start gap-1"
           style={{
             fontWeight: 800,
@@ -2842,7 +2849,7 @@ function MiniMarkdown({ text, speakCode, nativeLang, aiSettings, wordTapTarget, 
     }
     flushList();
     blocks.push(
-      <p key={blocks.length} dir="auto" className="flex items-start gap-1" style={{ margin: "4px 0", lineHeight: 1.9, ...blockAlignStyle }}>
+      <p key={blocks.length} dir={blockDir(line)} className="flex items-start gap-1" style={{ margin: "4px 0", lineHeight: 1.9, ...blockAlignStyle }}>
         {shouldSpeak(line) && <SpeakButton text={line} code={speakCode} color={colors.inkSoft} edge={isPersianScriptLine(line) ? undefined : "end"} />}
         <span style={{ flex: 1 }}>{renderContent(line, blocks.length)}</span>
       </p>
@@ -9493,7 +9500,7 @@ function GrammarPanel({
                               </div>
                             ) : (
                               <div
-                                dir="auto"
+                                dir={isUser ? (isPersianScriptLine(m.text || "") ? "rtl" : "ltr") : "auto"}
                                 onClick={() => isUser && setTappedMsgIndex((prev) => (prev === i ? null : i))}
                                 style={{
                                   maxWidth: "100%",
