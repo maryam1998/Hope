@@ -268,7 +268,10 @@ async function translateViaLibre(text, targetLang, sourceLang = "auto") {
 // بخش‌های اپ (مثل ساخت داستان) کار می‌کنه، این هم کار می‌کنه.
 async function translateViaAI(text, targetLang, sourceLang, aiSettings) {
   if (!aiSettings) throw new Error("translate-ai-no-settings");
-  const targetLabel = (typeof LANGUAGES !== "undefined" && LANGUAGES.find((l) => l.code === targetLang)?.label) || targetLang;
+  // نامِ انگلیسیِ زبون، نه برچسبِ فارسی — همون دلیلِ askGrammarTeacher
+  // بالاتر: قاطی‌کردنِ کلمه‌ی فارسی وسطِ پرامپتِ انگلیسی باعث می‌شه
+  // مدل‌های سریع/رایگان بعضی‌وقت‌ها درست تشخیص ندن.
+  const targetLabel = englishLangName(targetLang);
   const prompt =
     `Translate the following text into ${targetLabel}. ` +
     `Respond with ONLY the translation itself — no quotes, no explanation, no original text, nothing else.\n\n` +
@@ -2872,10 +2875,10 @@ let requestGrammarJump = null;
 // used for the localization step itself; askGrammarTeacher (the practice chat) is unrelated and
 // intentionally left as-is.
 async function lookupWordGrammarDetail({ word, sentence, langCode, nativeLang, nativeLabel, aiSettings, targetOrder }) {
-  const langLabel = LANGUAGES.find((l) => l.code === langCode)?.label || langCode;
+  const langLabel = englishLangName(langCode);
   const otherLangsLabel = (targetOrder || [])
     .filter((c) => c !== langCode && c !== nativeLang)
-    .map((c) => LANGUAGES.find((l) => l.code === c)?.label || c)
+    .map((c) => englishLangName(c))
     .join(", ");
   const prompt =
     `You are a language teacher explaining a grammar point to a beginner language learner.\n` +
@@ -2950,11 +2953,16 @@ async function localizeGrammarDetailMarkdown(englishText, nativeLang, aiSettings
 //     to redo the whole structured breakdown.
 async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history, targetOrder }) {
   const label = nativeLabel || "Persian";
-  const langLabel = LANGUAGES.find((l) => l.code === langCode)?.label || langCode;
+  // برای خودِ پرامپتِ انگلیسی، از نامِ انگلیسیِ زبون استفاده می‌کنیم (نه
+  // برچسبِ فارسیِ LANGUAGES) — چون قاطی‌کردنِ یه کلمه‌ی فارسی وسطِ یه
+  // دستورالعملِ انگلیسی باعث می‌شد بعضی مدل‌های سریع/رایگانِ زنجیره
+  // (groq/mistral/...) درست تشخیصش ندن و به‌جاش خودشون پیش‌فرض برن سراغِ
+  // انگلیسی برای مثال‌ها — دقیقاً همون باگی که کاربر گزارش کرد.
+  const langLabel = englishLangName(langCode);
   const otherLangsLabel =
     (targetOrder || [])
       .filter((c) => c !== langCode && c !== nativeLang)
-      .map((c) => LANGUAGES.find((l) => l.code === c)?.label || c)
+      .map((c) => englishLangName(c))
       .join(", ") || "None";
   const historyText =
     (history || [])
@@ -2970,6 +2978,7 @@ async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLab
     `- If this reads like a sentence they wrote in ${langLabel} to practice: check it warmly. Say if it's correct or not, give the corrected version if needed, explain briefly and simply why (in ${label}) — especially if the mistake looks like it came from mixing ${label} and ${langLabel} structure — then add one more example sentence in ${langLabel} with a ${label} translation.\n` +
     `- Otherwise, just answer naturally, like a normal, capable AI assistant would — any topic, any question, no restriction. Weave in an example phrase in ${langLabel} with translation only if it genuinely fits.\n` +
     `- Default to ${langLabel} for any language-practice content (translated into ${label}); only bring in ${otherLangsLabel} or English if the learner specifically asks about them or it clearly helps.\n` +
+    `- CRITICAL: this learner is practicing ${langLabel}, NOT English. Every example sentence in your reply MUST be in ${langLabel} (unless ${langLabel} literally is English, or the learner explicitly asked about English/another language). Never default to English examples just out of habit — that is a mistake.\n` +
     `- Write in ${label}. Keep sentences in both languages clean and well-ordered, never jumbled. Keep the reply clear, well-organized, and not too long.`;
 
   const text = await callAI({ prompt, maxTokens: 1200, aiSettings });
@@ -3425,6 +3434,32 @@ const LANGUAGES = [
   { code: "ru", label: "روسی", abbr: "RU" },
   { code: "ja", label: "ژاپنی", abbr: "JA" },
 ];
+
+// نامِ انگلیسیِ هر زبون — مخصوصِ متنِ پرامپتی که به هوش مصنوعی فرستاده
+// می‌شه (askGrammarTeacher و مشابه‌هاش)، چون خودِ اون پرامپت‌ها به انگلیسی
+// نوشته شدن. قبلاً به‌جاش برچسبِ فارسیِ LANGUAGES (مثلاً «اسپانیایی») مستقیم
+// وسطِ یه جمله‌ی انگلیسی می‌رفت — که خصوصاً مدل‌های سریع/رایگانِ زنجیره
+// (groq/mistral/...) بعضی‌وقت‌ها درست تشخیصش نمی‌دادن و به‌جاش خودشون
+// پیش‌فرض می‌رفتن سراغِ انگلیسی برای مثال‌ها. اسمِ انگلیسیِ واضح این ابهام
+// رو از بین می‌بره.
+const ENGLISH_LANG_NAME = {
+  fa: "Persian",
+  en: "English",
+  it: "Italian",
+  hi: "Hindi",
+  tr: "Turkish",
+  ar: "Arabic",
+  es: "Spanish",
+  de: "German",
+  fr: "French",
+  zh: "Chinese",
+  ko: "Korean",
+  ru: "Russian",
+  ja: "Japanese",
+};
+function englishLangName(code) {
+  return ENGLISH_LANG_NAME[code] || code;
+}
 
 // Languages that read right-to-left — used so any text block (story
 // sentences, translations, custom words the user types) gets the correct
