@@ -9769,6 +9769,11 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [showAnswer, setShowAnswer] = useState(false);
   const [query, setQuery] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
+  // لانگ‌پرسِ یه لغت توی «لغات ذخیره‌شده» — اگه اون لغت با شناسه‌ی دقیقِ
+  // همون ردیف (id) ذخیره شده باشه (نگاه کن به originExtra توی WordList)،
+  // این استیت به WordListِ همون تب می‌رسه تا دقیقاً همون ردیف رو (نه فقط
+  // نتیجه‌ی جستجو) هایلایت و بهش اسکرول کنه.
+  const [wordJumpTarget, setWordJumpTarget] = useState(null);
   // شفافیتِ نوار پخشِ چسبیده به کف صفحه — درصدی از ۰ (کاملاً شفاف) تا ۱۰۰
   // (کاملاً کدر). روی دستگاه ذخیره می‌شه تا هربار برنگرده به پیش‌فرض.
   const [playerOpacity, setPlayerOpacity] = useState(() => {
@@ -10440,6 +10445,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                       onFullTextChange={favorites.size > 0 ? undefined : setWordListPlayerText}
                       autoScrollActive={tab === "favorites"}
                       highlightColor={appPrefs.highlightColor}
+                      jumpTarget={wordJumpTarget}
                     />
                   </div>
                 )}
@@ -10465,6 +10471,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             onFullTextChange={setWordListPlayerText}
             autoScrollActive={tab === "words"}
             highlightColor={appPrefs.highlightColor}
+            jumpTarget={wordJumpTarget}
           />
         )}
 
@@ -10485,6 +10492,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             onFullTextChange={setWordListPlayerText}
             autoScrollActive={tab === "vocab"}
             highlightColor={appPrefs.highlightColor}
+            jumpTarget={wordJumpTarget}
           />
         )}
 
@@ -10505,6 +10513,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             onFullTextChange={setWordListPlayerText}
             autoScrollActive={tab === "slang"}
             highlightColor={appPrefs.highlightColor}
+            jumpTarget={wordJumpTarget}
           />
         )}
 
@@ -10565,11 +10574,18 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                   token: Date.now(),
                 });
               }
-              // توی تب‌هایی که خودشون یه نوارِ جستجو دارن (مکالمات، لغات،
-              // علاقه‌مندی‌ها، لغات‌و‌اخبار، مکالمه‌روزمره)، همون کادرِ
-              // جستجو رو با خودِ لغت پر می‌کنیم تا دقیقاً همون موردی که
-              // این لغت ازش اومده، فیلتر و نشون داده بشه.
-              if (["conversations", "words", "favorites", "vocab", "slang"].includes(originTab)) {
+              // تب‌های لغات (لغات/لغات‌و‌اخبار/اسلنگ/علاقه‌مندی‌ها) — اگه اون
+              // لغت با شناسه‌ی دقیقِ همون ردیف (origin.id) ذخیره شده باشه،
+              // به‌جای فقط پرکردنِ کادرِ جستجو، دقیقاً همون ردیف رو (بعد از
+              // پاک‌کردنِ فیلترِ سطح و جستجو، تا چیزی قایمش نکنه) هایلایت و
+              // بهش اسکرول می‌کنیم. اگه id نبود (لغاتی که قبل از این
+              // قابلیت ذخیره شدن، یا از مکالمات روزمره اومدن — که ردیفِ
+              // مستقلی نداره)، مثلِ قبل کادرِ جستجو رو با خودِ لغت پر می‌کنیم.
+              if (["words", "vocab", "slang", "favorites"].includes(originTab) && entry.origin.id != null) {
+                setLevelFilter("all");
+                setQuery("");
+                setWordJumpTarget({ id: entry.origin.id, token: Date.now() });
+              } else if (["conversations", "words", "favorites", "vocab", "slang"].includes(originTab)) {
                 setQuery(entry.word);
               }
               return true;
@@ -11053,6 +11069,7 @@ function VocabList({ words, nativeLang, targetLangs, levelFilter, aiSettings, au
                             nativeLang={nativeLang}
                             aiSettings={aiSettings}
                             color={translationColor}
+                            originExtra={{ id: w.id }}
                           />
                         ) : (
                           "—"
@@ -11766,7 +11783,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
 // به کتابخونه‌ی جدید).
 const WORDS_PAGE_SIZE = 60;
 
-function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor }) {
+function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor, jumpTarget }) {
   // زبان‌هایی که باید زیرِ هر لغت ترجمه‌شون نشون داده بشه: همون زبان‌های
   // مقصدی که کاربر بالای صفحه انتخاب/مرتب کرده (targetLangs)، منهای خودِ
   // انگلیسی (چون انگلیسی همون سرلغته که بالا نشون داده می‌شه و تکرارش
@@ -11902,6 +11919,30 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
     else listNodeMapRef.current.delete(key);
   };
 
+  // لانگ‌پرسِ یه لغت توی «لغات ذخیره‌شده» → دقیقاً همون ردیف اینجا (نه فقط
+  // همون تب) هایلایت و بهش اسکرول می‌شه. jumpTarget ={ id, token } از
+  // PhrasebookMain میاد؛ token فقط برای این‌که هر لانگ‌پرسِ تازه (حتی روی
+  // همون لغتِ قبلی) یه افکتِ جدید بشه. اول باید مطمئن بشیم لغتِ موردنظر
+  // توی صفحه‌بندیِ فعلی (visibleCount) بارگذاری شده، وگرنه هنوز رندر نشده.
+  const [justJumpedId, setJustJumpedId] = useState(null);
+  useEffect(() => {
+    if (!jumpTarget || jumpTarget.id == null) return;
+    const idx = filtered.findIndex((w) => w.id === jumpTarget.id);
+    if (idx === -1) return; // با این فیلتر/جستجو، این لغت دیده نمی‌شه
+    if (idx >= visibleCount) setVisibleCount(Math.min(idx + WORDS_PAGE_SIZE, filtered.length));
+    setJustJumpedId(jumpTarget.id);
+    const t = setTimeout(() => setJustJumpedId(null), 2200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpTarget?.token]);
+  useEffect(() => {
+    if (justJumpedId == null) return;
+    const node = listNodeMapRef.current.get(String(justJumpedId));
+    if (node && node.scrollIntoView) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [justJumpedId, visibleCount]);
+
   // -------------------------------------------------------------------------
   // «خواندنِ پیوسته‌ی ترجمه‌ها» — طبق درخواست، همون سیستمِ بالا (fullText +
   // wordOffsets + activeWordId + اسکرولِ خودکار) برایِ متنِ اصلیِ انگلیسی،
@@ -12004,8 +12045,9 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
           style={{
             position: "relative",
             backgroundColor: "white",
-            border: `1px solid ${colors.cardBorder}`,
-            transition: "border-color 0.4s ease",
+            border: `1px solid ${justJumpedId === w.id ? (highlightColor || READ_MARKER_COLOR) : colors.cardBorder}`,
+            boxShadow: justJumpedId === w.id ? `0 0 0 2px ${highlightColor || READ_MARKER_COLOR}` : "none",
+            transition: "border-color 0.4s ease, box-shadow 0.4s ease",
           }}
         >
           <button onClick={() => toggleWordFavorite(w.id)} aria-label="افزودن به علاقه‌مندی‌ها" style={{ marginLeft: 4, flexShrink: 0 }}>
@@ -12041,6 +12083,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                     fontFamily={fontLatin}
                     fontWeight={800}
                     fontSize={19}
+                    originExtra={{ id: w.id }}
                     // همون مکانیزمِ «نقطه‌ی ادامه»ای که داستان‌ساز داره
                     // (storyBaseOffset/onSpeakOffset → rememberMainTextResumeOffset)
                     // اینجا هم وصل می‌شه: با زدنِ 🔊ِ همین لغت از پاپ‌آپ، نقطه‌ش
