@@ -1052,6 +1052,37 @@ const speechController = (() => {
   // طبیعیِ کاملِ متن (بدونِ تکرارِ باقی‌مونده)، نقطه‌ش پاک می‌شه تا دفعه‌ی
   // بعد از اول شروع بشه.
   const lastOffsetByKey = new Map();
+  // کدِ زبانِ (نه لوکِیل — همون چیزی که به toggle داده می‌شه، مثلاً "en")
+  // سشنِ فعلاً بارشده — فقط برای وقتی لازمه که سشنِ فعلی قطع می‌شه و باید
+  // بعداً دوباره باهاش toggle صدا بزنیم (پایین‌تر، pendingResume).
+  let currentCode = null;
+  // وقتی یه سشنِ «خواندنِ پیوسته‌ی متنِ اصلی» (loopWholeText) با کلیک روی
+  // یه پخشِ تکیِ دیگه (مثلاً پخشِ یه کلمه از پاپ‌آپِ معنیِ لغت) وسط‌راه قطع
+  // بشه، اطلاعاتِ لازم برای برگشتن بهش اینجا نگه داشته می‌شه: متنِ اصلی،
+  // کدِ زبانش، و نقطه‌ای که توش قطع شده. بعد از اینکه اون پخشِ تکی کاملاً
+  // تمام شد (با هر چند بار تکراری که کاربر روش گذاشته بود)، سه ثانیه بعد
+  // همین‌جا ازش استفاده می‌شه تا خواندنِ متنِ اصلی خودکار از همون نقطه
+  // ادامه پیدا کنه.
+  let pendingResume = null; // { text, code, offset } | null
+  let resumeTimer = null;
+
+  function clearPendingResume() {
+    if (resumeTimer) {
+      clearTimeout(resumeTimer);
+      resumeTimer = null;
+    }
+    pendingResume = null;
+  }
+
+  function scheduleResumeIfPending() {
+    if (!pendingResume) return;
+    const toResume = pendingResume;
+    pendingResume = null;
+    resumeTimer = setTimeout(() => {
+      resumeTimer = null;
+      controller.toggle(toResume.text, toResume.code, toResume.offset, { loop: true });
+    }, 3000);
+  }
   // تایمرِ مکثِ بینِ دو جمله (همون چیزی که سرعتِ کند رو واقعاً حس‌شدنی می‌کنه) —
   // موقعِ pause باید کنسل بشه وگرنه جمله‌ی بعدی خودش‌به‌خود شروع می‌شه.
   let gapTimer = null;
@@ -1149,6 +1180,7 @@ const speechController = (() => {
       status = "idle";
       chunkIndex = 0;
       notify();
+      scheduleResumeIfPending();
       return;
     }
     onlineChunkIndex = idx;
@@ -1314,6 +1346,7 @@ const speechController = (() => {
       status = "idle";
       chunkIndex = 0;
       notify();
+      scheduleResumeIfPending();
       return;
     }
 
@@ -1387,7 +1420,11 @@ const speechController = (() => {
     window.speechSynthesis.speak(utter);
   }
 
-  return {
+  // این آبجکت به یه نامِ ثابت (controller) نگه داشته می‌شه، نه فقط return
+  // مستقیم — چون scheduleResumeIfPending (بالاتر) برای برگشتِ خودکار به
+  // متنِ اصلی، بعد از تمام‌شدنِ پخشِ یه کلمه‌ی تکی، خودش دوباره controller.toggle
+  // رو صدا می‌زنه.
+  const controller = {
     subscribe(cb) {
       listeners.add(cb);
       return () => listeners.delete(cb);
@@ -1421,6 +1458,10 @@ const speechController = (() => {
     },
     // startCharOffset (اختیاری): آفستِ کاراکتری‌ای که پخش باید تقریباً از
     // جمله‌ی متناظرش شروع بشه — برای «ادامه از همون‌جا» بعد از تغییرِ متن.
+    // نکته: toggle خودش پایین‌تر هم دوباره صدا زده می‌شه — از داخلِ
+    // scheduleResumeIfPending، برای برگشتِ خودکار به متنِ اصلی بعد از پخشِ
+    // یه کلمه‌ی تکی. برای همینه که این آبجکت به یه نامِ ثابت (controller)
+    // نگه داشته می‌شه، نه فقط return مستقیم.
     toggle(text, code, startCharOffset, options) {
       try {
         if (!text) return "unsupported";
@@ -1476,6 +1517,27 @@ const speechController = (() => {
           return "ok";
         }
 
+        // اگه همین‌الان یه سشنِ «خواندنِ پیوسته»(loopWholeText) واقعاً در حالِ
+        // پخش بود و این متنِ تازه یه چیزِ دیگه‌ست (نه ادامه‌ی خودِ همون سشن —
+        // چون اون حالت با return "ok"ِ بالا قبلاً رد شده)، قبل از رد شدن روش،
+        // خودِ همون سشنِ قطع‌شده رو نگه می‌داریم: متنش، کدِ زبانش، و نقطه‌ای
+        // که توش قطع شده — دقیقاً همون سناریوییه که کاربر روی یه کلمه‌ی وسطِ
+        // متن کلیک می‌کنه (مثلاً از پاپ‌آپِ معنیِ لغت) تا تلفظش رو تنها
+        // بشنوه. وقتی این پخشِ تکیِ لغت (با هر چند بار تکراری که کاربر
+        // روش گذاشته) کاملاً تموم شد، سه ثانیه بعد خودکار از همینجا خواندنِ
+        // متنِ اصلی ادامه پیدا می‌کنه. اگه سشنِ جدید هم خودش یه سشنِ پیوسته‌ی
+        // دیگه‌ست (forceLoop — یعنی کاربر عمداً یه جمله‌ی دیگه از متنِ اصلی
+        // رو زده)، این «برگشتِ خودکار» بی‌معنیه؛ پس فقط وقتی سشنِ جدید
+        // تک‌ضربه‌ایه (بدونِ loop) این حافظه نگه داشته می‌شه.
+        clearPendingResume();
+        if (status === "playing" && loopWholeText && !forceLoop && key) {
+          pendingResume = {
+            text: fullText,
+            code: currentCode,
+            offset: chunks[chunkIndex] ? chunks[chunkIndex].start : 0,
+          };
+        }
+
         // متن جدید — شمارنده‌ی تکرار از روی تنظیم سراسری تازه می‌شه
         const voices = hasSynthesis ? window.speechSynthesis.getVoices() : [];
         const baseLang = newLocale.split("-")[0].toLowerCase();
@@ -1483,6 +1545,7 @@ const speechController = (() => {
 
         key = newKey;
         locale = newLocale;
+        currentCode = code;
 
         // اگه صدازننده صریحاً آفستی نداده، ببین همین متن قبلاً (با توقفِ
         // کامل یا با پخشِ یه متنِ دیگه روش) نیمه‌کاره مونده بود یا نه —
@@ -1521,6 +1584,7 @@ const speechController = (() => {
       }
     },
     stop() {
+      clearPendingResume();
       cancelSpeech();
       stopOnlineAudio();
       mode = "local";
@@ -1581,6 +1645,7 @@ const speechController = (() => {
       return "ok";
     },
   };
+  return controller;
 })();
 
 
@@ -2666,8 +2731,18 @@ function TapWordTranslate({ text, targetLangCode }) {
   );
 }
 
-function MiniMarkdown({ text, speakCode, nativeLang, aiSettings, wordTapTarget }) {
+function MiniMarkdown({ text, speakCode, nativeLang, aiSettings, wordTapTarget, justify }) {
   if (!text) return null;
+  // این استایل رو بذاریم رو هر بلاک (پاراگراف/تیتر/آیتمِ لیست) به‌جای
+  // «start»ِ همیشگی — فقط وقتی justify=true باشه (یعنی فقط از چتِ تمرین
+  // جمله‌سازی صدا زده شده، نه بقیه‌ی جاهایی که از MiniMarkdown استفاده
+  // می‌کنن). unicodeBidi:"plaintext" اینجا لازمه چون بدونش، وقتی یه خط
+  // ترکیبی از فارسی/عربی (rtl) و کلماتِ زبونِ دیگه (ltr) باشه، justify
+  // معمولی فاصله‌های عجیب/نامتقارن بینِ کلمات می‌ذاره (چون مرورگر جهتِ
+  // بلاک رو با embedding پیش‌فرض حساب می‌کنه، نه بر اساسِ جهتِ واقعیِ خودِ
+  // متن)؛ plaintext باعث می‌شه مرورگر جهتِ هر پاراگراف رو مستقیماً از رو
+  // اولین حرفِ قوی‌ش تشخیص بده و چیدمانِ justify درست دربیاد.
+  const blockAlignStyle = justify ? { textAlign: "justify", unicodeBidi: "plaintext" } : { textAlign: "start" };
   // اگه زبان مقصد خودش فارسی/عربیه، نمی‌شه با اسکریپت تشخیص داد کدوم خط
   // ترجمه‌ست و کدوم جمله‌ی هدف؛ پس همیشه دکمه‌ی خوانش رو نشون بده.
   const alwaysSpeak = speakCode && ["fa", "ar"].includes(speakCode);
@@ -2710,7 +2785,7 @@ function MiniMarkdown({ text, speakCode, nativeLang, aiSettings, wordTapTarget }
             // جهتِ کلیِ ثابت (که معمولاً فارسیه) برای کل کارت پیروی کنه —
             // وگرنه جمله‌های انگلیسیِ خالص هم بر عکس/به‌هم‌ریخته نشون داده
             // می‌شن، دقیقاً همون مشکلی که توی مثال‌ها پیش اومده بود.
-            <li key={i} dir="auto" className="flex items-start gap-1" style={{ marginBottom: 2, lineHeight: 1.8, textAlign: "start" }}>
+            <li key={i} dir="auto" className="flex items-start gap-1" style={{ marginBottom: 2, lineHeight: 1.8, ...blockAlignStyle }}>
               {/* dir="auto" روی همین ردیف باعث می‌شه محورِ اصلیِ فلکس هم عوض
                   بشه: خط‌های فارسی rtl می‌مونن (بلندگو با order پیش‌فرض درست
                   سمت راست می‌شینه)، ولی خط‌های زبانِ خارجی auto می‌شن ltr —
@@ -2745,7 +2820,7 @@ function MiniMarkdown({ text, speakCode, nativeLang, aiSettings, wordTapTarget }
             fontSize: level === 1 ? 16 : level === 2 ? 15 : 14,
             margin: "10px 0 4px",
             color: colors.ink,
-            textAlign: "start",
+            ...blockAlignStyle,
           }}
         >
           {shouldSpeak(content) && <SpeakButton text={content} code={speakCode} color={colors.inkSoft} edge={isPersianScriptLine(content) ? undefined : "end"} />}
@@ -2767,7 +2842,7 @@ function MiniMarkdown({ text, speakCode, nativeLang, aiSettings, wordTapTarget }
     }
     flushList();
     blocks.push(
-      <p key={blocks.length} dir="auto" className="flex items-start gap-1" style={{ margin: "4px 0", lineHeight: 1.9, textAlign: "start" }}>
+      <p key={blocks.length} dir="auto" className="flex items-start gap-1" style={{ margin: "4px 0", lineHeight: 1.9, ...blockAlignStyle }}>
         {shouldSpeak(line) && <SpeakButton text={line} code={speakCode} color={colors.inkSoft} edge={isPersianScriptLine(line) ? undefined : "end"} />}
         <span style={{ flex: 1 }}>{renderContent(line, blocks.length)}</span>
       </p>
@@ -9428,9 +9503,16 @@ function GrammarPanel({
                                   backgroundColor: isUser ? colors.paper : colors.goldSoft,
                                   border: `1px solid ${colors.cardBorder}`,
                                   cursor: isUser ? "pointer" : "default",
+                                  // متنِ خودِ کاربر (سوال) مستقیم همینجا چاپ می‌شه؛
+                                  // چون MiniMarkdown نیست، justify و فیکسِ
+                                  // bidiِ ترکیبِ فارسی/عربی با بقیه‌ی زبون‌ها
+                                  // باید مستقیم همینجا هم گذاشته بشه (جوابِ
+                                  // هوش‌مصنوعی این استایل رو از طریقِ prop
+                                  // «justify» به MiniMarkdown می‌گیره، پایین‌تر).
+                                  ...(isUser ? { textAlign: "justify", unicodeBidi: "plaintext" } : null),
                                 }}
                               >
-                                {isUser ? m.text : <MiniMarkdown text={m.text} speakCode={chatLang} nativeLang={nativeLang} aiSettings={aiSettings} wordTapTarget={targetOrder && targetOrder[0]} />}
+                                {isUser ? m.text : <MiniMarkdown text={m.text} speakCode={chatLang} nativeLang={nativeLang} aiSettings={aiSettings} wordTapTarget={targetOrder && targetOrder[0]} justify />}
                                 {m.role === "ai" && langOptions.length > 0 && (
                                   <div className="flex items-center gap-1 flex-wrap" style={{ marginTop: 8, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 6 }}>
                                     <Globe size={12} color={colors.inkSoft} />
@@ -9585,6 +9667,31 @@ function GrammarPanel({
                   marginTop: practiceSheet === "peek" ? 8 : 0,
                 }}
               >
+                {/* دکمه‌ی ارسال طبق درخواستِ کاربر قبل از textarea میاد — چون
+                    این باکس dir="rtl"ه (ریشه‌ی اپ rtlه)، اولین فرزندِ داخلِ
+                    یه flex-rowِ rtl سمتِ راست می‌شینه؛ پس دکمه رو اول گذاشتیم
+                    تا واقعاً سمتِ راستِ نوار بیفته، نه چپ. */}
+                <button
+                  onClick={() => {
+                    setPracticeSheet((s) => (s === "peek" ? "half" : s));
+                    sendChat();
+                  }}
+                  disabled={chatLoading || !chatInput.trim()}
+                  style={{
+                    backgroundColor: colors.teal,
+                    color: "#fff",
+                    borderRadius: 10,
+                    padding: "8px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: chatLoading || !chatInput.trim() ? 0.5 : 1,
+                    boxShadow: chatLoading || !chatInput.trim() ? "none" : "0 2px 8px rgba(28,37,65,0.25)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Send size={16} color="#fff" />
+                </button>
                 <textarea
                   ref={chatTextareaRef}
                   dir="auto"
@@ -9613,27 +9720,6 @@ function GrammarPanel({
                     color: colors.ink,
                   }}
                 />
-                <button
-                  onClick={() => {
-                    setPracticeSheet((s) => (s === "peek" ? "half" : s));
-                    sendChat();
-                  }}
-                  disabled={chatLoading || !chatInput.trim()}
-                  style={{
-                    backgroundColor: colors.teal,
-                    color: "#fff",
-                    borderRadius: 10,
-                    padding: "8px 14px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    opacity: chatLoading || !chatInput.trim() ? 0.5 : 1,
-                    boxShadow: chatLoading || !chatInput.trim() ? "none" : "0 2px 8px rgba(28,37,65,0.25)",
-                    flexShrink: 0,
-                  }}
-                >
-                  <Send size={16} color="#fff" />
-                </button>
               </div>
             </div>
           </div>
