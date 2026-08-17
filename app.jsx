@@ -960,6 +960,28 @@ const TTS_LOCALE = {
   uk: "uk-UA",
 };
 
+// نامِ صداهای Neural مایکروسافت (Edge Read Aloud / Azure) برای مسیرِ
+// آنلاینِ جایگزین — این سرویس برخلافِ Google-Translate-TTS/StreamElements
+// برای همه‌ی این زبون‌ها (از جمله فارسی/عربی/ایتالیایی/هندی/کره‌ای/روسی/
+// ژاپنی که قبلاً بی‌صدا شکست می‌خوردن) صدای واقعی داره.
+const EDGE_TTS_VOICE = {
+  fa: "fa-IR-DilaraNeural",
+  en: "en-US-AriaNeural",
+  de: "de-DE-KatjaNeural",
+  es: "es-ES-ElviraNeural",
+  fr: "fr-FR-DeniseNeural",
+  ar: "ar-SA-ZariyahNeural",
+  tr: "tr-TR-EmelNeural",
+  zh: "zh-CN-XiaoxiaoNeural",
+  ru: "ru-RU-SvetlanaNeural",
+  it: "it-IT-ElsaNeural",
+  ko: "ko-KR-SunHiNeural",
+  ja: "ja-JP-NanamiNeural",
+  hi: "hi-IN-SwaraNeural",
+  ga: "ga-IE-OrlaNeural",
+  uk: "uk-UA-PolinaNeural",
+};
+
 function downloadTextFile(filename, content, mime = "text/markdown;charset=utf-8") {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -1170,11 +1192,174 @@ const speechController = (() => {
     return chunksArr.length ? chunksArr : [text];
   }
 
-  function onlineTtsUrls(chunkText, langCode) {
+  // -------------------------------------------------------------------
+  // Edge/Azure Neural TTS (همون موتورِ «خواندنِ با صدای بلند»ِ Microsoft
+  // Edge) — یه سرویسِ آنلاینِ رایگان و بدونِ کلید که رسماً مستند نیست ولی
+  // خودِ اپلیکیشنِ Edge هم دقیقاً همین پروتکل رو صدا می‌زنه. برخلافِ
+  // Google-Translate-TTS/StreamElements، این سرویس برای هر ۱۵ زبونِ بالا
+  // (از جمله فارسی، عربی، ایتالیایی، هندی، کره‌ای، روسی، ژاپنی) صدای واقعی
+  // برمی‌گردونه. کارش این‌طوریه: یه وب‌سوکت به سرورِ Edge وصل می‌شه، یه
+  // پیامِ SSML می‌فرسته، و صدا رو به‌صورتِ چند تکه‌ی باینریِ mp3 پس می‌گیره؛
+  // اون تکه‌ها رو به‌هم می‌چسبونیم و یه Blob URL قابلِ پخش با <audio> می‌سازیم.
+  // -------------------------------------------------------------------
+  const EDGE_TTS_TRUSTED_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+
+  function edgeTtsUuid() {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID().replace(/-/g, "");
+    let s = "";
+    for (let i = 0; i < 32; i++) s += Math.floor(Math.random() * 16).toString(16);
+    return s;
+  }
+
+  function edgeTtsEscapeXml(s) {
+    return (s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+  }
+
+  async function edgeTtsSecMsGec() {
+    // پروتکلِ Edge از یه هدرِ امنیتیِ مبتنی‌بر زمان استفاده می‌کنه: ثانیه‌های
+    // یونیکسِ الان + افستِ اپاکِ ویندوز، گردشده به پایینِ نزدیک‌ترین ۵ دقیقه،
+    // تبدیل‌شده به تیک‌های ۱۰۰نانوثانیه‌ای، بعد SHA-256 با توکنِ ثابتِ بالا.
+    const WIN_EPOCH = 11644473600;
+    let ticks = Math.floor(Date.now() / 1000) + WIN_EPOCH;
+    ticks -= ticks % 300;
+    const ticksStr = String(Math.round(ticks * 1e7));
+    const strToHash = ticksStr + EDGE_TTS_TRUSTED_TOKEN;
+    const enc = new TextEncoder().encode(strToHash);
+    const hashBuf = await window.crypto.subtle.digest("SHA-256", enc);
+    return Array.from(new Uint8Array(hashBuf))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+      .toUpperCase();
+  }
+
+  // یه تکه‌متن رو با موتورِ Edge/Azure می‌خونه و یه Blob URL از mp3ِ نتیجه
+  // برمی‌گردونه (reject می‌شه اگه وب‌سوکت/شبکه شکست بخوره یا هیچ صدایی
+  // نیاد — تا مسیرِ فراخوان بتونه بره سراغِ سرویسِ بعدی).
+  function fetchEdgeTtsAudio(chunkText, voice, speedRate) {
+    return new Promise((resolve, reject) => {
+      const sanitized = sanitizeForTTS(chunkText);
+      if (!sanitized || !window.WebSocket || !window.crypto || !window.crypto.subtle) {
+        reject(new Error("edge-tts-unavailable"));
+        return;
+      }
+      edgeTtsSecMsGec()
+        .then((gec) => {
+          const connId = edgeTtsUuid();
+          const wsUrl =
+            "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1" +
+            `?TrustedClientToken=${EDGE_TTS_TRUSTED_TOKEN}` +
+            `&Sec-MS-GEC=${gec}` +
+            `&Sec-MS-GEC-Version=1-131.0.2903.99` +
+            `&ConnectionId=${connId}`;
+          let ws;
+          try {
+            ws = new WebSocket(wsUrl);
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          ws.binaryType = "arraybuffer";
+          const audioParts = [];
+          let settled = false;
+          const finishOk = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeoutId);
+            try {
+              ws.close();
+            } catch (e) {}
+            if (!audioParts.length) {
+              reject(new Error("edge-tts-no-audio"));
+              return;
+            }
+            const blob = new Blob(audioParts, { type: "audio/mpeg" });
+            resolve(URL.createObjectURL(blob));
+          };
+          const finishFail = (err) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeoutId);
+            try {
+              ws.close();
+            } catch (e) {}
+            reject(err || new Error("edge-tts-failed"));
+          };
+          const timeoutId = setTimeout(() => finishFail(new Error("edge-tts-timeout")), 15000);
+
+          ws.onopen = () => {
+            try {
+              const now = new Date().toISOString();
+              ws.send(
+                `X-Timestamp:${now}\r\n` +
+                  "Content-Type:application/json; charset=utf-8\r\n" +
+                  "Path:speech.config\r\n\r\n" +
+                  JSON.stringify({
+                    context: {
+                      synthesis: {
+                        audio: {
+                          metadataoptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: false },
+                          outputFormat: "audio-24khz-48kbitrate-mono-mp3",
+                        },
+                      },
+                    },
+                  })
+              );
+              const pct = Math.round(((Number(speedRate) || 1) - 1) * 100);
+              const rateStr = pct >= 0 ? `+${pct}%` : `${pct}%`;
+              const ssml =
+                `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>` +
+                `<voice name='${voice}'><prosody rate='${rateStr}'>${edgeTtsEscapeXml(sanitized)}</prosody></voice>` +
+                `</speak>`;
+              ws.send(
+                `X-RequestId:${edgeTtsUuid()}\r\n` +
+                  "Content-Type:application/ssml+xml\r\n" +
+                  `X-Timestamp:${now}\r\n` +
+                  "Path:ssml\r\n\r\n" +
+                  ssml
+              );
+            } catch (e) {
+              finishFail(e);
+            }
+          };
+          ws.onmessage = (evt) => {
+            if (typeof evt.data === "string") {
+              if (evt.data.indexOf("Path:turn.end") !== -1) finishOk();
+              return;
+            }
+            try {
+              const buf = new Uint8Array(evt.data);
+              if (buf.length < 2) return;
+              const headerLen = (buf[0] << 8) | buf[1];
+              const headerStr = new TextDecoder("utf-8").decode(buf.slice(2, 2 + headerLen));
+              if (headerStr.indexOf("Path:audio") !== -1) {
+                const audioData = buf.slice(2 + headerLen);
+                if (audioData.length) audioParts.push(audioData);
+              }
+            } catch (e) {}
+          };
+          ws.onerror = () => finishFail(new Error("edge-tts-ws-error"));
+          ws.onclose = () => finishOk();
+        })
+        .catch((e) => reject(e));
+    });
+  }
+
+  // فهرستِ سرویس‌های آنلاینِ جایگزین برای یه تکه‌متن، به‌ترتیبِ اولویت:
+  // اول Edge/Azure (پوششِ کاملِ همه‌ی زبون‌ها)، بعد Google-Translate-TTS و
+  // StreamElements به‌عنوانِ پشتیبان اگه به هر دلیلی وب‌سوکتِ Edge دردسترس
+  // نبود (مثلاً شبکه/فایروالی که وب‌سوکت رو بلاک کرده).
+  function onlineTtsProviders(chunkText, langCode) {
+    const voice = EDGE_TTS_VOICE[langCode] || EDGE_TTS_VOICE.en;
     const q = encodeURIComponent(sanitizeForTTS(chunkText));
     return [
-      `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}`,
-      `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}`,
+      { kind: "edge", text: chunkText, voice },
+      { kind: "url", url: `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}` },
+      { kind: "url", url: `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}` },
     ];
   }
 
@@ -1189,8 +1374,8 @@ const speechController = (() => {
     }
   }
 
-  function playOnlineChunkUrls(urls, urlIndex, idx) {
-    if (urlIndex >= urls.length) {
+  function playOnlineChunkUrls(providers, providerIndex, idx) {
+    if (providerIndex >= providers.length) {
       if (!onlineAnyAudioPlayed) {
         // هیچ‌کدوم از سرویس‌های آنلاین حتی یه تکه هم پخش نشد — بقیه‌ی
         // تکه‌ها هم قطعاً همین‌طور شکست می‌خورن (چون علتش معمولاً کلیه:
@@ -1206,7 +1391,53 @@ const speechController = (() => {
       playOnlineChunk(idx + 1);
       return;
     }
-    const audio = new Audio(urls[urlIndex]);
+    const provider = providers[providerIndex];
+    const goNext = () => {
+      if (status !== "playing") return;
+      playOnlineChunkUrls(providers, providerIndex + 1, idx);
+    };
+
+    if (provider.kind === "edge") {
+      fetchEdgeTtsAudio(provider.text, provider.voice, rate)
+        .then((blobUrl) => {
+          if (status !== "playing") {
+            try {
+              URL.revokeObjectURL(blobUrl);
+            } catch (e) {}
+            return;
+          }
+          const audio = new Audio(blobUrl);
+          // صدای Edge خودش با نرخِ SSML کند/تندشده — پخشِ مرورگر رو روی
+          // نرمال می‌ذاریم تا دوباره کند/تند نشه.
+          audio.playbackRate = 1;
+          audio.onplaying = () => {
+            onlineAnyAudioPlayed = true;
+          };
+          const cleanup = () => {
+            try {
+              URL.revokeObjectURL(blobUrl);
+            } catch (e) {}
+          };
+          audio.onended = () => {
+            cleanup();
+            if (status !== "playing") return;
+            playOnlineChunk(idx + 1);
+          };
+          audio.onerror = () => {
+            cleanup();
+            goNext();
+          };
+          onlineAudio = audio;
+          audio.play().catch(() => {
+            cleanup();
+            goNext();
+          });
+        })
+        .catch(() => goNext());
+      return;
+    }
+
+    const audio = new Audio(provider.url);
     audio.playbackRate = rate;
     audio.onplaying = () => {
       onlineAnyAudioPlayed = true;
@@ -1216,12 +1447,11 @@ const speechController = (() => {
       playOnlineChunk(idx + 1);
     };
     audio.onerror = () => {
-      if (status !== "playing") return;
-      playOnlineChunkUrls(urls, urlIndex + 1, idx);
+      goNext();
     };
     onlineAudio = audio;
     audio.play().catch(() => {
-      playOnlineChunkUrls(urls, urlIndex + 1, idx);
+      goNext();
     });
   }
 
@@ -1249,7 +1479,7 @@ const speechController = (() => {
     );
     status = "playing";
     notify();
-    playOnlineChunkUrls(onlineTtsUrls(onlineChunks[idx], onlineLangForTts), 0, idx);
+    playOnlineChunkUrls(onlineTtsProviders(onlineChunks[idx], onlineLangForTts), 0, idx);
   }
 
   function speakOnline(text, langCodeForTts, startCharOffset, forceSingle, forceLoop) {
@@ -3985,20 +4215,25 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
   const jumpText = fullText || text;
   const myKey = `${locale}::${jumpText}`;
   const [state, setState] = useState(() => speechController.getState());
+  // پیغامِ خطای فوری (سنکرون، از خودِ handleToggle) — مثلاً «مرورگر
+  // پشتیبانی نمی‌کنه». چند ثانیه بعد خودش پاک می‌شه.
+  const [localMsg, setLocalMsg] = useState(null);
 
   useEffect(() => speechController.subscribe(setState), []);
 
+  useEffect(() => {
+    if (!localMsg) return;
+    const t = setTimeout(() => setLocalMsg(null), 5000);
+    return () => clearTimeout(t);
+  }, [localMsg]);
+
   // اگه مسیرِ آنلاینِ جایگزین (وقتی گوشی صدایی برای این زبون نداره) کلاً
   // شکست خورد — نه فقط این دکمه ساکت شد، بلکه واقعاً هیچ صدایی از هیچ
-  // سرویسی پخش نشد — قبلاً هیچ فیدبکی به کاربر داده نمی‌شد و دقیقاً همون
-  // چیزی به‌نظر می‌رسید که انگار این زبون اصلاً پشتیبانی نمی‌شه. حالا با
-  // همون پیغامِ آشنای خطا (پایین‌تر، توی handleToggle) به کاربر اطلاع
-  // می‌دیم.
-  useEffect(() => {
-    if (state.ttsError && state.ttsError === myKey) {
-      alert("پخش صدا با مشکل مواجه شد. اتصال اینترنت رو چک کن و دوباره امتحان کن.");
-    }
-  }, [state.ttsError, myKey]);
+  // سرویسی پخش نشد — به‌جای پاپ‌آپِ alert (که کاربر رو مجبور به بستنِ
+  // دستی می‌کرد)، پایین‌تر همین‌جا، درست زیرِ همین دکمه/جمله، یه پیغامِ
+  // کوچیکِ درجا نشون داده می‌شه (پایین‌تر، errorMsg).
+  const errorMsg =
+    localMsg || (state.ttsError && state.ttsError === myKey ? "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن" : null);
 
   const isActive = state.key === myKey && state.status !== "idle";
   const isPlaying = isActive && state.status === "playing";
@@ -4056,11 +4291,12 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
     if (onPlayed) onPlayed();
     // "no-voice" دیگه پیش نمی‌آد چون خودکار می‌ره سراغ سرویس آنلاین رایگان
     // (result === "online-fallback")؛ فقط وقتی هیچ راهی — نه گوشی نه آنلاین —
-    // ممکن نبود، خطا نشون می‌دیم.
+    // ممکن نبود، خطا نشون می‌دیم. به‌جای alert، همین‌جا زیرِ دکمه نشون
+    // داده می‌شه (بالاتر، errorMsg).
     if (result === "unsupported") {
-      alert("این مرورگر از خوندن صوتی متن پشتیبانی نمی‌کنه.");
+      setLocalMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
     } else if (result === "error") {
-      alert("پخش صدا با مشکل مواجه شد. اتصال اینترنت رو چک کن و دوباره امتحان کن.");
+      setLocalMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
     }
   };
 
@@ -4072,7 +4308,7 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
   // آخرِ محور اصلی، پس با پراپ edge="end" یه order خیلی بزرگ می‌گیره.
   const orderStyle = edge === "end" ? 999 : -1;
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, order: orderStyle }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, order: orderStyle, position: "relative" }}>
       <button
         onClick={handleToggle}
         aria-label={isPlaying ? "توقف موقت" : "تلفظ"}
@@ -4090,6 +4326,24 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
       >
         {isPlaying ? <Pause size={16} /> : <Volume2 size={16} />}
       </button>
+      {errorMsg && (
+        <span
+          style={{
+            position: "absolute",
+            top: "100%",
+            insetInlineStart: 0,
+            marginTop: 2,
+            fontSize: 11,
+            color: colors.rose,
+            whiteSpace: "nowrap",
+            fontFamily: fontFa,
+            zIndex: 5,
+            pointerEvents: "none",
+          }}
+        >
+          {errorMsg}
+        </span>
+      )}
     </span>
   );
 }
@@ -4286,7 +4540,14 @@ function RestartButton({ color, startText, startCode }) {
 //    جدا کنارِ پلیر انجامش می‌داد؛ الان همون قابلیت داخلِ دکمه‌ی مرکزیه.
 function MainPlayButton({ startText, startCode, resolveStartOffset, color, size }) {
   const [state, setState] = useState(() => speechController.getState());
+  const [localMsg, setLocalMsg] = useState(null);
   useEffect(() => speechController.subscribe(setState), []);
+
+  useEffect(() => {
+    if (!localMsg) return;
+    const t = setTimeout(() => setLocalMsg(null), 5000);
+    return () => clearTimeout(t);
+  }, [localMsg]);
 
   const isActive = state.status !== "idle" && !!state.key;
   const isPlaying = isActive && state.status === "playing";
@@ -4294,6 +4555,10 @@ function MainPlayButton({ startText, startCode, resolveStartOffset, color, size 
   const disabled = !isActive && !canStart;
   const c = color || colors.teal;
   const btnSize = size || 30;
+
+  const myKey = startText ? `${TTS_LOCALE[startCode] || "en-US"}::${startText}` : null;
+  const errorMsg =
+    localMsg || (state.ttsError && myKey && state.ttsError === myKey ? "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن" : null);
 
   const handleClick = () => {
     if (isActive) {
@@ -4307,37 +4572,59 @@ function MainPlayButton({ startText, startCode, resolveStartOffset, color, size 
     if (!startText) return;
     const offset = resolveStartOffset ? resolveStartOffset() : undefined;
     const result = speechController.toggle(startText, startCode, offset, { loop: true });
+    // به‌جای alert، همین‌جا زیرِ دکمه‌ی مرکزیِ پلیر نشون داده می‌شه.
     if (result === "unsupported") {
-      alert("این مرورگر از خوندن صوتی متن پشتیبانی نمی‌کنه.");
+      setLocalMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
     } else if (result === "error") {
-      alert("پخش صدا با مشکل مواجه شد. اتصال اینترنت رو چک کن و دوباره امتحان کن.");
+      setLocalMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
     }
   };
 
   return (
-    <button
-      onClick={handleClick}
-      disabled={disabled}
-      aria-label={isPlaying ? "توقف موقت" : "پخش"}
-      title={isPlaying ? "توقف موقت" : isActive ? "ادامه‌ی پخش" : canStart ? "پخشِ کل متن" : "متنی برای پخش نیست"}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        width: btnSize + 14,
-        height: btnSize + 14,
-        borderRadius: "50%",
-        background: "none",
-        border: "none",
-        cursor: disabled ? "default" : "pointer",
-        color: disabled ? colors.cardBorder : c,
-        opacity: disabled ? 0.45 : 1,
-        flexShrink: 0,
-        padding: 0,
-      }}
-    >
-      {isPlaying ? <Pause size={btnSize} /> : <PlayCircle size={btnSize} />}
-    </button>
+    <span style={{ position: "relative", display: "inline-flex" }}>
+      <button
+        onClick={handleClick}
+        disabled={disabled}
+        aria-label={isPlaying ? "توقف موقت" : "پخش"}
+        title={isPlaying ? "توقف موقت" : isActive ? "ادامه‌ی پخش" : canStart ? "پخشِ کل متن" : "متنی برای پخش نیست"}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: btnSize + 14,
+          height: btnSize + 14,
+          borderRadius: "50%",
+          background: "none",
+          border: "none",
+          cursor: disabled ? "default" : "pointer",
+          color: disabled ? colors.cardBorder : c,
+          opacity: disabled ? 0.45 : 1,
+          flexShrink: 0,
+          padding: 0,
+        }}
+      >
+        {isPlaying ? <Pause size={btnSize} /> : <PlayCircle size={btnSize} />}
+      </button>
+      {errorMsg && (
+        <span
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: "50%",
+            transform: "translateX(-50%)",
+            marginTop: 2,
+            fontSize: 11,
+            color: colors.rose,
+            whiteSpace: "nowrap",
+            fontFamily: fontFa,
+            zIndex: 5,
+            pointerEvents: "none",
+          }}
+        >
+          {errorMsg}
+        </span>
+      )}
+    </span>
   );
 }
 // دکمه‌های «جمله‌ی قبل / جمله‌ی بعد» — تو نوارِ کنترلِ پلیرِ جدید، کنارِ دکمه‌ی
@@ -11345,6 +11632,14 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
   // همون الگویی که SpeakButton خودش استفاده می‌کنه.
   const [speakState, setSpeakState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setSpeakState), []);
+  // پیغامِ خطای پخشِ صدا برای دکمه‌ی 🔊ِ همین پاپ‌آپ — به‌جای alert، زیرِ
+  // متنِ انتخاب‌شده‌ی داخلِ خودِ پاپ‌آپ نشون داده می‌شه.
+  const [popupSpeakMsg, setPopupSpeakMsg] = useState(null);
+  useEffect(() => {
+    if (!popupSpeakMsg) return;
+    const t = setTimeout(() => setPopupSpeakMsg(null), 5000);
+    return () => clearTimeout(t);
+  }, [popupSpeakMsg]);
 
   const clearSelectionHighlight = () => {
     try {
@@ -11765,6 +12060,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
     >
       {/* متنِ اصلیِ انتخاب‌شده + دکمه‌ی خواندنِ صوتی، دقیقاً مطابقِ تصویرِ
           مرجع: بالای پاپ‌آپ خودِ متنِ انتخاب‌شده‌ست، نه ترجمه. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <span
           dir={dirFor(popup.langCode)}
@@ -11788,9 +12084,9 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
               );
             }
             if (result === "unsupported") {
-              alert("این مرورگر از خوندن صوتی متن پشتیبانی نمی‌کنه.");
+              setPopupSpeakMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
             } else if (result === "error") {
-              alert("پخش صدا با مشکل مواجه شد. اتصال اینترنت رو چک کن و دوباره امتحان کن.");
+              setPopupSpeakMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
             }
           }}
           aria-label="خواندنِ بخشِ انتخاب‌شده"
@@ -11838,6 +12134,13 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
         >
           <X size={15} />
         </button>
+      </div>
+      {(popupSpeakMsg ||
+        (speakState.ttsError && speakState.ttsError === `${TTS_LOCALE[popup.langCode] || "en-US"}::${popup.text}`)) && (
+        <div style={{ fontSize: 11, color: "#ff9a9a" }}>
+          {popupSpeakMsg || "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن"}
+        </div>
+      )}
       </div>
 
       {/* ترجمه‌ی خودِ محدوده‌ی انتخاب‌شده — درست زیرِ متنِ اصلی، مطابقِ
