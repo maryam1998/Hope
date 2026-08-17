@@ -453,6 +453,7 @@ export default function DailyConversationsTab({
   SpeakButton,
   targetLangs,
   translateFree,
+  getCachedTranslationMap,
   levelFilter,
   speechController,
   onFullTextChange,
@@ -476,6 +477,50 @@ export default function DailyConversationsTab({
     return map;
   }, [data]);
 
+  // ترجمه‌ی هر خطِ مکالمه به زبان‌های غیر از فارسی/انگلیسی، بر خلافِ لغات،
+  // فقط لحظه‌ای (وقتی کاربر واقعاً همون سناریو رو باز می‌کنه) گرفته و توی
+  // IndexedDB کش می‌شه — نه یه فیلدِ ثابتِ توی خودِ دیتا. برای اینکه جستجو
+  // بتونه رویِ همون ترجمه‌های از قبل کش‌شده هم (بدونِ درخواستِ شبکه‌ی تازه
+  // برای صدها خط) جواب بده، وقتی کاربر چیزی تایپ می‌کنه، کلِ کشِ هر زبانِ
+  // مقصدِ انتخاب‌شده (غیر از فارسی/انگلیسی که خودِ دیتا داره) رو یه‌بار
+  // می‌خونیم و محلی نگه می‌داریم. طبیعتاً فقط جمله‌هایی که قبلاً یه‌جایی
+  // (باز کردنِ همون سناریو) ترجمه و کش شده باشن پیدا می‌شن — نه هر جمله‌ای
+  // که هنوز اصلاً دیده نشده.
+  const [extraLangMaps, setExtraLangMaps] = useState({}); // { [langCode]: Map<en, translation> }
+  useEffect(() => {
+    if (!getCachedTranslationMap || !query || !query.trim()) return;
+    const codes = Array.from(new Set((targetLangs || []).map((l) => l.code))).filter((c) => c !== "en" && c !== "fa");
+    if (!codes.length) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      codes.forEach((code) => {
+        getCachedTranslationMap(code, "en").then((map) => {
+          if (!cancelled) setExtraLangMaps((prev) => ({ ...prev, [code]: map }));
+        });
+      });
+    }, 250); // دبانس — تا وسطِ تایپ‌کردن، هر ضربه‌ی کیبورد یه اسکنِ کامل از کش نسازه
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, targetLangs, getCachedTranslationMap]);
+
+  // یه خطِ مکالمه، صرف‌نظر از اینکه it.t (زبان‌های ثابتِ توی دیتا) داره یا
+  // نه، آیا با عبارتِ جستجو‌شده (q) — چه تو متنِ اصلیِ انگلیسی، چه فارسیِ
+  // ثابتِ دیتا، چه هر ترجمه‌ی از قبل کش‌شده‌ی extraLangMaps — مطابقت داره؟
+  const itemMatchesQuery = (it, q, rawQuery) => {
+    if (it.t) {
+      return Object.values(it.t).some((v) => typeof v === "string" && v.toLowerCase().includes(q));
+    }
+    if (it.en && it.en.toLowerCase().includes(q)) return true;
+    if (it.fa && it.fa.includes(rawQuery)) return true;
+    for (const code of Object.keys(extraLangMaps)) {
+      const val = extraLangMaps[code] && extraLangMaps[code].get(it.en);
+      if (val && val.toLowerCase().includes(q)) return true;
+    }
+    return false;
+  };
+
   const filteredMeta = useMemo(() => {
     const all = TOPIC_META_LIST.map(([en, fa, icon]) => ({ en, fa, icon }));
     if (!query || !query.trim()) return all;
@@ -486,14 +531,11 @@ export default function DailyConversationsTab({
       if (!d) return false;
       return d.scenarios.some((sc) => {
         if (sc.scenario && sc.scenario.toLowerCase().includes(q)) return true;
-        return [...(sc.speakerA || []), ...(sc.speakerB || [])].some((it) =>
-          it.t
-            ? Object.values(it.t).some((v) => typeof v === "string" && v.toLowerCase().includes(q))
-            : it.en && it.en.toLowerCase().includes(q)
-        );
+        return [...(sc.speakerA || []), ...(sc.speakerB || [])].some((it) => itemMatchesQuery(it, q, query.trim()));
       });
     });
-  }, [query, dataByTopic]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, dataByTopic, extraLangMaps]);
 
   const activeTopicData = activeTopic ? dataByTopic[activeTopic] : null;
 
@@ -687,11 +729,7 @@ export default function DailyConversationsTab({
         const scenarioHit = sc.scenario && sc.scenario.toLowerCase().includes(q);
         [["speakerA", "hear"], ["speakerB", "say"]].forEach(([key, variant]) => {
           (sc[key] || []).forEach((it) => {
-            const hit =
-              scenarioHit ||
-              (it.t
-                ? Object.values(it.t).some((v) => typeof v === "string" && v.toLowerCase().includes(q))
-                : (it.en && it.en.toLowerCase().includes(q)) || (it.fa && it.fa.includes(query.trim())));
+            const hit = scenarioHit || itemMatchesQuery(it, q, query.trim());
             if (hit) {
               results.push({ topicFa: meta.fa, icon: meta.icon, scenario: sc.scenario, item: it, variant });
             }
@@ -700,7 +738,8 @@ export default function DailyConversationsTab({
       });
     });
     return results;
-  }, [query, data]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, data, extraLangMaps]);
 
   if (searchResults) {
     return (

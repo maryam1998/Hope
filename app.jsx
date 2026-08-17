@@ -168,6 +168,39 @@ async function getTranslationCacheCount() {
   }
 }
 
+// همه‌ی ترجمه‌های کش‌شده‌ی یک زبانِ مقصد خاص (مثلاً «هر جمله‌ای که قبلاً به
+// آلمانی ترجمه و کش شده») رو یک‌جا، با یه اسکنِ Cursor، برمی‌گردونه — به
+// شکلِ Map از «متنِ اصلی» به «ترجمه». برخلافِ getCachedTranslation (که فقط
+// یه متنِ مشخص رو چک می‌کنه)، این یکی برای جستجو لازمه: تبِ مکالماتِ
+// روزمره صدها خط داره که ترجمه‌شون به هر زبونی غیر از فارسی، فقط وقتی
+// کاربر واقعاً اون سناریو رو باز کرده لحظه‌ای گرفته و همینجا (IndexedDB)
+// کش شده؛ پس برای اینکه جستجو بتونه رویِ همون ترجمه‌های قبلاً کش‌شده هم
+// جواب بده (بدونِ درخواستِ شبکه‌ی تازه برای هزاران خط)، یه‌بار کلِ کش رو
+// برای همون زبان می‌خونیم و محلی فیلتر می‌کنیم.
+async function getCachedTranslationMap(targetLang, sourceLang = "en") {
+  const map = new Map();
+  try {
+    const db = await openTranslationDB();
+    return await new Promise((resolve) => {
+      const prefix = `${sourceLang || "auto"}::${targetLang}::`;
+      const tx = db.transaction(TRANSLATION_STORE, "readonly");
+      const req = tx.objectStore(TRANSLATION_STORE).openCursor();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) { resolve(map); return; }
+        const key = cursor.key;
+        if (typeof key === "string" && key.startsWith(prefix)) {
+          map.set(key.slice(prefix.length), cursor.value);
+        }
+        cursor.continue();
+      };
+      req.onerror = () => resolve(map);
+    });
+  } catch {
+    return map;
+  }
+}
+
 // ============================================================
 // ترجمه رایگان با چند سرویس پشت‌سرهم (بدون نیاز به کلید API)
 // اگه سرویس اول جواب نده یا خطا بده، خودکار میره سراغ سرویس بعدی.
@@ -10410,6 +10443,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     SpeakButton={SpeakButton}
     targetLangs={targetLangList}
     translateFree={translateFree}
+    getCachedTranslationMap={getCachedTranslationMap}
     levelFilter={levelFilter}
     speechController={speechController}
     onFullTextChange={setDailyPlayerText}
@@ -10837,6 +10871,26 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtered, targetLangs]);
 
+  // همون fullText/آفستِ بالا، اما برایِ خودِ متنِ اصلی (زبانِ مادری) —
+  // قبلاً فقط برایِ ترجمه‌ها (targetLangs) ساخته می‌شد، پس زدنِ 🔊ِ متنِ
+  // اصلی نه هایلایت می‌شد نه از همون‌جا به بقیه‌ی لیست ادامه می‌داد. این‌جا
+  // دقیقاً همون الگو برایِ nativeLang تکرار می‌شه.
+  const nativeInfo = useMemo(() => {
+    let offset = 0;
+    const parts = [];
+    const offsets = [];
+    filtered.forEach((p) => {
+      const val = p.t[nativeLang];
+      if (!val) return;
+      const start = offset;
+      parts.push(val);
+      offset += val.length + 1;
+      offsets.push({ id: p.id, start, end: start + val.length });
+    });
+    return { fullText: parts.join(" "), offsets };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, nativeLang]);
+
   useEffect(() => {
     if (onFullTextChange) onFullTextChange({ text: fullText, code: firstTargetCode });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -10860,6 +10914,24 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
         setActiveTranslation(null);
         return;
       }
+      // اول خودِ متنِ اصلی (زبانِ مادری) رو چک می‌کنیم — دقیقاً همون منطقِ
+      // پایینی که برایِ هر زبانِ ترجمه تکرار می‌شه.
+      if (nativeInfo && nativeInfo.fullText) {
+        const nativeKey = `${TTS_LOCALE[nativeLang] || "en-US"}::${nativeInfo.fullText}`;
+        if (state.key === nativeKey) {
+          const offset = speechController.getCharOffset();
+          let found = nativeInfo.offsets[0] || null;
+          for (const p of nativeInfo.offsets) {
+            if (offset >= p.start) found = p;
+            else break;
+          }
+          setActiveTranslation((prev) => {
+            if (prev && prev.code === nativeLang && found && prev.id === found.id) return prev;
+            return found ? { code: nativeLang, id: found.id } : null;
+          });
+          return;
+        }
+      }
       for (const l of targetLangs) {
         const info = translationInfo[l.code];
         if (!info || !info.fullText) continue;
@@ -10881,7 +10953,7 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
     };
     update(speechController.getState());
     return speechController.subscribe(update);
-  }, [targetLangs, translationInfo]);
+  }, [targetLangs, translationInfo, nativeInfo, nativeLang]);
   const activePhraseId = activeTranslation ? activeTranslation.id : null;
 
   const phraseNodeMapRef = useRef(new Map());
@@ -10937,8 +11009,27 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
                 <div className="flex-1">
                   <div className="flex items-center gap-2" style={{ direction: "ltr" }}>
                     {p.level && <LevelBadge level={p.level} />}
-                    <p style={{ flex: 1, fontWeight: 800, fontSize: 15, color: mainTextColor }}>{p.t[nativeLang]}</p>
-                    <SpeakButton text={p.t[nativeLang]} code={nativeLang} edge="end" />
+                    <p
+                      style={{
+                        flex: 1,
+                        fontWeight: 800,
+                        fontSize: 15,
+                        color: mainTextColor,
+                        backgroundColor: activeTranslation && activeTranslation.code === nativeLang && activeTranslation.id === p.id ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+                        borderRadius: 5,
+                        padding: activeTranslation && activeTranslation.code === nativeLang && activeTranslation.id === p.id ? "2px 4px" : "2px 0",
+                        transition: "background-color 0.35s ease",
+                      }}
+                    >
+                      {p.t[nativeLang]}
+                    </p>
+                    <SpeakButton
+                      text={p.t[nativeLang]}
+                      code={nativeLang}
+                      edge="end"
+                      fullText={nativeInfo.fullText}
+                      startOffset={nativeInfo.offsets.find((o) => o.id === p.id)?.start}
+                    />
                   </div>
                   <div className="flex flex-col gap-1" style={{ marginTop: 4 }}>
                     {targetLangs.map((l) => {
@@ -11816,13 +11907,41 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
   const effectiveDisplayLangs = displayLangs.length ? displayLangs : [{ code: "fa", label: "فارسی", abbr: "FA" }];
 
   const q = (query || "").trim().toLowerCase();
+
+  // ترجمه‌های همین لغت‌ها که تا الان (در این نشست، یا از کشِ دائمیِ دستگاه
+  // در نشست‌های قبلی) resolve شدن. برای اینکه جستجو بتونه رویِ ترجمه‌ها هم
+  // کار کنه — نه فقط متنِ اصلیِ انگلیسی/فارسی — این state رو زودتر از
+  // فیلترِ پایین تعریف می‌کنیم (قبلاً پایین‌تر تعریف می‌شد و فقط برایِ
+  // «خواندنِ پیوسته‌ی ترجمه‌ها» استفاده می‌شد، پس جستجو اصلاً بهش دسترسی
+  // نداشت). WordTargetTranslation با onResolved همین رو پر می‌کنه.
+  const [wordTranslationValues, setWordTranslationValues] = useState({}); // { [langCode]: { [wordId]: text } }
+  const reportWordTranslation = useCallback((langCode, wordId, value) => {
+    setWordTranslationValues((prev) => {
+      const langMap = prev[langCode] || {};
+      if (langMap[wordId] === value) return prev;
+      return { ...prev, [langCode]: { ...langMap, [wordId]: value } };
+    });
+  }, []);
+
   let filtered = levelFilter && levelFilter !== "all" ? words.filter((w) => w.level === levelFilter) : words;
   filtered = q
-    ? filtered.filter((w) =>
-        w.t
-          ? Object.values(w.t).some((v) => typeof v === "string" && v.toLowerCase().includes(q))
-          : w.en.toLowerCase().includes(q) || w.fa.includes(q)
-      )
+    ? filtered.filter((w) => {
+        if (w.t) {
+          return Object.values(w.t).some((v) => typeof v === "string" && v.toLowerCase().includes(q));
+        }
+        if (w.en.toLowerCase().includes(q) || w.fa.includes(q)) return true;
+        // لغاتی مثلِ DAILY_WORDS/SLANG_WORDS/NEWS_WORDS/WORDS_AZ ترجمه‌ی
+        // ثابتِ توی دیتا ندارن — ترجمه‌شون فقط لحظه‌ای (lazy) گرفته و کش
+        // می‌شه. برای این‌که جستجو رویِ همون ترجمه‌های انتخابیِ کاربر هم
+        // جواب بده، هم کشِ زنده‌ی همین رندر (wordTranslationValues) و هم
+        // کشِ دائمیِ دستگاه (localStorage، از بازدیدهای قبلی) رو چک می‌کنیم.
+        return effectiveDisplayLangs.some((l) => {
+          const live = wordTranslationValues[l.code] && wordTranslationValues[l.code][w.id];
+          if (live && live.toLowerCase().includes(q)) return true;
+          const cached = loadWordTranslation(w.en, l.code);
+          return cached && cached.toLowerCase().includes(q);
+        });
+      })
     : filtered;
 
   // با هر تغییر جستجو/سطح، دوباره از همون بخش اول شروع می‌کنیم.
@@ -11952,7 +12071,17 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
     if (!jumpTarget || jumpTarget.id == null) return;
     const idx = filtered.findIndex((w) => w.id === jumpTarget.id);
     if (idx === -1) return; // با این فیلتر/جستجو، این لغت دیده نمی‌شه
-    if (idx >= visibleCount) setVisibleCount(Math.min(idx + WORDS_PAGE_SIZE, filtered.length));
+    // نکته‌ی مهم: onJumpToOrigin معمولاً هم‌زمان با تنظیمِ jumpTarget، جستجو
+    // و فیلترِ سطح رو هم پاک می‌کنه (setQuery("")/setLevelFilter("all")) تا
+    // چیزی لغتِ موردنظر رو قایم نکنه. اون تغییر، افکتِ بالاتر
+    // («setVisibleCount(WORDS_PAGE_SIZE)» رویِ تغییرِ q/levelFilter) رو هم
+    // هم‌زمان (توی همون batch) فعال می‌کنه. اگه اینجا با یه مقدارِ ثابت
+    // set می‌شد، بسته به ترتیبِ اجرا ممکن بود همون ریست (به صفحه‌ی اول)
+    // آخر سر برنده بشه و ردیفِ موردنظر (که پایین‌ترِ صفحه‌ی اوله) اصلاً
+    // رندر نشه — پس هایلایت/اسکرول هیچ‌وقت گره‌ی DOMش رو پیدا نمی‌کرد. با
+    // functional updater، همیشه رویِ آخرین مقدارِ صف‌شده حساب می‌کنیم، پس
+    // این ریستِ هم‌زمان دیگه نمی‌تونه رویِ گسترشِ لازم رو بپوشونه.
+    setVisibleCount((prev) => Math.max(prev, Math.min(idx + WORDS_PAGE_SIZE, filtered.length)));
     setJustJumpedId(jumpTarget.id);
     const t = setTimeout(() => setJustJumpedId(null), 2200);
     return () => clearTimeout(t);
@@ -11975,14 +12104,8 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
   // لغت، به محضِ آماده‌شدنِ ترجمه‌ش، از طریق onResolveTranslation به بالا
   // خبر می‌ده و اینجا، از رویِ مقادیرِ جمع‌شده، fullText/آفستِ هر زبان
   // ساخته می‌شه.
-  const [wordTranslationValues, setWordTranslationValues] = useState({}); // { [langCode]: { [wordId]: text } }
-  const reportWordTranslation = useCallback((langCode, wordId, value) => {
-    setWordTranslationValues((prev) => {
-      const langMap = prev[langCode] || {};
-      if (langMap[wordId] === value) return prev;
-      return { ...prev, [langCode]: { ...langMap, [wordId]: value } };
-    });
-  }, []);
+  // (wordTranslationValues/reportWordTranslation حالا بالاترِ همین تابع،
+  // کنارِ فیلترِ جستجو، تعریف شدن — تا جستجو هم بتونه ازشون استفاده کنه.)
 
   const wordTranslationInfo = useMemo(() => {
     const info = {};
@@ -12153,7 +12276,14 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                   </span>
                 )}
               </div>
-              <SpeakButton text={w.en} code="en" color={colors.teal} edge="end" />
+              <SpeakButton
+                text={w.en}
+                code="en"
+                color={colors.teal}
+                edge="end"
+                fullText={fullText}
+                startOffset={wordOffsets.find((o) => o.id === w.id)?.start}
+              />
             </div>
             {/* ترجمه‌ی این لغت به همه‌ی زبان‌های مقصدِ انتخاب‌شده — نه فقط
                 فارسی. رنگ متن‌ها مشکی و پررنگه (نه رنگ‌های کم‌کنتراست) تا
