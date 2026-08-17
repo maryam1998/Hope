@@ -1037,6 +1037,13 @@ const speechController = (() => {
   // "local" = TTS خود گوشی (speechSynthesis) | "online" = سرویس رایگان
   // آنلاین (وقتی گوشی اصلاً صدایی برای اون زبون نصب نداره).
   let mode = "local";
+  // اگه هیچ‌کدوم از سرویس‌های آنلاینِ جایگزین حتی یه تکه هم صدا پخش نکردن
+  // (یعنی گوشی برای این زبون صدای محلی نداشت، و مسیرِ آنلاین هم کلاً شکست
+  // خورد — مثلاً به‌خاطرِ بلاک‌شدنِ دامنه‌ها یا قطعیِ اینترنت)، کلیدِ همون
+  // سشن اینجا ذخیره می‌شه تا SpeakButton بتونه به‌جای سکوتِ کامل (که دقیقاً
+  // شبیهِ «این زبون اصلاً پشتیبانی نمی‌شه» به‌نظر می‌رسه)، واقعاً یه خطا به
+  // کاربر نشون بده.
+  let ttsError = null;
   // --- تکرار سراسری ---------------------------------------------------
   let globalRepeatSetting = (() => {
     const saved = localStorage.getItem("phrasebook-tts-repeat");
@@ -1144,6 +1151,11 @@ const speechController = (() => {
   let onlineChunks = [];
   let onlineChunkIndex = 0;
   let onlineLangForTts = "en";
+  // آیا توی همین سشنِ آنلاینِ فعلی، حتی یه تکه‌صدا هم واقعاً شروع به پخش
+  // کرده؟ اگه اولین تکه شکست بخوره و این هنوز false باشه، یعنی کلِ مسیرِ
+  // آنلاین از همون اول خراب بوده (نه یه قطعیِ موقتِ وسطِ‌راه) — پس به‌جای
+  // رد شدنِ بی‌صدا از همه‌ی تکه‌های باقی‌مونده، باید متوقف بشیم و خطا بدیم.
+  let onlineAnyAudioPlayed = false;
 
   function splitForOnlineTts(text, maxLen = 180) {
     const chunksArr = [];
@@ -1159,7 +1171,7 @@ const speechController = (() => {
   }
 
   function onlineTtsUrls(chunkText, langCode) {
-    const q = encodeURIComponent(chunkText);
+    const q = encodeURIComponent(sanitizeForTTS(chunkText));
     return [
       `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}`,
       `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}`,
@@ -1179,11 +1191,26 @@ const speechController = (() => {
 
   function playOnlineChunkUrls(urls, urlIndex, idx) {
     if (urlIndex >= urls.length) {
+      if (!onlineAnyAudioPlayed) {
+        // هیچ‌کدوم از سرویس‌های آنلاین حتی یه تکه هم پخش نشد — بقیه‌ی
+        // تکه‌ها هم قطعاً همین‌طور شکست می‌خورن (چون علتش معمولاً کلیه:
+        // بلاک‌بودنِ دامنه یا قطعیِ اینترنت، نه یه تکه‌ی خاص). به‌جای
+        // رد شدنِ بی‌صدا از همه‌شون تا آخر (که دقیقاً همون چیزیه که باعث
+        // می‌شه انگار این زبون اصلاً پشتیبانی نمی‌شه)، همین‌جا متوقف
+        // می‌شیم و خطا رو گزارش می‌کنیم.
+        ttsError = key;
+        status = "idle";
+        notify();
+        return;
+      }
       playOnlineChunk(idx + 1);
       return;
     }
     const audio = new Audio(urls[urlIndex]);
     audio.playbackRate = rate;
+    audio.onplaying = () => {
+      onlineAnyAudioPlayed = true;
+    };
     audio.onended = () => {
       if (status !== "playing") return;
       playOnlineChunk(idx + 1);
@@ -1228,6 +1255,7 @@ const speechController = (() => {
   function speakOnline(text, langCodeForTts, startCharOffset, forceSingle, forceLoop) {
     stopOnlineAudio();
     mode = "online";
+    onlineAnyAudioPlayed = false;
     fullText = text;
     chunks = splitSentences(text);
     onlineChunks = splitForOnlineTts(text);
@@ -1248,7 +1276,7 @@ const speechController = (() => {
       lastOffsetByKey.set(key, chunks[chunkIndex].start);
     }
     listeners.forEach((cb) =>
-      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining })
+      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, ttsError })
     );
   }
 
@@ -1304,6 +1332,24 @@ const speechController = (() => {
       }
     }
     return out;
+  }
+
+  // چیزی که واقعاً باید با صدا خونده بشه — نه هر چی که روی صفحه نوشته شده.
+  // گیومه‌های فارسی/عربی/انگلیسی/فرانسوی (« » " " ' ' „ ‟ ` ´) و نشونه‌های
+  // نامرئیِ جهتِ‌متن (که برای رفعِ باگِ راست‌به‌چپ/چپ‌به‌راست به متن اضافه
+  // می‌شن) هیچ‌کدوم معنایی برای گفتار ندارن؛ بعضی موتورهای TTS گوشی
+  // (خصوصاً موتورهای آفلاین/محلی) به‌جای رد شدن ازشون، اسمشون رو با زبانِ
+  // فعلی می‌خونن (یا باعثِ یه مکثِ عجیب می‌شن) — همینه که کاربر به‌عنوانِ
+  // «گیومه‌ها و فاصله‌ها رو با هر زبونی که باشه می‌خونه» گزارش کرد. این
+  // تابع فقط رویِ متنی که مستقیم به موتورِ گفتار داده می‌شه اثر می‌ذاره؛
+  // به chunks[i].text یا آفست‌های start/end دست نمی‌زنه (اونا برای
+  // sync/ادامه‌دادن از همون نقطه هنوز باید دقیقاً با متنِ اصلی یکی باشن).
+  function sanitizeForTTS(s) {
+    return String(s || "")
+      .replace(/[\u2066-\u2069\u200B-\u200F\u061C]/g, "") // isolate marks/zero-width/bidi marks
+      .replace(/[«»„‟""''`´]/g, "") // quotation marks across scripts
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
   function chunkIndexForOffset(offset) {
@@ -1390,7 +1436,7 @@ const speechController = (() => {
     status = "playing";
     notify();
 
-    const utter = new SpeechSynthesisUtterance(chunks[idx].text);
+    const utter = new SpeechSynthesisUtterance(sanitizeForTTS(chunks[idx].text));
     utter.lang = locale;
     utter.rate = engineRate(rate);
 
@@ -1579,6 +1625,7 @@ const speechController = (() => {
         key = newKey;
         locale = newLocale;
         currentCode = code;
+        ttsError = null;
 
         // اگه صدازننده صریحاً آفستی نداده، ببین همین متن قبلاً (با توقفِ
         // کامل یا با پخشِ یه متنِ دیگه روش) نیمه‌کاره مونده بود یا نه —
@@ -1589,7 +1636,18 @@ const speechController = (() => {
           if (Number.isInteger(saved) && saved > 0) effectiveStartOffset = saved;
         }
 
-        if (hasSynthesis && (voices.length === 0 || hasVoice)) {
+        // نکته: قبلاً اینجا «voices.length === 0» هم مسیرِ محلی رو مجاز
+        // می‌کرد — یعنی اگه فهرستِ صداهای گوشی هنوز اصلاً لود نشده بود
+        // (یه رفتارِ شناخته‌شده و رایج در Chrome/Android که getVoices()
+        // بارِ اول می‌تونه خالی برگرده تا رویدادِ voiceschanged شلیک بشه)،
+        // کد فرض می‌کرد «حتماً یه صدایی هست» و مسیرِ محلی رو امتحان
+        // می‌کرد — با هیچ صدایی برای رندر، که یعنی سکوتِ کامل و بدونِ
+        // هیچ خطایی (چون utter.onerror همیشه هم شلیک نمی‌شه). حالا فقط
+        // وقتی واقعاً یه صدای منطبق پیدا شده باشه می‌ریم سراغِ محلی؛
+        // در غیرِ این‌صورت (چه صدایی نبود، چه فهرست هنوز خالی بود) مسیرِ
+        // آنلاینِ جایگزین — که حالا خودش هم دیگه بی‌صدا شکست نمی‌خوره
+        // (بالاتر، ttsError) — انتخاب می‌شه.
+        if (hasSynthesis && hasVoice) {
           mode = "local";
           stopOnlineAudio();
           fullText = text;
@@ -2728,7 +2786,18 @@ function TapWordTranslate({ text, targetLangCode }) {
       {tokens.map((tok, idx) => {
         if (!tok || /^\s+$/.test(tok)) return <React.Fragment key={idx}>{tok}</React.Fragment>;
         return (
-          <span key={idx} style={{ position: "relative", display: "inline-block" }}>
+          // نکته‌ی مهم (دقیقاً مثلِ ClickableSentence): این span باید
+          // display:inline بمونه، نه inline-block. inline-block هر کلمه رو
+          // برای موتورِ بیدایِ مرورگر یه «جعبه‌ی اتمیک» جدا حساب می‌کنه؛ وقتی
+          // چندتا از این جعبه‌ها پشتِ‌سرِهم داخلِ یه بلاکِ راست‌به‌چپ (فارسی)
+          // می‌شینن، مرورگر با کلماتِ داخلِ هرکدوم مثلِ یه کاراکترِ خنثی رفتار
+          // می‌کنه و کلِ ترتیبِ جعبه‌ها رو راست‌به‌چپ می‌چینه — یعنی دقیقاً
+          // همون باگی که کاربر گزارش کرد: کلماتِ فارسی و حتی کلماتِ انگلیسیِ
+          // وسطِ جمله هم بی‌ربط به‌هم‌ریخته/معکوس نشون داده می‌شن. با
+          // display:inline، position:relative همچنان برای لنگرِ پاپ‌آپِ
+          // زیرش کار می‌کنه، ولی دیگه جعبه‌ی اتمیکِ جدا نمی‌سازه و ترتیبِ
+          // طبیعیِ بیدایِ یونیکد رعایت می‌شه.
+          <span key={idx} style={{ position: "relative", display: "inline" }}>
             <span
               onClick={() => handleTap(idx, tok)}
               style={{ cursor: "pointer", borderBottom: `1px dotted ${colors.inkSoft}` }}
@@ -3918,6 +3987,18 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
   const [state, setState] = useState(() => speechController.getState());
 
   useEffect(() => speechController.subscribe(setState), []);
+
+  // اگه مسیرِ آنلاینِ جایگزین (وقتی گوشی صدایی برای این زبون نداره) کلاً
+  // شکست خورد — نه فقط این دکمه ساکت شد، بلکه واقعاً هیچ صدایی از هیچ
+  // سرویسی پخش نشد — قبلاً هیچ فیدبکی به کاربر داده نمی‌شد و دقیقاً همون
+  // چیزی به‌نظر می‌رسید که انگار این زبون اصلاً پشتیبانی نمی‌شه. حالا با
+  // همون پیغامِ آشنای خطا (پایین‌تر، توی handleToggle) به کاربر اطلاع
+  // می‌دیم.
+  useEffect(() => {
+    if (state.ttsError && state.ttsError === myKey) {
+      alert("پخش صدا با مشکل مواجه شد. اتصال اینترنت رو چک کن و دوباره امتحان کن.");
+    }
+  }, [state.ttsError, myKey]);
 
   const isActive = state.key === myKey && state.status !== "idle";
   const isPlaying = isActive && state.status === "playing";
