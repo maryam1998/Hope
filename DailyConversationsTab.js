@@ -1,5 +1,5 @@
 // DailyConversationsTab.jsx
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { ChevronDown } from "lucide-react";
 var TOPIC_META_LIST = [
   ["Greetings and Small Talk", "\u0627\u062D\u0648\u0627\u0644\u200C\u067E\u0631\u0633\u06CC \u0648 \u06AF\u0641\u062A\u06AF\u0648\u06CC \u06A9\u0648\u062A\u0627\u0647", "\u{1F44B}"],
@@ -83,11 +83,30 @@ var translationColor = "#0F5C34";
 var READ_MARKER_COLOR = "#FFD54F";
 var fontFa = "var(--font-fa)";
 var fontLatin = "var(--font-latin)";
-function TopicCard({ meta, hasData, onClick }) {
+var TTS_LOCALE_MINI = {
+  fa: "fa-IR",
+  en: "en-US",
+  de: "de-DE",
+  es: "es-ES",
+  fr: "fr-FR",
+  ar: "ar-SA",
+  tr: "tr-TR",
+  zh: "zh-CN",
+  ru: "ru-RU",
+  it: "it-IT",
+  ko: "ko-KR",
+  ja: "ja-JP",
+  hi: "hi-IN",
+  ga: "ga-IE",
+  uk: "uk-UA"
+};
+function TopicCard({ meta, hasData, onClick, uiLang }) {
+  const label = uiLang === "fa" ? meta.fa : meta.en;
   return /* @__PURE__ */ React.createElement(
     "button",
     {
       onClick,
+      dir: uiLang === "fa" ? "rtl" : "ltr",
       style: {
         display: "flex",
         flexDirection: "column",
@@ -95,7 +114,7 @@ function TopicCard({ meta, hasData, onClick }) {
         gap: 6,
         padding: "14px 12px 12px",
         borderRadius: 14,
-        textAlign: "right",
+        textAlign: uiLang === "fa" ? "right" : "left",
         border: `1px solid ${colors.cardBorder}`,
         backgroundColor: "white",
         opacity: hasData ? 1 : 0.55,
@@ -103,10 +122,10 @@ function TopicCard({ meta, hasData, onClick }) {
       }
     },
     /* @__PURE__ */ React.createElement("span", { style: { fontSize: 24, lineHeight: 1 } }, meta.icon),
-    /* @__PURE__ */ React.createElement("span", { style: { fontFamily: fontFa, fontSize: 13, fontWeight: 700, color: colors.ink, lineHeight: 1.4 } }, meta.fa)
+    /* @__PURE__ */ React.createElement("span", { style: { fontFamily: uiLang === "fa" ? fontFa : fontLatin, fontSize: 13, fontWeight: 700, color: colors.ink, lineHeight: 1.4 } }, label)
   );
 }
-function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, SpeakButton, ClickableSentence, nativeLang, nativeLabel }) {
+function LineTranslation({ text, langCode, variant, i, knownFa, aiSettings, translateFree, SpeakButton, ClickableSentence, nativeLang, nativeLabel, autoScrollActive, highlightColor, fullText, lineOffsets, isActiveLine, onResolved }) {
   const [value, setValue] = useState(langCode === "fa" ? knownFa || "" : "");
   const [loading, setLoading] = useState(langCode !== "fa" && !knownFa);
   useEffect(() => {
@@ -127,13 +146,44 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
       cancelled = true;
     };
   }, [text, langCode, knownFa]);
+  useEffect(() => {
+    if (!loading && value && onResolved && variant != null && i != null) {
+      onResolved(langCode, variant, i, value);
+    }
+  }, [loading, value, langCode, variant, i]);
+  const rowRef = useRef(null);
+  useEffect(() => {
+    if (!autoScrollActive || !isActiveLine) return;
+    if (rowRef.current && rowRef.current.scrollIntoView) {
+      rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [autoScrollActive, isActiveLine]);
   if (!value && !loading) return null;
+  const highlightStyle = {
+    backgroundColor: isActiveLine ? highlightColor || READ_MARKER_COLOR : "transparent",
+    borderRadius: 5,
+    padding: isActiveLine ? "2px 4px" : "2px 0",
+    WebkitBoxDecorationBreak: "clone",
+    boxDecorationBreak: "clone",
+    transition: "background-color 0.35s ease"
+  };
+  const myOffset = lineOffsets && lineOffsets.find((o) => o.variant === variant && o.i === i);
   return (
     // طبق درخواست: این ردیف هم مثل متنِ اصلی چپ‌به‌راست نوشته می‌شه، ولی
     // بلندگو طبق قانونِ کلیِ خودِ SpeakButton («همیشه سمت راستِ ردیف») باید
     // edge="end" بگیره — وگرنه چون ردیف رو ltr کردیم ولی این پراپ رو ندادیم،
     // بلندگو با فرضِ پیش‌فرضِ راست‌چین می‌رفت سمت چپ (دقیقاً برعکسِ خواسته).
-    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginTop: 4, direction: "ltr" } }, value && SpeakButton && /* @__PURE__ */ React.createElement(SpeakButton, { text: value, code: langCode, color: translationColor, edge: "end" }), /* @__PURE__ */ React.createElement(
+    /* @__PURE__ */ React.createElement("div", { ref: rowRef, style: { display: "flex", alignItems: "center", gap: 6, marginTop: 4, direction: "ltr" } }, value && SpeakButton && /* @__PURE__ */ React.createElement(
+      SpeakButton,
+      {
+        text: value,
+        code: langCode,
+        color: translationColor,
+        edge: "end",
+        fullText,
+        startOffset: myOffset ? myOffset.start : void 0
+      }
+    ), /* @__PURE__ */ React.createElement(
       "span",
       {
         style: {
@@ -148,7 +198,7 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
         }
       },
       langCode.toUpperCase()
-    ), loading ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: colors.inkSoft, flex: 1 } }, "...") : ClickableSentence ? /* @__PURE__ */ React.createElement("span", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement(
+    ), loading ? /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: colors.inkSoft, flex: 1 } }, "...") : ClickableSentence ? /* @__PURE__ */ React.createElement("span", { style: { flex: 1, ...highlightStyle } }, /* @__PURE__ */ React.createElement(
       ClickableSentence,
       {
         text: value,
@@ -161,10 +211,10 @@ function LineTranslation({ text, langCode, knownFa, aiSettings, translateFree, S
         fontWeight: 900,
         fontSize: 13
       }
-    )) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, color: translationColor, fontWeight: 900, fontFamily: fontFa, flex: 1 } }, value))
+    )) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, color: translationColor, fontWeight: 900, fontFamily: fontFa, flex: 1, ...highlightStyle } }, value))
   );
 }
-function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor }) {
+function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine, onResolveTranslation }) {
   const isHear = variant === "hear";
   if (items.length === 0) return null;
   const accent = isHear ? colors.teal : colors.gold;
@@ -193,6 +243,7 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
     },
     items.map((it, i) => {
       const isLineActive = activeLine && activeLine.variant === variant && activeLine.i === i;
+      const lineOffset = lineOffsets && lineOffsets.find((l) => l.variant === variant && l.i === i);
       return /* @__PURE__ */ React.createElement(
         "div",
         {
@@ -204,7 +255,16 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
             borderBottom: i < items.length - 1 ? `1px dashed ${colors.cardBorder}` : "none"
           }
         },
-        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: 8, direction: "rtl" } }, SpeakButton && /* @__PURE__ */ React.createElement(SpeakButton, { text: it.en, code: "en", color: colors.teal }), /* @__PURE__ */ React.createElement(
+        /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: 8, direction: "rtl" } }, SpeakButton && /* @__PURE__ */ React.createElement(
+          SpeakButton,
+          {
+            text: it.en,
+            code: "en",
+            color: colors.teal,
+            fullText,
+            startOffset: lineOffset ? lineOffset.start : void 0
+          }
+        ), /* @__PURE__ */ React.createElement(
           "span",
           {
             style: {
@@ -233,36 +293,48 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
           },
           ClickableSentence ? /* @__PURE__ */ React.createElement(ClickableSentence, { text: it.en, langCode: "en", nativeLang, aiSettings, color: mainTextColor, fontFamily: fontLatin, fontWeight: 800, fontSize: 16 }) : it.en
         ))),
-        langCodes.map((code) => /* @__PURE__ */ React.createElement(
-          LineTranslation,
-          {
-            key: code,
-            text: it.en,
-            langCode: code,
-            knownFa: it.fa,
-            aiSettings,
-            translateFree,
-            SpeakButton,
-            ClickableSentence,
-            nativeLang,
-            nativeLabel
-          }
-        ))
+        langCodes.map((code) => {
+          const info = translationTextInfo && translationTextInfo[code];
+          return /* @__PURE__ */ React.createElement(
+            LineTranslation,
+            {
+              key: code,
+              text: it.en,
+              langCode: code,
+              variant,
+              i,
+              knownFa: it.fa,
+              aiSettings,
+              translateFree,
+              SpeakButton,
+              ClickableSentence,
+              nativeLang,
+              nativeLabel,
+              autoScrollActive,
+              highlightColor,
+              fullText: info ? info.fullText : "",
+              lineOffsets: info ? info.lineOffsets : [],
+              isActiveLine: !!(activeTranslationLine && activeTranslationLine.langCode === code && activeTranslationLine.variant === variant && activeTranslationLine.i === i),
+              onResolved: onResolveTranslation
+            }
+          );
+        })
       );
     })
   ));
 }
-function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor }) {
+function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine, onResolveTranslation }) {
   const filterFn = (arr) => levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr;
   const speakerA = filterFn(sc.speakerA);
   const speakerB = filterFn(sc.speakerB);
   if (levelFilter && levelFilter !== "all" && speakerA.length === 0 && speakerB.length === 0) return null;
-  return /* @__PURE__ */ React.createElement("div", { style: { border: `1px solid ${colors.cardBorder}`, borderRadius: 14, marginBottom: 10, overflow: "hidden", backgroundColor: "white" } }, /* @__PURE__ */ React.createElement("button", { onClick: onToggle, style: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 15px", textAlign: "right" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: fontFa, fontWeight: 700, fontSize: 14, color: colors.ink } }, sc.scenario), sc.context && !isOpen && /* @__PURE__ */ React.createElement("div", { style: { fontFamily: fontFa, fontSize: 11.5, color: colors.inkSoft, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, sc.context)), /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, color: colors.teal, style: { transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0, marginRight: 8 } })), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "0 15px 15px" } }, sc.context && /* @__PURE__ */ React.createElement("div", { style: { fontFamily: fontFa, fontSize: 12, color: colors.inkSoft, marginBottom: 4 } }, sc.context), /* @__PURE__ */ React.createElement(ConversationBox, { items: speakerA, variant: "hear", label: t.youHear, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine: isOpen ? activeLine : null, registerLineRef: isOpen ? registerLineRef : void 0, highlightColor }), /* @__PURE__ */ React.createElement(ConversationBox, { items: speakerB, variant: "say", label: t.youSay, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine: isOpen ? activeLine : null, registerLineRef: isOpen ? registerLineRef : void 0, highlightColor })));
+  return /* @__PURE__ */ React.createElement("div", { style: { border: `1px solid ${colors.cardBorder}`, borderRadius: 14, marginBottom: 10, overflow: "hidden", backgroundColor: "white" } }, /* @__PURE__ */ React.createElement("button", { onClick: onToggle, style: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 15px", textAlign: "right" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: fontFa, fontWeight: 700, fontSize: 14, color: colors.ink } }, sc.scenario), sc.context && !isOpen && /* @__PURE__ */ React.createElement("div", { style: { fontFamily: fontFa, fontSize: 11.5, color: colors.inkSoft, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, sc.context)), /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, color: colors.teal, style: { transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0, marginRight: 8 } })), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "0 15px 15px" } }, sc.context && /* @__PURE__ */ React.createElement("div", { style: { fontFamily: fontFa, fontSize: 12, color: colors.inkSoft, marginBottom: 4 } }, sc.context), /* @__PURE__ */ React.createElement(ConversationBox, { items: speakerA, variant: "hear", label: t.youHear, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine: isOpen ? activeLine : null, registerLineRef: isOpen ? registerLineRef : void 0, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine: isOpen ? activeTranslationLine : null, onResolveTranslation }), /* @__PURE__ */ React.createElement(ConversationBox, { items: speakerB, variant: "say", label: t.youSay, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine: isOpen ? activeLine : null, registerLineRef: isOpen ? registerLineRef : void 0, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine: isOpen ? activeTranslationLine : null, onResolveTranslation })));
 }
 var lastConversationsNav = { topic: null, scenario: null };
 function DailyConversationsTab({
   data,
   query,
+  uiLang: uiLangProp,
   nativeLang,
   nativeLabel,
   aiSettings,
@@ -270,13 +342,14 @@ function DailyConversationsTab({
   SpeakButton,
   targetLangs,
   translateFree,
+  getCachedTranslationMap,
   levelFilter,
   speechController,
   onFullTextChange,
   autoScrollActive,
   highlightColor
 }) {
-  const uiLang = nativeLang === "fa" ? "fa" : "en";
+  const uiLang = uiLangProp || (nativeLang === "fa" ? "fa" : "en");
   const [activeTopic, setActiveTopic] = useState(() => lastConversationsNav.topic);
   const [openScenario, setOpenScenario] = useState(() => lastConversationsNav.scenario);
   useEffect(() => {
@@ -289,6 +362,36 @@ function DailyConversationsTab({
     data.forEach((tp) => map[tp.topic] = tp);
     return map;
   }, [data]);
+  const [extraLangMaps, setExtraLangMaps] = useState({});
+  useEffect(() => {
+    if (!getCachedTranslationMap || !query || !query.trim()) return;
+    const codes = Array.from(new Set((targetLangs || []).map((l) => l.code))).filter((c) => c !== "en" && c !== "fa");
+    if (!codes.length) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      codes.forEach((code) => {
+        getCachedTranslationMap(code, "en").then((map) => {
+          if (!cancelled) setExtraLangMaps((prev) => ({ ...prev, [code]: map }));
+        });
+      });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, targetLangs, getCachedTranslationMap]);
+  const itemMatchesQuery = (it, q, rawQuery) => {
+    if (it.t) {
+      return Object.values(it.t).some((v) => typeof v === "string" && v.toLowerCase().includes(q));
+    }
+    if (it.en && it.en.toLowerCase().includes(q)) return true;
+    if (it.fa && it.fa.includes(rawQuery)) return true;
+    for (const code of Object.keys(extraLangMaps)) {
+      const val = extraLangMaps[code] && extraLangMaps[code].get(it.en);
+      if (val && val.toLowerCase().includes(q)) return true;
+    }
+    return false;
+  };
   const filteredMeta = useMemo(() => {
     const all = TOPIC_META_LIST.map(([en, fa, icon]) => ({ en, fa, icon }));
     if (!query || !query.trim()) return all;
@@ -299,12 +402,10 @@ function DailyConversationsTab({
       if (!d) return false;
       return d.scenarios.some((sc) => {
         if (sc.scenario && sc.scenario.toLowerCase().includes(q)) return true;
-        return [...sc.speakerA || [], ...sc.speakerB || []].some(
-          (it) => it.t ? Object.values(it.t).some((v) => typeof v === "string" && v.toLowerCase().includes(q)) : it.en && it.en.toLowerCase().includes(q)
-        );
+        return [...sc.speakerA || [], ...sc.speakerB || []].some((it) => itemMatchesQuery(it, q, query.trim()));
       });
     });
-  }, [query, dataByTopic]);
+  }, [query, dataByTopic, extraLangMaps]);
   const activeTopicData = activeTopic ? dataByTopic[activeTopic] : null;
   const openScenarioData = activeTopicData && openScenario != null ? activeTopicData.scenarios[openScenario] : null;
   const readableLines = useMemo(() => {
@@ -352,6 +453,76 @@ function DailyConversationsTab({
     update(speechController.getState());
     return speechController.subscribe(update);
   }, [fullText, lineOffsets, speechController]);
+  const [translationValues, setTranslationValues] = useState({});
+  const reportTranslation = useCallback((langCode, variant, i, value) => {
+    setTranslationValues((prev) => {
+      const langMap = prev[langCode] || {};
+      const key = `${variant}-${i}`;
+      if (langMap[key] === value) return prev;
+      return { ...prev, [langCode]: { ...langMap, [key]: value } };
+    });
+  }, []);
+  useEffect(() => {
+    setTranslationValues({});
+  }, [activeTopic, openScenario]);
+  const targetLangCodes = useMemo(
+    () => (targetLangs && targetLangs.length ? targetLangs.map((l) => l.code) : ["fa"]).filter((c) => c !== "en"),
+    [targetLangs]
+  );
+  const translationTextInfo = useMemo(() => {
+    const info = {};
+    targetLangCodes.forEach((code) => {
+      const langMap = translationValues[code] || {};
+      let offset = 0;
+      const parts = [];
+      const offsets = [];
+      readableLines.forEach((l) => {
+        const val = langMap[`${l.variant}-${l.i}`];
+        if (!val) return;
+        const start = offset;
+        parts.push(val);
+        offset += val.length + 1;
+        offsets.push({ variant: l.variant, i: l.i, start, end: start + val.length });
+      });
+      info[code] = { fullText: parts.join(" "), lineOffsets: offsets };
+    });
+    return info;
+  }, [targetLangCodes, translationValues, readableLines]);
+  const [activeTranslationLine, setActiveTranslationLine] = useState(null);
+  useEffect(() => {
+    setActiveTranslationLine(null);
+  }, [activeTopic, openScenario]);
+  useEffect(() => {
+    if (!speechController) return;
+    const update = (state) => {
+      if (!state.key || state.status === "idle") {
+        setActiveTranslationLine(null);
+        return;
+      }
+      for (const code of targetLangCodes) {
+        const info = translationTextInfo[code];
+        if (!info || !info.fullText) continue;
+        const myKey = `${TTS_LOCALE_MINI[code] || "en-US"}::${info.fullText}`;
+        if (state.key !== myKey) continue;
+        const offset = speechController.getCharOffset();
+        let found = info.lineOffsets[0] || null;
+        for (const l of info.lineOffsets) {
+          if (offset >= l.start) found = l;
+          else break;
+        }
+        if (found) {
+          setActiveTranslationLine((prev) => {
+            if (prev && prev.langCode === code && prev.variant === found.variant && prev.i === found.i) return prev;
+            return { langCode: code, variant: found.variant, i: found.i };
+          });
+        }
+        return;
+      }
+      setActiveTranslationLine(null);
+    };
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [targetLangCodes, translationTextInfo, speechController]);
   const lineRefs = useRef({});
   const registerLineRef = (variant, i, el) => {
     lineRefs.current[`${variant}-${i}`] = el;
@@ -373,18 +544,18 @@ function DailyConversationsTab({
         const scenarioHit = sc.scenario && sc.scenario.toLowerCase().includes(q);
         [["speakerA", "hear"], ["speakerB", "say"]].forEach(([key, variant]) => {
           (sc[key] || []).forEach((it) => {
-            const hit = scenarioHit || (it.t ? Object.values(it.t).some((v) => typeof v === "string" && v.toLowerCase().includes(q)) : it.en && it.en.toLowerCase().includes(q) || it.fa && it.fa.includes(query.trim()));
+            const hit = scenarioHit || itemMatchesQuery(it, q, query.trim());
             if (hit) {
-              results.push({ topicFa: meta.fa, icon: meta.icon, scenario: sc.scenario, item: it, variant });
+              results.push({ topicLabel: uiLang === "fa" ? meta.fa : tp.topic, icon: meta.icon, scenario: sc.scenario, item: it, variant });
             }
           });
         });
       });
     });
     return results;
-  }, [query, data]);
+  }, [query, data, extraLangMaps, uiLang]);
   if (searchResults) {
-    return /* @__PURE__ */ React.createElement("div", null, searchResults.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: colors.inkSoft, padding: 30, fontSize: 13.5, fontFamily: fontFa } }, t.noResults) : searchResults.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: colors.inkSoft, fontFamily: fontFa, marginBottom: 5 } }, r.icon, " ", r.topicFa, " \xB7 ", r.scenario), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", null, searchResults.length === 0 ? /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: colors.inkSoft, padding: 30, fontSize: 13.5, fontFamily: fontFa } }, t.noResults) : searchResults.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: colors.inkSoft, fontFamily: uiLang === "fa" ? fontFa : fontLatin, marginBottom: 5 } }, r.icon, " ", r.topicLabel, " \xB7 ", r.scenario), /* @__PURE__ */ React.createElement(
       ConversationBox,
       {
         items: [r.item],
@@ -395,7 +566,10 @@ function DailyConversationsTab({
         ClickableSentence,
         SpeakButton,
         targetLangs,
-        translateFree
+        translateFree,
+        speechController,
+        autoScrollActive,
+        highlightColor
       }
     ))));
   }
@@ -404,13 +578,14 @@ function DailyConversationsTab({
     {
       key: m.en,
       meta: m,
+      uiLang,
       hasData: !!dataByTopic[m.en],
       onClick: () => {
         setActiveTopic(m.en);
         setOpenScenario(0);
       }
     }
-  )), filteredMeta.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { gridColumn: "1 / -1", textAlign: "center", color: colors.inkSoft, padding: 30, fontSize: 13.5, fontFamily: fontFa } }, t.noResults)), activeTopic && /* @__PURE__ */ React.createElement("div", { style: { paddingTop: 6 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setActiveTopic(null), style: { display: "flex", alignItems: "center", gap: 6, color: colors.teal, fontSize: 13, fontWeight: 700, fontFamily: fontFa, marginBottom: 14 } }, "\u2190 ", t.backToTopics), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 22 } }, TOPIC_META[activeTopic]?.icon), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: 16, color: colors.ink, fontFamily: fontFa } }, TOPIC_META[activeTopic]?.fa)), activeTopicData ? activeTopicData.scenarios.map((sc, i) => /* @__PURE__ */ React.createElement(
+  )), filteredMeta.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { gridColumn: "1 / -1", textAlign: "center", color: colors.inkSoft, padding: 30, fontSize: 13.5, fontFamily: fontFa } }, t.noResults)), activeTopic && /* @__PURE__ */ React.createElement("div", { style: { paddingTop: 6 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setActiveTopic(null), style: { display: "flex", alignItems: "center", gap: 6, color: colors.teal, fontSize: 13, fontWeight: 700, fontFamily: uiLang === "fa" ? fontFa : fontLatin, marginBottom: 14 } }, "\u2190 ", t.backToTopics), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 22 } }, TOPIC_META[activeTopic]?.icon), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: 16, color: colors.ink, fontFamily: uiLang === "fa" ? fontFa : fontLatin } }, uiLang === "fa" ? TOPIC_META[activeTopic]?.fa : activeTopic)), activeTopicData ? activeTopicData.scenarios.map((sc, i) => /* @__PURE__ */ React.createElement(
     ScenarioAccordionItem,
     {
       key: i,
@@ -428,7 +603,13 @@ function DailyConversationsTab({
       translateFree,
       activeLine,
       registerLineRef,
-      highlightColor
+      highlightColor,
+      fullText,
+      lineOffsets,
+      autoScrollActive,
+      translationTextInfo,
+      activeTranslationLine,
+      onResolveTranslation: reportTranslation
     }
   )) : /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", color: colors.inkSoft, padding: 30, fontSize: 13.5, fontFamily: fontFa } }, t.comingSoon)));
 }

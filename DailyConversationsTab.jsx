@@ -122,10 +122,12 @@ const TTS_LOCALE_MINI = {
   uk: "uk-UA",
 };
 
-function TopicCard({ meta, hasData, onClick }) {
+function TopicCard({ meta, hasData, onClick, uiLang }) {
+  const label = uiLang === "fa" ? meta.fa : meta.en;
   return (
     <button
       onClick={onClick}
+      dir={uiLang === "fa" ? "rtl" : "ltr"}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -133,7 +135,7 @@ function TopicCard({ meta, hasData, onClick }) {
         gap: 6,
         padding: "14px 12px 12px",
         borderRadius: 14,
-        textAlign: "right",
+        textAlign: uiLang === "fa" ? "right" : "left",
         border: `1px solid ${colors.cardBorder}`,
         backgroundColor: "white",
         opacity: hasData ? 1 : 0.55,
@@ -141,8 +143,8 @@ function TopicCard({ meta, hasData, onClick }) {
       }}
     >
       <span style={{ fontSize: 24, lineHeight: 1 }}>{meta.icon}</span>
-      <span style={{ fontFamily: fontFa, fontSize: 13, fontWeight: 700, color: colors.ink, lineHeight: 1.4 }}>
-        {meta.fa}
+      <span style={{ fontFamily: uiLang === "fa" ? fontFa : fontLatin, fontSize: 13, fontWeight: 700, color: colors.ink, lineHeight: 1.4 }}>
+        {label}
       </span>
     </button>
   );
@@ -446,6 +448,7 @@ let lastConversationsNav = { topic: null, scenario: null };
 export default function DailyConversationsTab({
   data,
   query,
+  uiLang: uiLangProp,
   nativeLang,
   nativeLabel,
   aiSettings,
@@ -460,7 +463,7 @@ export default function DailyConversationsTab({
   autoScrollActive,
   highlightColor,
 }) {
-  const uiLang = nativeLang === "fa" ? "fa" : "en";
+  const uiLang = uiLangProp || (nativeLang === "fa" ? "fa" : "en");
   const [activeTopic, setActiveTopic] = useState(() => lastConversationsNav.topic);
   const [openScenario, setOpenScenario] = useState(() => lastConversationsNav.scenario);
   useEffect(() => {
@@ -731,7 +734,7 @@ export default function DailyConversationsTab({
           (sc[key] || []).forEach((it) => {
             const hit = scenarioHit || itemMatchesQuery(it, q, query.trim());
             if (hit) {
-              results.push({ topicFa: meta.fa, icon: meta.icon, scenario: sc.scenario, item: it, variant });
+              results.push({ topicLabel: uiLang === "fa" ? meta.fa : tp.topic, icon: meta.icon, scenario: sc.scenario, item: it, variant });
             }
           });
         });
@@ -739,7 +742,7 @@ export default function DailyConversationsTab({
     });
     return results;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, data, extraLangMaps]);
+  }, [query, data, extraLangMaps, uiLang]);
 
   if (searchResults) {
     return (
@@ -749,8 +752,8 @@ export default function DailyConversationsTab({
         ) : (
           searchResults.map((r, i) => (
             <div key={i} style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11.5, color: colors.inkSoft, fontFamily: fontFa, marginBottom: 5 }}>
-                {r.icon} {r.topicFa} · {r.scenario}
+              <div style={{ fontSize: 11.5, color: colors.inkSoft, fontFamily: uiLang === "fa" ? fontFa : fontLatin, marginBottom: 5 }}>
+                {r.icon} {r.topicLabel} · {r.scenario}
               </div>
               <ConversationBox
                 items={[r.item]}
@@ -782,6 +785,7 @@ export default function DailyConversationsTab({
             <TopicCard
               key={m.en}
               meta={m}
+              uiLang={uiLang}
               hasData={!!dataByTopic[m.en]}
               onClick={() => {
                 setActiveTopic(m.en);
@@ -798,14 +802,14 @@ export default function DailyConversationsTab({
       {/* آکاردئون سناریوهای موضوع انتخاب‌شده */}
       {activeTopic && (
         <div style={{ paddingTop: 6 }}>
-          <button onClick={() => setActiveTopic(null)} style={{ display: "flex", alignItems: "center", gap: 6, color: colors.teal, fontSize: 13, fontWeight: 700, fontFamily: fontFa, marginBottom: 14 }}>
+          <button onClick={() => setActiveTopic(null)} style={{ display: "flex", alignItems: "center", gap: 6, color: colors.teal, fontSize: 13, fontWeight: 700, fontFamily: uiLang === "fa" ? fontFa : fontLatin, marginBottom: 14 }}>
             ← {t.backToTopics}
           </button>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
             <span style={{ fontSize: 22 }}>{TOPIC_META[activeTopic]?.icon}</span>
-            <span style={{ fontWeight: 800, fontSize: 16, color: colors.ink, fontFamily: fontFa }}>
-              {TOPIC_META[activeTopic]?.fa}
+            <span style={{ fontWeight: 800, fontSize: 16, color: colors.ink, fontFamily: uiLang === "fa" ? fontFa : fontLatin }}>
+              {uiLang === "fa" ? TOPIC_META[activeTopic]?.fa : activeTopic}
             </span>
           </div>
 

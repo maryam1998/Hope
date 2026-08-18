@@ -587,6 +587,54 @@ const UI_STRINGS = {
     fa: "ویندوز: تنظیمات ⟵ زمان و زبان ⟵ گفتار ⟵ مدیریت صداها. مک: تنظیمات سیستم ⟵ دسترس‌پذیری ⟵ محتوای گفتاری ⟵ مدیریت صداها.",
     en: "Windows: Settings ⟶ Time & language ⟶ Speech ⟶ Manage voices. Mac: System Settings ⟶ Accessibility ⟶ Spoken Content ⟶ Manage Voices.",
   },
+  searchWordsPlaceholder: { fa: "جستجوی لغت...", en: "Search words..." },
+  searchConversationsPlaceholder: { fa: "جستجوی مکالمه...", en: "Search conversations..." },
+  searchPhrasesPlaceholder: { fa: "جستجوی عبارت...", en: "Search phrases..." },
+  noWordsForSearch: { fa: "چیزی با این جستجو پیدا نشد.", en: "Nothing found for this search." },
+  noWordsToShow: { fa: "چیزی برای نمایش نیست.", en: "Nothing to show." },
+  noWordsInList: { fa: "لغتی برای نمایش نیست.", en: "No words to show." },
+  personalBadge: { fa: "شخصی", en: "Custom" },
+  addToFavoritesAria: { fa: "افزودن به علاقه‌مندی‌ها", en: "Add to favorites" },
+  noFavoritesYet: {
+    fa: "هنوز چیزی به علاقه‌مندی‌ها اضافه نکردی. روی ⭐ کنار هر عبارت یا لغت بزن.",
+    en: "You haven't added anything to favorites yet. Tap ⭐ next to any phrase or word.",
+  },
+  favoritesWordsHeading: { fa: "لغات", en: "Words" },
+  noPhrasesForSearch: { fa: "چیزی با این جستجو پیدا نشد.", en: "Nothing found for this search." },
+  noPhrasesToShow: { fa: "چیزی برای نمایش نیست.", en: "Nothing to show." },
+  // پنلِ لغاتِ ذخیره‌شده
+  savedWordsTitle: { fa: "لغات ذخیره‌شده", en: "Saved words" },
+  savedWordsHint: {
+    fa: "لغاتی که با دکمه‌ی «ذخیره برای داستان بعدی» نشون کردی، یا موقع ساختن هر داستانی انتخاب کردی، همه‌شون اینجا جمع می‌شن. هرکدوم رو خواستی بزن تا انتخاب بشه، بعد «افزودن به داستان‌ساز» رو بزن.",
+    en: "Words you marked with \"Save for next story\", or picked while building a story, all collect here. Tap any to select it, then hit \"Add to Story Builder\".",
+  },
+  searchSavedWords: { fa: "جستجو در لغات ذخیره‌شده...", en: "Search saved words..." },
+  clearSearchAria: { fa: "پاک کردن جستجو", en: "Clear search" },
+  deselectAll: { fa: "لغو انتخاب همه", en: "Deselect all" },
+  selectAll: { fa: "انتخاب همه", en: "Select all" },
+  clearAllWords: { fa: "پاک کردن همه", en: "Clear all" },
+  deleteNSelected: { fa: "حذف {n} انتخاب‌شده", en: "Delete {n} selected" },
+  copyToDictionary: { fa: "کپی در دیکشنری", en: "Copy to dictionary" },
+  viewInDictionary: { fa: "مشاهده در دیکشنری", en: "View in dictionary" },
+  noSavedWordsYet: {
+    fa: "هنوز لغتی ذخیره نکردی. روی هر کلمه‌ی داخل متن‌ها بزن و از پاپ‌آپش «ذخیره برای داستان بعدی» رو انتخاب کن، یا موقع ساخت داستان لغت انتخاب کن.",
+    en: "You haven't saved any words yet. Tap any word in the texts and choose \"Save for next story\" from its popup, or pick words while building a story.",
+  },
+  noSavedWordsForSearch: { fa: "با این جستجو لغتی پیدا نشد.", en: "No words found for this search." },
+  addNWordsToStory: { fa: "افزودن {n} لغت به داستان‌ساز", en: "Add {n} word(s) to Story Builder" },
+  addToStoryBuilder: { fa: "افزودن به داستان‌ساز", en: "Add to Story Builder" },
+  longPressToJump: { fa: "نگه‌دار تا به منبعِ این لغت بری", en: "Press and hold to jump to this word's source" },
+  deletePermanently: { fa: "حذف دائمی", en: "Delete permanently" },
+  confirmDeleteSelectedWords: { fa: "حذف دائمی {n} لغت انتخاب‌شده؟", en: "Permanently delete {n} selected word(s)?" },
+  wordsDeletedMsg: { fa: "{n} لغت حذف شد", en: "{n} word(s) deleted" },
+  confirmClearFiltered: { fa: "{n} لغتِ در حال نمایش برای همیشه پاک بشن؟", en: "Permanently clear the {n} word(s) currently shown?" },
+  confirmClearAllSaved: { fa: "همه‌ی {n} لغت ذخیره‌شده برای همیشه پاک بشن؟", en: "Permanently clear all {n} saved word(s)?" },
+  wordsClearedMsg: { fa: "{n} لغت پاک شد", en: "{n} word(s) cleared" },
+  addedToDictBoth: { fa: "{added} لغت به دیکشنری اضافه شد ({skipped} تا قبلاً بود)", en: "{added} word(s) added to dictionary ({skipped} already there)" },
+  addedToDictOnly: { fa: "{added} لغت به دیکشنری اضافه شد", en: "{added} word(s) added to dictionary" },
+  allAlreadyInDict: { fa: "همه‌ی لغات انتخاب‌شده قبلاً توی دیکشنری بودن", en: "All selected words were already in the dictionary" },
+  jumpedToOriginMsg: { fa: "رفتیم به همون بخشی که «{word}» ازش ذخیره شده بود", en: "Jumped to where \"{word}\" was saved from" },
+  jumpToOriginUnknownMsg: { fa: "منبعِ این لغت مشخص نیست (احتمالاً قبل از این قابلیت ذخیره شده)", en: "This word's source isn't known (likely saved before this feature existed)" },
 };
 // t(key, uiLang) — looks up a UI string in the current software language,
 // falling back to Persian if the key or language is missing.
@@ -594,6 +642,15 @@ function tr(key, uiLang) {
   const entry = UI_STRINGS[key];
   if (!entry) return key;
   return entry[uiLang] || entry.fa;
+}
+// نسخه‌ی «قالب‌دار»ِ tr — برای رشته‌هایی که یه عدد یا کلمه وسطشون جا می‌گیره
+// (مثلاً «{n} لغت حذف شد»). values یه آبجکتِ ساده‌ست: { n: 3 } یا { added: 2, skipped: 1 }.
+function trf(key, uiLang, values) {
+  let s = tr(key, uiLang);
+  Object.entries(values || {}).forEach(([k, v]) => {
+    s = s.replace(new RegExp(`\\{${k}\\}`, "g"), v);
+  });
+  return s;
 }
 
 const fontFa = "var(--font-fa)";
@@ -970,6 +1027,37 @@ const POS_FA = {
   idiom: "اصطلاح",
   slang: "اصطلاح عامیانه (مدرن)",
 };
+// نسخه‌ی انگلیسیِ همون برچسب‌های نوعِ دستوریِ بالا — کلیدها دقیقاً همونن،
+// فقط برای حالتی که زبانِ نرم‌افزار (uiLang) روی English باشه.
+const POS_EN = {
+  noun: "noun",
+  verb: "verb",
+  adjective: "adjective",
+  adverb: "adverb",
+  preposition: "preposition",
+  pronoun: "pronoun",
+  conjunction: "conjunction",
+  article: "article",
+  interjection: "interjection",
+  numeral: "numeral",
+  auxiliary: "auxiliary verb",
+  other: "other",
+  determiner: "determiner",
+  exclamation: "exclamation",
+  "modal verb": "modal verb",
+  number: "number",
+  "ordinal number": "ordinal number",
+  "indefinite article": "indefinite article",
+  "definite article": "definite article",
+  "linking verb": "linking verb",
+  "infinitive marker": "infinitive marker",
+  idiom: "idiom",
+  slang: "slang",
+};
+function posLabel(pos, uiLang) {
+  const table = uiLang === "en" ? POS_EN : POS_FA;
+  return table[pos] || pos;
+}
 
 // Locale codes used for browser text-to-speech per language.
 const TTS_LOCALE = {
@@ -3068,7 +3156,15 @@ function stripMdInline(s) {
 // نمی‌شه. اینجا هر کلمه‌ای که لمس/کلیک بشه، با translateFree به
 // targetLangCode (مثلاً اولین زبانِ مقصدِ چیده‌شده‌ی کاربر) ترجمه و توی
 // یه حبابِ کوچیک زیرِ همون کلمه نشون داده می‌شه.
-function TapWordTranslate({ text, targetLangCode }) {
+// 🔥 React.memo — این کامپوننت هر بار که پنلِ چتِ تمرین رندر بشه (مثلاً با
+// هر حرفی که تو کادرِ ورودی تایپ می‌شه، یا با تپ‌کردنِ رویِ یه پیام)، دوباره
+// صدا زده می‌شد و کل کارِ سنگینِ پارس‌کردنِ مارک‌داون + توکِن‌کردنِ
+// تک‌تکِ کلماتِ *همه‌ی* پیام‌های قبلی رو از نو انجام می‌داد — نه فقط پیامِ
+// تغییریافته. هر چی مکالمه طولانی‌تر می‌شد، این کار سنگین‌تر می‌شد و همون
+// «کندیِ روزافزونِ تپ‌کردن» که کاربر گزارش کرد رو می‌ساخت. با memo، وقتی
+// props (متن/زبان/...) واقعاً عوض نشده، رندرِ دوباره‌ی این کامپوننت کاملاً
+// رد می‌شه.
+const TapWordTranslate = React.memo(function TapWordTranslate({ text, targetLangCode }) {
   const [openIdx, setOpenIdx] = useState(null);
   const [results, setResults] = useState({});
   if (!text || !targetLangCode) return text || null;
@@ -3140,9 +3236,14 @@ function TapWordTranslate({ text, targetLangCode }) {
       })}
     </span>
   );
-}
+});
 
-function MiniMarkdown({ text, speakCode, nativeLang, aiSettings, wordTapTarget, justify }) {
+// 🔥 React.memo — همون دلیلِ بالا (TapWordTranslate): این کامپوننت
+// جوابِ هوش‌مصنوعی رو تو چتِ تمرین رندر می‌کنه و کارِ سنگینِ پارس‌کردنِ
+// مارک‌داون توش انجام می‌شه؛ بدونِ memo، با هر تپ/تایپ تو کادرِ ورودی، این
+// کار برای *همه‌ی* پیام‌های قبلیِ مکالمه (نه فقط پیامِ تغییریافته) از نو
+// اجرا می‌شد و باعثِ کندیِ روزافزونی می‌شد که کاربر گزارش کرد.
+const MiniMarkdown = React.memo(function MiniMarkdown({ text, speakCode, nativeLang, aiSettings, wordTapTarget, justify }) {
   if (!text) return null;
   // این استایل رو بذاریم رو هر بلاک (پاراگراف/تیتر/آیتمِ لیست) به‌جای
   // «start»ِ همیشگی — فقط وقتی justify=true باشه (یعنی فقط از چتِ تمرین
@@ -3268,7 +3369,14 @@ function MiniMarkdown({ text, speakCode, nativeLang, aiSettings, wordTapTarget, 
   });
   flushList();
   return <div>{blocks}</div>;
-}
+}, (prev, next) =>
+  prev.text === next.text &&
+  prev.speakCode === next.speakCode &&
+  prev.nativeLang === next.nativeLang &&
+  prev.aiSettings === next.aiSettings &&
+  prev.wordTapTarget === next.wordTapTarget &&
+  prev.justify === next.justify
+);
 
 
 // ---------------------------------------------------------------------------
@@ -3530,6 +3638,37 @@ const CATEGORIES = {
   gas: "پمپ بنزین",
   repair: "تعمیر ماشین",
 };
+// نسخه‌ی انگلیسیِ همون دسته‌بندی‌ها — برای وقتی uiLang روی English باشه.
+const CATEGORIES_EN = {
+  greetings: "Greetings",
+  airport: "Airport",
+  restaurant: "Restaurant",
+  shopping: "Shopping",
+  hotel: "Hotel",
+  directions: "Directions",
+  emergency: "Emergency",
+  numbers: "Numbers & time",
+  meeting: "Meeting",
+  introducing: "Introducing",
+  old_friend: "Old friend",
+  acquainted: "Getting acquainted",
+  invitation: "Invitation",
+  goodbye: "Goodbye",
+  telephone: "Telephone",
+  transport: "Transport",
+  taxi: "Taxi",
+  common: "Common phrases",
+  exercises: "Conversation practice",
+  bus: "Bus",
+  rental: "Car rental",
+  train: "Train",
+  gas: "Gas station",
+  repair: "Car repair",
+};
+function categoryLabel(cat, uiLang) {
+  const table = uiLang === "en" ? CATEGORIES_EN : CATEGORIES;
+  return table[cat] || cat;
+}
 
 export const conversation = [
   ];
@@ -6464,6 +6603,35 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
   );
 }
 
+// ---------------------------------------------------------------------------
+// شکستنِ متنِ یه پاراگراف به جمله‌های واقعی — هوش مصنوعی که داستان می‌سازه
+// قراره طبق پرامپت هر جمله رو یه آیتمِ جدا تو آرایه‌ی «sentences» برگردونه،
+// ولی بعضی‌وقت‌ها (خصوصاً مدل‌های سریع/رایگانِ زنجیره) چند جمله رو تو یه
+// آیتم می‌چپونه — دقیقاً همون باگی که کاربر تو حالتِ «جمله به جمله» دید
+// (یه بلوکِ هایلایت‌شده‌ی خیلی طولانی، شاملِ چند جمله‌ی کامل). به‌جای اینکه
+// صرفاً به رعایتِ مدل اعتماد کنیم، خروجیِ هر پاراگراف رو خودمون هم از نو
+// رویِ علامتِ‌های پایانِ‌جمله (.!?؟。！) می‌شکنیم تا «جمله به جمله» همیشه
+// واقعاً جمله‌به‌جمله باشه — صرف‌نظر از این‌که مدل چطور گروه‌بندی کرده بود.
+function splitTextIntoSentenceStrings(text) {
+  const t = (text || "").trim();
+  if (!t) return [];
+  const re = /[^.!?؟。！]+[.!?؟。！]*/g;
+  const out = [];
+  let m;
+  while ((m = re.exec(t))) {
+    const trimmed = m[0].trim();
+    if (trimmed) out.push(trimmed);
+  }
+  return out.length ? out : [t];
+}
+function enforceSentenceSplit(paragraphs) {
+  return (paragraphs || []).map((p) => {
+    const joined = (p.sentences || []).map((s) => s?.text || "").join(" ");
+    const resplit = splitTextIntoSentenceStrings(joined);
+    return { ...p, sentences: resplit.map((text) => ({ text })) };
+  });
+}
+
 function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, autoScrollActive, calendarSystem, highlightColor }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
@@ -7357,7 +7525,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           const patchedParagraphs = [...best.parsed.paragraphs];
           patchResults.forEach((r) => {
             if (r.status === "fulfilled" && r.value?.parsed?.sentences?.length) {
-              patchedParagraphs[r.value.index] = { sentences: r.value.parsed.sentences };
+              const resplit = splitTextIntoSentenceStrings(r.value.parsed.sentences.map((s) => s?.text || "").join(" "));
+              patchedParagraphs[r.value.index] = { sentences: resplit.map((text) => ({ text })) };
             }
           });
           const patchedAttempt = { ...best.parsed, paragraphs: patchedParagraphs };
@@ -7395,7 +7564,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         setRepeatNotice(`تعداد تکرار این لغت‌ها با ${repeatCount} بار خواسته‌شده فاصله‌ی زیادی داره — ${detail}. می‌تونی دوباره «بساز داستان» رو بزنی.`);
       }
 
-      const storyParagraphs = parsed.paragraphs || [];
+      const storyParagraphs = enforceSentenceSplit(parsed.paragraphs || []);
       
       // ============================================================
       // 🔥 داستان بدون ترجمه ذخیره می‌شه — ترجمه‌ی خودش (با سرویس‌های
@@ -8586,7 +8755,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
 // popover's "save for next story" button, grouped by language, so they're
 // easy to find later instead of only surfacing inside Story Builder.
 // ---------------------------------------------------------------------------
-function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabel, targetOrder, dictHistory, setDictHistory, onGoToDictionary }) {
+function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabel, targetOrder, dictHistory, setDictHistory, onGoToDictionary, uiLang }) {
   const [words, setWords] = useState([]);
   // لغاتی که کاربر توی همین صفحه علامت زده تا ببره داستان‌ساز — جدا از
   // خودِ انبار دائمی؛ فقط یه انتخاب موقتیه، نه حذف/اضافه به ذخیره‌شده‌ها.
@@ -8618,8 +8787,8 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
     const ok = onJumpToOrigin(entry);
     setActionMsg(
       ok
-        ? `رفتیم به همون بخشی که «${entry.word}» ازش ذخیره شده بود`
-        : "منبعِ این لغت مشخص نیست (احتمالاً قبل از این قابلیت ذخیره شده)"
+        ? trf("jumpedToOriginMsg", uiLang, { word: entry.word })
+        : tr("jumpToOriginUnknownMsg", uiLang)
     );
   };
 
@@ -8750,23 +8919,23 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
 
   const deleteSelected = () => {
     if (!totalPicked) return;
-    if (!window.confirm(`حذف دائمی ${totalPicked} لغت انتخاب‌شده؟`)) return;
+    if (!window.confirm(trf("confirmDeleteSelectedWords", uiLang, { n: totalPicked }))) return;
     Object.entries(picked).forEach(([code, set]) => {
       (set || new Set()).forEach((word) => removeSavedStoryWord(word, code));
     });
     setPicked({});
-    setActionMsg(`${totalPicked} لغت حذف شد`);
+    setActionMsg(trf("wordsDeletedMsg", uiLang, { n: totalPicked }));
   };
 
   const clearAll = () => {
     if (!filteredWords.length) return;
     const msg = normalizedQuery
-      ? `${filteredWords.length} لغتِ در حال نمایش برای همیشه پاک بشن؟`
-      : `همه‌ی ${filteredWords.length} لغت ذخیره‌شده برای همیشه پاک بشن؟`;
+      ? trf("confirmClearFiltered", uiLang, { n: filteredWords.length })
+      : trf("confirmClearAllSaved", uiLang, { n: filteredWords.length });
     if (!window.confirm(msg)) return;
     filteredWords.forEach((e) => removeSavedStoryWord(e.word, e.langCode));
     setPicked({});
-    setActionMsg(`${filteredWords.length} لغت پاک شد`);
+    setActionMsg(trf("wordsClearedMsg", uiLang, { n: filteredWords.length }));
   };
 
   // معادل‌های هر لغتِ انتخاب‌شده (که قبلاً توی همین پنل جمع شده) رو مستقیم
@@ -8806,10 +8975,10 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
     const skipped = toCopy.length - additions.length;
     setActionMsg(
       additions.length && skipped
-        ? `${additions.length} لغت به دیکشنری اضافه شد (${skipped} تا قبلاً بود)`
+        ? trf("addedToDictBoth", uiLang, { added: additions.length, skipped })
         : additions.length
-        ? `${additions.length} لغت به دیکشنری اضافه شد`
-        : "همه‌ی لغات انتخاب‌شده قبلاً توی دیکشنری بودن"
+        ? trf("addedToDictOnly", uiLang, { added: additions.length })
+        : tr("allAlreadyInDict", uiLang)
     );
   };
 
@@ -8831,9 +9000,9 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h2 style={{ fontWeight: 800, fontSize: 18, color: colors.ink, marginBottom: 4 }}>لغات ذخیره‌شده</h2>
+        <h2 style={{ fontWeight: 800, fontSize: 18, color: colors.ink, marginBottom: 4 }}>{tr("savedWordsTitle", uiLang)}</h2>
         <p style={{ fontSize: 13, color: colors.inkSoft, lineHeight: 1.7 }}>
-          لغاتی که با دکمه‌ی «ذخیره برای داستان بعدی» نشون کردی، یا موقع ساختن هر داستانی انتخاب کردی، همه‌شون اینجا جمع می‌شن. هرکدوم رو خواستی بزن تا انتخاب بشه، بعد «افزودن به داستان‌ساز» رو بزن.
+          {tr("savedWordsHint", uiLang)}
         </p>
       </div>
 
@@ -8847,12 +9016,12 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="جستجو در لغات ذخیره‌شده..."
+              placeholder={tr("searchSavedWords", uiLang)}
               dir="auto"
-              style={{ flex: 1, fontFamily: fontFa, border: "none", outline: "none", fontSize: 13, backgroundColor: "transparent" }}
+              style={{ flex: 1, fontFamily: uiLang === "en" ? fontLatin : fontFa, border: "none", outline: "none", fontSize: 13, backgroundColor: "transparent" }}
             />
             {query && (
-              <button onClick={() => setQuery("")} aria-label="پاک کردن جستجو" style={{ display: "flex" }}>
+              <button onClick={() => setQuery("")} aria-label={tr("clearSearchAria", uiLang)} style={{ display: "flex" }}>
                 <X size={15} color={colors.inkSoft} />
               </button>
             )}
@@ -8866,7 +9035,7 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
               style={{ ...toolbarButtonStyle, color: colors.ink, opacity: filteredWords.length ? 1 : 0.5 }}
             >
               <CheckSquare size={13} />
-              {allVisibleSelected ? "لغو انتخاب همه" : "انتخاب همه"}
+              {allVisibleSelected ? tr("deselectAll", uiLang) : tr("selectAll", uiLang)}
             </button>
             <button
               onClick={clearAll}
@@ -8875,17 +9044,17 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
               style={{ ...toolbarButtonStyle, color: colors.rose, opacity: filteredWords.length ? 1 : 0.5 }}
             >
               <Trash2 size={13} />
-              پاک کردن همه
+              {tr("clearAllWords", uiLang)}
             </button>
             {totalPicked > 0 && (
               <>
                 <button onClick={deleteSelected} className="flex items-center gap-1" style={{ ...toolbarButtonStyle, color: colors.rose }}>
                   <X size={13} />
-                  حذف {totalPicked} انتخاب‌شده
+                  {trf("deleteNSelected", uiLang, { n: totalPicked })}
                 </button>
                 <button onClick={copySelectedToDictionary} className="flex items-center gap-1" style={{ ...toolbarButtonStyle, color: colors.teal }}>
                   <Copy size={13} />
-                  کپی در دیکشنری
+                  {tr("copyToDictionary", uiLang)}
                 </button>
               </>
             )}
@@ -8894,9 +9063,9 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
           {actionMsg && (
             <p className="flex items-center gap-2" style={{ fontSize: 12, color: colors.teal }}>
               {actionMsg}
-              {onGoToDictionary && actionMsg.includes("دیکشنری") && (
+              {onGoToDictionary && /دیکشنری|dictionary/i.test(actionMsg) && (
                 <button onClick={onGoToDictionary} style={{ textDecoration: "underline", color: colors.teal }}>
-                  مشاهده در دیکشنری
+                  {tr("viewInDictionary", uiLang)}
                 </button>
               )}
             </p>
@@ -8907,12 +9076,12 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
       {langCodes.length === 0 ? (
         <p style={{ fontSize: 13, color: colors.inkSoft }}>
           {words.length === 0
-            ? "هنوز لغتی ذخیره نکردی. روی هر کلمه‌ی داخل متن‌ها بزن و از پاپ‌آپش «ذخیره برای داستان بعدی» رو انتخاب کن، یا موقع ساخت داستان لغت انتخاب کن."
-            : "با این جستجو لغتی پیدا نشد."}
+            ? tr("noSavedWordsYet", uiLang)
+            : tr("noSavedWordsForSearch", uiLang)}
         </p>
       ) : (
         langCodes.map((code) => {
-          const label = LANGUAGES.find((l) => l.code === code)?.label || code;
+          const label = uiLang === "en" ? englishLangName(code) : LANGUAGES.find((l) => l.code === code)?.label || code;
           const pickedSet = picked[code] || new Set();
           return (
             <div
@@ -8935,7 +9104,7 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                   }}
                 >
                   <Sparkles size={13} />
-                  {pickedSet.size ? `افزودن ${pickedSet.size} لغت به داستان‌ساز` : "افزودن به داستان‌ساز"}
+                  {pickedSet.size ? trf("addNWordsToStory", uiLang, { n: pickedSet.size }) : tr("addToStoryBuilder", uiLang)}
                 </button>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -8950,7 +9119,7 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                   return (
                     <div
                       key={e.word}
-                      title="نگه‌دار تا به منبعِ این لغت بری"
+                      title={tr("longPressToJump", uiLang)}
                       onMouseDown={(ev) => beginPress(pressKey, ev.clientX, ev.clientY, e, ev.target)}
                       onMouseMove={(ev) => movePress(ev.clientX, ev.clientY)}
                       onMouseUp={clearPress}
@@ -9002,7 +9171,7 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                           <button
                             onClick={() => removeSavedStoryWord(e.word, code)}
                             style={{ color: colors.inkSoft, display: "flex" }}
-                            title="حذف دائمی"
+                            title={tr("deletePermanently", uiLang)}
                           >
                             <X size={12} />
                           </button>
@@ -9015,7 +9184,7 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                       )}
                       {otherLangs.map((toLang) => {
                         const translation = (e.translations && e.translations[toLang]) || "";
-                        const toLabel = LANGUAGES.find((l) => l.code === toLang)?.label || toLang;
+                        const toLabel = uiLang === "en" ? englishLangName(toLang) : LANGUAGES.find((l) => l.code === toLang)?.label || toLang;
                         return (
                           <div key={toLang} className="flex items-center justify-between gap-2" style={{ direction: "ltr" }}>
                             <div
@@ -9524,14 +9693,40 @@ function GrammarPanel({
     setEditingMsgText("");
   }
 
-  function saveEditingMsg() {
+  // ویرایشِ یه پیامِ قبلیِ کاربر — دقیقاً مثلِ اپ‌های هوش‌مصنوعیِ معروف: بعد
+  // از ذخیره، خودِ همون پیام با متنِ تازه جایگزین می‌شه، هر چی *بعدِ* اون
+  // بود (جوابِ قدیمیِ هوش‌مصنوعی + هر پیامِ بعدی‌تر) حذف می‌شه، و یه درخواستِ
+  // تازه با متنِ ویرایش‌شده فرستاده می‌شه تا هوش مصنوعی دوباره — با توجه به
+  // متنِ جدید — جواب بده.
+  async function saveEditingMsg() {
     const text = editingMsgText.trim();
-    if (!text || editingMsgIndex == null) {
+    const idx = editingMsgIndex;
+    if (!text || idx == null) {
       cancelEditingMsg();
       return;
     }
-    setChatMessages((prev) => prev.map((msg, idx) => (idx === editingMsgIndex ? { ...msg, text } : msg)));
+    const historyBeforeEdit = chatMessages.slice(0, idx);
+    const truncated = [...historyBeforeEdit, { role: "user", text }];
+    setChatMessages(truncated);
     cancelEditingMsg();
+    setChatError("");
+    setChatLoading(true);
+    try {
+      const reply = await askGrammarTeacher({
+        userSentence: text,
+        langCode: chatLang,
+        nativeLang,
+        nativeLabel,
+        aiSettings,
+        history: historyBeforeEdit,
+        targetOrder,
+      });
+      setChatMessages((m) => [...m, { role: "ai", text: reply, forSentence: text }]);
+    } catch (e) {
+      setChatError(e?.message?.replace(/^ai-backend-error:\s*/, "") || (isFa ? "خطا در دریافت پاسخ" : "Couldn't get a reply"));
+    } finally {
+      setChatLoading(false);
+    }
   }
 
   // اتوگرو برای textareaـیِ ویرایشِ پیام، دقیقاً مثلِ اتوگروی کادرِ اصلی.
@@ -11017,8 +11212,14 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={tab === "words" || tab === "vocab" || tab === "slang" ? "جستجوی لغت..." : tab === "conversations" ? "جستجوی مکالمه..." : "جستجوی عبارت..."}
-              style={{ flex: 1, fontFamily: fontFa, border: "none", outline: "none", fontSize: 14, backgroundColor: "transparent" }}
+              placeholder={
+                tab === "words" || tab === "vocab" || tab === "slang"
+                  ? tr("searchWordsPlaceholder", appPrefs.uiLang)
+                  : tab === "conversations"
+                  ? tr("searchConversationsPlaceholder", appPrefs.uiLang)
+                  : tr("searchPhrasesPlaceholder", appPrefs.uiLang)
+              }
+              style={{ flex: 1, fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa, border: "none", outline: "none", fontSize: 14, backgroundColor: "transparent" }}
             />
             {query && (
               <button onClick={() => setQuery("")} aria-label="پاک کردن جستجو">
@@ -11044,6 +11245,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   <DailyConversationsTab
     data={DAILY_CONVERSATIONS}
     query={query}
+    uiLang={appPrefs.uiLang || "fa"}
     nativeLang={nativeLang}
     nativeLabel={nativeLabel}
     aiSettings={aiSettings}
@@ -11064,7 +11266,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           <div className="flex flex-col gap-6">
             {favorites.size === 0 && favoritedWords.length === 0 ? (
               <p style={{ color: colors.inkSoft, fontSize: 14, textAlign: "center", marginTop: 40 }}>
-                هنوز چیزی به علاقه‌مندی‌ها اضافه نکردی. روی ⭐ کنار هر عبارت یا لغت بزن.
+                {tr("noFavoritesYet", appPrefs.uiLang)}
               </p>
             ) : (
               <>
@@ -11080,6 +11282,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                     aiSettings={aiSettings}
                     autoplayEnabled={tab === "favorites"}
                     emptyText=""
+                    uiLang={appPrefs.uiLang}
                     // اگه عبارتِ علاقه‌مندی‌شده‌ای هست، دکمه‌ی مرکزیِ پخشِ پلیر
                     // همینا رو می‌خونه (با هایلایتِ همینجا). اگه چیزی نبود،
                     // نوبت به لیستِ لغاتِ زیرش می‌رسه (پایین‌تر).
@@ -11090,7 +11293,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                 )}
                 {favoritedWords.length > 0 && (
                   <div>
-                    <h2 style={{ color: colors.gold, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>لغات</h2>
+                    <h2 style={{ color: colors.gold, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{tr("favoritesWordsHeading", appPrefs.uiLang)}</h2>
                     <WordList
                       words={favoritedWords}
                       wordFavorites={wordFavorites}
@@ -11098,6 +11301,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                       query={query}
                       levelFilter={levelFilter}
                       emptyText=""
+                      uiLang={appPrefs.uiLang}
                       nativeLang={nativeLang}
                       nativeLabel={nativeLabel}
                       targetLangs={targetLangList}
@@ -11126,7 +11330,8 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             toggleWordFavorite={toggleWordFavorite}
             query={query}
             levelFilter={levelFilter}
-            emptyText="لغتی برای نمایش نیست."
+            emptyText={tr("noWordsInList", appPrefs.uiLang)}
+            uiLang={appPrefs.uiLang}
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
             targetLangs={targetLangList}
@@ -11147,7 +11352,8 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             toggleWordFavorite={toggleWordFavorite}
             query={query}
             levelFilter={levelFilter}
-            emptyText="لغتی برای نمایش نیست."
+            emptyText={tr("noWordsInList", appPrefs.uiLang)}
+            uiLang={appPrefs.uiLang}
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
             targetLangs={targetLangList}
@@ -11168,7 +11374,8 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             toggleWordFavorite={toggleWordFavorite}
             query={query}
             levelFilter={levelFilter}
-            emptyText="لغتی برای نمایش نیست."
+            emptyText={tr("noWordsInList", appPrefs.uiLang)}
+            uiLang={appPrefs.uiLang}
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
             targetLangs={targetLangList}
@@ -11208,6 +11415,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
         {tab === "saved" && (
           <SavedWordsPanel
+            uiLang={appPrefs.uiLang}
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
             targetOrder={targetOrder}
@@ -11432,7 +11640,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 // ---------------------------------------------------------------------------
 // Phrase list (used for both "all conversation " and "favorites")
 // ---------------------------------------------------------------------------
-function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleFavorite, emptyText, query, levelFilter, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, highlightColor }) {
+function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleFavorite, emptyText, query, levelFilter, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, highlightColor, uiLang }) {
   const q = (query || "").trim().toLowerCase();
   let filtered = levelFilter && levelFilter !== "all" ? conversation .filter((p) => p.level === levelFilter) : conversation ;
   filtered = q
@@ -11581,7 +11789,7 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
   if (filtered.length === 0) {
     return (
       <p style={{ color: colors.inkSoft, fontSize: 14, textAlign: "center", marginTop: 40 }}>
-        {q ? "چیزی با این جستجو پیدا نشد." : emptyText || "چیزی برای نمایش نیست."}
+        {q ? tr("noPhrasesForSearch", uiLang) : emptyText || tr("noPhrasesToShow", uiLang)}
       </p>
     );
   }
@@ -11597,7 +11805,7 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
       {Object.entries(grouped).map(([cat, items]) => (
         <section key={cat}>
           <h2 style={{ color: colors.gold, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>
-            {CATEGORIES[cat] || cat}
+            {categoryLabel(cat, uiLang)}
           </h2>
           <div className="flex flex-col gap-2">
             {items.map((p) => (
@@ -11698,7 +11906,7 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
                     })}
                   </div>
                 </div>
-                <button onClick={() => toggleFavorite(p.id)} aria-label="افزودن به علاقه‌مندی‌ها" style={{ marginRight: 4 }}>
+                <button onClick={() => toggleFavorite(p.id)} aria-label={tr("addToFavoritesAria", uiLang)} style={{ marginRight: 4 }}>
                   <Star
                     size={20}
                     color={colors.gold}
@@ -12521,7 +12729,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
 // به کتابخونه‌ی جدید).
 const WORDS_PAGE_SIZE = 60;
 
-function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor, jumpTarget }) {
+function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor, jumpTarget, uiLang }) {
   // زبان‌هایی که باید زیرِ هر لغت ترجمه‌شون نشون داده بشه: همون زبان‌های
   // مقصدی که کاربر بالای صفحه انتخاب/مرتب کرده (targetLangs)، منهای خودِ
   // انگلیسی (چون انگلیسی همون سرلغته که بالا نشون داده می‌شه و تکرارش
@@ -12797,7 +13005,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
   if (filtered.length === 0) {
     return (
       <p style={{ color: colors.inkSoft, fontSize: 14, textAlign: "center", marginTop: 40 }}>
-        {q ? "چیزی با این جستجو پیدا نشد." : emptyText || "چیزی برای نمایش نیست."}
+        {q ? tr("noWordsForSearch", uiLang) : emptyText || tr("noWordsToShow", uiLang)}
       </p>
     );
   }
@@ -12820,7 +13028,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
             transition: "border-color 0.4s ease, box-shadow 0.4s ease",
           }}
         >
-          <button onClick={() => toggleWordFavorite(w.id)} aria-label="افزودن به علاقه‌مندی‌ها" style={{ marginLeft: 4, flexShrink: 0 }}>
+          <button onClick={() => toggleWordFavorite(w.id)} aria-label={tr("addToFavoritesAria", uiLang)} style={{ marginLeft: 4, flexShrink: 0 }}>
             <Star size={20} color={colors.gold} fill={wordFavorites.has(w.id) ? colors.gold : "none"} />
           </button>
           <div className="flex-1">
@@ -12870,7 +13078,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                 {w.isUserSaved && (
                   <span
                     style={{
-                      fontFamily: fontFa,
+                      fontFamily: uiLang === "en" ? fontLatin : fontFa,
                       fontSize: 10,
                       fontWeight: 700,
                       color: colors.rose,
@@ -12880,13 +13088,13 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                       flexShrink: 0,
                     }}
                   >
-                    شخصی
+                    {tr("personalBadge", uiLang)}
                   </span>
                 )}
                 {w.pos && (
                   <span
                     style={{
-                      fontFamily: fontFa,
+                      fontFamily: uiLang === "en" ? fontLatin : fontFa,
                       fontSize: 10,
                       fontWeight: 700,
                       color: colors.teal,
@@ -12896,7 +13104,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                       flexShrink: 0,
                     }}
                   >
-                    {POS_FA[w.pos] || w.pos}
+                    {posLabel(w.pos, uiLang)}
                   </span>
                 )}
               </div>
