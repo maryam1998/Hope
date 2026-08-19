@@ -13219,6 +13219,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                     key={l.code}
                     word={w.en}
                     wordId={w.id}
+                    pos={w.pos}
                     langCode={l.code}
                     abbr={l.abbr}
                     knownText={l.code === "fa" ? w.fa : ""}
@@ -13252,7 +13253,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
 // می‌کنه (تا دفعه‌ی بعد دیگه درخواستی به سرور نره). متن با رنگ مشکی‌پررنگ
 // (colors.ink) و bold نشون داده می‌شه — نه رنگ‌های کم‌کنتراست — تا خوندنِ
 // پشت‌سرهمِ چند زبان چشم رو خسته نکنه.
-function WordTargetTranslation({ word, wordId, langCode, abbr, knownText, nativeLang, nativeLabel, aiSettings, ClickableSentence, fullText, lineOffsets, isActiveLine, autoScrollActive, highlightColor, onResolved }) {
+function WordTargetTranslation({ word, wordId, pos, langCode, abbr, knownText, nativeLang, nativeLabel, aiSettings, ClickableSentence, fullText, lineOffsets, isActiveLine, autoScrollActive, highlightColor, onResolved }) {
   const [text, setText] = useState(knownText || (() => loadWordTranslation(word, langCode)));
 
   useEffect(() => {
@@ -13266,7 +13267,12 @@ function WordTargetTranslation({ word, wordId, langCode, abbr, knownText, native
       return;
     }
     let cancelled = false;
-    translateFree(word, langCode, "en", aiSettings)
+    // slang/idiom بیشترین ریسکِ ترجمه‌ی غلطِ معنایی رو دارن (مثل gaslighter)
+    // چون معمولاً تحت‌اللفظی نیستن — فقط برای این‌ها همیشه AI چک می‌کنه؛
+    // برای بقیه‌ی انواعِ کلمه (noun/verb/...) همون هیوریستیکِ رایگانِ
+    // translateFree کافیه، تا حجمِ زیادِ این دیتاست‌ها توکنِ زیادی نخوره.
+    const forceVerify = pos === "slang" || pos === "idiom";
+    translateFree(word, langCode, "en", aiSettings, forceVerify)
       .then((t) => {
         if (cancelled || !t) return;
         setText(t);
@@ -13439,7 +13445,7 @@ function WordExampleTranslationLine({ example, word, langCode, targetLang, abbr,
       return;
     }
     let cancelled = false;
-    translateFree(example.text, targetLang, langCode, aiSettings)
+    translateFree(example.text, targetLang, langCode, aiSettings, true)
       .then((t) => {
         if (cancelled || !t) return;
         setTranslation(t);
