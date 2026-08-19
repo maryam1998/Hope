@@ -11057,12 +11057,15 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   }, [user?.uid]);
 
   // --- Save progress whenever it changes (debounced) -----------------------
+  // pendingSaveRef همیشه یه نسخه‌ی به‌روز از تابعِ «همین الان بساز و ذخیره کن»
+  // رو نگه می‌داره (با آخرین مقادیرِ state، چون هر رندر دوباره نوشته می‌شه).
+  // دلیلِ وجودش: اگه کاربر درست بعد از ستاره‌زدن (قبل از این‌که تایمرِ debounce
+  // پایین فرصتِ اجرا پیدا کنه) صفحه رو رفرش/ببنده، اون تغییرِ آخر هیچ‌وقت
+  // ذخیره نمی‌شه. پایین‌تر، با گوش‌دادن به pagehide/visibilitychange، همین
+  // تابع رو درست همون لحظه (sync، بدون صبر برای تایمر) صدا می‌زنیم.
+  const pendingSaveRef = useRef(null);
   useEffect(() => {
-    // تا وقتی هم نسخه‌ی محلی لود نشده («loaded»)، هم جوابِ ابری (چه موفق چه
-    // ناموفق) نرسیده («cloudChecked»)، ذخیره‌ی خودکار رو شروع نمی‌کنیم — وگرنه
-    // ممکنه حالتِ خالی/پیش‌فرضِ اولیه به‌جای نسخه‌ی واقعی روی ابری بشینه.
-    if (!loaded || !cloudChecked) return;
-    const timeout = setTimeout(async () => {
+    pendingSaveRef.current = () => {
       const payload = {
         nativeLang,
         targetOrder,
@@ -11078,15 +11081,51 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         grammarNotes: loadGrammarNotes(),
         wordExamples: loadAllWordExamples(),
       };
+      // مستقیم localStorage (نه storage.set که async-wrapped ولی همون زیرش
+      // sync-ه) — چون تو هندلرِ pagehide/beforeunload نباید await کنیم، ممکنه
+      // مرورگر قبل از تمومِ await صفحه رو واقعاً ببنده.
       try {
-        await storage.set(userStorageKey, JSON.stringify(payload), false);
+        window.localStorage.setItem(userStorageKey, JSON.stringify(payload));
       } catch (e) {
         // local save failed — still try the cloud copy below
       }
       if (user?.uid) supabaseSaveState(user.uid, payload);
+      return payload;
+    };
+  });
+
+  useEffect(() => {
+    // تا وقتی هم نسخه‌ی محلی لود نشده («loaded»)، هم جوابِ ابری (چه موفق چه
+    // ناموفق) نرسیده («cloudChecked»)، ذخیره‌ی خودکار رو شروع نمی‌کنیم — وگرنه
+    // ممکنه حالتِ خالی/پیش‌فرضِ اولیه به‌جای نسخه‌ی واقعی روی ابری بشینه.
+    if (!loaded || !cloudChecked) return;
+    const timeout = setTimeout(() => {
+      if (pendingSaveRef.current) pendingSaveRef.current();
     }, 500);
     return () => clearTimeout(timeout);
   }, [nativeLang, targetOrder, langPickerOrder, favorites, wordFavorites, boxes, wordStats, savedStories, dictHistory, backendUrl, loaded, cloudChecked, userStorageKey, user?.uid, savedWordsVersion, grammarNotesVersion, wordExamplesVersion]);
+
+  // --- Flush فوری درست قبل از بستن/رفرش/مینیمایز‌کردنِ صفحه ------------------
+  // اگه یه ذخیره‌ی معلق (تو تایمرِ ۵۰۰ میلی‌ثانیه‌یِ بالا) هنوز اجرا نشده،
+  // همین‌جا فوری اجراش می‌کنیم — تا مثلاً ستاره‌ای که همین الان زده شده، با
+  // رفرشِ سریع از دست نره.
+  useEffect(() => {
+    if (!loaded || !cloudChecked) return;
+    const flush = () => {
+      if (pendingSaveRef.current) pendingSaveRef.current();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+    };
+  }, [loaded, cloudChecked]);
 
   const toggleTargetLang = (code) => {
     setTargetOrder((prev) => {
