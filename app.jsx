@@ -7418,7 +7418,11 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       .filter(([, s]) => s.lang === storyLang)
       .sort((a, b) => (b[1].missed - b[1].correct) - (a[1].missed - a[1].correct))
       .slice(0, 5)
-      .map(([w]) => w);
+      // نسخه‌های قدیمی‌تر wordStats فیلدِ «word» رو ذخیره نمی‌کردن — برای
+      // سازگاری با داده‌ی قبلاً ذخیره‌شده، اگه s.word نبود از خودِ کلید
+      // (که به شکل storyLang:word هست) استخراجش می‌کنیم.
+      .map(([key, s]) => s.word || key.slice(key.indexOf(":") + 1))
+      .filter(Boolean);
     if (ranked.length) {
       setSelectedWords(ranked);
       ranked.forEach((w) => ensureSavedStoryWord(w, storyLang));
@@ -7518,6 +7522,7 @@ NARRATIVE QUALITY:
 - The plot and content must feel fully intentional and relevant to the target words themselves — build a story that is actually ABOUT something connected to these words, not a generic story with the words awkwardly inserted.
 - You do NOT need to introduce the target words in the order they're listed — use whatever order serves the story best.
 - Paragraphs must flow into each other (later paragraphs should refer back to people, places, or events from earlier ones), not restart the scene each time.
+- Every word/phrase you use — target words included — must be used with its correct, natural meaning and normal collocations, exactly as a native speaker would use it. Never force a target word into a sentence where it doesn't semantically fit just to hit the repetition budget (e.g. don't write something like "took off a pineapple from the table" — "take off" doesn't collocate with a fruit; "picked up a pineapple" would be correct). If a target word doesn't fit naturally in a given spot, rewrite the sentence or move the word elsewhere in the story instead of producing an unnatural sentence.
 
 REPETITION — follow this PER-PARAGRAPH budget exactly, instead of trying to track a global count yourself. Each line below lists which target words (and how many times each, counting all grammatical forms/inflections together) should appear in THAT paragraph specifically. This budget already sums to the right total across the whole story, so just follow it paragraph by paragraph — being off by 1 in a single paragraph is fine, but don't ignore the split. Weave the words naturally into the sentence flow — don't just list them mechanically. Note: some target items below are full sentences or phrases rather than single words — for those, a budget of "×1" simply means work that sentence/phrase into the story naturally once; you do NOT need to repeat a long phrase verbatim multiple times.
 
@@ -7731,10 +7736,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       questions.forEach((q, i) => {
         if (!q.word) return;
         const key = `${storyLang}:${q.word.toLowerCase()}`;
-        const cur = next[key] || { lang: storyLang, missed: 0, correct: 0 };
+        const cur = next[key] || { lang: storyLang, word: q.word, missed: 0, correct: 0 };
         const isRight = answers[i] === q.answerIndex;
         next[key] = {
           lang: storyLang,
+          word: q.word,
           missed: cur.missed + (isRight ? 0 : 1),
           correct: cur.correct + (isRight ? 1 : 0),
         };
@@ -8308,27 +8314,37 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         </div>
 
         {selectedWords.length > 0 && (
-          <div className="flex flex-wrap gap-2" style={{ borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 10 }}>
-            {selectedWords.map((w) => (
-              <span
-                key={w}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  padding: "4px 10px",
-                  borderRadius: 20,
-                  fontSize: 12,
-                  backgroundColor: colors.ink,
-                  color: "white",
-                }}
+          <div style={{ borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 10 }}>
+            <div className="flex flex-wrap gap-2">
+              {selectedWords.map((w) => (
+                <span
+                  key={w}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    padding: "4px 10px",
+                    borderRadius: 20,
+                    fontSize: 12,
+                    backgroundColor: colors.ink,
+                    color: "white",
+                  }}
+                >
+                  {w}
+                  <button onClick={() => toggleWord(w)} aria-label="حذف">
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <button
+                onClick={() => setSelectedWords([])}
+                style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}
               >
-                {w}
-                <button onClick={() => toggleWord(w)} aria-label="حذف">
-                  <X size={12} />
-                </button>
-              </span>
-            ))}
+                پاک کردن همه
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -8507,6 +8523,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                             />
                             <p
                               style={{
+                                flex: 1,
+                                minWidth: 0,
                                 fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin,
                                 fontSize: 15,
                                 lineHeight: 1.8,
@@ -8581,6 +8599,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                   )}
                                   <p
                                     style={{
+                                      flex: 1,
+                                      minWidth: 0,
                                       fontSize: 13.5,
                                       color: translationColor,
                                       fontWeight: 900,
@@ -8646,6 +8666,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                             />
                             <p
                               style={{
+                                flex: 1,
+                                minWidth: 0,
                                 fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin,
                                 fontSize: 15,
                                 lineHeight: 1.8,
@@ -8712,6 +8734,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                               )}
                               <p
                                 style={{
+                                  flex: 1,
+                                  minWidth: 0,
                                   fontSize: 13.5,
                                   color: translationColor,
                                   fontWeight: 900,
