@@ -10904,12 +10904,12 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     return extras.length ? [...extras, ...WORDS_AZ] : WORDS_AZ;
   }, [savedWordsVersion]);
 
-  // لغاتی که کاربر با ⭐ از تب‌های لغات/لغات‌و‌اخبار/مکالمه‌روزمره
+  // لغاتی که کاربر با ⭐ از تب‌های لغات/لغات‌و‌اخبار/مکالمه‌روزمره/اسلنگ
   // علاقه‌مندشون کرده — قبلاً تنها جایی که ذخیره می‌شدن تنظیماتِ داخلی بود
   // و هیچ‌جا نشون داده نمی‌شدن (ستاره می‌خورد ولی توی تبِ «علاقه‌مندی‌ها»
   // ظاهر نمی‌شد)؛ حالا همین‌جا، کنارِ عبارت‌های علاقه‌مندشده، نشون داده می‌شن.
   const favoritedWords = useMemo(() => {
-    const sources = [wordsWithSaved, NEWS_WORDS, DAILY_WORDS];
+    const sources = [wordsWithSaved, NEWS_WORDS, DAILY_WORDS, SLANG_WORDS];
     const seen = new Set();
     const result = [];
     sources.forEach((list) => {
