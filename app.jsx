@@ -282,9 +282,86 @@ async function translateViaAI(text, targetLang, sourceLang, aiSettings) {
   return cleaned;
 }
 
+// ============================================================
+// 🔎 لایه‌ی سبکِ کنترل‌کیفیت — قبل از اینکه یه ترجمه‌ی خام (از گوگل/
+// MyMemory/Lingva/Libre) برای همیشه کش بشه، چند تست رایگان و آنی (بدون
+// شبکه، بدون AI) روش اجرا می‌کنیم. فقط اگه یکی از این‌ها مشکوک بود، سراغ
+// AI برای اصلاح می‌ریم — نه برای هر ترجمه‌ای. و چون نتیجه (تأییدشده یا
+// اصلاح‌شده) برای همیشه تو IndexedDB کش می‌مونه، این هزینه‌ی AI برای هر
+// جفتِ متن/زبان فقط "یک‌بار در کل عمر اپ" اتفاق می‌افته؛ دفعه‌های بعد که
+// همون متن دوباره لازم بشه (حتی برای کاربرهای دیگه‌ی همین دستگاه) مستقیم
+// از کش می‌آد، بدون هیچ توکنی.
+// ============================================================
+function scriptRangeFor(langCode) {
+  // بازه‌ی یونیکدِ رسم‌الخطِ اصلیِ هر زبون — برای تشخیصِ «اصلاً ترجمه نشده»
+  // (مثلاً گوگل به‌جای فارسی، همون متنِ انگلیسی رو برگردونده).
+  switch (langCode) {
+    case "fa":
+    case "ar":
+      return /[\u0600-\u06FF]/;
+    case "ru":
+      return /[\u0400-\u04FF]/;
+    case "zh":
+      return /[\u4E00-\u9FFF]/;
+    case "ja":
+      return /[\u3040-\u30FF\u4E00-\u9FFF]/;
+    case "ko":
+      return /[\uAC00-\uD7AF]/;
+    default:
+      // بقیه (en/es/fr/tr و ...) لاتین مشترکن — این چک برای اون‌ها بی‌فایده‌ست
+      return null;
+  }
+}
+
+function looksLikelyMistranslated(sourceText, draft, targetLang, sourceLang) {
+  const src = (sourceText || "").trim();
+  const out = (draft || "").trim();
+  if (!out) return true;
+  // زبان مبدا و مقصد فرق دارن ولی خروجی عیناً همون متن مبدأست — یعنی ترجمه نشده
+  if (sourceLang && sourceLang !== "auto" && sourceLang !== targetLang && out.toLowerCase() === src.toLowerCase())
+    return true;
+  // رسم‌الخطِ زبونِ مقصد مشخصه (فارسی/عربی/روسی/چینی/...) ولی هیچ اثری ازش تو خروجی نیست
+  const re = scriptRangeFor(targetLang);
+  if (re && src.length > 1 && !re.test(out)) return true;
+  // نسبتِ طولِ غیرعادی نسبت به متن مبدأ (خیلی کوتاه‌تر یا خیلی بلندتر)
+  const ratio = out.length / Math.max(src.length, 1);
+  if (src.length > 3 && (ratio < 0.25 || ratio > 3.5)) return true;
+  return false;
+}
+
+// فقط وقتی looksLikelyMistranslated چراغ قرمز داده، این تابع صدا زده می‌شه:
+// یه پرامپت خیلی کوتاه به بک‌اند AI (که خودش اول از Groq — سریع‌ترین حلقه‌ی
+// زنجیره — استفاده می‌کنه) می‌فرستیم تا یا تأیید کنه یا خودش ترجمه‌ی درست رو
+// بده. maxTokens پایین + بدون retry اضافه، برای اینکه هم سریع باشه هم کم‌توکن.
+async function verifyTranslationWithAI(sourceText, targetLang, draft, aiSettings) {
+  if (!aiSettings) return draft;
+  try {
+    const targetLabel = englishLangName(targetLang);
+    const prompt =
+      `Source text: "${sourceText}"\n` +
+      `Draft translation into ${targetLabel}: "${draft}"\n\n` +
+      `Is the draft an accurate, complete translation? If yes, reply with EXACTLY: OK\n` +
+      `If no, reply with ONLY the corrected translation — no quotes, no explanation, nothing else.`;
+    const result = await callAI({ prompt, maxTokens: 80, retries: 0, aiSettings });
+    const cleaned = String(result || "").trim();
+    if (!cleaned || /^OK\.?$/i.test(cleaned)) return draft;
+    return cleaned.replace(/^["'«»]+|["'«».\s]+$/g, "").trim() || draft;
+  } catch (e) {
+    // بررسی با AI شکست خورد (مثلاً بک‌اند در دسترس نبود) — همون ترجمه‌ی
+    // خامِ سرویس‌های رایگان رو نگه می‌داریم، بهتر از هیچی یا کرش کردنه.
+    return draft;
+  }
+}
+
 // تابع اصلی: هر سرویس رو به‌ترتیب امتحان می‌کنه، به محض موفقیت نتیجه رو برمی‌گردونه.
 // اگه همه شکست خوردن، متن اصلی بدون تغییر برگردونده می‌شه (تا برنامه از کار نیفته).
-async function translateFree(text, targetLang, sourceLang = "auto", aiSettings = null) {
+// forceVerify=true یعنی «حتی اگه هیچ‌کدوم از تست‌های رایگان مشکوک نبودن هم
+// بازم AI بررسیش کنه» — چون تست‌های رایگان فقط رسم‌الخطِ اشتباه/ترجمه‌نشده رو
+// می‌گیرن، نه اشتباهِ معنایی‌ای که مثلاً بینِ دو زبونِ هم‌رسم‌الخط (en↔es/fr/tr)
+// پیش میاد. برای همچین مواردی، جایی که کیفیت خیلی مهمه (مثل جمله‌های خودِ
+// داستان) این پرچم true پاس داده می‌شه؛ برای موارد پرتکرار/کم‌اهمیت‌تر (تک‌لغت‌ها)
+// همون کنترل‌کیفیتِ رایگان کافیه تا مصرفِ توکن بی‌جهت زیاد نشه.
+async function translateFree(text, targetLang, sourceLang = "auto", aiSettings = null, forceVerify = false) {
   if (!text || !targetLang) return text;
   // اگه زبان مبدا و مقصد یکی باشن، ترجمه بی‌معنیه (و بعضی سرویس‌ها به‌جای
   // خطا، یه پیام متنی برمی‌گردونن که اشتباهی به‌عنوان "ترجمه" ذخیره می‌شد) —
@@ -302,8 +379,18 @@ async function translateFree(text, targetLang, sourceLang = "auto", aiSettings =
     try {
       const result = await provider(text, targetLang, sourceLang);
       if (result && result.trim()) {
-        setCachedTranslation(text, targetLang, sourceLang, result); // fire-and-forget
-        return result;
+        // 🔎 فقط اگه یکی از تست‌های رایگانِ looksLikelyMistranslated مشکوک
+        // تشخیص داد (و aiSettings در دسترس بود)، همینجا (قبل از کش‌شدن)
+        // یه بررسی سریع با AI انجام می‌شه. چون این کل خط await شده، وقتی
+        // چیزی مشکوک نبود (اکثر جمله‌ها) صفر تأخیرِ اضافه داره؛ وقتی هم
+        // مشکوک بود، یه تأخیرِ کوتاه (یه کالِ سریعِ Groq) به‌جای نمایشِ
+        // ترجمه‌ی غلط، منطقی‌تره.
+        const finalResult =
+          aiSettings && (forceVerify || looksLikelyMistranslated(text, result, targetLang, sourceLang))
+            ? await verifyTranslationWithAI(text, targetLang, result, aiSettings)
+            : result;
+        setCachedTranslation(text, targetLang, sourceLang, finalResult); // fire-and-forget
+        return finalResult;
       }
     } catch (error) {
       console.warn(`ترجمه با ${provider.name} ناموفق بود، رفتن سراغ سرویس بعدی:`, error?.message || error);
@@ -7172,7 +7259,10 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
               for (const code of missingLangs) {
                 if (s.t && code in s.t) continue;
                 try {
-                  additions[code] = await translateFree(s.text || "", code, storyLang);
+                  // forceVerify=true: جمله‌های خودِ داستان مهم‌ترین متنِ اپن —
+                  // این‌جا حتی اگه تست‌های رایگان چیزی مشکوک ندیدن هم یه بار
+                  // (فقط دفعه‌ی اول، بعدش برای همیشه کش می‌شه) AI بررسیش کنه.
+                  additions[code] = await translateFree(s.text || "", code, storyLang, aiSettings, true);
                 } catch (e) {
                   additions[code] = s.text || "";
                 }
