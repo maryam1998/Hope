@@ -4630,8 +4630,10 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
             ))}
           </div>
 
-          {/* زبان‌های خواندن با صدای بلند — نصب بسته‌های زبان + انتخاب صدا */}
-          <LanguageVoiceSettings uiLang={uiLang} colors={colors} />
+          {/* «زبان‌های خواندن با صدای بلند» (پنلِ نصب بسته‌ی زبان) از تنظیمات
+              حذف شد — به‌جاش، هر جا کاربر بخواد ترجمه‌ای رو با صدای بلند
+              بشنوه که زبونش رو گوشی نصب نداره، خودِ دکمه‌ی 🔊 (SpeakButton)
+              یه پیامِ کوچیکِ درجا نشون می‌ده (نه اینجا، توی تنظیمات). */}
 
           {/* Offline words download */}
           <button
@@ -4684,6 +4686,11 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
   // پیغامِ خطای فوری (سنکرون، از خودِ handleToggle) — مثلاً «مرورگر
   // پشتیبانی نمی‌کنه». چند ثانیه بعد خودش پاک می‌شه.
   const [localMsg, setLocalMsg] = useState(null);
+  // پیغامِ دوستانه (نه خطا) — وقتی این دکمه، به‌جای صدای نصب‌شده‌ی خودِ
+  // گوشی، از مسیرِ آنلاینِ رایگان پخش کرد. جایگزینِ همون پنلِ قدیمیِ
+  // «نصب بسته‌ی زبان» تو تنظیمات که حذف شد — حالا این پیام دقیقاً همون‌جا
+  // که کاربر واقعاً بهش نیاز داره (زیرِ همون دکمه‌ی 🔊ی همون زبون) ظاهر می‌شه.
+  const [voiceHint, setVoiceHint] = useState(null);
 
   useEffect(() => speechController.subscribe(setState), []);
 
@@ -4692,6 +4699,12 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
     const t = setTimeout(() => setLocalMsg(null), 5000);
     return () => clearTimeout(t);
   }, [localMsg]);
+
+  useEffect(() => {
+    if (!voiceHint) return;
+    const t = setTimeout(() => setVoiceHint(null), 6000);
+    return () => clearTimeout(t);
+  }, [voiceHint]);
 
   // اگه مسیرِ آنلاینِ جایگزین (وقتی گوشی صدایی برای این زبون نداره) کلاً
   // شکست خورد — نه فقط این دکمه ساکت شد، بلکه واقعاً هیچ صدایی از هیچ
@@ -4725,6 +4738,7 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
       // خونده می‌شه دوباره کلیک کنه (یعنی چیزی برای «پرش» نیست)، توگل
       // می‌کنیم تا رفتارِ آشنای «پاز/ادامه» حفظ بشه.
       const st = speechController.getState();
+      let fullTextResult = null;
       if (st.key === myKey && st.status !== "idle") {
         const meta = speechController.getChunksMeta();
         const off = Number.isInteger(effectiveStartOffset) ? effectiveStartOffset : 0;
@@ -4734,7 +4748,7 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
           else break;
         }
         if (idx === st.chunkIndex) {
-          speechController.toggle(jumpText, code);
+          fullTextResult = speechController.toggle(jumpText, code);
         } else {
           speechController.seekToChunk(idx);
         }
@@ -4747,7 +4761,11 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
         // می‌رسید، به‌جای برگشتن به اول، پخش کامل متوقف می‌شد. فقط وقتی
         // صراحتاً forceRepeat === false داده بشه (که فعلاً هیچ‌جا این‌طور
         // نیست)، لوپ خاموش می‌مونه.
-        speechController.toggle(jumpText, code, effectiveStartOffset, forceRepeat === false ? undefined : { loop: true });
+        fullTextResult = speechController.toggle(jumpText, code, effectiveStartOffset, forceRepeat === false ? undefined : { loop: true });
+      }
+      if (fullTextResult === "online-fallback") {
+        const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
+        setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — فعلاً از اینترنت پخش می‌شه`);
       }
       if (onPlayed) onPlayed();
       return;
@@ -4763,6 +4781,9 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
       setLocalMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
     } else if (result === "error") {
       setLocalMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
+    } else if (result === "online-fallback") {
+      const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
+      setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — فعلاً از اینترنت پخش می‌شه`);
     }
   };
 
@@ -4792,7 +4813,7 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
       >
         {isPlaying ? <Pause size={16} /> : <Volume2 size={16} />}
       </button>
-      {errorMsg && (
+      {(errorMsg || voiceHint) && (
         <span
           style={{
             position: "absolute",
@@ -4800,14 +4821,14 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
             insetInlineStart: 0,
             marginTop: 2,
             fontSize: 11,
-            color: colors.rose,
+            color: errorMsg ? colors.rose : colors.teal,
             whiteSpace: "nowrap",
             fontFamily: fontFa,
             zIndex: 5,
             pointerEvents: "none",
           }}
         >
-          {errorMsg}
+          {errorMsg || voiceHint}
         </span>
       )}
     </span>
