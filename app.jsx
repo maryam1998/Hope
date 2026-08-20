@@ -3858,6 +3858,60 @@ function englishLangName(code) {
 const RTL_LANGS = ["fa", "ar"];
 const dirFor = (code) => (RTL_LANGS.includes(code) ? "rtl" : "ltr");
 
+// حدس زدنِ خودکارِ زبونِ یه متنِ پیست‌شده/وارد‌شده (بدونِ نیاز به AI و
+// بدونِ اینترنت) — قبلاً متنِ پیست‌شده برای خوانش همیشه با storyLangِ
+// فعلی (هر چی که قبلاً بالای صفحه انتخاب شده بود) نمایش داده و خونده
+// می‌شد، نه با زبونِ *واقعیِ* خودِ متن. همین باعث می‌شد یه متنِ انگلیسی با
+// جهتِ راست‌به‌چپ نشون داده بشه و/یا موقعِ خوانش دنبالِ صدای زبونِ اشتباه
+// بگرده، صدای محلیِ گوشی رو پیدا نکنه، و مجبور بشه بره سراغِ سرویسِ
+// آنلاینِ کندتر. اینجا با اسکریپتِ یونیکد (فارسی/عربی/چینی/ژاپنی/کره‌ای/
+// هندی/روسی) و برای زبون‌های لاتین با شمارشِ کلماتِ خیلی پرتکرارِ هر زبون
+// (the/der/el/le/il/ve/...) حدس می‌زنیم. فقط بین ۱۳ زبونی که خودِ برنامه
+// پشتیبانی می‌کنه (LANGUAGES) تصمیم می‌گیره؛ اگه هیچ سرنخِ روشنی نبود،
+// null برمی‌گردونه تا زبونِ فعلی دست‌نخورده بمونه.
+function detectPastedTextLanguage(text) {
+  const sample = (text || "").slice(0, 4000);
+  if (!sample.trim()) return null;
+
+  // دیوان‌ناگری → هندی
+  if (/[\u0900-\u097F]/.test(sample)) return "hi";
+
+  // اسکریپتِ عربی → فارسی یا عربی (حروفِ ویژه‌ی فارسی: پ چ ژ گ)
+  if (/[\u0600-\u06FF]/.test(sample)) {
+    return /[\u067E\u0686\u0698\u06AF]/.test(sample) ? "fa" : "ar";
+  }
+
+  // هیراگانا/کاتاکانا → ژاپنی
+  if (/[\u3040-\u30FF]/.test(sample)) return "ja";
+  // هانگول → کره‌ای
+  if (/[\uAC00-\uD7A3]/.test(sample)) return "ko";
+  // ایدئوگرام‌های یکپارچه‌ی چینی (بدونِ هیراگانا/هانگول که بالاتر رد شدن) → چینی
+  if (/[\u4E00-\u9FFF]/.test(sample)) return "zh";
+  // سیریلیک → روسی
+  if (/[\u0400-\u04FF]/.test(sample)) return "ru";
+
+  // زبون‌های لاتین: هیچ اسکریپتِ منحصربه‌فردی ندارن، پس با شمارشِ
+  // کلماتِ خیلی پرتکرارِ هر زبون تصمیم می‌گیریم.
+  const words = sample.toLowerCase().match(/[a-zàâäçèéêëîïôöùûüÿñßışğî]+/g) || [];
+  if (!words.length) return null;
+  const wordSet = new Set(words);
+  const scoreOf = (list) => list.reduce((sum, w) => sum + (wordSet.has(w) ? 1 : 0), 0);
+  const stop = {
+    de: ["der", "die", "das", "und", "ist", "nicht", "mit", "für", "ein", "eine", "sie", "auf", "was", "wie", "wenn", "aber", "auch", "sich", "dass", "ich"],
+    es: ["el", "la", "los", "las", "de", "que", "y", "en", "no", "es", "un", "una", "para", "por", "con", "su", "del", "al", "se", "lo"],
+    fr: ["le", "la", "les", "et", "est", "une", "des", "dans", "pour", "que", "qui", "ne", "pas", "ce", "vous", "je", "nous", "avec", "au", "un"],
+    it: ["il", "la", "di", "che", "è", "un", "una", "per", "non", "con", "gli", "le", "sono", "questo", "questa", "del", "alla", "si", "mi", "ma"],
+    tr: ["ve", "bir", "bu", "için", "ile", "de", "da", "çok", "ama", "ne", "gibi", "daha", "var", "yok", "ben", "sen", "biz", "onun", "şey", "değil"],
+    en: ["the", "and", "is", "to", "of", "in", "that", "it", "was", "for", "on", "with", "he", "she", "you", "this", "but", "not", "are", "as"],
+  };
+  const scores = Object.entries(stop).map(([code, list]) => [code, scoreOf(list)]);
+  scores.sort((a, b) => b[1] - a[1]);
+  const [topCode, topScore] = scores[0];
+  // اگه حتی برنده هم امتیازِ صفر داشت، سرنخِ قابلِ‌اطمینانی نیست — به‌جای
+  // حدسِ کورکورانه، null برمی‌گردونیم تا زبونِ قبلی دست‌نخورده بمونه.
+  return topScore > 0 ? topCode : null;
+}
+
 // Only these have real phrase/vocab data (conversation  / VOCAB below). Russian and
 // Italian are only used as extra translation options in the Story Builder,
 // which generates its translations live via AI rather than from static data.
@@ -8150,6 +8204,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         setPdfReadError("متنی از این PDF استخراج نشد — شاید این فایل اسکن/عکسه، نه متنِ واقعی");
         return;
       }
+      const detectedLang = detectPastedTextLanguage(allSentences.join(" "));
+      if (detectedLang) setStoryLang(detectedLang);
       const storyParagraphs = [];
       for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
         const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
@@ -8175,20 +8231,25 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   // متنِ پیست‌شده (بدون PDF، بدون AI) رو دقیقاً با همون منطقِ بالا
   // (تقسیم به جمله → گروه‌بندیِ هر ۵ جمله در یک پاراگراف) وارد سیستمِ
   // خوانش می‌کنه — رایگان و آنیه چون هیچ درخواستی به AI زده نمی‌شه.
+  // این کادر برخلافِ خوندنِ PDF (که به‌خاطرِ سنگینیِ سرویسِ رایگانِ ترجمه
+  // برای موبایل سقفِ PDF_READ_MAX_SENTENCES رو داره) هیچ محدودیتی روی
+  // طولِ متن نمی‌ذاره — کاربر هر چقدر متن که می‌خواد رو کامل پیست می‌کنه.
+  // زبونِ متن هم دیگه از روی storyLangِ قبلی (که ممکنه هیچ ربطی به این
+  // متنِ تازه نداشته باشه) گرفته نمی‌شه؛ خودکار از رویِ خودِ متن حدس زده
+  // می‌شه تا هم جهتِ نمایش (چپ‌به‌راست/راست‌به‌چپ) درست باشه، هم موقعِ
+  // خوانش صدای محلیِ گوشی برای همون زبون پیدا بشه (به‌جای افتادن به
+  // مسیرِ آنلاینِ کندتر چون داشت دنبالِ صدای زبونِ اشتباه می‌گشت).
   const handlePastedTextForReading = () => {
     setPdfReadError("");
     const raw = pastedReadingText.trim();
     if (!raw) return;
-    let allSentences = splitTextIntoSentenceStrings(raw);
+    const allSentences = splitTextIntoSentenceStrings(raw);
     if (!allSentences.length) {
       setPdfReadError("متنی برای خوندن پیدا نشد");
       return;
     }
-    let truncated = false;
-    if (allSentences.length > PDF_READ_MAX_SENTENCES) {
-      allSentences = allSentences.slice(0, PDF_READ_MAX_SENTENCES);
-      truncated = true;
-    }
+    const detectedLang = detectPastedTextLanguage(raw);
+    if (detectedLang) setStoryLang(detectedLang);
     const storyParagraphs = [];
     for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
       const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
@@ -8203,9 +8264,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setRepeatNotice("");
     setPastedReadingText("");
     setShowPasteReading(false);
-    if (truncated) {
-      setPdfReadError("توجه: چون متن بزرگ بود، فقط بخشی ازش آماده‌ی خوانش شد");
-    }
   };
 
   const saveCurrentStory = () => {
