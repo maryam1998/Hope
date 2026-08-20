@@ -7089,6 +7089,14 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // برای خوانش» بالا، فقط منبعِ متن به‌جای فایل، تایپ‌شده/پیست‌شده‌ی خودِ کاربره.
   const [pastedReadingText, setPastedReadingText] = useState("");
   const [showPasteReading, setShowPasteReading] = useState(false);
+  // وارد کردنِ یه لینک برای خوانش — به‌جای کپی/پیستِ دستیِ متن، کاربر فقط
+  // آدرسِ صفحه رو می‌ده و خودِ برنامه متنِ اصلیِ صفحه (بدنه/بادیِ نوشته، نه
+  // منو/فوتر/تبلیغ) رو استخراج می‌کنه. همون مسیرِ پردازشِ بعدیِ PDF/پیست
+  // (تقسیم به جمله → پاراگراف) دقیقاً همین‌جا هم استفاده می‌شه.
+  const [linkReadUrl, setLinkReadUrl] = useState("");
+  const [showLinkReading, setShowLinkReading] = useState(false);
+  const [linkReadBusy, setLinkReadBusy] = useState(false);
+  const [linkReadError, setLinkReadError] = useState("");
   const [newWordTerm, setNewWordTerm] = useState("");
   const [newWordMeaning, setNewWordMeaning] = useState("");
   const [addingWord, setAddingWord] = useState(false);
@@ -8167,9 +8175,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   // تغییری کار می‌کنه. کاربر بعداً خودش با پاپ‌آپِ لغت تصمیم می‌گیره کدوم
   // لغت‌ها رو «ذخیره برای داستانِ بعدی» یا «افزودن به جعبه‌ی لایتنر» کنه.
   const PDF_READ_MAX_BYTES = 8 * 1024 * 1024;
-  const PDF_READ_MAX_PAGES = 25; // کتاب کامل نه — چون هر جمله قراره جداگونه ترجمه بشه (سرویسِ رایگان، نه AI)، متنِ خیلی بزرگ هم کند می‌شه هم فشار زیادی به اون سرویس می‌ذاره
+  const PDF_READ_MAX_PAGES = 300; // کتابِ کامل هم پوشش داده می‌شه؛ سقفِ واقعیِ حجمِ متن رو PDF_READ_MAX_SENTENCES کنترل می‌کنه (نه تعدادِ صفحه به‌تنهایی)
   const PDF_READ_SENTENCES_PER_PARAGRAPH = 5; // استخراجِ PDF معمولاً مرزِ پاراگرافِ واقعی رو حفظ نمی‌کنه، پس خودمون هر ۵ جمله رو یه «پاراگراف» حساب می‌کنیم تا خوانا بمونه
-  const PDF_READ_MAX_SENTENCES = 200; // سقفِ کلی — فراتر از این برای موبایل/سرویسِ ترجمه‌ی رایگان زیادی سنگین می‌شه
+  const PDF_READ_MAX_SENTENCES = 2000; // سقفِ کلی — فراتر از این برای موبایل/سرویسِ ترجمه‌ی رایگان زیادی سنگین می‌شه (با ۳۰۰ صفحه هماهنگ شده؛ لازم شد می‌تونی این عدد رو دوباره کم/زیاد کنی)
 
   const handlePdfImportForReading = async (e) => {
     const file = e.target.files?.[0];
@@ -8177,7 +8185,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     if (!file) return;
     setPdfReadError("");
     if (file.size > PDF_READ_MAX_BYTES) {
-      setPdfReadError(`حجمِ فایل بیشتر از ${Math.round(PDF_READ_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه — یه PDF کوچیک‌تر امتحان کن`);
+      setPdfReadError(`حجمِ فایل بیشتر از ${Math.round(PDF_READ_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه — یه PDF کوچیک‌تر امتحان کن (حداکثر ${PDF_READ_MAX_PAGES} صفحه هم پردازش می‌شه)`);
       return;
     }
     setPdfReadBusy(true);
@@ -8264,6 +8272,123 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setRepeatNotice("");
     setPastedReadingText("");
     setShowPasteReading(false);
+  };
+
+  // استخراجِ «متنِ اصلیِ» یه صفحه‌ی وب از رویِ HTMLِ خامش — یعنی بدنه‌ی
+  // نوشته (مقاله/پست)، نه منو/هدر/فوتر/سایدبار/تبلیغ/اسکریپت. اول دنبالِ
+  // تگ‌های معناداری مثلِ <article> یا <main> می‌گردیم (رایج‌ترین الگو تو
+  // سایت‌های خبری/وبلاگ‌ها)؛ اگه نبود، بینِ همه‌یِ بلاک‌های باقی‌مونده
+  // (بعدِ حذفِ nav/header/footer/aside/script/style) اونی که بیشترین حجمِ
+  // متن رو داره انتخاب می‌شه — یه heuristic ساده ولی برای اکثرِ صفحات کافیه.
+  const extractMainBodyText = (html) => {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("script, style, noscript, nav, header, footer, aside, svg, form, iframe").forEach((el) => el.remove());
+    const direct = doc.querySelector("article") || doc.querySelector("main") || doc.querySelector("[role='main']");
+    if (direct && direct.textContent.trim().length > 200) {
+      return direct.textContent;
+    }
+    const candidates = doc.body ? Array.from(doc.body.querySelectorAll("div, section, article")) : [];
+    let best = doc.body;
+    let bestLen = 0;
+    for (const el of candidates) {
+      // بلاک‌هایی که خودشون یه بلاکِ بزرگ‌تر رو کامل تو خودشون دارن، حساب
+      // نمی‌شن (وگرنه همیشه بالاترین والد برنده می‌شد) — فقط طولِ متنِ
+      // مستقیمِ خودِ این تگ (بدونِ فرزندهای بلاکیِ تو در تو) مهمه.
+      const ownText = Array.from(el.childNodes)
+        .filter((n) => n.nodeType === 3 || ["P", "SPAN", "STRONG", "EM", "B", "I", "A"].includes(n.nodeName))
+        .map((n) => n.textContent)
+        .join(" ");
+      if (ownText.length > bestLen) {
+        bestLen = ownText.length;
+        best = el;
+      }
+    }
+    return (bestLen > 200 ? best : doc.body)?.textContent || "";
+  };
+
+  // «وارد کردنِ یه لینک برای خوانش» — دقیقاً همون مقصدِ نهایی‌ای که PDF/پیست
+  // دارن (paragraphs همون سیستمِ خوانش)، فقط منبعِ متن یه صفحه‌ی وبه. چون
+  // فچِ مستقیمِ یه دامنه‌ی دلخواه از خودِ مرورگر معمولاً با CORS بلاک می‌شه،
+  // اول یه تلاشِ مستقیم می‌زنیم (برای سایت‌هایی که CORS باز دارن)؛ اگه شکست
+  // خورد، از همون Workerِ بک‌اندِ AI به‌عنوانِ پراکسی استفاده می‌کنیم
+  // (/api/fetch-url) — این مسیر باید جداگانه تو Worker اضافه بشه، وگرنه
+  // پیامِ خطای روشن نشون داده می‌شه به‌جای هنگ‌کردنِ بی‌دلیل.
+  const handleLinkImportForReading = async () => {
+    setLinkReadError("");
+    let raw = linkReadUrl.trim();
+    if (!raw) return;
+    if (!/^https?:\/\//i.test(raw)) raw = `https://${raw}`;
+    let normalizedUrl;
+    try {
+      normalizedUrl = new URL(raw).toString();
+    } catch {
+      setLinkReadError("این لینک معتبر نیست — لطفاً آدرسِ کامل صفحه رو وارد کن");
+      return;
+    }
+    setLinkReadBusy(true);
+    try {
+      let html = "";
+      try {
+        const directRes = await fetch(normalizedUrl);
+        if (directRes.ok) html = await directRes.text();
+      } catch {
+        // مستقیم شکست خورد (احتمالاً CORS) — می‌ریم سراغِ پراکسیِ بک‌اند
+      }
+      if (!html) {
+        const base = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || DEFAULT_BACKEND_URL;
+        const proxyRes = await fetch(`${base}/api/fetch-url?url=${encodeURIComponent(normalizedUrl)}`);
+        if (!proxyRes.ok) {
+          throw new Error(
+            proxyRes.status === 404
+              ? "fetch-url-not-configured"
+              : `HTTP ${proxyRes.status}`
+          );
+        }
+        html = await proxyRes.text();
+      }
+      const bodyText = extractMainBodyText(html).replace(/\s+/g, " ").trim();
+      if (!bodyText) {
+        setLinkReadError("متنی از این صفحه استخراج نشد — شاید محتوای این سایت با جاوااسکریپت ساخته می‌شه");
+        return;
+      }
+      let allSentences = splitTextIntoSentenceStrings(bodyText);
+      if (!allSentences.length) {
+        setLinkReadError("متنی برای خوندن پیدا نشد");
+        return;
+      }
+      let truncated = false;
+      if (allSentences.length > PDF_READ_MAX_SENTENCES) {
+        allSentences = allSentences.slice(0, PDF_READ_MAX_SENTENCES);
+        truncated = true;
+      }
+      const detectedLang = detectPastedTextLanguage(bodyText);
+      if (detectedLang) setStoryLang(detectedLang);
+      const storyParagraphs = [];
+      for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
+        const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
+        storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
+      }
+      setParagraphs(storyParagraphs);
+      setCurrentStoryId(null);
+      setQuestions([]);
+      setAnswers({});
+      setSubmitted(false);
+      setError("");
+      setRepeatNotice("");
+      setLinkReadUrl("");
+      setShowLinkReading(false);
+      if (truncated) {
+        setLinkReadError("توجه: چون متنِ صفحه زیاد بود، فقط بخشی از اون آماده‌ی خوانش شد");
+      }
+    } catch (err) {
+      setLinkReadError(
+        err?.message === "fetch-url-not-configured"
+          ? "خوندنِ این لینک نیاز به یه تنظیمِ اضافه تو سرور داره — فعلاً از کپی/پیستِ متن استفاده کن"
+          : "این لینک قابلِ خوندن نبود — یا سایت اجازه‌ی دسترسیِ مستقیم نمی‌ده، یا آدرس اشتباهه"
+      );
+    } finally {
+      setLinkReadBusy(false);
+    }
   };
 
   const saveCurrentStory = () => {
@@ -8974,8 +9099,73 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfReadError}</p>
         )}
         <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
-          به‌جای ساختِ داستان با هوش‌مصنوعی، متنِ خودِ PDF رو با همین سیستمِ خوانش (ترجمه، هایلایت، صدا) نشون می‌ده — بدونِ نیاز به انتخابِ لغت.
+          به‌جای ساختِ داستان با هوش‌مصنوعی، متنِ خودِ PDF رو با همین سیستمِ خوانش (ترجمه، هایلایت، صدا) نشون می‌ده — بدونِ نیاز به انتخابِ لغت. تا {PDF_READ_MAX_PAGES} صفحه پشتیبانی می‌شه؛ اگه متن خیلی زیاد باشه، فقط بخشِ اولش آماده‌ی خوانش می‌شه.
         </p>
+
+        <div style={{ textAlign: "start" }}>
+          <button
+            onClick={() => setShowLinkReading((v) => !v)}
+            className="flex items-center justify-center gap-2"
+            style={{
+              width: "100%",
+              border: `1px dashed ${colors.cardBorder}`,
+              borderRadius: 14,
+              padding: "10px 16px",
+              fontWeight: 700,
+              fontSize: 13,
+              color: colors.teal,
+              marginTop: 8,
+            }}
+          >
+            <span>🔗</span>
+            {showLinkReading ? "بستنِ وارد کردنِ لینک" : "یا لینکِ یه صفحه رو وارد کن"}
+          </button>
+          {showLinkReading && (
+            <div style={{ marginTop: 8 }}>
+              <input
+                type="text"
+                value={linkReadUrl}
+                onChange={(e) => setLinkReadUrl(e.target.value)}
+                placeholder="https://example.com/article"
+                dir="ltr"
+                style={{
+                  width: "100%",
+                  border: `1px solid ${colors.cardBorder}`,
+                  borderRadius: 10,
+                  padding: "8px 10px",
+                  fontSize: 13,
+                  outline: "none",
+                  textAlign: "left",
+                }}
+              />
+              <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
+                فقط متنِ اصلیِ صفحه (بدنه‌ی نوشته) استخراج می‌شه — منو، هدر، فوتر و تبلیغ‌ها نادیده گرفته می‌شن.
+              </p>
+              <button
+                onClick={handleLinkImportForReading}
+                disabled={!linkReadUrl.trim() || linkReadBusy}
+                className="flex items-center justify-center gap-2"
+                style={{
+                  marginTop: 6,
+                  width: "100%",
+                  backgroundColor: colors.teal,
+                  color: "white",
+                  borderRadius: 10,
+                  padding: "8px 10px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  opacity: !linkReadUrl.trim() || linkReadBusy ? 0.5 : 1,
+                }}
+              >
+                {linkReadBusy ? <Loader2 size={16} className="spin" /> : <span>🔗</span>}
+                {linkReadBusy ? "در حال خوندنِ صفحه..." : "دریافتِ متن از لینک"}
+              </button>
+              {linkReadError && (
+                <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{linkReadError}</p>
+              )}
+            </div>
+          )}
+        </div>
 
         <button
           onClick={() => setShowPasteReading((v) => !v)}
