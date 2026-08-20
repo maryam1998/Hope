@@ -389,6 +389,12 @@ async function translateFree(text, targetLang, sourceLang = "auto", aiSettings =
           aiSettings && (forceVerify || looksLikelyMistranslated(text, result, targetLang, sourceLang))
             ? await verifyTranslationWithAI(text, targetLang, result, aiSettings)
             : result;
+        // اگه بعد از تلاش برای اصلاح هم هنوز مشکوکه (یعنی AI هم در دسترس نبود
+        // و draft خام همون متن مبدأ برگشت)، کش نکن — برو سراغ سرویس بعدی به‌جای
+        // اینکه یه ترجمه‌ی غلط برای همیشه تو IndexedDB ذخیره بمونه.
+        if (looksLikelyMistranslated(text, finalResult, targetLang, sourceLang)) {
+          continue;
+        }
         setCachedTranslation(text, targetLang, sourceLang, finalResult); // fire-and-forget
         return finalResult;
       }
