@@ -7031,6 +7031,10 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [pdfReadBusy, setPdfReadBusy] = useState(false);
   const [pdfReadError, setPdfReadError] = useState("");
   const pdfReadInputRef = useRef(null);
+  // پیست‌کردنِ مستقیمِ متن/داستان برای خوانش — همون مسیرِ «وارد کردنِ PDF
+  // برای خوانش» بالا، فقط منبعِ متن به‌جای فایل، تایپ‌شده/پیست‌شده‌ی خودِ کاربره.
+  const [pastedReadingText, setPastedReadingText] = useState("");
+  const [showPasteReading, setShowPasteReading] = useState(false);
   const [newWordTerm, setNewWordTerm] = useState("");
   const [newWordMeaning, setNewWordMeaning] = useState("");
   const [addingWord, setAddingWord] = useState(false);
@@ -8168,6 +8172,42 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     }
   };
 
+  // متنِ پیست‌شده (بدون PDF، بدون AI) رو دقیقاً با همون منطقِ بالا
+  // (تقسیم به جمله → گروه‌بندیِ هر ۵ جمله در یک پاراگراف) وارد سیستمِ
+  // خوانش می‌کنه — رایگان و آنیه چون هیچ درخواستی به AI زده نمی‌شه.
+  const handlePastedTextForReading = () => {
+    setPdfReadError("");
+    const raw = pastedReadingText.trim();
+    if (!raw) return;
+    let allSentences = splitTextIntoSentenceStrings(raw);
+    if (!allSentences.length) {
+      setPdfReadError("متنی برای خوندن پیدا نشد");
+      return;
+    }
+    let truncated = false;
+    if (allSentences.length > PDF_READ_MAX_SENTENCES) {
+      allSentences = allSentences.slice(0, PDF_READ_MAX_SENTENCES);
+      truncated = true;
+    }
+    const storyParagraphs = [];
+    for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
+      const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
+      storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
+    }
+    setParagraphs(storyParagraphs);
+    setCurrentStoryId(null);
+    setQuestions([]);
+    setAnswers({});
+    setSubmitted(false);
+    setError("");
+    setRepeatNotice("");
+    setPastedReadingText("");
+    setShowPasteReading(false);
+    if (truncated) {
+      setPdfReadError("توجه: چون متن بزرگ بود، فقط بخشی ازش آماده‌ی خوانش شد");
+    }
+  };
+
   const saveCurrentStory = () => {
     if (!paragraphs.length) return;
     const entry = {
@@ -8580,53 +8620,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           <span style={{ fontSize: 13, fontWeight: 700 }}>{repeatCount}</span>
         </div>
 
-        {/* 🌍 عمومی/خصوصی — پیشفرض عمومیه: هم صرفه‌جوییِ توکنِ بیشتری برای
-            همه‌ی کاربرها می‌شه (چون این داستان می‌تونه بعداً به‌جای ساختِ
-            یه داستانِ تازه با AI، مستقیم به کاربرِ دیگه‌ای با همون
-            زبان/سطح/لغات پیشنهاد بشه)، هم قابلِ تغییره — هر بار قبل از
-            ساختن می‌تونی بزنی خصوصی. */}
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.cardBorder}` }}>
-          <p style={{ fontSize: 12, color: colors.inkSoft, margin: "0 0 6px" }}>
-            وقتی داستان ساخته شد، در دسترسِ چه کسی باشه؟
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setIsPublicStory(true)}
-              className="flex-1"
-              style={{
-                padding: "8px 10px",
-                borderRadius: 12,
-                fontSize: 12,
-                border: `1px solid ${isPublicStory ? colors.teal : colors.cardBorder}`,
-                backgroundColor: isPublicStory ? colors.teal : "white",
-                color: isPublicStory ? "white" : colors.ink,
-                fontWeight: 700,
-              }}
-            >
-              🌍 عمومی — بقیه کاربران هم استفاده کنند
-            </button>
-            <button
-              onClick={() => setIsPublicStory(false)}
-              className="flex-1"
-              style={{
-                padding: "8px 10px",
-                borderRadius: 12,
-                fontSize: 12,
-                border: `1px solid ${!isPublicStory ? colors.ink : colors.cardBorder}`,
-                backgroundColor: !isPublicStory ? colors.ink : "white",
-                color: !isPublicStory ? "white" : colors.ink,
-                fontWeight: 700,
-              }}
-            >
-              🔒 خصوصی — فقط خودم ببینم
-            </button>
-          </div>
-          <p style={{ fontSize: 10.5, color: colors.inkSoft, marginTop: 6 }}>
-            {isPublicStory
-              ? "این داستان وارد کتابخانه‌ی عمومی می‌شه؛ کاربرهای دیگه با همین زبان/سطح/لغات، به‌جای مصرفِ AI، می‌تونن همینو رایگان بخونن."
-              : "این داستان فقط برای خودت می‌مونه و در کتابخانه‌ی عمومی نمایش داده نمی‌شه."}
-          </p>
-        </div>
       </div>
 
       <div
@@ -8673,229 +8666,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 8 }}>{translateNote}</p>
         )}
 
-        <div style={{ marginBottom: 10, border: `1px dashed ${colors.cardBorder}`, borderRadius: 12, padding: 10 }}>
-          <div className="flex items-center justify-between mb-2">
-            <p style={{ fontSize: 12, color: colors.inkSoft }}>منبع لغت (مثل کتاب ۵۰۴ واژه) — {storyLangLabel}</p>
-            <div className="flex items-center gap-2">
-              <input
-                ref={pdfInputRef}
-                type="file"
-                accept="application/pdf"
-                onChange={handlePdfUpload}
-                style={{ display: "none" }}
-              />
-              <button
-                onClick={() => pdfInputRef.current?.click()}
-                disabled={pdfBusy}
-                className="flex items-center gap-1"
-                style={{ fontSize: 12, color: colors.teal, textDecoration: "underline", opacity: pdfBusy ? 0.6 : 1 }}
-              >
-                {pdfBusy ? <Loader2 size={12} className="spin" /> : null}
-                {pdfBusy ? "در حال خوندن..." : "📄 آپلود PDF"}
-              </button>
-              <button
-                onClick={() => setShowAddCollection((v) => !v)}
-                style={{ fontSize: 12, color: colors.teal, textDecoration: "underline" }}
-              >
-                {showAddCollection ? "بستن" : "+ منبع جدید"}
-              </button>
-            </div>
-          </div>
-          {pdfError && (
-            <p style={{ fontSize: 11, color: colors.rose, marginBottom: 8 }}>{pdfError}</p>
-          )}
-
-          {showAddCollection && (
-            <div className="flex flex-col gap-2 mb-2">
-              <input
-                value={newCollectionTitle}
-                onChange={(e) => setNewCollectionTitle(e.target.value)}
-                placeholder={`اسم منبع، مثلاً «۵۰۴ واژه ضروری» (زبان: ${storyLangLabel})`}
-                dir="auto"
-                style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 10, padding: "8px 10px", fontSize: 13, outline: "none" }}
-              />
-              <textarea
-                value={newCollectionText}
-                onChange={(e) => setNewCollectionText(e.target.value)}
-                placeholder={`لغت‌ها رو یکی یکی توی هر خط بچسبون. مثال:\nabandon - to leave completely\nbenevolent - kind and generous\ncandid`}
-                dir="auto"
-                rows={5}
-                style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 10, padding: "8px 10px", fontSize: 12, outline: "none", fontFamily: "monospace" }}
-              />
-              <button
-                onClick={handleSaveCollection}
-                disabled={!newCollectionTitle.trim() || !newCollectionText.trim()}
-                style={{
-                  alignSelf: "flex-start",
-                  backgroundColor: colors.teal,
-                  color: "white",
-                  borderRadius: 10,
-                  padding: "6px 14px",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  opacity: !newCollectionTitle.trim() || !newCollectionText.trim() ? 0.5 : 1,
-                }}
-              >
-                ذخیره‌ی منبع
-              </button>
-            </div>
-          )}
-
-          {collections.length > 0 ? (
-            <>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {collections.map((c) => (
-                  <span
-                    key={c.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      padding: "4px 10px",
-                      borderRadius: 20,
-                      fontSize: 12,
-                      border: `1px solid ${activeCollectionId === c.id ? colors.teal : colors.cardBorder}`,
-                      backgroundColor: activeCollectionId === c.id ? colors.teal : "white",
-                      color: activeCollectionId === c.id ? "white" : colors.ink,
-                    }}
-                  >
-                    <button dir="auto" onClick={() => setActiveCollectionId(c.id)}>
-                      {c.title} ({c.words.length})
-                    </button>
-                    <button
-                      onClick={() => {
-                        deleteWordCollection(c.id);
-                        refreshCollections();
-                        if (activeCollectionId === c.id) setActiveCollectionId("");
-                      }}
-                      title="حذف منبع"
-                    >
-                      <X size={12} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-              {activeCollection && (
-                <>
-                  <div className="flex flex-wrap gap-2" style={{ maxHeight: 220, overflowY: "auto" }}>
-                    {activeCollection.words.map((w) => {
-                      const active = selectedWords.includes(w.term);
-                      const isEditing = editingTerm === w.term;
-                      if (isEditing) {
-                        return (
-                          <div
-                            key={w.term}
-                            dir="auto"
-                            className="flex items-center gap-1"
-                            style={{
-                              padding: "4px 8px",
-                              borderRadius: 20,
-                              fontSize: 12,
-                              border: `1px solid ${colors.teal}`,
-                              backgroundColor: "white",
-                            }}
-                          >
-                            <span style={{ fontWeight: 700 }}>{w.term}</span>
-                            <input
-                              value={editDraftMeaning}
-                              onChange={(e) => setEditDraftMeaning(e.target.value)}
-                              placeholder="معنی فارسی"
-                              autoFocus
-                              style={{ width: 110, border: `1px solid ${colors.cardBorder}`, borderRadius: 8, padding: "3px 6px", fontSize: 12, outline: "none" }}
-                            />
-                            <button onClick={() => saveEditWord(w.term)} title="ذخیره" style={{ color: colors.teal, display: "flex" }}>
-                              <Check size={14} />
-                            </button>
-                            <button onClick={() => setEditingTerm(null)} title="انصراف" style={{ color: colors.inkSoft, display: "flex" }}>
-                              <X size={12} />
-                            </button>
-                          </div>
-                        );
-                      }
-                      return (
-                        <span
-                          key={w.term}
-                          dir="auto"
-                          className="flex items-center gap-1"
-                          style={{
-                            padding: "5px 6px 5px 12px",
-                            borderRadius: 20,
-                            fontSize: 12,
-                            border: `1px solid ${active ? colors.gold : colors.cardBorder}`,
-                            backgroundColor: active ? colors.goldSoft : colors.paper,
-                          }}
-                        >
-                          <button onClick={() => toggleWord(w.term)} title={w.meaning || ""}>
-                            {w.term}
-                            {w.meaning ? ` — ${w.meaning}` : ""}
-                          </button>
-                          <button onClick={() => startEditWord(w)} title="ویرایش معنی" style={{ color: colors.inkSoft, display: "flex" }}>
-                            <Pencil size={11} />
-                          </button>
-                          <button onClick={() => removeWord(w.term)} title="حذف لغت" style={{ color: colors.inkSoft, display: "flex" }}>
-                            <X size={12} />
-                          </button>
-                        </span>
-                      );
-                    })}
-                  </div>
-
-                  <div className="flex items-center gap-2 mt-2" style={{ flexWrap: "wrap" }}>
-                    <input
-                      value={newWordTerm}
-                      onChange={(e) => setNewWordTerm(e.target.value)}
-                      placeholder={`لغت جدید (${storyLangLabel})`}
-                      dir="auto"
-                      style={{ flex: "1 1 120px", border: `1px solid ${colors.cardBorder}`, borderRadius: 10, padding: "6px 10px", fontSize: 12, outline: "none" }}
-                    />
-                    <input
-                      value={newWordMeaning}
-                      onChange={(e) => setNewWordMeaning(e.target.value)}
-                      placeholder="معنی فارسی (خالی = ترجمه خودکار)"
-                      dir="auto"
-                      style={{ flex: "1 1 160px", border: `1px solid ${colors.cardBorder}`, borderRadius: 10, padding: "6px 10px", fontSize: 12, outline: "none" }}
-                    />
-                    <button
-                      onClick={handleAddWordToCollection}
-                      disabled={!newWordTerm.trim() || addingWord}
-                      className="flex items-center gap-1"
-                      style={{
-                        backgroundColor: colors.teal,
-                        color: "white",
-                        borderRadius: 10,
-                        padding: "6px 12px",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        opacity: !newWordTerm.trim() || addingWord ? 0.5 : 1,
-                      }}
-                    >
-                      {addingWord ? <Loader2 size={13} className="spin" /> : <Plus size={13} />}
-                      افزودن
-                    </button>
-                  </div>
-
-                  {activeCollection.words.some((w) => !w.meaning) && (
-                    <button
-                      onClick={handleTranslateAllMissing}
-                      disabled={translatingAll}
-                      className="flex items-center gap-1 mt-2"
-                      style={{ fontSize: 12, color: colors.teal }}
-                    >
-                      {translatingAll ? <Loader2 size={13} className="spin" /> : <Wand2 size={13} />}
-                      ترجمه‌ی خودکار معنی‌های خالی
-                    </button>
-                  )}
-                </>
-              )}
-            </>
-          ) : (
-            !showAddCollection && (
-              <p style={{ fontSize: 11, color: colors.inkSoft }}>
-                هنوز منبعی برای {storyLangLabel} اضافه نکردی. لغات کتابی مثل ۵۰۴ واژه رو بچسبون تا بشه ازش برای داستان انتخاب کرد.
-              </p>
-            )
-          )}
-        </div>
 
         <input
           value={vocabQuery}
@@ -9148,6 +8918,61 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
           به‌جای ساختِ داستان با هوش‌مصنوعی، متنِ خودِ PDF رو با همین سیستمِ خوانش (ترجمه، هایلایت، صدا) نشون می‌ده — بدونِ نیاز به انتخابِ لغت.
         </p>
+
+        <button
+          onClick={() => setShowPasteReading((v) => !v)}
+          className="flex items-center justify-center gap-2"
+          style={{
+            width: "100%",
+            border: `1px dashed ${colors.cardBorder}`,
+            borderRadius: 14,
+            padding: "10px 16px",
+            fontWeight: 700,
+            fontSize: 13,
+            color: colors.teal,
+            marginTop: 8,
+          }}
+        >
+          <span>📋</span>
+          {showPasteReading ? "بستنِ پیست متن" : "یا یه متن/داستان رو اینجا پیست کن"}
+        </button>
+
+        {showPasteReading && (
+          <div style={{ marginTop: 8, textAlign: "start" }}>
+            <textarea
+              value={pastedReadingText}
+              onChange={(e) => setPastedReadingText(e.target.value)}
+              placeholder="متن یا داستانی که می‌خوای بخونی رو اینجا پیست کن..."
+              dir="auto"
+              rows={6}
+              style={{
+                width: "100%",
+                border: `1px solid ${colors.cardBorder}`,
+                borderRadius: 10,
+                padding: "8px 10px",
+                fontSize: 13,
+                outline: "none",
+              }}
+            />
+            <button
+              onClick={handlePastedTextForReading}
+              disabled={!pastedReadingText.trim()}
+              style={{
+                marginTop: 6,
+                width: "100%",
+                backgroundColor: colors.teal,
+                color: "white",
+                borderRadius: 10,
+                padding: "8px 10px",
+                fontSize: 13,
+                fontWeight: 700,
+                opacity: !pastedReadingText.trim() ? 0.5 : 1,
+              }}
+            >
+              📖 آماده‌ی خوانش کن
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
