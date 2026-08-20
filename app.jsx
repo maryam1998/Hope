@@ -371,47 +371,14 @@ async function translateFree(text, targetLang, sourceLang = "auto", aiSettings =
   // اول کشِ آفلاینِ IndexedDB رو چک کن — اگه این کلمه قبلاً (مثلاً از طریق
   // «دانلود آفلاین لغات» توی تنظیمات) ترجمه و ذخیره شده، بدون هیچ درخواست
   // شبکه‌ای همون رو برگردون. این دقیقاً همونیه که آفلاین‌بودن رو ممکن می‌کنه.
-  // 🐛→✅ باگِ اصلی که کاربر گزارش داد: بعضی سرویس‌های رایگان (مخصوصاً
-  // اندپوینتِ غیررسمیِ گوگل) وقتی بلاک/فیلتر/ریت‌لیمیت بشن، به‌جای یه خطای
-  // واقعی، دقیقاً همون متنِ ورودی رو (دست‌نخورده) با status 200 پس می‌دن —
-  // قبلاً این خروجی به‌عنوانِ «ترجمه‌ی موفق» قبول و برای همیشه کش می‌شد،
-  // مخصوصاً وقتی aiSettings تنظیم نشده بود (چون تنها چکِ echo/رسم‌الخط،
-  // looksLikelyMistranslated، فقط زیرِ `aiSettings &&` اجرا می‌شد). این تابعِ
-  // کوچیک، کاملاً رایگان و بدونِ نیاز به AI، یه خروجی رو رد می‌کنه اگه:
-  // (۱) عیناً با متنِ ورودی یکیه (و زبونِ مبدأ/مقصد فرق دارن)، یا
-  // (۲) رسم‌الخطِ زبونِ مقصد (اگه مشخص باشه، مثلاً فارسی/عربی/روسی/...)
-  //     اصلاً توی خروجی دیده نمی‌شه.
-  const isBadFreeResult = (candidate) => {
-    if (!candidate) return true;
-    const out = candidate.trim();
-    if (!out) return true;
-    if (sourceLang && sourceLang !== "auto" && sourceLang !== targetLang && out.toLowerCase() === text.trim().toLowerCase()) {
-      return true;
-    }
-    const targetScriptRe = scriptRangeFor(targetLang);
-    if (targetScriptRe && text.trim().length > 1 && !targetScriptRe.test(out)) return true;
-    return false;
-  };
-
-  // کشِ آفلاینِ IndexedDB رو هم از همین فیلتر رد می‌کنیم — اگه یه ورودیِ
-  // خراب (از قبلِ همین فیکس) اونجا مونده باشه، به‌جای نمایشِ همیشگیِ باگ،
-  // نادیده‌ش می‌گیریم و دوباره از سرویس‌های زنده تلاش می‌کنیم (خودش کشِ
-  // خراب رو با نتیجه‌ی درست بازنویسی می‌کنه).
   const cached = await getCachedTranslation(text, targetLang, sourceLang);
-  if (cached && !isBadFreeResult(cached)) return cached;
+  if (cached) return cached;
 
   const providers = [translateViaGoogle, translateViaMyMemory, translateViaLingva, translateViaLibre];
   for (const provider of providers) {
     try {
       const result = await provider(text, targetLang, sourceLang);
       if (result && result.trim()) {
-        if (isBadFreeResult(result)) {
-          // این سرویس عملاً هیچی ترجمه نکرده (echo یا رسم‌الخطِ غلط) —
-          // به‌جای قبول‌کردن و کش‌کردنِ همیشگیِ یه ترجمه‌ی غلط، می‌ریم
-          // سراغِ سرویسِ بعدی.
-          console.warn(`ترجمه با ${provider.name} دست‌نخورده/رسم‌الخطِ غلط برگشت (echo)، رفتن سراغ سرویس بعدی`);
-          continue;
-        }
         // 🔎 فقط اگه یکی از تست‌های رایگانِ looksLikelyMistranslated مشکوک
         // تشخیص داد (و aiSettings در دسترس بود)، همینجا (قبل از کش‌شدن)
         // یه بررسی سریع با AI انجام می‌شه. چون این کل خط await شده، وقتی
