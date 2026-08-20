@@ -1087,6 +1087,142 @@ async function firestoreSaveState(uid, data) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 🌍 داستان‌های عمومی (Community Stories) — روی همون Supabase که بالا برای
+// حساب‌ها/همگام‌سازی وصل شده (نه Firebase — اون بخش بالا الان استفاده نمی‌شه،
+// چون FIREBASE_CONFIG هنوز پر نشده و اپ واقعاً از Supabase استفاده می‌کنه).
+//
+// ⚠️ برای فعال‌سازیِ این بخش، این SQL رو یه‌بار تو Supabase → SQL Editor اجرا کن:
+//
+//   create table if not exists community_stories (
+//     id uuid primary key default gen_random_uuid(),
+//     lang_code text not null,
+//     level text not null,
+//     content_type text,
+//     story_length text,
+//     words jsonb not null default '[]',
+//     paragraphs jsonb not null,
+//     questions jsonb not null default '[]',
+//     author_uid uuid references auth.users(id),
+//     views integer not null default 0,
+//     saves integer not null default 0,
+//     created_at timestamptz not null default now()
+//   );
+//   alter table community_stories enable row level security;
+//   create policy "anyone can read community stories" on community_stories
+//     for select using (true);
+//   create policy "anyone can add a community story" on community_stories
+//     for insert with check (true);
+//   -- توجه: افزایشِ views/saves از سمتِ کلاینت مستقیم UPDATE نمی‌زنه (چون
+//   -- policyِ update نداریم و نباید هرکسی بتونه متنِ داستانِ بقیه رو عوض
+//   -- کنه)؛ به‌جاش از یه تابعِ محدود (فقط همین دو ستون) استفاده می‌کنیم:
+//   create or replace function bump_community_story_stat(story_id uuid, stat_field text)
+//   returns void language plpgsql security definer as $$
+//   begin
+//     if stat_field = 'views' then
+//       update community_stories set views = views + 1 where id = story_id;
+//     elsif stat_field = 'saves' then
+//       update community_stories set saves = saves + 1 where id = story_id;
+//     end if;
+//   end; $$;
+//   grant execute on function bump_community_story_stat(uuid, text) to anon, authenticated;
+// ---------------------------------------------------------------------------
+// تعداد کاندیدی که برای پیداکردنِ «داستانِ مشابه» می‌گیریم — محدود نگه‌داشتنش
+// هزینه‌ی خوندن رو کم می‌کنه؛ همپوشانیِ لغات رو خودمون تو کلاینت حساب می‌کنیم
+// (Postgres جدولِ jsonb برای این مقایسه‌ی fuzzy مناسب نیست).
+const COMMUNITY_SIMILARITY_POOL = 40;
+
+// برای مقایسه‌ی «همپوشانیِ لغات هدف»، هر لیستِ لغت رو نرمالایز می‌کنیم (با
+// همون normalizeWord که بقیه‌ی اپ استفاده می‌کنه) تا اختلافِ حروفِ بزرگ/کوچیک
+// یا فاصله‌ی اضافه باعثِ عدمِ تطبیقِ کاذب نشه.
+function communityWordOverlapScore(wordsA, wordsB) {
+  const a = new Set((wordsA || []).map((w) => normalizeWord(w)).filter(Boolean));
+  const b = new Set((wordsB || []).map((w) => normalizeWord(w)).filter(Boolean));
+  if (!a.size || !b.size) return 0;
+  let intersection = 0;
+  a.forEach((w) => {
+    if (b.has(w)) intersection += 1;
+  });
+  const union = new Set([...a, ...b]).size;
+  return union ? intersection / union : 0;
+}
+
+// جستجوی «داستانِ مشابه» قبل از صدا زدنِ AI. فقط زبان و سطح دقیقاً باید
+// یکی باشه (وگرنه اصلاً به‌دردِ این یادگیرنده نمی‌خوره)؛ نوعِ محتوا و طولِ
+// داستان امتیازِ اضافه می‌دن ولی الزامی نیستن. اگه بهترین امتیاز از حدِ
+// آستانه بالاتر رفت، همون رو برمی‌گردونیم؛ وگرنه null (یعنی چیزِ مشابهِ
+// کافی پیدا نشد و باید AI صدا زده بشه).
+async function communityFindSimilarStory({ langCode, level, contentType, storyLength, words }) {
+  try {
+    const { data, error } = await supabase
+      .from("community_stories")
+      .select("*")
+      .eq("lang_code", langCode)
+      .eq("level", level)
+      .order("created_at", { ascending: false })
+      .limit(COMMUNITY_SIMILARITY_POOL);
+    if (error || !data) return null;
+    let best = null;
+    data.forEach((row) => {
+      const overlap = communityWordOverlapScore(words, row.words);
+      if (overlap < 0.4) return; // همپوشانیِ لغات خیلی کمه، جایگزینِ خوبی نیست
+      let score = overlap * 0.75;
+      if (row.content_type === contentType) score += 0.15;
+      if (row.story_length === storyLength) score += 0.1;
+      if (!best || score > best.score) best = { ...row, score, overlap };
+    });
+    if (best && best.score >= 0.55) return best;
+    return null;
+  } catch (e) {
+    return null; // آفلاین / جدول هنوز ساخته نشده — مشکلی نیست
+  }
+}
+
+// انتشارِ داستانِ تازه‌ساخته‌شده تو کتابخانه‌ی عمومی (اگه کاربر «عمومی» رو
+// انتخاب کرده باشه). fire-and-forget — نباید جلوی نمایشِ داستان به خودِ
+// کاربر رو بگیره یا خطا نشون بده.
+async function communityPublishStory({ langCode, level, contentType, storyLength, words, paragraphs, questions, uid }) {
+  try {
+    await supabase.from("community_stories").insert({
+      lang_code: langCode,
+      level,
+      content_type: contentType,
+      story_length: storyLength,
+      words,
+      paragraphs,
+      questions,
+      author_uid: uid || null,
+    });
+  } catch (e) {
+    // بی‌اهمیت — نسخه‌ی محلیِ کاربر همچنان نشون داده می‌شه
+  }
+}
+
+// فهرستِ داستان‌های عمومی برای پنلِ «داستان‌های کاربران» — بر اساسِ زبانِ
+// جاری + (اختیاری) سطح، مرتب‌شده بر اساسِ محبوب‌ترین (views) یا جدیدترین.
+async function communityListStories({ langCode, level, sort, limitN }) {
+  try {
+    let q = supabase.from("community_stories").select("*").eq("lang_code", langCode);
+    if (level && level !== "all") q = q.eq("level", level);
+    q = q.order(sort === "popular" ? "views" : "created_at", { ascending: false }).limit(limitN || 20);
+    const { data, error } = await q;
+    return error || !data ? [] : data;
+  } catch (e) {
+    return [];
+  }
+}
+
+// افزایشِ شمارنده‌ی views/saves از طریقِ تابعِ محدودِ بالا — بی‌صدا انجام
+// می‌شه، شکست‌خوردنش هم چیزی رو خراب نمی‌کنه (فقط شمارنده به‌روز نمی‌شه).
+async function communityBumpStat(id, field) {
+  if (!id) return;
+  try {
+    await supabase.rpc("bump_community_story_stat", { story_id: id, stat_field: field });
+  } catch (e) {
+    // بی‌اهمیت
+  }
+}
+
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
 const POS_FA = {
@@ -3047,6 +3183,12 @@ function appendGrammarNoteThread(id, { question, answer }) {
 // escape hatch style as the SAVED_WORDS_CHANGED_EVENT plumbing above.
 let requestGrammarJump = null;
 
+// Same escape-hatch style as requestGrammarJump above: lets the word-tap
+// popover (ClickableSentence) add a word straight into the Leitner review
+// pool without threading boxes/setBoxes through every intermediate
+// component. Set once by PhrasebookMain.
+let requestAddToLeitner = null;
+
 // Grammar-detail lookup (word popover → "Add to grammar learning"), rewritten so this ONE spot no
 // longer depends on the AI knowing how to write fluently in the learner's native language:
 // the AI always analyzes the sentence in fixed English, wrapping every real ${langLabel} example
@@ -3565,6 +3707,52 @@ function removeWordFromCollectionEntry(id, term) {
   list[idx] = { ...list[idx], words };
   saveWordCollectionsList(list);
   return list[idx];
+}
+
+// ---------------------------------------------------------------------------
+// لغاتِ دلخواهی که کاربر از پاپ‌آپِ تک‌لغه‌ای (ClickableSentence) با دکمه‌ی
+// «افزودن به جعبه‌ی لایتنر» اضافه می‌کنه — جدا از VOCAB ثابتِ برنامه، چون
+// این‌ها می‌تونن از هر متنی (داستانِ AI، PDFِ وارد‌شده، هر جای دیگه) بیان.
+// شکلِ هر آیتم دقیقاً هم‌شکلِ آیتم‌های VOCAB‌ه (id + t:{lang:text}) تا
+// ReviewBox بتونه بدونِ هیچ تغییری، این‌ها رو هم کنارِ VOCAB نمایش بده.
+const LEITNER_CUSTOM_WORDS_KEY = "phrasebook-leitner-custom-words-v1";
+const LEITNER_CUSTOM_WORDS_CHANGED_EVENT = "phrasebook:leitnerCustomWordsChanged";
+function loadLeitnerCustomWords() {
+  try {
+    const raw = window.localStorage.getItem(LEITNER_CUSTOM_WORDS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+function saveLeitnerCustomWordsList(list) {
+  try {
+    window.localStorage.setItem(LEITNER_CUSTOM_WORDS_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(LEITNER_CUSTOM_WORDS_CHANGED_EVENT));
+  } catch {}
+}
+// اگه همون لغت (همون زبان) از قبل اضافه شده باشه، دوباره اضافه نمی‌کنه —
+// فقط اگه معنیِ تازه‌تری داشته باشیم (opts.meaning)، همون رکورد رو به‌روز
+// می‌کنه. برمی‌گردونه: true اگه تازه اضافه شد، false اگه از قبل بود.
+function addLeitnerCustomWord(word, langCode, opts) {
+  const w = normalizeWord(word);
+  if (!w) return false;
+  const nativeLang = (opts && opts.nativeLang) || "fa";
+  const meaning = (opts && opts.meaning) || "";
+  const id = `custom:${langCode}:${w}`;
+  const list = loadLeitnerCustomWords();
+  const idx = list.findIndex((e) => e.id === id);
+  if (idx >= 0) {
+    if (meaning && !list[idx].t[nativeLang]) {
+      list[idx] = { ...list[idx], t: { ...list[idx].t, [nativeLang]: meaning } };
+      saveLeitnerCustomWordsList(list);
+    }
+    return false;
+  }
+  const entry = { id, langCode, t: { [langCode]: word, ...(meaning ? { [nativeLang]: meaning } : {}) } };
+  list.unshift(entry);
+  saveLeitnerCustomWordsList(list);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -5658,6 +5846,9 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
   // during this popover session — just for the button's own confirmation
   // state, reset every time a new word is tapped.
   const [grammarSaved, setGrammarSaved] = useState(false);
+  // همون منطق برای دکمه‌ی «افزودن به جعبه‌ی لایتنر» — فقط برای فیدبکِ خودِ
+  // دکمه (تیک‌خوردن)، هر بار که یه لغتِ تازه باز می‌شه ریست می‌شه.
+  const [leitnerAdded, setLeitnerAdded] = useState(false);
   // The exact word/expression currently open in the popover. Looked up once
   // at click time and reused for both the AI lookup and the Save button, so
   // Save can never drift from what's actually on screen (this used to read a
@@ -5872,6 +6063,7 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     setActiveTermLocalEnd(tokens.slice(0, endTok + 1).join("").length);
     setSaved(isWordSaved(term, langCode));
     setGrammarSaved(false);
+    setLeitnerAdded(false);
     setOpenKey(key);
     setInfo("loading");
     try {
@@ -5914,7 +6106,17 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
       });
   }
 
-  // دوباره‌ همون واژه‌ی بازِ فعلی رو (بدون بستن پاپ‌آپ) امتحان می‌کنه — برای
+  // مثلِ saveActiveTermToGrammar بالا، ولی به‌جای گرامر، لغت رو به استخرِ
+  // مرورِ جعبه‌ی لایتنر اضافه می‌کنه (سطحِ اول = تازه/نیازمندِ مرور). از
+  // singletonِ requestAddToLeitner (بالای فایل، ست‌شده توسطِ PhrasebookMain)
+  // استفاده می‌کنه تا لازم نباشه boxes/setBoxes رو تا این‌جا پاس بدیم.
+  function addActiveTermToLeitner() {
+    if (!activeTerm || !requestAddToLeitner) return;
+    const meaningText = info && info !== "loading" && info !== "error" ? info.meaning : "";
+    requestAddToLeitner(activeTerm, langCode, meaningText);
+    setLeitnerAdded(true);
+  }
+
   // دکمه‌ی «تلاش دوباره» وقتی سرور جواب نداده (مثلاً بک‌اند تازه از خواب
   // بیدار می‌شه و اولین درخواست تایم‌اوت می‌خوره).
   async function retryLookup() {
@@ -6123,6 +6325,33 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                         ? "افزودن به یادگیری گرامر"
                         : "Add to grammar learning"}
                     </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addActiveTermToLeitner();
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: leitnerAdded ? colors.gold : colors.paper,
+                        background: "rgba(255,255,255,0.08)",
+                        border: `1px solid ${leitnerAdded ? colors.gold : "rgba(255,255,255,0.25)"}`,
+                        borderRadius: 6,
+                        padding: "3px 8px",
+                      }}
+                    >
+                      <RotateCcw size={11} />
+                      {leitnerAdded
+                        ? isFa
+                          ? "به جعبه‌ی لایتنر اضافه شد"
+                          : "Added to Leitner box"
+                        : isFa
+                        ? "افزودن به جعبه‌ی لایتنر"
+                        : "Add to Leitner box"}
+                    </button>
                   </>
                 )}
               </div>
@@ -6312,10 +6541,18 @@ function countOccurrences(story, word) {
   return matches ? matches.length : 0;
 }
 
+// طولِ هر گزینه، تقریبی: «کوتاه» ≈ ۱ تا ۲ پاراگراف (۴-۶ جمله‌ای)، «متوسط» ≈
+// ۲ تا ۳ پاراگراف (۵-۸ جمله‌ای)، «بلند» ≈ ۴ تا ۶ پاراگراف (۶-۱۰ جمله‌ای).
+// عددِ tokens یعنی سقفِ توکنِ خروجی‌ای که به AI اجازه می‌دیم برای هر تلاش
+// مصرف کنه (نه چیزی که همیشه پر می‌شه) — این سقف‌ها نسبت به قبل حدودِ ۲۵٪
+// کم شدن (قبلاً ۱۴۰۰/۲۵۰۰/۴۲۰۰ بود) چون فاصله‌ی خالیِ زیادی نسبت به حجمِ
+// واقعیِ JSONِ خروجی (پاراگراف‌ها + ۵ سوال) داشتن؛ اگه برای یه زبانِ خاص
+// (مثلاً زبان‌هایی با توکن‌به‌ازای‌حرفِ بیشتر) بازم truncation دیدی، همینجا
+// بالا ببرشون.
 const STORY_LENGTHS = [
-  { key: "short", label: "کوتاه", paragraphs: "1-2", paragraphMin: 1, paragraphMax: 2, sentencesHint: "short, roughly 4-6 sentences per paragraph", tokens: 1400 },
-  { key: "medium", label: "متوسط", paragraphs: "2-3", paragraphMin: 2, paragraphMax: 3, sentencesHint: "medium length, roughly 5-8 sentences per paragraph", tokens: 2500 },
-  { key: "long", label: "بلند", paragraphs: "4-6", paragraphMin: 4, paragraphMax: 6, sentencesHint: "long, roughly 6-10 sentences per paragraph", tokens: 4200 },
+  { key: "short", label: "کوتاه", paragraphs: "1-2", paragraphMin: 1, paragraphMax: 2, sentencesHint: "short, roughly 4-6 sentences per paragraph", tokens: 1100 },
+  { key: "medium", label: "متوسط", paragraphs: "2-3", paragraphMin: 2, paragraphMax: 3, sentencesHint: "medium length, roughly 5-8 sentences per paragraph", tokens: 1900 },
+  { key: "long", label: "بلند", paragraphs: "4-6", paragraphMin: 4, paragraphMax: 6, sentencesHint: "long, roughly 6-10 sentences per paragraph", tokens: 3200 },
 ];
 
 const CONTENT_TYPES = [
@@ -6747,7 +6984,7 @@ function enforceSentenceSplit(paragraphs) {
   });
 }
 
-function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, autoScrollActive, calendarSystem, highlightColor }) {
+function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, autoScrollActive, calendarSystem, highlightColor, uid }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
   // languages) — no separate picker duplicated here.
@@ -6789,6 +7026,11 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfError, setPdfError] = useState("");
   const pdfInputRef = useRef(null);
+  // همون الگو، برای «وارد کردنِ PDF برای خوانش» (جدا از PDFِ بالا که فقط
+  // برای منبعِ لغته) — این‌یکی متنِ کامل رو می‌ذاره تو سیستمِ خوانش.
+  const [pdfReadBusy, setPdfReadBusy] = useState(false);
+  const [pdfReadError, setPdfReadError] = useState("");
+  const pdfReadInputRef = useRef(null);
   const [newWordTerm, setNewWordTerm] = useState("");
   const [newWordMeaning, setNewWordMeaning] = useState("");
   const [addingWord, setAddingWord] = useState(false);
@@ -6827,6 +7069,25 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // می‌شه) به کاربر می‌گه کدوم لغت چند بار واقعاً استفاده شده.
   const [repeatNotice, setRepeatNotice] = useState("");
   const [showSaved, setShowSaved] = useState(false);
+  // ============================================================
+  // 🌍 داستان‌های عمومی (Community Stories)
+  // isPublicStory: وقتی کاربر داستان می‌سازه، آیا وارد کتابخانه‌ی عمومی
+  // بشه یا نه. پیشفرض عمومیه (صرفه‌جویی توکن بیشتر برای همه، به قیمتِ
+  // حریمِ خصوصیِ کمتر) — هر کاربر هر بار می‌تونه قبل از ساختن عوضش کنه.
+  const [isPublicStory, setIsPublicStory] = useState(true);
+  // چک‌کردنِ «داستانِ مشابه» قبل از صدا زدنِ AI؛ وقتی یکی پیدا شه، توی
+  // similarMatch می‌شینه و به‌جای ساختِ داستان، یه کارتِ انتخاب نشون داده
+  // می‌شه (بخون / بازم با AI بساز) — هیچ توکنی مصرف نمی‌شه مگر کاربر
+  // صریحاً «ساخت داستان جدید» رو بزنه.
+  const [checkingSimilar, setCheckingSimilar] = useState(false);
+  const [similarMatch, setSimilarMatch] = useState(null);
+  // پنلِ مرورِ «داستان‌های کاربران» — جدا از showSaved (که فقط داستان‌های
+  // خودِ همین کاربره)؛ همون الگوی دکمه/پنل تکرار شده.
+  const [showCommunity, setShowCommunity] = useState(false);
+  const [communitySort, setCommunitySort] = useState("popular"); // "popular" | "newest"
+  const [communityLevelFilter, setCommunityLevelFilter] = useState("all");
+  const [communityList, setCommunityList] = useState([]);
+  const [communityLoading, setCommunityLoading] = useState(false);
   // فیلترِ سطح برای لیستِ «داستان‌های ذخیره‌شده» — دقیقاً همون الگوی
   // LevelFilterRow که بقیه‌ی تب‌ها (واژگان، عبارت‌ها و ...) دارن؛ هر داستان
   // از قبل با سطحِ خودش (storyLevel) ذخیره می‌شه، این فیلتر فقط برای پیداکردن
@@ -7531,8 +7792,34 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     }
   };
 
-  const generateStory = async () => {
+  // force=true یعنی «مطمئنم، بدونِ چک‌کردنِ دوباره‌ی داستان‌های مشابه، مستقیم
+  // AI رو صدا بزن» — وقتی کاربر خودش از کارتِ «داستانِ مشابه پیدا شد» دکمه‌ی
+  // «ساخت داستان جدید» رو بزنه همین حالت پیش میاد.
+  const generateStory = async ({ force } = {}) => {
     if (!selectedWords.length || generating) return;
+    setSimilarMatch(null);
+
+    // ============================================================
+    // 🔎 قبل از صدا زدنِ AI: آیا داستانِ مشابهی (همون زبان + همون سطح +
+    // همپوشانیِ بالای لغاتِ هدف) قبلاً تو کتابخانه‌ی عمومی ساخته شده؟ اگه
+    // آره، به‌جای مصرفِ توکن، همون رو به کاربر پیشنهاد می‌دیم و خودش تصمیم
+    // می‌گیره بخونتش یا بازم داستانِ تازه بسازه.
+    if (!force) {
+      setCheckingSimilar(true);
+      const match = await communityFindSimilarStory({
+        langCode: storyLang,
+        level: storyLevel,
+        contentType,
+        storyLength,
+        words: selectedWords,
+      });
+      setCheckingSimilar(false);
+      if (match) {
+        setSimilarMatch(match);
+        return;
+      }
+    }
+
     // اطمینان از اینکه هر لغتی که برای این داستان استفاده می‌شه، تو انبار
     // دائمی «لغات ذخیره‌شده» هم بمونه — حتی اگه از یه مسیر دیگه (غیر از
     // toggleWord/addCustomWord) به selectedWords اضافه شده باشه.
@@ -7635,7 +7922,7 @@ Do NOT lengthen any paragraph far beyond the sentence-count guideline above just
 
 After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
 
-      const tokenBudget = Math.min(lengthCfg.tokens + 500, 8000);
+      const tokenBudget = Math.min(lengthCfg.tokens + 300, 8000);
 
       const runAttempt = async (correction) => {
         const res = await callAI({ prompt: buildPrompt(correction), maxTokens: tokenBudget, aiSettings });
@@ -7775,12 +8062,29 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       // می‌شه تا لغاتِ تازه‌ذخیره‌شده به اون داستانِ قدیمی نچسبن.
       setCurrentStoryId(null);
       
-      setQuestions(Array.isArray(parsed.questions) ? parsed.questions : []);
+      const finalQuestions = Array.isArray(parsed.questions) ? parsed.questions : [];
+      setQuestions(finalQuestions);
 
       // توجه: قبلاً بعد از ساخت هر داستان، همه‌ی لغات ذخیره‌شده‌ی این زبان
       // از «لغات ذخیره‌شده» پاک می‌شدن. دیگه این کار انجام نمی‌شه — لغات
       // ذخیره‌شده می‌مونن تا هر وقت خواستی (با دکمه‌ی ضربدر کنار هرکدوم)
       // خودت پاکشون کنی.
+
+      // 🌍 اگه کاربر «عمومی» رو انتخاب کرده، همین داستانِ تازه‌ساخته‌شده رو
+      // (بی‌صدا، بدون بلاک‌کردنِ رابط کاربری) وارد کتابخانه‌ی عمومی می‌کنیم
+      // تا کاربرِ بعدی که همین زبان/سطح/لغات رو خواست، دیگه نیازی به AI نداشته باشه.
+      if (isPublicStory) {
+        communityPublishStory({
+          langCode: storyLang,
+          level: storyLevel,
+          contentType,
+          storyLength,
+          words: selectedWords,
+          paragraphs: storyParagraphs,
+          questions: finalQuestions,
+          uid,
+        });
+      }
     } catch (e) {
       const msg = String(e?.message || "");
       if (msg.startsWith("ai-backend-error:")) {
@@ -7794,6 +8098,76 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setGenerating(false);
     }
   };
+
+  // «وارد کردنِ PDF برای خوانش» — برخلافِ آپلودِ PDF بالا (که فقط برای
+  // «منبعِ لغت» بود)، این‌یکی کلِ متنِ PDF رو مستقیم می‌ذاره تو همون
+  // سیستمِ خوانشِ داستان (پاراگراف‌به‌پاراگراف/جمله‌به‌جمله، هایلایت،
+  // ترجمه، صدا) — بدون اینکه از هوش‌مصنوعی بخوایم داستانی بسازه؛ یعنی
+  // paragraphs رو مستقیم از خودِ متنِ PDF می‌سازیم، دقیقاً هم‌شکلِ همون
+  // چیزی که generateStory در پایان تولید می‌کنه، پس تمام رابط کاربریِ
+  // پایین (که به paragraphs/currentStoryId/questions وصله) بدونِ هیچ
+  // تغییری کار می‌کنه. کاربر بعداً خودش با پاپ‌آپِ لغت تصمیم می‌گیره کدوم
+  // لغت‌ها رو «ذخیره برای داستانِ بعدی» یا «افزودن به جعبه‌ی لایتنر» کنه.
+  const PDF_READ_MAX_BYTES = 8 * 1024 * 1024;
+  const PDF_READ_MAX_PAGES = 25; // کتاب کامل نه — چون هر جمله قراره جداگونه ترجمه بشه (سرویسِ رایگان، نه AI)، متنِ خیلی بزرگ هم کند می‌شه هم فشار زیادی به اون سرویس می‌ذاره
+  const PDF_READ_SENTENCES_PER_PARAGRAPH = 5; // استخراجِ PDF معمولاً مرزِ پاراگرافِ واقعی رو حفظ نمی‌کنه، پس خودمون هر ۵ جمله رو یه «پاراگراف» حساب می‌کنیم تا خوانا بمونه
+  const PDF_READ_MAX_SENTENCES = 200; // سقفِ کلی — فراتر از این برای موبایل/سرویسِ ترجمه‌ی رایگان زیادی سنگین می‌شه
+
+  const handlePdfImportForReading = async (e) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = "";
+    if (!file) return;
+    setPdfReadError("");
+    if (file.size > PDF_READ_MAX_BYTES) {
+      setPdfReadError(`حجمِ فایل بیشتر از ${Math.round(PDF_READ_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه — یه PDF کوچیک‌تر امتحان کن`);
+      return;
+    }
+    setPdfReadBusy(true);
+    try {
+      const pdfjsLib = await import("pdfjs-dist");
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
+      const buf = await file.arrayBuffer();
+      const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+      const pageCount = Math.min(doc.numPages, PDF_READ_MAX_PAGES);
+      let allSentences = [];
+      for (let i = 1; i <= pageCount; i++) {
+        const page = await doc.getPage(i);
+        const content = await page.getTextContent();
+        const pageText = content.items.map((it) => it.str).join(" ");
+        allSentences.push(...splitTextIntoSentenceStrings(pageText));
+        if (allSentences.length > PDF_READ_MAX_SENTENCES) break;
+      }
+      let truncated = doc.numPages > pageCount;
+      if (allSentences.length > PDF_READ_MAX_SENTENCES) {
+        allSentences = allSentences.slice(0, PDF_READ_MAX_SENTENCES);
+        truncated = true;
+      }
+      if (!allSentences.length) {
+        setPdfReadError("متنی از این PDF استخراج نشد — شاید این فایل اسکن/عکسه، نه متنِ واقعی");
+        return;
+      }
+      const storyParagraphs = [];
+      for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
+        const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
+        storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
+      }
+      setParagraphs(storyParagraphs);
+      setCurrentStoryId(null);
+      setQuestions([]);
+      setAnswers({});
+      setSubmitted(false);
+      setError("");
+      setRepeatNotice("");
+      if (truncated) {
+        setPdfReadError("توجه: چون فایل بزرگ بود، فقط بخشی از متنش خونده و آماده‌ی خوانش شد");
+      }
+    } catch (err) {
+      setPdfReadError("خوندنِ این PDF مشکل داشت — فایل ممکنه خراب یا رمزگذاری‌شده باشه");
+    } finally {
+      setPdfReadBusy(false);
+    }
+  };
+
   const saveCurrentStory = () => {
     if (!paragraphs.length) return;
     const entry = {
@@ -7831,6 +8205,52 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setSavedStories((prev) => prev.filter((s) => s.id !== id));
   };
 
+  // بازکردنِ یه داستانِ عمومی (چه از کارتِ «داستانِ مشابه پیدا شد» چه از
+  // پنلِ مرورِ «داستان‌های کاربران») — دقیقاً مثلِ openSavedStory، با این
+  // فرق که currentStoryId رو null می‌ذاریم (این داستانِ خودِ این کاربر
+  // نیست، هنوز تو «داستان‌های ذخیره‌شده»ی خودش ذخیره نشده) و شمارنده‌ی
+  // views رو (بی‌صدا) بالا می‌بریم.
+  const openCommunityStory = (entry) => {
+    setStoryLang(entry.lang_code);
+    setStoryLevel(entry.level);
+    setStoryLength(entry.story_length || "medium");
+    setContentType(entry.content_type || "general");
+    setSelectedWords(entry.words || []);
+    setParagraphs(entry.paragraphs);
+    setQuestions(entry.questions || []);
+    setAnswers({});
+    setSubmitted(false);
+    setShowSaved(false);
+    setShowCommunity(false);
+    setCurrentStoryId(null);
+    setSimilarMatch(null);
+    setError("");
+    setRepeatNotice("");
+    if (entry.id) communityBumpStat(entry.id, "views");
+  };
+
+  // پنلِ «داستان‌های کاربران» هر وقت باز بشه یا فیلتر/مرتب‌سازی/زبان عوض
+  // بشه، دوباره از Supabase می‌گیره.
+  useEffect(() => {
+    if (!showCommunity) return;
+    let cancelled = false;
+    setCommunityLoading(true);
+    communityListStories({
+      langCode: storyLang,
+      level: communityLevelFilter,
+      sort: communitySort,
+      limitN: 20,
+    }).then((list) => {
+      if (!cancelled) {
+        setCommunityList(list);
+        setCommunityLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showCommunity, storyLang, communityLevelFilter, communitySort]);
+
   const submitQuiz = () => {
     setSubmitted(true);
     setWordStats((prev) => {
@@ -7855,22 +8275,110 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p style={{ fontWeight: 700, fontSize: 16 }}>داستان‌ساز</p>
-        <button
-          onClick={() => setShowSaved((s) => !s)}
-          style={{
-            fontSize: 12,
-            padding: "5px 12px",
-            borderRadius: 20,
-            border: `1px solid ${colors.cardBorder}`,
-            backgroundColor: showSaved ? colors.ink : "white",
-            color: showSaved ? "white" : colors.ink,
-          }}
-        >
-          داستان‌های ذخیره‌شده ({savedStories.length})
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              setShowCommunity((s) => !s);
+              setShowSaved(false);
+            }}
+            style={{
+              fontSize: 12,
+              padding: "5px 12px",
+              borderRadius: 20,
+              border: `1px solid ${colors.cardBorder}`,
+              backgroundColor: showCommunity ? colors.teal : "white",
+              color: showCommunity ? "white" : colors.ink,
+            }}
+          >
+            🌍 داستان‌های کاربران
+          </button>
+          <button
+            onClick={() => {
+              setShowSaved((s) => !s);
+              setShowCommunity(false);
+            }}
+            style={{
+              fontSize: 12,
+              padding: "5px 12px",
+              borderRadius: 20,
+              border: `1px solid ${colors.cardBorder}`,
+              backgroundColor: showSaved ? colors.ink : "white",
+              color: showSaved ? "white" : colors.ink,
+            }}
+          >
+            داستان‌های ذخیره‌شده ({savedStories.length})
+          </button>
+        </div>
       </div>
 
-      {showSaved ? (
+      {showCommunity ? (
+        <div className="flex flex-col gap-3">
+          <p style={{ fontSize: 12, color: colors.inkSoft }}>
+            داستان‌هایی که کاربرهای دیگه با زبان «{storyLangLabel}» ساخته و «عمومی» گذاشته‌ان — خوندنشون کاملاً رایگانه و AI صدا زده نمی‌شه.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setCommunitySort("popular")}
+              style={{
+                padding: "5px 12px",
+                borderRadius: 20,
+                fontSize: 12,
+                border: `1px solid ${communitySort === "popular" ? colors.gold : colors.cardBorder}`,
+                backgroundColor: communitySort === "popular" ? colors.goldSoft : "white",
+              }}
+            >
+              🔥 محبوب‌ترین
+            </button>
+            <button
+              onClick={() => setCommunitySort("newest")}
+              style={{
+                padding: "5px 12px",
+                borderRadius: 20,
+                fontSize: 12,
+                border: `1px solid ${communitySort === "newest" ? colors.gold : colors.cardBorder}`,
+                backgroundColor: communitySort === "newest" ? colors.goldSoft : "white",
+              }}
+            >
+              🆕 جدیدترین
+            </button>
+          </div>
+          <LevelFilterRow levelFilter={communityLevelFilter} setLevelFilter={setCommunityLevelFilter} />
+
+          {communityLoading && <p style={{ fontSize: 13, color: colors.inkSoft }}>در حال بارگذاری...</p>}
+          {!communityLoading && communityList.length === 0 && (
+            <p style={{ fontSize: 13, color: colors.inkSoft }}>
+              هنوز داستانِ عمومی‌ای برای «{storyLangLabel}»{communityLevelFilter !== "all" ? ` و سطحِ ${communityLevelFilter}` : ""} ساخته نشده.
+            </p>
+          )}
+          {!communityLoading &&
+            communityList.map((s) => (
+              <div
+                key={s.id}
+                style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 14 }}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p style={{ fontWeight: 700, fontSize: 13 }}>
+                      {LANGUAGES.find((l) => l.code === s.lang_code)?.label} · {s.level} ·{" "}
+                      {CONTENT_TYPES.find((c) => c.key === s.content_type)?.label || "عمومی"} ·{" "}
+                      {STORY_LENGTHS.find((l) => l.key === s.story_length)?.label || "متوسط"}
+                    </p>
+                    <p style={{ fontSize: 12, color: colors.inkSoft }}>{(s.words || []).join("، ")}</p>
+                    <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 4 }}>
+                      👁 {s.views || 0} مطالعه · ❤️ {s.saves || 0} ذخیره
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => openCommunityStory(s)}
+                    style={{ fontSize: 12, color: colors.teal, textDecoration: "underline", whiteSpace: "nowrap" }}
+                  >
+                    باز کردن
+                  </button>
+                </div>
+              </div>
+            ))}
+        </div>
+      ) : showSaved ? (
         <div className="flex flex-col gap-3">
           {/* سطح‌ها همیشه توی ردیفِ خودشون، تمام‌عرض و بدون تنگ‌شدن نشون
               داده می‌شن؛ مرتب‌سازی یه ردیفِ جدا زیرشه — قبلاً کنارِ هم
@@ -8070,6 +8578,54 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             style={{ flex: 1 }}
           />
           <span style={{ fontSize: 13, fontWeight: 700 }}>{repeatCount}</span>
+        </div>
+
+        {/* 🌍 عمومی/خصوصی — پیشفرض عمومیه: هم صرفه‌جوییِ توکنِ بیشتری برای
+            همه‌ی کاربرها می‌شه (چون این داستان می‌تونه بعداً به‌جای ساختِ
+            یه داستانِ تازه با AI، مستقیم به کاربرِ دیگه‌ای با همون
+            زبان/سطح/لغات پیشنهاد بشه)، هم قابلِ تغییره — هر بار قبل از
+            ساختن می‌تونی بزنی خصوصی. */}
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.cardBorder}` }}>
+          <p style={{ fontSize: 12, color: colors.inkSoft, margin: "0 0 6px" }}>
+            وقتی داستان ساخته شد، در دسترسِ چه کسی باشه؟
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setIsPublicStory(true)}
+              className="flex-1"
+              style={{
+                padding: "8px 10px",
+                borderRadius: 12,
+                fontSize: 12,
+                border: `1px solid ${isPublicStory ? colors.teal : colors.cardBorder}`,
+                backgroundColor: isPublicStory ? colors.teal : "white",
+                color: isPublicStory ? "white" : colors.ink,
+                fontWeight: 700,
+              }}
+            >
+              🌍 عمومی — بقیه کاربران هم استفاده کنند
+            </button>
+            <button
+              onClick={() => setIsPublicStory(false)}
+              className="flex-1"
+              style={{
+                padding: "8px 10px",
+                borderRadius: 12,
+                fontSize: 12,
+                border: `1px solid ${!isPublicStory ? colors.ink : colors.cardBorder}`,
+                backgroundColor: !isPublicStory ? colors.ink : "white",
+                color: !isPublicStory ? "white" : colors.ink,
+                fontWeight: 700,
+              }}
+            >
+              🔒 خصوصی — فقط خودم ببینم
+            </button>
+          </div>
+          <p style={{ fontSize: 10.5, color: colors.inkSoft, marginTop: 6 }}>
+            {isPublicStory
+              ? "این داستان وارد کتابخانه‌ی عمومی می‌شه؛ کاربرهای دیگه با همین زبان/سطح/لغات، به‌جای مصرفِ AI، می‌تونن همینو رایگان بخونن."
+              : "این داستان فقط برای خودت می‌مونه و در کتابخانه‌ی عمومی نمایش داده نمی‌شه."}
+          </p>
         </div>
       </div>
 
@@ -8507,9 +9063,38 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         </div>
       )}
 
+      {/* 🔎 وقتی قبل از ساختن، یه داستانِ عمومیِ مشابه (همون زبان+سطح، و
+          همپوشانیِ بالای لغاتِ هدف) پیدا بشه، به‌جای مصرفِ AI این کارت
+          نشون داده می‌شه — کاربر خودش تصمیم می‌گیره. */}
+      {similarMatch && (
+        <div style={{ backgroundColor: colors.goldSoft, border: `1px solid ${colors.gold}`, borderRadius: 12, padding: 14 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
+            یک داستانِ مشابه (شباهت حدود {Math.round(similarMatch.score * 100)}٪) قبلاً ساخته شده
+          </p>
+          <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 10 }}>
+            همون زبان، همون سطح و اکثر لغاتِ هدف رو داره. می‌تونی رایگان بخونیش، یا بازم با AI یه داستانِ تازه بسازی.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => openCommunityStory(similarMatch)}
+              style={{ flex: 1, padding: "8px 10px", borderRadius: 10, fontSize: 12, fontWeight: 700, backgroundColor: colors.teal, color: "white" }}
+            >
+              📖 خواندن داستانِ مشابه (رایگان)
+            </button>
+            <button
+              onClick={() => generateStory({ force: true })}
+              disabled={generating}
+              style={{ flex: 1, padding: "8px 10px", borderRadius: 10, fontSize: 12, fontWeight: 700, backgroundColor: "white", border: `1px solid ${colors.gold}`, color: colors.ink, opacity: generating ? 0.6 : 1 }}
+            >
+              ✨ ساخت داستانِ جدید (AI)
+            </button>
+          </div>
+        </div>
+      )}
+
       <button
-        onClick={generateStory}
-        disabled={!selectedWords.length || generating}
+        onClick={() => generateStory()}
+        disabled={!selectedWords.length || generating || checkingSimilar}
         style={{
           display: "flex",
           alignItems: "center",
@@ -8520,18 +9105,56 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           borderRadius: 14,
           padding: "12px 16px",
           fontWeight: 700,
-          opacity: !selectedWords.length || generating ? 0.6 : 1,
+          opacity: !selectedWords.length || generating || checkingSimilar ? 0.6 : 1,
         }}
       >
         <Sparkles size={18} />
-        {generating ? "در حال ساخت داستان..." : "بساز داستان"}
+        {checkingSimilar
+          ? "در حال جستجوی داستانِ مشابه..."
+          : generating
+          ? "در حال ساخت داستان..."
+          : "بساز داستان"}
       </button>
+
+      <div style={{ textAlign: "center" }}>
+        <input
+          ref={pdfReadInputRef}
+          type="file"
+          accept="application/pdf"
+          onChange={handlePdfImportForReading}
+          style={{ display: "none" }}
+        />
+        <button
+          onClick={() => pdfReadInputRef.current?.click()}
+          disabled={pdfReadBusy}
+          className="flex items-center justify-center gap-2"
+          style={{
+            width: "100%",
+            border: `1px dashed ${colors.cardBorder}`,
+            borderRadius: 14,
+            padding: "10px 16px",
+            fontWeight: 700,
+            fontSize: 13,
+            color: colors.teal,
+            opacity: pdfReadBusy ? 0.6 : 1,
+          }}
+        >
+          {pdfReadBusy ? <Loader2 size={16} className="spin" /> : <span>📖</span>}
+          {pdfReadBusy ? "در حال خوندنِ PDF..." : "به‌جاش یه PDF برای خوانش وارد کن"}
+        </button>
+        {pdfReadError && (
+          <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfReadError}</p>
+        )}
+        <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
+          به‌جای ساختِ داستان با هوش‌مصنوعی، متنِ خودِ PDF رو با همین سیستمِ خوانش (ترجمه، هایلایت، صدا) نشون می‌ده — بدونِ نیاز به انتخابِ لغت.
+        </p>
+      </div>
 
       {error && (
         <div style={{ backgroundColor: "#F8E8E8", border: `1px solid ${colors.rose}`, borderRadius: 10, padding: 12 }}>
           <p style={{ fontFamily: fontFa, fontSize: 13, color: colors.rose, marginBottom: 8 }}>{error}</p>
           <button
-            onClick={generateStory}
+            onClick={() => generateStory()}
             disabled={generating}
             style={{
               fontFamily: fontFa,
@@ -11010,6 +11633,31 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     };
   }, []);
 
+  // همون الگو: پاپ‌آپِ لغت (ClickableSentence) این‌جوری یه لغتِ دلخواه رو
+  // مستقیم به استخرِ مرورِ جعبه‌ی لایتنر اضافه می‌کنه — بدونِ اینکه boxes/
+  // setBoxes رو لازم باشه به هر کامپوننتِ واسط پاس بدیم. خودِ ذخیره‌سازی تو
+  // localStorage انجام می‌شه (addLeitnerCustomWord)؛ اینجا فقط با bump‌کردنِ
+  // leitnerWordsVersion، useEffectِ لودِ لیست (پایین‌تر) رو دوباره اجرا می‌کنیم.
+  const [leitnerCustomWords, setLeitnerCustomWords] = useState(() => loadLeitnerCustomWords());
+  const [leitnerWordsVersion, setLeitnerWordsVersion] = useState(0);
+  useEffect(() => {
+    setLeitnerCustomWords(loadLeitnerCustomWords());
+  }, [leitnerWordsVersion]);
+  useEffect(() => {
+    const refresh = () => setLeitnerCustomWords(loadLeitnerCustomWords());
+    window.addEventListener(LEITNER_CUSTOM_WORDS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(LEITNER_CUSTOM_WORDS_CHANGED_EVENT, refresh);
+  }, []);
+  useEffect(() => {
+    requestAddToLeitner = (word, langCode, meaning) => {
+      addLeitnerCustomWord(word, langCode, { meaning, nativeLang });
+      setLeitnerWordsVersion((v) => v + 1);
+    };
+    return () => {
+      requestAddToLeitner = null;
+    };
+  }, [nativeLang]);
+
   // بوکمارک‌های «ذخیره برای داستان بعدی» توی localStorage نگه داشته می‌شن
   // (نه توی یه useState اینجا)، برای همین بدون این ورژن‌شمار، افکت ذخیره‌ی
   // ابری پایین هیچ‌وقت با تغییر لغات ذخیره‌شده اجرا نمی‌شد — یعنی لغت‌های
@@ -11305,6 +11953,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     .map((code) => LANGUAGES.find((l) => l.code === code))
     .filter(Boolean);
   const targetLabel = targetLangList.map((l) => l.label).join("، ");
+  // مرور (جعبه‌ی لایتنر) رو دیگه فقط رویِ VOCABِ ثابتِ برنامه انجام نمی‌ده —
+  // لغاتِ دلخواهی هم که کاربر از پاپ‌آپِ لغت («افزودن به جعبه‌ی لایتنر») در
+  // هر تبی اضافه کرده، به همین استخر می‌پیوندن.
+  const reviewPool = useMemo(() => [...conversation , ...leitnerCustomWords], [leitnerCustomWords]);
   // نوار پخشِ چسبیده به کف صفحه فقط تو تب‌هایی معنی داره که صدا/تکرار/
   // اسکرول خودکار توشون فعاله.
   // پلیر چسبیده به کف صفحه — سرتاسری، تو همه‌ی تب‌ها نشون داده می‌شه.
@@ -11667,7 +12319,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
         {tab === "review" && (
           <ReviewBox
-            conversation ={conversation }
+            conversation ={reviewPool}
             boxes={boxes}
             setBoxes={setBoxes}
             nativeLang={nativeLang}
@@ -11778,6 +12430,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             autoScrollActive={tab === "story"}
             calendarSystem={appPrefs.calendarSystem || "jalali"}
             highlightColor={appPrefs.highlightColor}
+            uid={user?.uid}
           />
         </div>
       </main>
@@ -13752,6 +14405,37 @@ function WordExampleRow({ example, word, langCode, nativeLang, targetLangs, aiSe
   );
 }
 
+// چیپ‌های فیلترِ سطح برای جعبه‌ی لایتنر: «همه» + جعبه‌های ۱ تا ۴ (جعبه‌ی ۵
+// یعنی «بلد شدی»، پس اصلاً تو مرور نمی‌آد). هر چیپ تعدادِ موردهای همون سطح
+// رو هم نشون می‌ده.
+function LevelFilterChips({ levelFilter, setLevelFilter, levelCounts }) {
+  const chips = [
+    { key: "all", label: "همه", count: levelCounts.reduce((a, b) => a + b, 0) },
+    ...[1, 2, 3, 4].map((lvl) => ({ key: lvl, label: `جعبه‌ی ${lvl}`, count: levelCounts[lvl - 1] })),
+  ];
+  return (
+    <div className="flex flex-wrap justify-center gap-2">
+      {chips.map((c) => (
+        <button
+          key={c.key}
+          onClick={() => setLevelFilter(c.key)}
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            padding: "4px 10px",
+            borderRadius: 20,
+            border: `1px solid ${levelFilter === c.key ? colors.gold : colors.cardBorder}`,
+            backgroundColor: levelFilter === c.key ? colors.gold : "transparent",
+            color: levelFilter === c.key ? "white" : colors.inkSoft,
+          }}
+        >
+          {c.label} ({c.count})
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Leitner review box
 // ---------------------------------------------------------------------------
@@ -13762,15 +14446,30 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
   // false هست) — یعنی عبارت‌های مرورنشده به‌جای «باید مرور بشن»، اشتباهاً
   // «قبلاً بلدشون بودی» حساب می‌شدن و جعبه همیشه خالی/تمام‌شده نشون
   // می‌داد. با ?? 1 (یعنی جعبه‌ی اول = هنوز مرورنشده) این مشکل حل می‌شه.
-  const active = conversation .filter((p) => (boxes[p.id] ?? 1) < 5);
+  const [levelFilter, setLevelFilter] = useState("all");
+  // سطح‌بندی برای مرور: هر آیتم بر اساسِ جعبه‌ش (۱ تا ۵) دسته‌بندی می‌شه —
+  // پیش‌فرض همه‌ی سطح‌ها با هم، ولی از سطحِ پایین (تازه/ضعیف) به بالا
+  // (مسلط‌تر) مرتب می‌شن تا لغاتی که بیشتر نیاز به مرور دارن زودتر بیان.
+  // کاربر هم می‌تونه با چیپ‌های پایین، فقط رویِ یه سطحِ خاص تمرکز کنه.
+  const withLevel = conversation .map((p) => ({ p, lvl: boxes[p.id] ?? 1 }));
+  const dueAll = withLevel.filter((x) => x.lvl < 5);
+  const levelCounts = [1, 2, 3, 4].map((lvl) => dueAll.filter((x) => x.lvl === lvl).length);
+  const filtered = levelFilter === "all" ? dueAll : dueAll.filter((x) => x.lvl === levelFilter);
+  const active = filtered.sort((a, b) => a.lvl - b.lvl).map((x) => x.p);
   if (active.length === 0) {
     return (
-      <p style={{ textAlign: "center", color: colors.teal, marginTop: 40, fontWeight: 600 }}>
-        همه‌ی عبارات رو بلدی! 🎉
-      </p>
+      <div className="flex flex-col items-center gap-3 mt-6">
+        {levelFilter !== "all" && (
+          <LevelFilterChips levelFilter={levelFilter} setLevelFilter={setLevelFilter} levelCounts={levelCounts} />
+        )}
+        <p style={{ textAlign: "center", color: colors.teal, marginTop: 20, fontWeight: 600 }}>
+          {levelFilter === "all" ? "همه‌ی عبارات رو بلدی! 🎉" : "چیزی تو این سطح برای مرور نمونده! 🎉"}
+        </p>
+      </div>
     );
   }
   const current = active[index % active.length];
+  const currentLevel = boxes[current.id] ?? 1;
 
   const handle = (knew) => {
     setBoxes((prev) => ({
@@ -13785,8 +14484,10 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
 
   return (
     <div className="flex flex-col items-center gap-4 mt-6">
+      <LevelFilterChips levelFilter={levelFilter} setLevelFilter={setLevelFilter} levelCounts={levelCounts} />
       <p style={{ fontSize: 12, color: colors.inkSoft }}>
         باقی‌مانده برای مرور: {active.length}
+        {" · "}جعبه‌ی {currentLevel} از ۵
       </p>
       <div
         className="w-full max-w-sm rounded-xl p-8 text-center"
