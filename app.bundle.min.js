@@ -1,0 +1,11070 @@
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks } from "lucide-react";
+import { createClient } from "@supabase/supabase-js";
+import { VOCAB } from "./VOCAB.js";
+import { WORDS_AZ } from "./WORDS_AZ.js";
+import { NEWS_WORDS } from "./NEWS_WORDS.js";
+import { DAILY_WORDS } from "./DAILY_WORDS.js";
+import { SLANG_WORDS } from "./SLANG_WORDS.js";
+import { DAILY_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
+import DailyConversationsTab from "./DailyConversationsTab.jsx";
+const STORY_SEARCH_WORD_POOL = [
+  ...WORDS_AZ.map((w) => ({ term: w.en, fa: w.fa, source: "لغات" })),
+  ...NEWS_WORDS.map((w) => ({ term: w.en, fa: w.fa, source: "لغات و اخبار" })),
+  ...DAILY_WORDS.map((w) => ({ term: w.en, fa: w.fa, source: "مکالمه و روزمره" })),
+  ...SLANG_WORDS.map((w) => ({ term: w.en, fa: w.fa, source: "اسلنگ" }))
+];
+const STORY_SEARCH_CONVERSATION_POOL = DAILY_CONVERSATIONS.flatMap(
+  (tp) => tp.scenarios.flatMap((sc) => [...sc.speakerA || [], ...sc.speakerB || []])
+).map((it) => ({ term: it.en, fa: it.fa || "", source: "مکالمات روزمره" }));
+const SUPABASE_URL = "https://avfceytrbmsdkuyppspp.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2ZmNleXRyYm1zZGt1eXBwc3BwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU5MjMwNDUsImV4cCI6MjEwMTQ5OTA0NX0.IYyNpcznb3g2zdruLn2XSlVHFtDK4OQPm0RIOcIBNhE";
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+function supabaseUserToSession(su) {
+  if (!su) return null;
+  const meta = su.user_metadata || {};
+  return {
+    uid: su.id,
+    email: su.email,
+    name: meta.name || meta.full_name || su.email,
+    picture: meta.avatar_url || meta.picture || "",
+    provider: meta.provider_source || (su.app_metadata?.provider === "google" ? "google" : "email")
+  };
+}
+async function supabaseLoadState(uid) {
+  if (!uid) return null;
+  try {
+    const { data, error } = await supabase.from("user_data").select("data").eq("user_id", uid).maybeSingle();
+    if (error || !data) return null;
+    return data.data || null;
+  } catch (e) {
+    return null;
+  }
+}
+async function supabaseSaveState(uid, data) {
+  if (!uid) return;
+  try {
+    await supabase.from("user_data").upsert({ user_id: uid, data, updated_at: (/* @__PURE__ */ new Date()).toISOString() });
+  } catch (e) {
+  }
+}
+const TRANSLATION_DB_NAME = "phrasebook-translations";
+const TRANSLATION_STORE = "translations";
+function openTranslationDB() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("indexeddb-unavailable"));
+      return;
+    }
+    const req = indexedDB.open(TRANSLATION_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(TRANSLATION_STORE)) {
+        db.createObjectStore(TRANSLATION_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function translationCacheKey(text, targetLang, sourceLang) {
+  return `${sourceLang || "auto"}::${targetLang}::${text}`;
+}
+async function getCachedTranslation(text, targetLang, sourceLang = "auto") {
+  try {
+    const db = await openTranslationDB();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(TRANSLATION_STORE, "readonly");
+      const req = tx.objectStore(TRANSLATION_STORE).get(translationCacheKey(text, targetLang, sourceLang));
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+async function setCachedTranslation(text, targetLang, sourceLang, translation) {
+  try {
+    const db = await openTranslationDB();
+    await new Promise((resolve) => {
+      const tx = db.transaction(TRANSLATION_STORE, "readwrite");
+      tx.objectStore(TRANSLATION_STORE).put(translation, translationCacheKey(text, targetLang, sourceLang));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch {
+  }
+}
+async function getTranslationCacheCount() {
+  try {
+    const db = await openTranslationDB();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(TRANSLATION_STORE, "readonly");
+      const req = tx.objectStore(TRANSLATION_STORE).count();
+      req.onsuccess = () => resolve(req.result || 0);
+      req.onerror = () => resolve(0);
+    });
+  } catch {
+    return 0;
+  }
+}
+async function getCachedTranslationMap(targetLang, sourceLang = "en") {
+  const map = /* @__PURE__ */ new Map();
+  try {
+    const db = await openTranslationDB();
+    return await new Promise((resolve) => {
+      const prefix = `${sourceLang || "auto"}::${targetLang}::`;
+      const tx = db.transaction(TRANSLATION_STORE, "readonly");
+      const req = tx.objectStore(TRANSLATION_STORE).openCursor();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) {
+          resolve(map);
+          return;
+        }
+        const key = cursor.key;
+        if (typeof key === "string" && key.startsWith(prefix)) {
+          map.set(key.slice(prefix.length), cursor.value);
+        }
+        cursor.continue();
+      };
+      req.onerror = () => resolve(map);
+    });
+  } catch {
+    return map;
+  }
+}
+async function translateViaGoogle(text, targetLang, sourceLang = "auto") {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("google-http-" + response.status);
+  const data = await response.json();
+  if (data && data[0] && data[0].length) {
+    return data[0].map((item) => item[0]).join("");
+  }
+  throw new Error("google-empty-response");
+}
+async function translateViaMyMemory(text, targetLang, sourceLang = "auto") {
+  const sl = sourceLang && sourceLang !== "auto" ? sourceLang : "en";
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sl}|${targetLang}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("mymemory-http-" + response.status);
+  const data = await response.json();
+  const translated = data?.responseData?.translatedText;
+  if (!translated) throw new Error("mymemory-empty-response");
+  const looksLikeApiError = /^(PLEASE SELECT|INVALID |NO TRANSLATION|AMOUNT OF WORDS)/i.test(translated.trim());
+  if (looksLikeApiError) throw new Error("mymemory-api-error: " + translated);
+  return translated;
+}
+async function translateViaLingva(text, targetLang, sourceLang = "auto") {
+  const url = `https://lingva.ml/api/v1/${sourceLang}/${targetLang}/${encodeURIComponent(text)}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("lingva-http-" + response.status);
+  const data = await response.json();
+  if (!data?.translation) throw new Error("lingva-empty-response");
+  return data.translation;
+}
+async function translateViaLibre(text, targetLang, sourceLang = "auto") {
+  const response = await fetch("https://libretranslate.de/translate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ q: text, source: sourceLang || "auto", target: targetLang, format: "text" })
+  });
+  if (!response.ok) throw new Error("libre-http-" + response.status);
+  const data = await response.json();
+  if (!data?.translatedText) throw new Error("libre-empty-response");
+  return data.translatedText;
+}
+async function translateViaAI(text, targetLang, sourceLang, aiSettings) {
+  if (!aiSettings) throw new Error("translate-ai-no-settings");
+  const targetLabel = englishLangName(targetLang);
+  const prompt = `Translate the following text into ${targetLabel}. Respond with ONLY the translation itself — no quotes, no explanation, no original text, nothing else.
+
+Text: ${text}`;
+  const result = await callAI({ prompt, maxTokens: 200, retries: 1, aiSettings });
+  const cleaned = String(result || "").replace(/^["'«»]+|["'«».\s]+$/g, "").trim();
+  if (!cleaned) throw new Error("translate-ai-empty-response");
+  return cleaned;
+}
+function scriptRangeFor(langCode) {
+  switch (langCode) {
+    case "fa":
+    case "ar":
+      return /[\u0600-\u06FF]/;
+    case "ru":
+      return /[\u0400-\u04FF]/;
+    case "zh":
+      return /[\u4E00-\u9FFF]/;
+    case "ja":
+      return /[\u3040-\u30FF\u4E00-\u9FFF]/;
+    case "ko":
+      return /[\uAC00-\uD7AF]/;
+    default:
+      return null;
+  }
+}
+function looksLikelyMistranslated(sourceText, draft, targetLang, sourceLang) {
+  const src = (sourceText || "").trim();
+  const out = (draft || "").trim();
+  if (!out) return true;
+  if (sourceLang && sourceLang !== "auto" && sourceLang !== targetLang && out.toLowerCase() === src.toLowerCase())
+    return true;
+  const re = scriptRangeFor(targetLang);
+  if (re && src.length > 1 && !re.test(out)) return true;
+  const ratio = out.length / Math.max(src.length, 1);
+  if (src.length > 3 && (ratio < 0.25 || ratio > 3.5)) return true;
+  return false;
+}
+async function verifyTranslationWithAI(sourceText, targetLang, draft, aiSettings) {
+  if (!aiSettings) return draft;
+  try {
+    const targetLabel = englishLangName(targetLang);
+    const prompt = `Source text: "${sourceText}"
+Draft translation into ${targetLabel}: "${draft}"
+
+Is the draft an accurate, complete translation? If yes, reply with EXACTLY: OK
+If no, reply with ONLY the corrected translation — no quotes, no explanation, nothing else.`;
+    const result = await callAI({ prompt, maxTokens: 80, retries: 0, aiSettings });
+    const cleaned = String(result || "").trim();
+    if (!cleaned || /^OK\.?$/i.test(cleaned)) return draft;
+    return cleaned.replace(/^["'«»]+|["'«».\s]+$/g, "").trim() || draft;
+  } catch (e) {
+    return draft;
+  }
+}
+async function translateFree(text, targetLang, sourceLang = "auto", aiSettings = null, forceVerify = false) {
+  if (!text || !targetLang) return text;
+  if (sourceLang && sourceLang !== "auto" && sourceLang === targetLang) return text;
+  const isBadFreeResult = (candidate) => {
+    if (!candidate) return true;
+    const out = candidate.trim();
+    if (!out) return true;
+    if (sourceLang && sourceLang !== "auto" && sourceLang !== targetLang && out.toLowerCase() === text.trim().toLowerCase()) {
+      return true;
+    }
+    const targetScriptRe = scriptRangeFor(targetLang);
+    if (targetScriptRe && text.trim().length > 1 && !targetScriptRe.test(out)) return true;
+    return false;
+  };
+  const cached = await getCachedTranslation(text, targetLang, sourceLang);
+  if (cached && !isBadFreeResult(cached)) return cached;
+  const providers = [translateViaGoogle, translateViaMyMemory, translateViaLingva, translateViaLibre];
+  for (const provider of providers) {
+    try {
+      const result = await provider(text, targetLang, sourceLang);
+      if (result && result.trim()) {
+        if (isBadFreeResult(result)) {
+          console.warn(`ترجمه با ${provider.name} دست‌نخورده/رسم‌الخطِ غلط برگشت (echo)، رفتن سراغ سرویس بعدی`);
+          continue;
+        }
+        const finalResult = aiSettings && (forceVerify || looksLikelyMistranslated(text, result, targetLang, sourceLang)) ? await verifyTranslationWithAI(text, targetLang, result, aiSettings) : result;
+        setCachedTranslation(text, targetLang, sourceLang, finalResult);
+        return finalResult;
+      }
+    } catch (error) {
+      console.warn(`ترجمه با ${provider.name} ناموفق بود، رفتن سراغ سرویس بعدی:`, error?.message || error);
+    }
+  }
+  if (aiSettings) {
+    try {
+      const result = await translateViaAI(text, targetLang, sourceLang, aiSettings);
+      if (result && result.trim()) {
+        setCachedTranslation(text, targetLang, sourceLang, result);
+        return result;
+      }
+    } catch (error) {
+      console.warn("ترجمه با بک‌اند AI هم ناموفق بود:", error?.message || error);
+    }
+  }
+  console.error("همه‌ی سرویس‌های ترجمه شکست خوردند؛ متن اصلی برگردانده شد.");
+  return text;
+}
+async function translateWithGoogle(text, targetLang) {
+  return translateFree(text, targetLang, "auto");
+}
+const ALIGN_L = "⟦";
+const ALIGN_R = "⟧";
+function findWholeWordIndex(haystack, needle) {
+  if (!haystack || !needle) return -1;
+  const h = haystack.toLowerCase();
+  const n = needle.toLowerCase();
+  const isWordChar = (ch) => !!ch && /[\p{L}\p{N}]/u.test(ch);
+  let from = 0;
+  while (true) {
+    const idx = h.indexOf(n, from);
+    if (idx === -1) return -1;
+    const before = idx > 0 ? h[idx - 1] : "";
+    const after = idx + n.length < h.length ? h[idx + n.length] : "";
+    if (!isWordChar(before) && !isWordChar(after)) return idx;
+    from = idx + 1;
+  }
+}
+async function translateWordInContext(sentenceText, word, sourceLang, targetLang) {
+  if (!sentenceText || !word) return null;
+  let idx = findWholeWordIndex(sentenceText, word);
+  if (idx === -1) idx = sentenceText.toLowerCase().indexOf(word.toLowerCase());
+  if (idx === -1) return null;
+  const wrapped = sentenceText.slice(0, idx) + ALIGN_L + sentenceText.slice(idx, idx + word.length) + ALIGN_R + sentenceText.slice(idx + word.length);
+  try {
+    const translated = await translateFree(wrapped, targetLang, sourceLang);
+    if (!translated) return null;
+    const re = new RegExp(`${ALIGN_L}([^${ALIGN_R}]*)${ALIGN_R}`);
+    const m = translated.match(re);
+    if (m && m[1] && m[1].trim()) return m[1].trim();
+  } catch {
+  }
+  return null;
+}
+const colors = {
+  paper: "var(--c-paper)",
+  paperDark: "var(--c-paperDark)",
+  ink: "var(--c-ink)",
+  inkSoft: "var(--c-inkSoft)",
+  gold: "var(--c-gold)",
+  goldSoft: "var(--c-goldSoft)",
+  teal: "var(--c-teal)",
+  rose: "var(--c-rose)",
+  cardBorder: "var(--c-cardBorder)"
+};
+const mainTextColor = "#0B1220";
+const translationColor = "#0F5C34";
+const READ_MARKER_COLOR = "#FFD54F";
+const HIGHLIGHT_COLOR_PALETTE = [
+  "#F7E98E",
+  // زرد کم‌رنگ
+  "#FBD9AE",
+  // هلویی
+  "#F7C48C",
+  // نارنجیِ ملایم
+  "#F1968E",
+  // صورتی‌مرجانی
+  "#DCE07E",
+  // زیتونی روشن
+  "#9AD98A",
+  // سبز کم‌رنگ
+  "#8DE0BE",
+  // فیروزه‌ای/نعنایی
+  "#A6DEE9",
+  // آبیِ خیلی روشن
+  "#A9C7F0",
+  // آبی کم‌رنگ
+  "#C7B6EC",
+  // بنفشِ کم‌رنگ
+  "#F0AEEC",
+  // بنفشیِ صورتی
+  "#F4AAC0"
+  // صورتی
+];
+const PRACTICE_PANEL_BORDER = colors.goldSoft;
+const APP_THEMES = {
+  vintage: {
+    label: { fa: "کلاسیک (پیش‌فرض)", en: "Classic (default)" },
+    swatch: "#B8862B",
+    values: { paper: "#F1E8D6", paperDark: "#E4D8BE", ink: "#1C2541", inkSoft: "#3A4566", gold: "#B8862B", goldSoft: "#DDBB77", teal: "#2F6F62", rose: "#9E3B3B", cardBorder: "#C9BB98" }
+  },
+  ocean: {
+    label: { fa: "اقیانوسی", en: "Ocean" },
+    swatch: "#1C7C93",
+    values: { paper: "#EAF4F4", paperDark: "#D7E9EA", ink: "#0F2A38", inkSoft: "#2A4E5C", gold: "#1C7C93", goldSoft: "#8FCBD8", teal: "#1C7C93", rose: "#B4533F", cardBorder: "#BBD6D8" }
+  },
+  forest: {
+    label: { fa: "جنگلی", en: "Forest" },
+    swatch: "#5C7A3A",
+    values: { paper: "#F1F0E4", paperDark: "#E2E0CC", ink: "#26321D", inkSoft: "#41522C", gold: "#8A6D2F", goldSoft: "#C9B77E", teal: "#5C7A3A", rose: "#9C4A3A", cardBorder: "#CBCBA8" }
+  },
+  rosewine: {
+    label: { fa: "گلبهی", en: "Rosewine" },
+    swatch: "#A34960",
+    values: { paper: "#F7EAEA", paperDark: "#EBD6D8", ink: "#3A1F26", inkSoft: "#5C3540", gold: "#A34960", goldSoft: "#E3AFBC", teal: "#6E5A78", rose: "#A34960", cardBorder: "#DDBFC4" }
+  },
+  midnight: {
+    label: { fa: "تیره (شب)", en: "Midnight" },
+    swatch: "#D9A441",
+    values: { paper: "#1B1F2A", paperDark: "#262C3B", ink: "#F1E8D6", inkSoft: "#C9C2AE", gold: "#D9A441", goldSoft: "#8A6A2C", teal: "#5FA997", rose: "#D9776A", cardBorder: "#3A4258" }
+  },
+  sunset: {
+    label: { fa: "غروب", en: "Sunset" },
+    swatch: "#D9752E",
+    values: { paper: "#FCEFE2", paperDark: "#F5DFC6", ink: "#3A2313", inkSoft: "#6B4A2C", gold: "#D9752E", goldSoft: "#F0B784", teal: "#4E7A6E", rose: "#B23A3A", cardBorder: "#E6C79E" }
+  },
+  lavender: {
+    label: { fa: "بنفش (اسطوخودوس)", en: "Lavender" },
+    swatch: "#7A5FA8",
+    values: { paper: "#F1EEF8", paperDark: "#E1DAF0", ink: "#2C2140", inkSoft: "#4C3E68", gold: "#7A5FA8", goldSoft: "#C5B3E3", teal: "#4C7A8A", rose: "#A8517F", cardBorder: "#D2C5EA" }
+  },
+  mint: {
+    label: { fa: "نعنایی", en: "Mint" },
+    swatch: "#2E9E7B",
+    values: { paper: "#EAF7F1", paperDark: "#D6EEE2", ink: "#12332A", inkSoft: "#2E5548", gold: "#2E9E7B", goldSoft: "#9BDCC3", teal: "#2E9E7B", rose: "#B25353", cardBorder: "#BEE0D0" }
+  }
+};
+const APP_FONTS = {
+  default: { label: { fa: "پیش‌فرض", en: "Default" }, fa: "'Vazirmatn', sans-serif", latin: "'Lora', serif" },
+  modern: { label: { fa: "مدرن", en: "Modern" }, fa: "'Vazirmatn', sans-serif", latin: "'Inter', sans-serif" },
+  classic: { label: { fa: "کلاسیک", en: "Classic" }, fa: "'Noto Naskh Arabic', serif", latin: "'Merriweather', serif" },
+  elegant: { label: { fa: "شیک", en: "Elegant" }, fa: "'Aref Ruqaa', serif", latin: "'Playfair Display', serif" },
+  rounded: { label: { fa: "گرد", en: "Rounded" }, fa: "'Noto Kufi Arabic', sans-serif", latin: "'Poppins', sans-serif" },
+  warm: { label: { fa: "گرم", en: "Warm" }, fa: "'Noto Sans Arabic', sans-serif", latin: "'Nunito', sans-serif" }
+};
+const APP_FONT_SIZES = {
+  small: { label: { fa: "کوچک", en: "Small" }, zoom: 0.9 },
+  medium: { label: { fa: "متوسط (پیش‌فرض)", en: "Medium (default)" }, zoom: 1 },
+  large: { label: { fa: "بزرگ", en: "Large" }, zoom: 1.15 },
+  xlarge: { label: { fa: "خیلی بزرگ", en: "Extra large" }, zoom: 1.3 }
+};
+const APP_LANGUAGES = {
+  fa: { label: "فارسی", dir: "rtl" },
+  en: { label: "English", dir: "ltr" }
+};
+const UI_STRINGS = {
+  settingsTitle: { fa: "تنظیمات", en: "Settings" },
+  account: { fa: "حساب کاربری", en: "Account" },
+  guestUser: { fa: "کاربر", en: "User" },
+  logout: { fa: "خروج از حساب", en: "Log out" },
+  themeSectionTitle: { fa: "رنگ و تم", en: "Color & theme" },
+  fontSectionTitle: { fa: "نوع فونت", en: "Font style" },
+  fontSizeTitle: { fa: "اندازه‌ی فونت", en: "Font size" },
+  languageSectionTitle: { fa: "زبان نرم‌افزار", en: "App language" },
+  offlineDownload: { fa: "دانلود آفلاین لغات", en: "Download offline words" },
+  calendarSectionTitle: { fa: "تقویم تاریخ‌ها", en: "Date calendar" },
+  calendarJalali: { fa: "شمسی", en: "Persian (Jalali)" },
+  calendarGregorian: { fa: "میلادی", en: "Gregorian" },
+  calendarBoth: { fa: "هر دو", en: "Both" },
+  tabConversations: { fa: "مکالمات روزمره", en: "Daily conversations" },
+  tabStory: { fa: "داستان‌ساز", en: "Story generator" },
+  tabSaved: { fa: "لغات ذخیره‌شده", en: "Saved words" },
+  tabGrammar: { fa: "گرامر", en: "Grammar" },
+  tabWords: { fa: "لغات", en: "Words" },
+  tabFavorites: { fa: "علاقه‌مندی‌ها", en: "Favorites" },
+  tabVocab: { fa: "لغات و اخبار", en: "Vocabulary & news" },
+  tabSlang: { fa: "اسلنگ", en: "Slang" },
+  tabDictionary: { fa: "دیکشنری", en: "Dictionary" },
+  tabReview: { fa: "مرور (جعبه لایتنر)", en: "Review (Leitner box)" },
+  // Login / signup screen
+  loginTitle: { fa: "ورود به کتاب مکالمه", en: "Sign in to Phrasebook" },
+  signupTitle: { fa: "ساخت حساب کاربری", en: "Create an account" },
+  loginSubtitle: { fa: "برای ذخیره‌ی پیشرفت و واژه‌هایتان وارد شوید", en: "Sign in to save your progress and words" },
+  continueWithGoogle: { fa: "ورود با حساب گوگل", en: "Continue with Google" },
+  orWithEmail: { fa: "یا با ایمیل", en: "or with email" },
+  namePlaceholder: { fa: "نام شما", en: "Your name" },
+  emailPlaceholder: { fa: "ایمیل", en: "Email" },
+  passwordPlaceholder: { fa: "رمز عبور", en: "Password" },
+  signupSubmit: { fa: "ساخت حساب", en: "Create account" },
+  loginSubmit: { fa: "ورود", en: "Sign in" },
+  haveAccount: { fa: "حساب دارید؟", en: "Already have an account?" },
+  noAccount: { fa: "حساب ندارید؟", en: "Don't have an account?" },
+  goToLogin: { fa: "وارد شوید", en: "Sign in" },
+  goToSignup: { fa: "بسازید", en: "Create one" },
+  fillAllFields: { fa: "همه‌ی فیلدها را پر کنید.", en: "Please fill in all fields." },
+  googleSignInFailed: { fa: "ورود با گوگل ناموفق بود: ", en: "Google sign-in failed: " },
+  tryAgain: { fa: "دوباره تلاش کنید.", en: "Please try again." },
+  verifyEmailSent: { fa: "یک ایمیل تایید برایتان فرستاده شد. لطفاً ایمیلتان را باز کنید و لینک را بزنید، بعد وارد شوید.", en: "A verification email has been sent. Please open it and click the link, then sign in." },
+  emailAlreadyRegistered: { fa: "این ایمیل قبلاً ثبت شده. وارد شوید.", en: "This email is already registered. Please sign in." },
+  invalidCredentials: { fa: "ایمیل یا رمز عبور اشتباه است.", en: "Incorrect email or password." },
+  emailNotConfirmed: { fa: "هنوز ایمیلتان را تایید نکرده‌اید — صندوق ورودی را چک کنید.", en: "Your email isn't verified yet — please check your inbox." },
+  genericError: { fa: "خطایی رخ داد. دوباره تلاش کنید.", en: "Something went wrong. Please try again." },
+  // زبان‌های خواندنِ بلند (Settings)
+  voiceSectionTitle: { fa: "زبان‌های خواندن با صدای بلند", en: "Read-aloud languages" },
+  installLanguagePacks: { fa: "نصب بسته‌های زبان", en: "Install language packages" },
+  installLanguagePacksHint: {
+    fa: "برای اینکه گوشی بتواند زبان‌های بیشتری را با صدای بلند بخواند، از تنظیمات گوشی بسته‌ی صوتی همان زبان را نصب کنید.",
+    en: "To let your phone read more languages aloud, install that language's voice package from your phone's settings."
+  },
+  voiceNotInstalled: { fa: "روی این گوشی نصب نیست", en: "Not installed on this device" },
+  voiceInstalledCount: { fa: "صدای نصب‌شده", en: "installed voice(s)" },
+  voicePickLabel: { fa: "انتخاب صدا", en: "Choose voice" },
+  voiceAutoOption: { fa: "خودکار (پیشنهاد نرم‌افزار)", en: "Automatic (app default)" },
+  persianVoiceNote: {
+    fa: "فارسی به‌صورت خودکار و رایگان از اینترنت خوانده می‌شود؛ نیازی به نصب چیزی نیست.",
+    en: "Persian is read automatically over the internet for free; nothing to install."
+  },
+  androidInstallSteps: {
+    fa: "اگر دکمه‌ی بالا تنظیمات را باز نکرد، به این مسیر بروید: تنظیمات گوشی ⟵ زبان و ورودی ⟵ تبدیل متن به گفتار ⟵ موتور گوگل ⟵ نصب داده‌ی صوتی زبان‌ها",
+    en: "If the button above doesn't open settings, go to: Phone Settings ⟶ Language & input ⟶ Text-to-speech output ⟶ Google engine ⟶ Install voice data"
+  },
+  iosInstallSteps: {
+    fa: "به این مسیر بروید: تنظیمات آیفون ⟵ دسترس‌پذیری ⟵ محتوای گفتاری ⟵ صداها، و زبان مورد نظر را دانلود کنید.",
+    en: "Go to: iPhone Settings ⟶ Accessibility ⟶ Spoken Content ⟶ Voices, and download the language you need."
+  },
+  desktopInstallSteps: {
+    fa: "ویندوز: تنظیمات ⟵ زمان و زبان ⟵ گفتار ⟵ مدیریت صداها. مک: تنظیمات سیستم ⟵ دسترس‌پذیری ⟵ محتوای گفتاری ⟵ مدیریت صداها.",
+    en: "Windows: Settings ⟶ Time & language ⟶ Speech ⟶ Manage voices. Mac: System Settings ⟶ Accessibility ⟶ Spoken Content ⟶ Manage Voices."
+  },
+  searchWordsPlaceholder: { fa: "جستجوی لغت...", en: "Search words..." },
+  searchConversationsPlaceholder: { fa: "جستجوی مکالمه...", en: "Search conversations..." },
+  searchPhrasesPlaceholder: { fa: "جستجوی عبارت...", en: "Search phrases..." },
+  noWordsForSearch: { fa: "چیزی با این جستجو پیدا نشد.", en: "Nothing found for this search." },
+  noWordsToShow: { fa: "چیزی برای نمایش نیست.", en: "Nothing to show." },
+  noWordsInList: { fa: "لغتی برای نمایش نیست.", en: "No words to show." },
+  personalBadge: { fa: "شخصی", en: "Custom" },
+  addToFavoritesAria: { fa: "افزودن به علاقه‌مندی‌ها", en: "Add to favorites" },
+  noFavoritesYet: {
+    fa: "هنوز چیزی به علاقه‌مندی‌ها اضافه نکردی. روی ⭐ کنار هر عبارت یا لغت بزن.",
+    en: "You haven't added anything to favorites yet. Tap ⭐ next to any phrase or word."
+  },
+  favoritesWordsHeading: { fa: "لغات", en: "Words" },
+  noPhrasesForSearch: { fa: "چیزی با این جستجو پیدا نشد.", en: "Nothing found for this search." },
+  noPhrasesToShow: { fa: "چیزی برای نمایش نیست.", en: "Nothing to show." },
+  // پنلِ لغاتِ ذخیره‌شده
+  savedWordsTitle: { fa: "لغات ذخیره‌شده", en: "Saved words" },
+  savedWordsHint: {
+    fa: "لغاتی که با دکمه‌ی «ذخیره برای داستان بعدی» نشون کردی، یا موقع ساختن هر داستانی انتخاب کردی، همه‌شون اینجا جمع می‌شن. هرکدوم رو خواستی بزن تا انتخاب بشه، بعد «افزودن به داستان‌ساز» رو بزن.",
+    en: 'Words you marked with "Save for next story", or picked while building a story, all collect here. Tap any to select it, then hit "Add to Story Builder".'
+  },
+  searchSavedWords: { fa: "جستجو در لغات ذخیره‌شده...", en: "Search saved words..." },
+  clearSearchAria: { fa: "پاک کردن جستجو", en: "Clear search" },
+  deselectAll: { fa: "لغو انتخاب همه", en: "Deselect all" },
+  selectAll: { fa: "انتخاب همه", en: "Select all" },
+  clearAllWords: { fa: "پاک کردن همه", en: "Clear all" },
+  deleteNSelected: { fa: "حذف {n} انتخاب‌شده", en: "Delete {n} selected" },
+  copyToDictionary: { fa: "کپی در دیکشنری", en: "Copy to dictionary" },
+  viewInDictionary: { fa: "مشاهده در دیکشنری", en: "View in dictionary" },
+  noSavedWordsYet: {
+    fa: "هنوز لغتی ذخیره نکردی. روی هر کلمه‌ی داخل متن‌ها بزن و از پاپ‌آپش «ذخیره برای داستان بعدی» رو انتخاب کن، یا موقع ساخت داستان لغت انتخاب کن.",
+    en: `You haven't saved any words yet. Tap any word in the texts and choose "Save for next story" from its popup, or pick words while building a story.`
+  },
+  noSavedWordsForSearch: { fa: "با این جستجو لغتی پیدا نشد.", en: "No words found for this search." },
+  addNWordsToStory: { fa: "افزودن {n} لغت به داستان‌ساز", en: "Add {n} word(s) to Story Builder" },
+  addToStoryBuilder: { fa: "افزودن به داستان‌ساز", en: "Add to Story Builder" },
+  longPressToJump: { fa: "نگه‌دار تا به منبعِ این لغت بری", en: "Press and hold to jump to this word's source" },
+  deletePermanently: { fa: "حذف دائمی", en: "Delete permanently" },
+  confirmDeleteSelectedWords: { fa: "حذف دائمی {n} لغت انتخاب‌شده؟", en: "Permanently delete {n} selected word(s)?" },
+  wordsDeletedMsg: { fa: "{n} لغت حذف شد", en: "{n} word(s) deleted" },
+  confirmClearFiltered: { fa: "{n} لغتِ در حال نمایش برای همیشه پاک بشن؟", en: "Permanently clear the {n} word(s) currently shown?" },
+  confirmClearAllSaved: { fa: "همه‌ی {n} لغت ذخیره‌شده برای همیشه پاک بشن؟", en: "Permanently clear all {n} saved word(s)?" },
+  wordsClearedMsg: { fa: "{n} لغت پاک شد", en: "{n} word(s) cleared" },
+  addedToDictBoth: { fa: "{added} لغت به دیکشنری اضافه شد ({skipped} تا قبلاً بود)", en: "{added} word(s) added to dictionary ({skipped} already there)" },
+  addedToDictOnly: { fa: "{added} لغت به دیکشنری اضافه شد", en: "{added} word(s) added to dictionary" },
+  allAlreadyInDict: { fa: "همه‌ی لغات انتخاب‌شده قبلاً توی دیکشنری بودن", en: "All selected words were already in the dictionary" },
+  jumpedToOriginMsg: { fa: "رفتیم به همون بخشی که «{word}» ازش ذخیره شده بود", en: 'Jumped to where "{word}" was saved from' },
+  jumpToOriginUnknownMsg: { fa: "منبعِ این لغت مشخص نیست (احتمالاً قبل از این قابلیت ذخیره شده)", en: "This word's source isn't known (likely saved before this feature existed)" }
+};
+function tr(key, uiLang) {
+  const entry = UI_STRINGS[key];
+  if (!entry) return key;
+  return entry[uiLang] || entry.fa;
+}
+function trf(key, uiLang, values) {
+  let s = tr(key, uiLang);
+  Object.entries(values || {}).forEach(([k, v]) => {
+    s = s.replace(new RegExp(`\\{${k}\\}`, "g"), v);
+  });
+  return s;
+}
+const fontFa = "var(--font-fa)";
+const fontLatin = "var(--font-latin)";
+const STORAGE_KEY = "phrasebook-state-v1";
+const APP_PREFS_KEY = "phrasebook-app-prefs";
+const CALENDAR_SYSTEMS = ["jalali", "gregorian", "both"];
+function loadAppPrefs() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(APP_PREFS_KEY) || "{}");
+    return {
+      theme: APP_THEMES[parsed.theme] ? parsed.theme : "vintage",
+      font: APP_FONTS[parsed.font] ? parsed.font : "default",
+      fontSize: APP_FONT_SIZES[parsed.fontSize] ? parsed.fontSize : "medium",
+      uiLang: APP_LANGUAGES[parsed.uiLang] ? parsed.uiLang : "fa",
+      calendarSystem: CALENDAR_SYSTEMS.includes(parsed.calendarSystem) ? parsed.calendarSystem : "jalali",
+      highlightColor: HIGHLIGHT_COLOR_PALETTE.includes(parsed.highlightColor) ? parsed.highlightColor : HIGHLIGHT_COLOR_PALETTE[0]
+    };
+  } catch (e) {
+    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali", highlightColor: HIGHLIGHT_COLOR_PALETTE[0] };
+  }
+}
+function saveAppPrefs(prefs) {
+  try {
+    localStorage.setItem(APP_PREFS_KEY, JSON.stringify(prefs));
+  } catch (e) {
+  }
+}
+const PERSIAN_MONTHS = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
+const FA_DIGITS = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
+function toFaDigits(str) {
+  return String(str).replace(/[0-9]/g, (d) => FA_DIGITS[+d]);
+}
+function gregorianToJalali(gy, gm, gd) {
+  const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+  let jy;
+  if (gy > 1600) {
+    jy = 979;
+    gy -= 1600;
+  } else {
+    jy = 0;
+    gy -= 621;
+  }
+  const gy2 = gm > 2 ? gy + 1 : gy;
+  let days = 365 * gy + parseInt((gy2 + 3) / 4) - parseInt((gy2 + 99) / 100) + parseInt((gy2 + 399) / 400) - 80 + gd + g_d_m[gm - 1];
+  jy += 33 * parseInt(days / 12053);
+  days %= 12053;
+  jy += 4 * parseInt(days / 1461);
+  days %= 1461;
+  if (days > 365) {
+    jy += parseInt((days - 1) / 365);
+    days = (days - 1) % 365;
+  }
+  let jm, jd;
+  if (days < 186) {
+    jm = 1 + parseInt(days / 31);
+    jd = 1 + days % 31;
+  } else {
+    jm = 7 + parseInt((days - 186) / 30);
+    jd = 1 + (days - 186) % 30;
+  }
+  return [jy, jm, jd];
+}
+function formatJalaliDateTime(date) {
+  const [jy, jm, jd] = gregorianToJalali(date.getFullYear(), date.getMonth() + 1, date.getDate());
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  const jmStr = String(jm).padStart(2, "0");
+  const jdStr = String(jd).padStart(2, "0");
+  return toFaDigits(`${jy}/${jmStr}/${jdStr}     ${hh}:${mm}`);
+}
+function formatGregorianDateTime(date) {
+  return date.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+function formatSavedDate(iso, calendarSystem) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return "";
+  if (calendarSystem === "gregorian") return formatGregorianDateTime(date);
+  if (calendarSystem === "both") return `${formatJalaliDateTime(date)} — ${formatGregorianDateTime(date)}`;
+  return formatJalaliDateTime(date);
+}
+const SAVED_STORIES_SORT_OPTIONS = [
+  { key: "newest", label: "جدیدترین تاریخ" },
+  { key: "oldest", label: "قدیمی‌ترین تاریخ" },
+  { key: "wordsDesc", label: "بیشترین تعداد کلمه" },
+  { key: "wordsAsc", label: "کمترین تعداد کلمه" },
+  { key: "nameAsc", label: "نام: الف ← ی" },
+  { key: "nameDesc", label: "نام: ی ← الف" }
+];
+function getStoryWordCount(entry) {
+  const paragraphs = entry?.paragraphs || [];
+  let count = 0;
+  for (const p of paragraphs) {
+    for (const s of p?.sentences || []) {
+      const text = (s?.text || "").trim();
+      if (text) count += text.split(/\s+/).filter(Boolean).length;
+    }
+  }
+  return count;
+}
+function getStoryNameKey(entry) {
+  return (entry?.selectedWords || []).join("، ").trim();
+}
+function sortSavedStories(list, sortKey) {
+  const arr = [...list];
+  switch (sortKey) {
+    case "oldest":
+      return arr.sort((a, b) => new Date(a.savedAt || 0) - new Date(b.savedAt || 0));
+    case "wordsDesc":
+      return arr.sort((a, b) => getStoryWordCount(b) - getStoryWordCount(a));
+    case "wordsAsc":
+      return arr.sort((a, b) => getStoryWordCount(a) - getStoryWordCount(b));
+    case "nameAsc":
+      return arr.sort((a, b) => getStoryNameKey(a).localeCompare(getStoryNameKey(b), "fa"));
+    case "nameDesc":
+      return arr.sort((a, b) => getStoryNameKey(b).localeCompare(getStoryNameKey(a), "fa"));
+    case "newest":
+    default:
+      return arr.sort((a, b) => new Date(b.savedAt || 0) - new Date(a.savedAt || 0));
+  }
+}
+function SavedStoriesSortMenu({ sortKey, setSortKey }) {
+  const [open, setOpen] = useState(false);
+  const current = SAVED_STORIES_SORT_OPTIONS.find((o) => o.key === sortKey) || SAVED_STORIES_SORT_OPTIONS[0];
+  return /* @__PURE__ */ React.createElement("div", { style: { position: "relative", flexShrink: 0 } }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => setOpen((v) => !v),
+      style: {
+        fontFamily: fontFa,
+        fontSize: 12,
+        fontWeight: 600,
+        padding: "4px 12px",
+        borderRadius: 14,
+        border: `1px solid ${colors.cardBorder}`,
+        backgroundColor: "white",
+        color: colors.ink,
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        whiteSpace: "nowrap"
+      }
+    },
+    "⇅ مرتب‌سازی: ",
+    current.label
+  ), open && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      onClick: () => setOpen(false),
+      style: { position: "fixed", inset: 0, zIndex: 40 }
+    }
+  ), /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        position: "absolute",
+        top: "calc(100% + 6px)",
+        right: 0,
+        zIndex: 41,
+        backgroundColor: "white",
+        border: `1px solid ${colors.cardBorder}`,
+        borderRadius: 12,
+        boxShadow: "0 6px 20px rgba(0,0,0,0.12)",
+        minWidth: 180,
+        overflow: "hidden"
+      }
+    },
+    SAVED_STORIES_SORT_OPTIONS.map((opt) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: opt.key,
+        onClick: () => {
+          setSortKey(opt.key);
+          setOpen(false);
+        },
+        style: {
+          display: "block",
+          width: "100%",
+          textAlign: "right",
+          fontFamily: fontFa,
+          fontSize: 13,
+          fontWeight: opt.key === sortKey ? 700 : 500,
+          padding: "9px 14px",
+          border: "none",
+          backgroundColor: opt.key === sortKey ? colors.goldSoft : "white",
+          color: colors.ink
+        }
+      },
+      opt.label
+    ))
+  )));
+}
+const storage = {
+  async get(key) {
+    try {
+      const v = window.localStorage.getItem(key);
+      return v == null ? null : { value: v };
+    } catch (e) {
+      return null;
+    }
+  },
+  async set(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+      return { value };
+    } catch (e) {
+      return null;
+    }
+  }
+};
+const FIREBASE_CONFIG = {
+  apiKey: "YOUR_FIREBASE_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+const FIREBASE_ENABLED = !FIREBASE_CONFIG.apiKey.startsWith("YOUR_");
+let fbAuth = null;
+let fbDb = null;
+let fbGoogleProvider = null;
+let fbMod = null;
+async function ensureFirebase() {
+  if (!FIREBASE_ENABLED) return null;
+  if (fbAuth && fbDb) return { auth: fbAuth, db: fbDb };
+  const [{ initializeApp }, authMod, storeMod] = await Promise.all([
+    import("firebase/app"),
+    import("firebase/auth"),
+    import("firebase/firestore")
+  ]);
+  fbMod = { auth: authMod, firestore: storeMod };
+  const app = initializeApp(FIREBASE_CONFIG);
+  fbAuth = authMod.getAuth(app);
+  fbDb = storeMod.getFirestore(app);
+  fbGoogleProvider = new authMod.GoogleAuthProvider();
+  return { auth: fbAuth, db: fbDb };
+}
+async function firebaseSignInWithGoogle() {
+  const { auth } = await ensureFirebase();
+  const cred = await fbMod.auth.signInWithPopup(auth, fbGoogleProvider);
+  const u = cred.user;
+  return { uid: u.uid, email: u.email, name: u.displayName || u.email, picture: u.photoURL || "", provider: "google" };
+}
+async function firebaseSignOut() {
+  if (!fbAuth) return;
+  try {
+    await fbMod.auth.signOut(fbAuth);
+  } catch {
+  }
+}
+async function firestoreLoadState(uid) {
+  if (!FIREBASE_ENABLED || !uid) return null;
+  try {
+    const { db } = await ensureFirebase();
+    const ref = fbMod.firestore.doc(db, "users", uid);
+    const snap = await fbMod.firestore.getDoc(ref);
+    return snap.exists() ? snap.data() : null;
+  } catch (e) {
+    return null;
+  }
+}
+async function firestoreSaveState(uid, data) {
+  if (!FIREBASE_ENABLED || !uid) return;
+  try {
+    const { db } = await ensureFirebase();
+    const ref = fbMod.firestore.doc(db, "users", uid);
+    await fbMod.firestore.setDoc(ref, { ...data, updatedAt: Date.now() }, { merge: true });
+  } catch (e) {
+  }
+}
+const COMMUNITY_SIMILARITY_POOL = 40;
+function communityWordOverlapScore(wordsA, wordsB) {
+  const a = new Set((wordsA || []).map((w) => normalizeWord(w)).filter(Boolean));
+  const b = new Set((wordsB || []).map((w) => normalizeWord(w)).filter(Boolean));
+  if (!a.size || !b.size) return 0;
+  let intersection = 0;
+  a.forEach((w) => {
+    if (b.has(w)) intersection += 1;
+  });
+  const union = (/* @__PURE__ */ new Set([...a, ...b])).size;
+  return union ? intersection / union : 0;
+}
+async function communityFindSimilarStory({ langCode, level, contentType, storyLength, words }) {
+  try {
+    const { data, error } = await supabase.from("community_stories").select("*").eq("lang_code", langCode).eq("level", level).order("created_at", { ascending: false }).limit(COMMUNITY_SIMILARITY_POOL);
+    if (error || !data) return null;
+    let best = null;
+    data.forEach((row) => {
+      const overlap = communityWordOverlapScore(words, row.words);
+      if (overlap < 0.4) return;
+      let score = overlap * 0.75;
+      if (row.content_type === contentType) score += 0.15;
+      if (row.story_length === storyLength) score += 0.1;
+      if (!best || score > best.score) best = { ...row, score, overlap };
+    });
+    if (best && best.score >= 0.55) return best;
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+async function communityPublishStory({ langCode, level, contentType, storyLength, words, paragraphs, questions, uid }) {
+  try {
+    await supabase.from("community_stories").insert({
+      lang_code: langCode,
+      level,
+      content_type: contentType,
+      story_length: storyLength,
+      words,
+      paragraphs,
+      questions,
+      author_uid: uid || null
+    });
+  } catch (e) {
+  }
+}
+async function communityListStories({ langCode, level, sort, limitN }) {
+  try {
+    let q = supabase.from("community_stories").select("*").eq("lang_code", langCode);
+    if (level && level !== "all") q = q.eq("level", level);
+    q = q.order(sort === "popular" ? "views" : "created_at", { ascending: false }).limit(limitN || 20);
+    const { data, error } = await q;
+    return error || !data ? [] : data;
+  } catch (e) {
+    return [];
+  }
+}
+async function communityBumpStat(id, field) {
+  if (!id) return;
+  try {
+    await supabase.rpc("bump_community_story_stat", { story_id: id, stat_field: field });
+  } catch (e) {
+  }
+}
+const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
+const POS_FA = {
+  noun: "اسم",
+  verb: "فعل",
+  adjective: "صفت",
+  adverb: "قید",
+  preposition: "حرف اضافه",
+  pronoun: "ضمیر",
+  conjunction: "حرف ربط",
+  article: "حرف تعریف",
+  interjection: "صوت",
+  numeral: "عدد",
+  auxiliary: "فعل کمکی",
+  other: "سایر",
+  determiner: "حرف تعیین‌کننده",
+  exclamation: "صوت",
+  "modal verb": "فعل وجهی",
+  number: "عدد",
+  "ordinal number": "عدد ترتیبی",
+  "indefinite article": "حرف تعریف نکره",
+  "definite article": "حرف تعریف معرفه",
+  "linking verb": "فعل ربطی",
+  "infinitive marker": "نشانه‌ی مصدر",
+  idiom: "اصطلاح",
+  slang: "اصطلاح عامیانه (مدرن)"
+};
+const POS_EN = {
+  noun: "noun",
+  verb: "verb",
+  adjective: "adjective",
+  adverb: "adverb",
+  preposition: "preposition",
+  pronoun: "pronoun",
+  conjunction: "conjunction",
+  article: "article",
+  interjection: "interjection",
+  numeral: "numeral",
+  auxiliary: "auxiliary verb",
+  other: "other",
+  determiner: "determiner",
+  exclamation: "exclamation",
+  "modal verb": "modal verb",
+  number: "number",
+  "ordinal number": "ordinal number",
+  "indefinite article": "indefinite article",
+  "definite article": "definite article",
+  "linking verb": "linking verb",
+  "infinitive marker": "infinitive marker",
+  idiom: "idiom",
+  slang: "slang"
+};
+function posLabel(pos, uiLang) {
+  const table = uiLang === "en" ? POS_EN : POS_FA;
+  return table[pos] || pos;
+}
+const TTS_LOCALE = {
+  fa: "fa-IR",
+  en: "en-US",
+  de: "de-DE",
+  es: "es-ES",
+  fr: "fr-FR",
+  ar: "ar-SA",
+  tr: "tr-TR",
+  zh: "zh-CN",
+  ru: "ru-RU",
+  it: "it-IT",
+  ko: "ko-KR",
+  ja: "ja-JP",
+  hi: "hi-IN",
+  ga: "ga-IE",
+  uk: "uk-UA"
+};
+const EDGE_TTS_VOICE = {
+  fa: "fa-IR-DilaraNeural",
+  en: "en-US-AriaNeural",
+  de: "de-DE-KatjaNeural",
+  es: "es-ES-ElviraNeural",
+  fr: "fr-FR-DeniseNeural",
+  ar: "ar-SA-ZariyahNeural",
+  tr: "tr-TR-EmelNeural",
+  zh: "zh-CN-XiaoxiaoNeural",
+  ru: "ru-RU-SvetlanaNeural",
+  it: "it-IT-ElsaNeural",
+  ko: "ko-KR-SunHiNeural",
+  ja: "ja-JP-NanamiNeural",
+  hi: "hi-IN-SwaraNeural",
+  ga: "ga-IE-OrlaNeural",
+  uk: "uk-UA-PolinaNeural"
+};
+function downloadTextFile(filename, content, mime = "text/markdown;charset=utf-8") {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function conversationToMarkdown(nativeLang, targetOrder) {
+  const langs = [nativeLang, ...targetOrder.filter((c) => c !== nativeLang)];
+  const langLabels = langs.map((c) => LANGUAGES.find((l) => l.code === c)?.label || c);
+  let md = `# کتاب مکالمه — عبارات
+
+زبان‌ها: ${langLabels.join(" / ")}
+
+`;
+  const byCategory = {};
+  conversation.forEach((p) => {
+    if (!byCategory[p.category]) byCategory[p.category] = [];
+    byCategory[p.category].push(p);
+  });
+  Object.entries(byCategory).forEach(([cat, items]) => {
+    md += `## ${CATEGORIES[cat] || cat}
+
+`;
+    items.forEach((p) => {
+      const parts = langs.map((l) => p.t[l]).filter(Boolean);
+      md += `- **[${p.level}]** ${parts.join(" — ")}
+`;
+    });
+    md += `
+`;
+  });
+  return md;
+}
+function vocabToMarkdown() {
+  let md = `# کتاب مکالمه — دیکشنری
+
+`;
+  VOCAB.forEach((v) => {
+    md += `- **${v.t.en || v.t.fa}** _(${v.level}, ${POS_FA[v.pos] || v.pos})_ — ${v.meaningFa}
+`;
+  });
+  return md;
+}
+const speechController = (() => {
+  let fullText = "";
+  let chunks = [];
+  let chunkIndex = 0;
+  let key = null;
+  let locale = "en-US";
+  let status = "idle";
+  let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1;
+  let mode = "local";
+  let ttsError = null;
+  let globalRepeatSetting = (() => {
+    const saved = localStorage.getItem("phrasebook-tts-repeat");
+    if (saved === "inf") return "inf";
+    const n = Number(saved);
+    return n === 3 || n === 6 ? n : 0;
+  })();
+  let remaining = 0;
+  let singleShot = false;
+  let loopWholeText = false;
+  let chunkRepeatsDone = 0;
+  const CHUNK_REPEAT_INFINITE_CAP = 40;
+  let expectingCancel = false;
+  const lastOffsetByKey = /* @__PURE__ */ new Map();
+  let currentCode = null;
+  let pendingResume = null;
+  let resumeTimer = null;
+  function clearPendingResume() {
+    if (resumeTimer) {
+      clearTimeout(resumeTimer);
+      resumeTimer = null;
+    }
+    pendingResume = null;
+  }
+  function scheduleResumeIfPending() {
+    if (!pendingResume) return;
+    const toResume = pendingResume;
+    pendingResume = null;
+    resumeTimer = setTimeout(() => {
+      resumeTimer = null;
+      controller.toggle(toResume.text, toResume.code, toResume.offset, { loop: true });
+    }, 3e3);
+  }
+  let gapTimer = null;
+  const listeners = /* @__PURE__ */ new Set();
+  function clearGapTimer() {
+    if (gapTimer) {
+      clearTimeout(gapTimer);
+      gapTimer = null;
+    }
+  }
+  function cancelSpeech() {
+    expectingCancel = true;
+    clearGapTimer();
+    try {
+      window.speechSynthesis.cancel();
+    } catch (e) {
+    }
+  }
+  let onlineAudio = null;
+  let onlineChunks = [];
+  let onlineChunkIndex = 0;
+  let onlineLangForTts = "en";
+  let onlineAnyAudioPlayed = false;
+  function splitForOnlineTts(text, maxLen = 180) {
+    const chunksArr = [];
+    let rest = (text || "").trim();
+    while (rest.length > maxLen) {
+      let cut = rest.lastIndexOf(" ", maxLen);
+      if (cut <= 0) cut = maxLen;
+      chunksArr.push(rest.slice(0, cut).trim());
+      rest = rest.slice(cut).trim();
+    }
+    if (rest) chunksArr.push(rest);
+    return chunksArr.length ? chunksArr : [text];
+  }
+  const EDGE_TTS_TRUSTED_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+  function edgeTtsUuid() {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID().replace(/-/g, "");
+    let s = "";
+    for (let i = 0; i < 32; i++) s += Math.floor(Math.random() * 16).toString(16);
+    return s;
+  }
+  function edgeTtsEscapeXml(s) {
+    return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  }
+  async function edgeTtsSecMsGec() {
+    const WIN_EPOCH = 11644473600;
+    let ticks = Math.floor(Date.now() / 1e3) + WIN_EPOCH;
+    ticks -= ticks % 300;
+    const ticksStr = String(Math.round(ticks * 1e7));
+    const strToHash = ticksStr + EDGE_TTS_TRUSTED_TOKEN;
+    const enc = new TextEncoder().encode(strToHash);
+    const hashBuf = await window.crypto.subtle.digest("SHA-256", enc);
+    return Array.from(new Uint8Array(hashBuf)).map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+  }
+  function fetchEdgeTtsAudio(chunkText, voice, speedRate) {
+    return new Promise((resolve, reject) => {
+      const sanitized = sanitizeForTTS(chunkText);
+      if (!sanitized || !window.WebSocket || !window.crypto || !window.crypto.subtle) {
+        reject(new Error("edge-tts-unavailable"));
+        return;
+      }
+      edgeTtsSecMsGec().then((gec) => {
+        const connId = edgeTtsUuid();
+        const wsUrl = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${EDGE_TTS_TRUSTED_TOKEN}&Sec-MS-GEC=${gec}&Sec-MS-GEC-Version=1-131.0.2903.99&ConnectionId=${connId}`;
+        let ws;
+        try {
+          ws = new WebSocket(wsUrl);
+        } catch (e) {
+          reject(e);
+          return;
+        }
+        ws.binaryType = "arraybuffer";
+        const audioParts = [];
+        let settled = false;
+        const finishOk = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          try {
+            ws.close();
+          } catch (e) {
+          }
+          if (!audioParts.length) {
+            reject(new Error("edge-tts-no-audio"));
+            return;
+          }
+          const blob = new Blob(audioParts, { type: "audio/mpeg" });
+          resolve(URL.createObjectURL(blob));
+        };
+        const finishFail = (err) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          try {
+            ws.close();
+          } catch (e) {
+          }
+          reject(err || new Error("edge-tts-failed"));
+        };
+        const timeoutId = setTimeout(() => finishFail(new Error("edge-tts-timeout")), 15e3);
+        ws.onopen = () => {
+          try {
+            const now = (/* @__PURE__ */ new Date()).toISOString();
+            ws.send(
+              `X-Timestamp:${now}\r
+Content-Type:application/json; charset=utf-8\r
+Path:speech.config\r
+\r
+` + JSON.stringify({
+                context: {
+                  synthesis: {
+                    audio: {
+                      metadataoptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: false },
+                      outputFormat: "audio-24khz-48kbitrate-mono-mp3"
+                    }
+                  }
+                }
+              })
+            );
+            const pct = Math.round(((Number(speedRate) || 1) - 1) * 100);
+            const rateStr = pct >= 0 ? `+${pct}%` : `${pct}%`;
+            const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'><voice name='${voice}'><prosody rate='${rateStr}'>${edgeTtsEscapeXml(sanitized)}</prosody></voice></speak>`;
+            ws.send(
+              `X-RequestId:${edgeTtsUuid()}\r
+Content-Type:application/ssml+xml\r
+X-Timestamp:${now}\r
+Path:ssml\r
+\r
+` + ssml
+            );
+          } catch (e) {
+            finishFail(e);
+          }
+        };
+        ws.onmessage = (evt) => {
+          if (typeof evt.data === "string") {
+            if (evt.data.indexOf("Path:turn.end") !== -1) finishOk();
+            return;
+          }
+          try {
+            const buf = new Uint8Array(evt.data);
+            if (buf.length < 2) return;
+            const headerLen = buf[0] << 8 | buf[1];
+            const headerStr = new TextDecoder("utf-8").decode(buf.slice(2, 2 + headerLen));
+            if (headerStr.indexOf("Path:audio") !== -1) {
+              const audioData = buf.slice(2 + headerLen);
+              if (audioData.length) audioParts.push(audioData);
+            }
+          } catch (e) {
+          }
+        };
+        ws.onerror = () => finishFail(new Error("edge-tts-ws-error"));
+        ws.onclose = () => finishOk();
+      }).catch((e) => reject(e));
+    });
+  }
+  function onlineTtsProviders(chunkText, langCode) {
+    const voice = EDGE_TTS_VOICE[langCode] || EDGE_TTS_VOICE.en;
+    const q = encodeURIComponent(sanitizeForTTS(chunkText));
+    const googleTranslate = { kind: "url", url: `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}` };
+    const edge = { kind: "edge", text: chunkText, voice };
+    const streamElements = { kind: "url", url: `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}` };
+    return [googleTranslate, edge, streamElements];
+  }
+  function stopOnlineAudio() {
+    if (onlineAudio) {
+      try {
+        onlineAudio.pause();
+      } catch (e) {
+      }
+      onlineAudio.onended = null;
+      onlineAudio.onerror = null;
+      onlineAudio = null;
+    }
+  }
+  function playOnlineChunkUrls(providers, providerIndex, idx) {
+    if (providerIndex >= providers.length) {
+      if (!onlineAnyAudioPlayed) {
+        ttsError = key;
+        status = "idle";
+        notify();
+        return;
+      }
+      playOnlineChunk(idx + 1);
+      return;
+    }
+    const provider = providers[providerIndex];
+    const goNext = () => {
+      if (status !== "playing") return;
+      playOnlineChunkUrls(providers, providerIndex + 1, idx);
+    };
+    if (provider.kind === "edge") {
+      fetchEdgeTtsAudio(provider.text, provider.voice, rate).then((blobUrl) => {
+        if (status !== "playing") {
+          try {
+            URL.revokeObjectURL(blobUrl);
+          } catch (e) {
+          }
+          return;
+        }
+        const audio2 = new Audio(blobUrl);
+        audio2.playbackRate = 1;
+        audio2.onplaying = () => {
+          onlineAnyAudioPlayed = true;
+        };
+        const cleanup = () => {
+          try {
+            URL.revokeObjectURL(blobUrl);
+          } catch (e) {
+          }
+        };
+        audio2.onended = () => {
+          cleanup();
+          if (status !== "playing") return;
+          playOnlineChunk(idx + 1);
+        };
+        audio2.onerror = () => {
+          cleanup();
+          goNext();
+        };
+        onlineAudio = audio2;
+        audio2.play().catch(() => {
+          cleanup();
+          goNext();
+        });
+      }).catch(() => goNext());
+      return;
+    }
+    const audio = new Audio(provider.url);
+    audio.playbackRate = rate;
+    audio.onplaying = () => {
+      onlineAnyAudioPlayed = true;
+    };
+    audio.onended = () => {
+      if (status !== "playing") return;
+      playOnlineChunk(idx + 1);
+    };
+    audio.onerror = () => {
+      goNext();
+    };
+    onlineAudio = audio;
+    audio.play().catch(() => {
+      goNext();
+    });
+  }
+  function playOnlineChunk(idx) {
+    if (idx >= onlineChunks.length) {
+      if (!singleShot && globalRepeatSetting === "inf") {
+        playOnlineChunk(0);
+        return;
+      }
+      if (!singleShot && remaining > 0) {
+        remaining -= 1;
+        playOnlineChunk(0);
+        return;
+      }
+      if (key) lastOffsetByKey.delete(key);
+      status = "idle";
+      chunkIndex = 0;
+      notify();
+      scheduleResumeIfPending();
+      return;
+    }
+    onlineChunkIndex = idx;
+    chunkIndex = chunkIndexForOffset(
+      Math.min(fullText.length - 1, Math.floor(idx / Math.max(onlineChunks.length, 1) * fullText.length))
+    );
+    status = "playing";
+    notify();
+    playOnlineChunkUrls(onlineTtsProviders(onlineChunks[idx], onlineLangForTts), 0, idx);
+  }
+  function speakOnline(text, langCodeForTts, startCharOffset, forceSingle, forceLoop) {
+    stopOnlineAudio();
+    mode = "online";
+    onlineAnyAudioPlayed = false;
+    fullText = text;
+    chunks = splitSentences(text);
+    onlineChunks = splitForOnlineTts(text);
+    onlineLangForTts = langCodeForTts;
+    singleShot = !!forceSingle;
+    loopWholeText = !!forceLoop;
+    remaining = singleShot ? 0 : forceLoop ? Infinity : globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
+    let startChunk = 0;
+    if (Number.isInteger(startCharOffset) && startCharOffset > 0 && text.length && onlineChunks.length) {
+      const frac = Math.min(Math.max(startCharOffset / text.length, 0), 1);
+      startChunk = Math.min(onlineChunks.length - 1, Math.floor(frac * onlineChunks.length));
+    }
+    playOnlineChunk(startChunk);
+  }
+  function notify() {
+    if (key && (status === "playing" || status === "paused") && chunks[chunkIndex]) {
+      lastOffsetByKey.set(key, chunks[chunkIndex].start);
+    }
+    listeners.forEach(
+      (cb) => cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, ttsError })
+    );
+  }
+  const MAX_WORDS_PER_CHUNK = 40;
+  function splitSentences(text) {
+    const t = text || "";
+    if (!t) return [];
+    const re = /[^.!?؟。！]+[.!?؟。！]*/g;
+    const sentences = [];
+    let m;
+    while (m = re.exec(t)) {
+      const raw = m[0];
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      const start = m.index + raw.indexOf(trimmed[0]);
+      sentences.push({ start, end: start + trimmed.length, text: trimmed });
+    }
+    if (!sentences.length) return [{ start: 0, end: t.length, text: t }];
+    const out = [];
+    for (const seg of sentences) {
+      const wordRe = /\S+/g;
+      const wordPositions = [];
+      let wm;
+      while (wm = wordRe.exec(seg.text)) wordPositions.push({ start: wm.index, end: wm.index + wm[0].length });
+      if (wordPositions.length <= MAX_WORDS_PER_CHUNK) {
+        out.push({ ...seg, boundary: "sentence" });
+        continue;
+      }
+      for (let i = 0; i < wordPositions.length; i += MAX_WORDS_PER_CHUNK) {
+        const lastIdx = Math.min(i + MAX_WORDS_PER_CHUNK, wordPositions.length) - 1;
+        const isLastSub = lastIdx === wordPositions.length - 1;
+        const wStart = wordPositions[i].start;
+        const wEnd = wordPositions[lastIdx].end;
+        out.push({
+          start: seg.start + wStart,
+          end: seg.start + wEnd,
+          text: seg.text.slice(wStart, wEnd),
+          boundary: isLastSub ? "sentence" : "none"
+        });
+      }
+    }
+    return out;
+  }
+  function sanitizeForTTS(s) {
+    return String(s || "").replace(/[\u2066-\u2069\u200B-\u200F\u061C\uFEFF]/g, "").replace(/[«»‹›„‟""'''`´"']/g, "").replace(/[*_~]/g, "").replace(/\s+/g, " ").trim();
+  }
+  function chunkIndexForOffset(offset) {
+    for (let i = chunks.length - 1; i >= 0; i--) {
+      if (offset >= chunks[i].start) return i;
+    }
+    return 0;
+  }
+  function engineRate(r) {
+    if (r >= 1) return r;
+    return 0.4 + (r - 0.25) / 0.75 * 0.6;
+  }
+  function sentenceGapMs(r) {
+    const base = 360;
+    return Math.round(base / Math.min(Math.max(r, 0.2), 2));
+  }
+  function getBestVoice(langCode) {
+    const voices = window.speechSynthesis.getVoices();
+    const langPrefix = langCode.split("-")[0];
+    try {
+      const savedURI = loadVoicePrefs()[langPrefix];
+      if (savedURI) {
+        const savedVoice = voices.find((v) => v.voiceURI === savedURI);
+        if (savedVoice) return savedVoice;
+      }
+    } catch (e) {
+    }
+    let preferred = voices.find(
+      (v) => v.lang.startsWith(langPrefix) && (v.name.includes("Google") || v.name.includes("Natural")) && (v.name.includes("Female") || v.name.includes("Male"))
+    );
+    if (!preferred) {
+      preferred = voices.find(
+        (v) => v.lang.startsWith(langPrefix) && (v.name.includes("Google") || v.name.includes("Natural"))
+      );
+    }
+    if (!preferred) {
+      preferred = voices.find(
+        (v) => v.lang.startsWith(langPrefix) && (v.name.includes("Enhanced") || v.name.includes("Premium"))
+      );
+    }
+    if (!preferred) {
+      preferred = voices.find((v) => v.lang.startsWith(langPrefix));
+    }
+    return preferred || null;
+  }
+  function speakChunk(idx, forceRestart = false, isRepeatContinuation = false) {
+    if (!chunks.length) {
+      status = "idle";
+      notify();
+      return;
+    }
+    if (idx >= chunks.length) {
+      if (!singleShot && loopWholeText) {
+        speakChunk(0, true);
+        return;
+      }
+      if (key) lastOffsetByKey.delete(key);
+      status = "idle";
+      chunkIndex = 0;
+      notify();
+      scheduleResumeIfPending();
+      return;
+    }
+    clearGapTimer();
+    if (forceRestart) cancelSpeech();
+    chunkIndex = idx;
+    if (!isRepeatContinuation) chunkRepeatsDone = 0;
+    status = "playing";
+    notify();
+    const utter = new SpeechSynthesisUtterance(sanitizeForTTS(chunks[idx].text));
+    utter.lang = locale;
+    utter.rate = engineRate(rate);
+    const bestVoice = getBestVoice(locale);
+    if (bestVoice) utter.voice = bestVoice;
+    utter.onend = () => {
+      if (status !== "playing") return;
+      const boundary = chunks[idx] && chunks[idx].boundary;
+      const gap = boundary === "sentence" ? sentenceGapMs(rate) : 0;
+      if (!singleShot) {
+        const isMultiChunk = chunks.length > 1;
+        const repeatTarget = globalRepeatSetting === "inf" ? isMultiChunk ? CHUNK_REPEAT_INFINITE_CAP : Infinity : Number(globalRepeatSetting) || 0;
+        if (chunkRepeatsDone < repeatTarget) {
+          chunkRepeatsDone += 1;
+          gapTimer = setTimeout(() => {
+            gapTimer = null;
+            speakChunk(idx, false, true);
+          }, gap);
+          return;
+        }
+      }
+      gapTimer = setTimeout(() => {
+        gapTimer = null;
+        speakChunk(chunkIndex + 1, false, false);
+      }, gap);
+    };
+    utter.onerror = (e) => {
+      if (expectingCancel) {
+        expectingCancel = false;
+        return;
+      }
+      status = "idle";
+      notify();
+    };
+    window.speechSynthesis.speak(utter);
+  }
+  const controller = {
+    subscribe(cb) {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+    getState() {
+      return { key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining };
+    },
+    // آفستِ کاراکتریِ شروعِ جمله‌ای که همین الان (یا آخرین‌بار) در حال
+    // پخشه — فقط برای «ادامه‌ی پخش از همون‌جا» وقتی متنِ در حال پخش عوض
+    // می‌شه (مثلاً تغییرِ حالتِ نمایش ترجمه) لازمه. دیگه هیچ‌جا برای
+    // هایلایتِ بصری استفاده نمی‌شه.
+    getCharOffset() {
+      if (!chunks.length) return 0;
+      const idx = Math.min(Math.max(chunkIndex, 0), chunks.length - 1);
+      return chunks[idx].start;
+    },
+    getGlobalRepeatSetting() {
+      return globalRepeatSetting;
+    },
+    cycleGlobalRepeat() {
+      const order = [0, 3, 6, "inf"];
+      const idx = order.indexOf(globalRepeatSetting);
+      globalRepeatSetting = order[(idx + 1) % order.length];
+      try {
+        localStorage.setItem("phrasebook-tts-repeat", String(globalRepeatSetting));
+      } catch (e) {
+      }
+      if (status === "playing" || status === "paused") {
+        remaining = globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
+      }
+      notify();
+    },
+    // startCharOffset (اختیاری): آفستِ کاراکتری‌ای که پخش باید تقریباً از
+    // جمله‌ی متناظرش شروع بشه — برای «ادامه از همون‌جا» بعد از تغییرِ متن.
+    // نکته: toggle خودش پایین‌تر هم دوباره صدا زده می‌شه — از داخلِ
+    // scheduleResumeIfPending، برای برگشتِ خودکار به متنِ اصلی بعد از پخشِ
+    // یه کلمه‌ی تکی. برای همینه که این آبجکت به یه نامِ ثابت (controller)
+    // نگه داشته می‌شه، نه فقط return مستقیم.
+    toggle(text, code, startCharOffset, options) {
+      try {
+        if (!text) return "unsupported";
+        const forceSingle = !!(options && options.singlePass);
+        const forceLoop = !!(options && options.loop);
+        const hasSynthesis = "speechSynthesis" in window;
+        let newLocale = TTS_LOCALE[code] || "en-US";
+        if (hasSynthesis && code === "fa") {
+          const voices2 = window.speechSynthesis.getVoices();
+          const hasPersianVoice = voices2.some((v) => v.lang.startsWith("fa"));
+          if (!hasPersianVoice) {
+            const arabicVoice = voices2.find((v) => v.lang.startsWith("ar"));
+            if (arabicVoice) newLocale = "ar-SA";
+          }
+        }
+        const newKey = `${newLocale}::${text}`;
+        if (key === newKey && status === "playing") {
+          if (mode === "online") {
+            if (onlineAudio) {
+              try {
+                onlineAudio.pause();
+              } catch (e) {
+              }
+            }
+            status = "paused";
+            notify();
+            return "ok";
+          }
+          clearGapTimer();
+          cancelSpeech();
+          status = "paused";
+          notify();
+          return "ok";
+        }
+        if (key === newKey && status === "paused") {
+          status = "playing";
+          if (mode === "online") {
+            notify();
+            if (onlineAudio) {
+              onlineAudio.play().catch(() => playOnlineChunk(onlineChunkIndex));
+            } else {
+              playOnlineChunk(onlineChunkIndex);
+            }
+          } else {
+            speakChunk(chunkIndex, false, true);
+          }
+          return "ok";
+        }
+        clearPendingResume();
+        if (status === "playing" && loopWholeText && !forceLoop && key) {
+          pendingResume = {
+            text: fullText,
+            code: currentCode,
+            offset: chunks[chunkIndex] ? chunks[chunkIndex].start : 0
+          };
+        }
+        const voices = hasSynthesis ? window.speechSynthesis.getVoices() : [];
+        const baseLang = newLocale.split("-")[0].toLowerCase();
+        const hasVoice = voices.some((v) => v.lang && v.lang.toLowerCase().startsWith(baseLang));
+        key = newKey;
+        locale = newLocale;
+        currentCode = code;
+        ttsError = null;
+        let effectiveStartOffset = startCharOffset;
+        if (!(Number.isInteger(effectiveStartOffset) && effectiveStartOffset > 0)) {
+          const saved = lastOffsetByKey.get(newKey);
+          if (Number.isInteger(saved) && saved > 0) effectiveStartOffset = saved;
+        }
+        if (hasSynthesis && hasVoice) {
+          mode = "local";
+          stopOnlineAudio();
+          fullText = text;
+          chunks = splitSentences(text);
+          status = "playing";
+          singleShot = forceSingle;
+          loopWholeText = !!forceLoop;
+          remaining = forceSingle ? 0 : forceLoop ? Infinity : globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
+          const startIdx = Number.isInteger(effectiveStartOffset) && effectiveStartOffset > 0 ? chunkIndexForOffset(Math.min(effectiveStartOffset, Math.max(text.length - 1, 0))) : 0;
+          speakChunk(startIdx, true);
+          return "ok";
+        }
+        cancelSpeech();
+        const onlineLang = code === "zh" ? "zh-CN" : code;
+        speakOnline(text, onlineLang, effectiveStartOffset, forceSingle, forceLoop);
+        return "online-fallback";
+      } catch (e) {
+        status = "idle";
+        notify();
+        return "error";
+      }
+    },
+    stop() {
+      clearPendingResume();
+      cancelSpeech();
+      stopOnlineAudio();
+      mode = "local";
+      key = null;
+      chunks = [];
+      status = "idle";
+      chunkIndex = 0;
+      remaining = 0;
+      singleShot = false;
+      loopWholeText = false;
+      chunkRepeatsDone = 0;
+      notify();
+    },
+    getRate() {
+      return rate;
+    },
+    setRate(r) {
+      rate = Math.min(Math.max(Number(r) || 1, 0.25), 2);
+      try {
+        localStorage.setItem("phrasebook-tts-rate", String(rate));
+      } catch (e) {
+      }
+      if (status === "playing" && mode === "online") {
+        if (onlineAudio) onlineAudio.playbackRate = rate;
+        notify();
+      } else {
+        notify();
+      }
+    },
+    // --- برای نوارِ پیشرفتِ پلیرِ جدید (کِشیدنی/تپ‌کردنی) --------------------
+    // مرزهای هر جمله (start/end کاراکتری) داخلِ متنِ کاملِ در حالِ پخش —
+    // فقط برای تخمینِ بصریِ درصدِ پیشرفت لازمه، نه پخشِ واقعی.
+    getChunksMeta() {
+      return chunks.map((c) => ({ start: c.start, end: c.end }));
+    },
+    getFullTextLength() {
+      return fullText.length;
+    },
+    // پرش مستقیم به جمله‌یِ idx‌ام و ادامه‌ی پخش از همون‌جا — هم برای دکمه‌های
+    // «جمله‌ی قبل/بعد» و هم برای کشیدنِ نوارِ پیشرفت استفاده می‌شه. اگه هیچ
+    // متنی لود نشده باشه (idle)، کاری نمی‌کنه.
+    seekToChunk(idx) {
+      if (!key || !chunks.length) return "idle";
+      const clamped = Math.min(Math.max(Number(idx) || 0, 0), chunks.length - 1);
+      if (mode === "online") {
+        stopOnlineAudio();
+        const frac = chunks.length ? clamped / chunks.length : 0;
+        const onlineIdx = onlineChunks.length ? Math.min(onlineChunks.length - 1, Math.floor(frac * onlineChunks.length)) : 0;
+        status = "playing";
+        playOnlineChunk(onlineIdx);
+      } else {
+        speakChunk(clamped, true);
+      }
+      return "ok";
+    }
+  };
+  return controller;
+})();
+const mainTextResumePoints = /* @__PURE__ */ new Map();
+function rememberMainTextResumeOffset(mainTextKey, offset) {
+  if (!mainTextKey || !Number.isFinite(offset)) return;
+  mainTextResumePoints.set(mainTextKey, offset);
+}
+function consumeMainTextResumeOffset(mainTextKey) {
+  return mainTextKey ? mainTextResumePoints.get(mainTextKey) : void 0;
+}
+let latestStoryTextContext = { text: "", code: "" };
+function useAutoplayOnScroll(enabled, items) {
+  const nodeMapRef = useRef(/* @__PURE__ */ new Map());
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  useEffect(() => {
+    if (!enabled) return;
+    const update = (state) => {
+      if (!state.key || state.status === "idle") return;
+      const list = itemsRef.current;
+      const match = list.find(
+        (it) => it.text && `${TTS_LOCALE[it.code] || "en-US"}::${it.text}` === state.key
+      );
+      if (!match) return;
+      const node = nodeMapRef.current.get(String(match.id));
+      if (node && node.scrollIntoView) {
+        node.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    };
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [enabled]);
+  const registerRef = (id) => (node) => {
+    const key = String(id);
+    if (node) nodeMapRef.current.set(key, node);
+    else nodeMapRef.current.delete(key);
+  };
+  return { registerRef };
+}
+const OFFLINE_DICT_CACHE_NAME = "phrasebook-offline-dict-v1";
+const OFFLINE_DICT_LANGS = ["en"];
+const offlineDictionary = /* @__PURE__ */ (() => {
+  const loaded = /* @__PURE__ */ new Map();
+  const listeners = /* @__PURE__ */ new Set();
+  function notify() {
+    listeners.forEach((cb) => cb());
+  }
+  function fileUrl(code) {
+    return new URL(`dictionaries/${code}.json`, window.location.href).toString();
+  }
+  async function isDownloaded(code) {
+    if (loaded.has(code)) return true;
+    if (!("caches" in window)) return false;
+    try {
+      const cache = await caches.open(OFFLINE_DICT_CACHE_NAME);
+      const match = await cache.match(fileUrl(code));
+      return !!match;
+    } catch (e) {
+      return false;
+    }
+  }
+  async function hydrateFromCache() {
+    if (!("caches" in window)) return;
+    try {
+      const cache = await caches.open(OFFLINE_DICT_CACHE_NAME);
+      for (const code of OFFLINE_DICT_LANGS) {
+        if (loaded.has(code)) continue;
+        const match = await cache.match(fileUrl(code));
+        if (match) {
+          const data = await match.json();
+          loaded.set(code, data);
+        }
+      }
+      notify();
+    } catch (e) {
+    }
+  }
+  async function download(code, onProgress) {
+    const url = fileUrl(code);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`دانلود دیکشنری ${code} شکست خورد (HTTP ${res.status})`);
+    const total = Number(res.headers.get("content-length")) || 0;
+    let received = 0;
+    const reader = res.body?.getReader ? res.body.getReader() : null;
+    let text;
+    if (reader) {
+      const chunks = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        if (onProgress) onProgress(total ? Math.min(99, Math.round(received / total * 100)) : 60);
+      }
+      const blob = new Blob(chunks);
+      text = await blob.text();
+    } else {
+      text = await res.text();
+    }
+    const data = JSON.parse(text);
+    loaded.set(code, data);
+    if ("caches" in window) {
+      try {
+        const cache = await caches.open(OFFLINE_DICT_CACHE_NAME);
+        await cache.put(url, new Response(text, { headers: { "Content-Type": "application/json" } }));
+      } catch (e) {
+      }
+    }
+    if (onProgress) onProgress(100);
+    notify();
+    return data.length;
+  }
+  function entryCount(code) {
+    return loaded.get(code)?.length || 0;
+  }
+  function lookup(word, code) {
+    const list = loaded.get(code);
+    if (!list || !word) return [];
+    const q = word.trim().toLowerCase();
+    const qFa = word.trim();
+    if (!q) return [];
+    const exact = list.filter((e) => e.en.toLowerCase() === q || e.fa === qFa);
+    if (exact.length) return exact;
+    return list.filter((e) => e.en.toLowerCase().includes(q) || e.fa.includes(qFa)).slice(0, 20);
+  }
+  return {
+    subscribe(cb) {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+    isDownloaded,
+    hydrateFromCache,
+    download,
+    entryCount,
+    lookup,
+    isLoadedInMemory(code) {
+      return loaded.has(code);
+    }
+  };
+})();
+const DEFAULT_BACKEND_URL = "https://phrasebook-api.maryam-s-sharifiyan.workers.dev";
+async function callAI({ prompt, maxTokens, retries = 2, aiSettings }) {
+  const base = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || DEFAULT_BACKEND_URL;
+  const body = JSON.stringify({
+    prompt,
+    // قبلاً اینجا هر درخواستی، حتی یه ترجمه‌ی کوچیک با maxTokens:200، به‌زور
+    // به حداقل ۱۰۰۰ توکن گرد می‌شد (Math.max(maxTokens || 1000, 1000)) — یعنی
+    // داشتیم بدون دلیل سهمیه‌ی «توکن در دقیقه»ی رایگانِ Groq (که این خطاها
+    // ازش میان) رو خیلی سریع‌تر از چیزی که واقعاً لازم بود مصرف می‌کردیم. حالا
+    // دقیقاً همون مقداری که خودِ تابع خواسته می‌فرستیم (با یه کف خیلی کوچیک
+    // فقط برای جلوگیری از صفر/منفی، نه یه کفِ مصنوعیِ ۱۰۰۰تایی).
+    maxTokens: Math.min(Math.max(maxTokens || 300, 64), 8192)
+  });
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(`${base}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body
+      });
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        const isRateLimited = res.status === 429;
+        const isClientError = res.status >= 400 && res.status < 500 && !isRateLimited;
+        try {
+          const errBody = await res.json();
+          detail = errBody.error || detail;
+        } catch (_) {
+        }
+        if ((!isClientError || isRateLimited) && attempt < Math.max(retries, isRateLimited ? 1 : retries)) {
+          const retrySecondsMatch = detail.match(/try again in\s+(\d+(?:\.\d+)?)s/i);
+          const waitMs = isRateLimited ? Math.ceil((retrySecondsMatch ? parseFloat(retrySecondsMatch[1]) : 15) * 1e3) + 500 : 700 * (attempt + 1);
+          await new Promise((r) => setTimeout(r, waitMs));
+          continue;
+        }
+        throw new Error(`ai-backend-error: ${detail}`);
+      }
+      const data = await res.json();
+      const text = data.text || "";
+      if (!text) {
+        if (attempt < retries) {
+          await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+          continue;
+        }
+        throw new Error("ai-backend-error: پاسخ خالی از سرور دریافت شد، دوباره تلاش کن.");
+      }
+      return text;
+    } catch (e) {
+      const msg = String(e?.message || "");
+      const isKnownServerError = msg.startsWith("ai-backend-error:");
+      const isNetworkFailure = e instanceof TypeError;
+      if (!isKnownServerError && attempt < retries) {
+        await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+        continue;
+      }
+      if (isKnownServerError) throw e;
+      throw new Error(
+        isNetworkFailure ? `ai-backend-error: به سرور (${base}) وصل نشد. یعنی خودِ Cloudflare Worker جواب نداد — چک کن: ۱) آخرین دیپلوی توی داشبورد Cloudflare بدون خطا انجام شده باشه، ۲) این آدرس رو مستقیم توی مرورگر باز کن (${base}/health) و ببین یه JSON برمی‌گردونه یا خطا می‌ده، ۳) آدرس بک‌اند توی تنظیمات اپ (اگه دستی ست کردی) درست باشه.` : `ai-backend-error: ${msg || "خطای ناشناخته در اتصال"}`
+      );
+    }
+  }
+}
+const WORD_CACHE_KEY = "phrasebook-word-lookup-cache-v1";
+function normalizeWord(raw) {
+  return (raw || "").toLowerCase().replace(/^[«»"'.,!?;:()\u060C\u061B\u061F]+|[«»"'.,!?;:()\u060C\u061B\u061F]+$/g, "").trim();
+}
+function loadWordCache() {
+  try {
+    const raw = window.localStorage.getItem(WORD_CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+function saveWordCache(cache) {
+  try {
+    window.localStorage.setItem(WORD_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+  }
+}
+const SAVED_STORY_WORDS_KEY = "phrasebook-saved-story-words-v1";
+const SAVED_WORDS_CHANGED_EVENT = "phrasebook:savedWordsChanged";
+const STORY_WORD_PICKED_EVENT = "phrasebook:storyWordPicked";
+const crossTranslateInFlight = /* @__PURE__ */ new Set();
+let currentOriginTab = null;
+function setCurrentOriginTab(tab) {
+  currentOriginTab = tab || null;
+}
+let lastPlayOriginTab = null;
+let lastPlayOriginKey = null;
+speechController.subscribe((state) => {
+  if (state.key && state.key !== lastPlayOriginKey) {
+    lastPlayOriginKey = state.key;
+    lastPlayOriginTab = currentOriginTab;
+  } else if (!state.key) {
+    lastPlayOriginKey = null;
+  }
+});
+function getLastPlayOriginTab() {
+  return lastPlayOriginTab;
+}
+function loadSavedStoryWords() {
+  try {
+    const raw = window.localStorage.getItem(SAVED_STORY_WORDS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+function isWordSaved(word, langCode) {
+  const w = normalizeWord(word);
+  return loadSavedStoryWords().some((e) => e.langCode === langCode && normalizeWord(e.word) === w);
+}
+function toggleSavedStoryWord(word, langCode, opts) {
+  const w = normalizeWord(word);
+  if (!w) return false;
+  const cleanWord = (word || "").replace(/^[«»"'.,!?;:()\u060C\u061B\u061F]+|[«»"'.,!?;:()\u060C\u061B\u061F]+$/g, "").trim();
+  const list = loadSavedStoryWords();
+  const idx = list.findIndex((e) => e.langCode === langCode && normalizeWord(e.word) === w);
+  let nowSaved;
+  if (idx >= 0) {
+    list.splice(idx, 1);
+    nowSaved = false;
+  } else {
+    const translations = {};
+    if (opts && opts.meaning && opts.nativeLang) translations[opts.nativeLang] = opts.meaning;
+    list.unshift({
+      word: cleanWord || word,
+      langCode,
+      savedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      translations,
+      origin: { tab: currentOriginTab, ...opts && opts.originExtra || {} }
+    });
+    nowSaved = true;
+  }
+  try {
+    window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
+  } catch {
+  }
+  return nowSaved;
+}
+function updateSavedWordTranslation(word, langCode, targetLangCode, translatedText) {
+  if (!translatedText || !translatedText.trim()) return;
+  const w = normalizeWord(word);
+  const list = loadSavedStoryWords();
+  const idx = list.findIndex((e) => e.langCode === langCode && normalizeWord(e.word) === w);
+  if (idx === -1) return;
+  const entry = list[idx];
+  const prev = entry.translations && entry.translations[targetLangCode] || "";
+  if (prev === translatedText.trim()) return;
+  const translations = { ...entry.translations || {}, [targetLangCode]: translatedText.trim() };
+  list[idx] = { ...entry, translations };
+  try {
+    window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
+  } catch {
+  }
+}
+function ensureSavedStoryWord(word, langCode) {
+  const w = normalizeWord(word);
+  if (!w) return;
+  const cleanWord = (word || "").replace(/^[«»"'.,!?;:()\u060C\u061B\u061F]+|[«»"'.,!?;:()\u060C\u061B\u061F]+$/g, "").trim();
+  const list = loadSavedStoryWords();
+  const exists = list.some((e) => e.langCode === langCode && normalizeWord(e.word) === w);
+  if (exists) return;
+  list.unshift({
+    word: cleanWord || word,
+    langCode,
+    savedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    translations: {},
+    origin: { tab: currentOriginTab }
+  });
+  try {
+    window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
+  } catch {
+  }
+}
+function removeSavedStoryWord(word, langCode) {
+  const list = loadSavedStoryWords().filter(
+    (e) => !(e.langCode === langCode && normalizeWord(e.word) === normalizeWord(word))
+  );
+  try {
+    window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
+  } catch {
+  }
+}
+function mergeSavedStoryWordsFromCloud(cloudList) {
+  if (!Array.isArray(cloudList) || !cloudList.length) return;
+  const local = loadSavedStoryWords();
+  const keyOf = (e) => `${e.langCode}::${normalizeWord(e.word)}`;
+  const localMap = new Map(local.map((e) => [keyOf(e), e]));
+  let changed = false;
+  cloudList.forEach((cloudEntry) => {
+    if (!cloudEntry || !cloudEntry.word || !cloudEntry.langCode) return;
+    const key = keyOf(cloudEntry);
+    const existing = localMap.get(key);
+    if (!existing) {
+      localMap.set(key, cloudEntry);
+      changed = true;
+    } else {
+      const mergedTranslations = { ...cloudEntry.translations || {}, ...existing.translations || {} };
+      if (JSON.stringify(mergedTranslations) !== JSON.stringify(existing.translations || {})) {
+        localMap.set(key, { ...existing, translations: mergedTranslations });
+        changed = true;
+      }
+    }
+  });
+  if (!changed) return;
+  const merged = Array.from(localMap.values()).sort(
+    (a, b) => new Date(b.savedAt || 0) - new Date(a.savedAt || 0)
+  );
+  try {
+    window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(merged));
+    window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
+  } catch {
+  }
+}
+function addTextToStoryPicks(text, langCode) {
+  const clean = (text || "").trim();
+  if (!clean) return;
+  ensureSavedStoryWord(clean, langCode);
+  try {
+    window.dispatchEvent(new CustomEvent(STORY_WORD_PICKED_EVENT, { detail: { word: clean, langCode } }));
+  } catch {
+  }
+}
+const WORD_EXAMPLES_KEY = "phrasebook-word-examples-v1";
+const WORD_EXAMPLES_CHANGED_EVENT = "phrasebook:wordExamplesChanged";
+function loadAllWordExamples() {
+  try {
+    const raw = window.localStorage.getItem(WORD_EXAMPLES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+function wordExamplesKey(word, langCode) {
+  return `${langCode}::${normalizeWord(word)}`;
+}
+function loadWordExamples(word, langCode) {
+  const all = loadAllWordExamples();
+  return all[wordExamplesKey(word, langCode)] || [];
+}
+function saveWordExample(word, langCode, exampleText) {
+  const all = loadAllWordExamples();
+  const key = wordExamplesKey(word, langCode);
+  const list = all[key] || [];
+  const entry = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    text: exampleText,
+    translations: {},
+    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  list.unshift(entry);
+  all[key] = list;
+  try {
+    window.localStorage.setItem(WORD_EXAMPLES_KEY, JSON.stringify(all));
+    window.dispatchEvent(new Event(WORD_EXAMPLES_CHANGED_EVENT));
+  } catch {
+  }
+  return entry;
+}
+function updateWordExampleTranslation(word, langCode, exampleId, targetLangCode, translatedText) {
+  if (!translatedText || !translatedText.trim()) return;
+  const all = loadAllWordExamples();
+  const key = wordExamplesKey(word, langCode);
+  const list = all[key] || [];
+  const idx = list.findIndex((e) => e.id === exampleId);
+  if (idx === -1) return;
+  list[idx] = { ...list[idx], translations: { ...list[idx].translations || {}, [targetLangCode]: translatedText.trim() } };
+  all[key] = list;
+  try {
+    window.localStorage.setItem(WORD_EXAMPLES_KEY, JSON.stringify(all));
+    window.dispatchEvent(new Event(WORD_EXAMPLES_CHANGED_EVENT));
+  } catch {
+  }
+}
+function mergeWordExamplesFromCloud(cloudAll) {
+  if (!cloudAll || typeof cloudAll !== "object") return;
+  const local = loadAllWordExamples();
+  let changed = false;
+  Object.keys(cloudAll).forEach((key) => {
+    const cloudList = Array.isArray(cloudAll[key]) ? cloudAll[key] : [];
+    const localList = local[key] || [];
+    const localIds = new Set(localList.map((e) => e.id));
+    const additions = cloudList.filter((e) => e && e.id && !localIds.has(e.id));
+    if (additions.length) {
+      local[key] = [...localList, ...additions];
+      changed = true;
+    }
+  });
+  if (!changed) return;
+  try {
+    window.localStorage.setItem(WORD_EXAMPLES_KEY, JSON.stringify(local));
+    window.dispatchEvent(new Event(WORD_EXAMPLES_CHANGED_EVENT));
+  } catch {
+  }
+}
+const WORD_TRANSLATIONS_KEY = "phrasebook-word-translations-v1";
+function loadAllWordTranslations() {
+  try {
+    const raw = window.localStorage.getItem(WORD_TRANSLATIONS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+function wordTranslationKey(word, langCode) {
+  return `${langCode}::${normalizeWord(word)}`;
+}
+function loadWordTranslation(word, langCode) {
+  const all = loadAllWordTranslations();
+  return all[wordTranslationKey(word, langCode)] || "";
+}
+function saveWordTranslation(word, langCode, translatedText) {
+  if (!translatedText || !translatedText.trim()) return;
+  const all = loadAllWordTranslations();
+  all[wordTranslationKey(word, langCode)] = translatedText.trim();
+  try {
+    window.localStorage.setItem(WORD_TRANSLATIONS_KEY, JSON.stringify(all));
+  } catch {
+  }
+}
+async function generateWordExample({ word, langCode, meaningNative, nativeLabel, existingExamples, aiSettings }) {
+  const langLabel = typeof LANGUAGES !== "undefined" && LANGUAGES.find((l) => l.code === langCode)?.label || langCode;
+  const avoidBlock = existingExamples && existingExamples.length ? `Do NOT reuse or closely paraphrase any of these already-used examples for this same word:
+${existingExamples.map((e, i) => `${i + 1}. ${e}`).join("\n")}
+
+` : "";
+  const prompt = `Write exactly ONE natural example sentence in ${langLabel} that uses the word/expression "${word}"` + (meaningNative ? ` (its ${nativeLabel || "native-language"} meaning is: "${meaningNative}")` : "") + ` in a way that reflects REAL, current, everyday usage — the kind of sentence a native speaker might actually say or write today, optionally touching on everyday life, technology, or something plausibly connected to current news/world events. Avoid textbook-sounding, generic sentences. Keep it natural length (roughly 8-20 words), grammatically correct, and appropriate for a language learner to study.
+
+` + avoidBlock + `Respond with ONLY the example sentence itself in ${langLabel} — no quotes, no translation, no numbering, no explanation, nothing else.`;
+  const result = await callAI({ prompt, maxTokens: 150, retries: 1, aiSettings });
+  return String(result || "").replace(/^["'«»]+|["'«».\s]+$/g, "").trim();
+}
+const GRAMMAR_NOTES_KEY = "phrasebook-grammar-notes-v1";
+const GRAMMAR_NOTES_CHANGED_EVENT = "phrasebook:grammarNotesChanged";
+const TARGET_TEXT_PREFS_KEY = "phrasebook-target-text-prefs-v1";
+const TARGET_TEXT_PREFS_CHANGED_EVENT = "phrasebook:targetTextPrefsChanged";
+const DEFAULT_TARGET_TEXT_PREFS = { scale: 100, bold: "both" };
+const VOICE_PREFS_KEY = "phrasebook-voice-prefs-v1";
+const VOICE_PREFS_CHANGED_EVENT = "phrasebook:voicePrefsChanged";
+function loadVoicePrefs() {
+  try {
+    const raw = window.localStorage.getItem(VOICE_PREFS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+function saveVoicePrefs(prefs) {
+  try {
+    window.localStorage.setItem(VOICE_PREFS_KEY, JSON.stringify(prefs));
+    window.dispatchEvent(new Event(VOICE_PREFS_CHANGED_EVENT));
+  } catch {
+  }
+}
+function setVoicePrefForLang(langPrefix, voiceURI) {
+  const prefs = loadVoicePrefs();
+  if (voiceURI) prefs[langPrefix] = voiceURI;
+  else delete prefs[langPrefix];
+  saveVoicePrefs(prefs);
+}
+function loadTargetTextPrefs() {
+  try {
+    const raw = window.localStorage.getItem(TARGET_TEXT_PREFS_KEY);
+    if (!raw) return { ...DEFAULT_TARGET_TEXT_PREFS };
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_TARGET_TEXT_PREFS, ...parsed };
+  } catch {
+    return { ...DEFAULT_TARGET_TEXT_PREFS };
+  }
+}
+function saveTargetTextPrefs(prefs) {
+  try {
+    window.localStorage.setItem(TARGET_TEXT_PREFS_KEY, JSON.stringify(prefs));
+    window.dispatchEvent(new Event(TARGET_TEXT_PREFS_CHANGED_EVENT));
+  } catch {
+  }
+}
+function useTargetTextPrefs() {
+  const [prefs, setPrefs] = useState(loadTargetTextPrefs);
+  useEffect(() => {
+    const refresh = () => setPrefs(loadTargetTextPrefs());
+    window.addEventListener(TARGET_TEXT_PREFS_CHANGED_EVENT, refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener(TARGET_TEXT_PREFS_CHANGED_EVENT, refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
+  return prefs;
+}
+function loadGrammarNotes() {
+  try {
+    const raw = window.localStorage.getItem(GRAMMAR_NOTES_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+function saveGrammarNote({ langCode, word, sentence, markdown }) {
+  if (!markdown) return null;
+  const list = loadGrammarNotes();
+  const entry = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    langCode,
+    word: word || "",
+    sentence: sentence || "",
+    markdown,
+    savedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  list.unshift(entry);
+  try {
+    window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+  } catch {
+  }
+  return entry;
+}
+function removeGrammarNote(id) {
+  const list = loadGrammarNotes().filter((n) => n.id !== id);
+  try {
+    window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+  } catch {
+  }
+}
+function clearAllGrammarNotes() {
+  try {
+    window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify([]));
+    window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+  } catch {
+  }
+}
+function removeGrammarNotesBulk(ids) {
+  if (!ids || !ids.size) return;
+  const list = loadGrammarNotes().filter((n) => !ids.has(n.id));
+  try {
+    window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+  } catch {
+  }
+}
+function mergeGrammarNotesFromCloud(cloudList) {
+  if (!Array.isArray(cloudList) || !cloudList.length) return;
+  const local = loadGrammarNotes();
+  const localIds = new Set(local.map((n) => n.id));
+  const additions = cloudList.filter((n) => n && n.id && !localIds.has(n.id));
+  if (!additions.length) return;
+  const merged = [...additions, ...local].sort(
+    (a, b) => new Date(b.savedAt || 0) - new Date(a.savedAt || 0)
+  );
+  try {
+    window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(merged));
+    window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+  } catch {
+  }
+}
+function updateGrammarNoteMarkdown(id, markdown) {
+  if (!markdown) return;
+  const list = loadGrammarNotes();
+  const idx = list.findIndex((n) => n.id === id);
+  if (idx === -1) return;
+  list[idx] = { ...list[idx], markdown };
+  try {
+    window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+  } catch {
+  }
+}
+function appendGrammarNoteThread(id, { question, answer }) {
+  const list = loadGrammarNotes();
+  const idx = list.findIndex((n) => n.id === id);
+  if (idx === -1) return;
+  const thread = Array.isArray(list[idx].thread) ? list[idx].thread : [];
+  list[idx] = { ...list[idx], thread: [...thread, { question, answer }] };
+  try {
+    window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+  } catch {
+  }
+}
+let requestGrammarJump = null;
+let requestAddToLeitner = null;
+async function lookupWordGrammarDetail({ word, sentence, langCode, nativeLang, nativeLabel, aiSettings, targetOrder }) {
+  const langLabel = englishLangName(langCode);
+  const otherLangsLabel = (targetOrder || []).filter((c) => c !== langCode && c !== nativeLang).map((c) => englishLangName(c)).join(", ");
+  const prompt = `You are a language teacher explaining a grammar point to a beginner language learner.
+User's native language: ${nativeLabel || nativeLang}
+Language they are learning: ${langLabel}
+Other languages they are learning simultaneously: ${otherLangsLabel || "None"}
+
+Sentence: "${sentence}"
+Word the user clicked on: "${word}"
+
+Please explain the grammar point in ${nativeLang}. Follow the structure below, but make the explanation natural and fluent:
+
+1. Give a natural translation of the sentence in ${nativeLang}.
+2. Explain the role of the word "${word}" in this sentence and why it appears in this form.
+3. Explain the main grammar point demonstrated by this sentence like a patient teacher. If there is a similar or different rule in the other languages (${otherLangsLabel}), mention it.
+4. Give one additional example (different from the original sentence) that demonstrates the same point, along with its translation into ${nativeLang}.
+5. Provide a simple trick to help remember this rule.
+
+Keep the response short and useful (maximum 4–5 short paragraphs). Do not use technical terminology unless necessary.`;
+  const text = await callAI({ prompt, maxTokens: 900, aiSettings });
+  return text.trim();
+}
+async function localizeGrammarDetailMarkdown(englishText, nativeLang, aiSettings) {
+  const text = String(englishText || "");
+  if (!nativeLang || nativeLang === "en") return text.replace(/§§/g, "");
+  const lines = text.split(/\r?\n/);
+  const translatedLines = await Promise.all(
+    lines.map(async (raw) => {
+      const line = raw.trim();
+      if (!line) return raw;
+      const wrapped = line.match(/^§§(.+)§§$/);
+      if (wrapped) return wrapped[1];
+      const headerMatch = line.match(/^(#{1,3}\s*\d*\.?\s*)(.+)$/);
+      if (headerMatch) {
+        const [, prefix, title] = headerMatch;
+        const translatedTitle = await translateFree(title, nativeLang, "en", aiSettings);
+        return prefix + (translatedTitle || title);
+      }
+      const bulletMatch = line.match(/^(-\s*\*\*.+?\*\*\s*[—-]\s*)(.+)$/);
+      if (bulletMatch) {
+        const [, prefix, rest] = bulletMatch;
+        const translatedRest = await translateFree(rest, nativeLang, "en", aiSettings);
+        return prefix + (translatedRest || rest);
+      }
+      const translated = await translateFree(line, nativeLang, "en", aiSettings);
+      return translated || line;
+    })
+  );
+  return translatedLines.join("\n").replace(/§§/g, "");
+}
+async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history, targetOrder }) {
+  const label = nativeLabel || "Persian";
+  const langLabel = englishLangName(langCode);
+  const otherLangsLabel = (targetOrder || []).filter((c) => c !== langCode && c !== nativeLang).map((c) => englishLangName(c)).join(", ") || "None";
+  const historyText = (history || []).slice(-8).map((m) => `${m.role === "user" ? "Learner" : "Teacher"}: ${m.text}`).join("\n") || "None";
+  const prompt = `You are a friendly, knowledgeable AI chat assistant inside a language-learning app — talk with the learner the same natural way any general-purpose AI chat assistant would. You're not limited to grammar; you can help with anything they bring up. On top of that, you're great at ${langLabel} practice.
+
+Learner's native language: ${label}. Language they're currently practicing: ${langLabel}. Other languages they study: ${otherLangsLabel}.
+
+Recent conversation:
+${historyText}
+
+Learner just wrote: "${userSentence}"
+
+How to respond:
+- If this reads like a sentence they wrote in ${langLabel} to practice: check it warmly. Say if it's correct or not, give the corrected version if needed, explain briefly and simply why (in ${label}) — especially if the mistake looks like it came from mixing ${label} and ${langLabel} structure — then add one more example sentence in ${langLabel} with a ${label} translation.
+- Otherwise, just answer naturally, like a normal, capable AI assistant would — any topic, any question, no restriction. Weave in an example phrase in ${langLabel} with translation only if it genuinely fits.
+- Default to ${langLabel} for any language-practice content (translated into ${label}); only bring in ${otherLangsLabel} or English if the learner specifically asks about them or it clearly helps.
+- CRITICAL: this learner is practicing ${langLabel}, NOT English. Every example sentence in your reply MUST be in ${langLabel} (unless ${langLabel} literally is English, or the learner explicitly asked about English/another language). Never default to English examples just out of habit — that is a mistake.
+- Write in ${label}. Keep sentences in both languages clean and well-ordered, never jumbled. Keep the reply clear, well-organized, and not too long.`;
+  const text = await callAI({ prompt, maxTokens: 1200, aiSettings });
+  return text.trim();
+}
+function mdInline(str, keyBase) {
+  const parts = [];
+  let rest = String(str || "");
+  const regex = /(\*\*(.+?)\*\*|`(.+?)`)/;
+  let key = 0;
+  while (rest) {
+    const m = rest.match(regex);
+    if (!m) {
+      parts.push(rest);
+      break;
+    }
+    if (m.index > 0) parts.push(rest.slice(0, m.index));
+    if (m[2] !== void 0) {
+      parts.push(/* @__PURE__ */ React.createElement("b", { key: `${keyBase}-${key++}` }, m[2]));
+    } else if (m[3] !== void 0) {
+      parts.push(
+        /* @__PURE__ */ React.createElement(
+          "code",
+          {
+            key: `${keyBase}-${key++}`,
+            dir: "auto",
+            style: { background: "rgba(0,0,0,0.06)", padding: "1px 5px", borderRadius: 4, fontFamily: fontLatin }
+          },
+          m[3]
+        )
+      );
+    }
+    rest = rest.slice(m.index + m[0].length);
+  }
+  return parts;
+}
+function extractSpeakableText(markdown) {
+  if (!markdown) return "";
+  const lines = String(markdown).split(/\r?\n/);
+  const kept = [];
+  for (let raw of lines) {
+    let line = raw.trim();
+    if (!line) continue;
+    if (/^#{1,3}\s+/.test(line)) continue;
+    if (/^-{3,}$/.test(line)) continue;
+    line = line.replace(/^[-*]\s+/, "");
+    line = line.replace(/^(ترجمه|Translation)\s*:\s*/i, "TRANSLATION::");
+    if (line.startsWith("TRANSLATION::")) continue;
+    if (/[\u0600-\u06FF]/.test(line)) continue;
+    line = line.replace(/^[❌✅🟢🟡🔴]\s*/u, "");
+    line = line.replace(/\*\*/g, "").replace(/`/g, "");
+    line = line.replace(/^\*\*?🔹.*?:\*\*?/, "").trim();
+    if (!line) continue;
+    kept.push(line);
+  }
+  return kept.join(". ");
+}
+function isPersianScriptLine(s) {
+  const persianChars = (s.match(/[\u0600-\u06FF]/g) || []).length;
+  const letters = (s.match(/[^\s\d.,;:!?()"'«»\-–—]/g) || []).length;
+  return letters > 0 && persianChars / letters > 0.4;
+}
+function stripMdInline(s) {
+  return String(s || "").replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1").replace(/`(.*?)`/g, "$1");
+}
+const TapWordTranslate = React.memo(function TapWordTranslate2({ text, targetLangCode }) {
+  const [openIdx, setOpenIdx] = useState(null);
+  const [results, setResults] = useState({});
+  if (!text || !targetLangCode) return text || null;
+  const tokens = String(text).split(/(\s+)/);
+  const handleTap = async (idx, raw) => {
+    const word = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+    if (!word) return;
+    if (openIdx === idx) {
+      setOpenIdx(null);
+      return;
+    }
+    setOpenIdx(idx);
+    if (results[idx]) return;
+    setResults((r) => ({ ...r, [idx]: "loading" }));
+    try {
+      const t = await translateFree(word, targetLangCode, "auto");
+      setResults((r) => ({ ...r, [idx]: t || "—" }));
+    } catch {
+      setResults((r) => ({ ...r, [idx]: "—" }));
+    }
+  };
+  return /* @__PURE__ */ React.createElement("span", { dir: "auto" }, tokens.map((tok, idx) => {
+    if (!tok || /^\s+$/.test(tok)) return /* @__PURE__ */ React.createElement(React.Fragment, { key: idx }, tok);
+    return (
+      // نکته‌ی مهم (دقیقاً مثلِ ClickableSentence): این span باید
+      // display:inline بمونه، نه inline-block. inline-block هر کلمه رو
+      // برای موتورِ بیدایِ مرورگر یه «جعبه‌ی اتمیک» جدا حساب می‌کنه؛ وقتی
+      // چندتا از این جعبه‌ها پشتِ‌سرِهم داخلِ یه بلاکِ راست‌به‌چپ (فارسی)
+      // می‌شینن، مرورگر با کلماتِ داخلِ هرکدوم مثلِ یه کاراکترِ خنثی رفتار
+      // می‌کنه و کلِ ترتیبِ جعبه‌ها رو راست‌به‌چپ می‌چینه — یعنی دقیقاً
+      // همون باگی که کاربر گزارش کرد: کلماتِ فارسی و حتی کلماتِ انگلیسیِ
+      // وسطِ جمله هم بی‌ربط به‌هم‌ریخته/معکوس نشون داده می‌شن. با
+      // display:inline، position:relative همچنان برای لنگرِ پاپ‌آپِ
+      // زیرش کار می‌کنه، ولی دیگه جعبه‌ی اتمیکِ جدا نمی‌سازه و ترتیبِ
+      // طبیعیِ بیدایِ یونیکد رعایت می‌شه.
+      /* @__PURE__ */ React.createElement("span", { key: idx, style: { position: "relative", display: "inline" } }, /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          onClick: () => handleTap(idx, tok),
+          style: { cursor: "pointer", borderBottom: `1px dotted ${colors.inkSoft}` }
+        },
+        tok
+      ), openIdx === idx && /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          dir: "auto",
+          style: {
+            position: "absolute",
+            top: "100%",
+            insetInlineStart: 0,
+            backgroundColor: colors.gold,
+            color: "white",
+            fontSize: 11,
+            fontWeight: 700,
+            borderRadius: 6,
+            padding: "2px 6px",
+            whiteSpace: "nowrap",
+            zIndex: 5,
+            marginTop: 2,
+            boxShadow: "0 2px 6px rgba(0,0,0,0.18)"
+          }
+        },
+        results[idx] === "loading" ? "…" : results[idx] || ""
+      ))
+    );
+  }));
+});
+const MiniMarkdown = React.memo(
+  function MiniMarkdown2({ text, speakCode, nativeLang, aiSettings, wordTapTarget, justify }) {
+    if (!text) return null;
+    const blockAlignStyle = justify ? { textAlign: "justify", unicodeBidi: "plaintext" } : { textAlign: "start" };
+    const blockDir = (content) => justify ? isPersianScriptLine(content) ? "rtl" : "ltr" : "auto";
+    const alwaysSpeak = speakCode && ["fa", "ar"].includes(speakCode);
+    const shouldSpeak = (line) => !!speakCode && (alwaysSpeak || !isPersianScriptLine(line));
+    const renderContent = (content, key) => {
+      if (nativeLang && shouldSpeak(content)) {
+        return /* @__PURE__ */ React.createElement(
+          ClickableSentence,
+          {
+            text: stripMdInline(content),
+            langCode: speakCode,
+            nativeLang,
+            aiSettings
+          }
+        );
+      }
+      if (wordTapTarget) {
+        return /* @__PURE__ */ React.createElement(TapWordTranslate, { key, text: stripMdInline(content), targetLangCode: wordTapTarget });
+      }
+      return mdInline(content, key);
+    };
+    const lines = String(text).split(/\r?\n/);
+    const blocks = [];
+    let listBuffer = [];
+    const flushList = () => {
+      if (listBuffer.length) {
+        blocks.push(
+          /* @__PURE__ */ React.createElement("ul", { key: blocks.length, style: { margin: "4px 0 8px", paddingInlineStart: 18 } }, listBuffer.map((li, i) => (
+            // dir="auto" اینجا لازمه که برای هر خط جدا تصمیم بگیره راست‌چین
+            // باشه یا چپ‌چین (بر اساس اولین حرفِ همون خط)، نه اینکه از یه
+            // جهتِ کلیِ ثابت (که معمولاً فارسیه) برای کل کارت پیروی کنه —
+            // وگرنه جمله‌های انگلیسیِ خالص هم بر عکس/به‌هم‌ریخته نشون داده
+            // می‌شن، دقیقاً همون مشکلی که توی مثال‌ها پیش اومده بود.
+            /* @__PURE__ */ React.createElement("li", { key: i, dir: blockDir(li), className: "flex items-start gap-1", style: { marginBottom: 2, lineHeight: 1.8, ...blockAlignStyle } }, shouldSpeak(li) && /* @__PURE__ */ React.createElement(SpeakButton, { text: li, code: speakCode, color: colors.inkSoft, edge: isPersianScriptLine(li) ? void 0 : "end" }), /* @__PURE__ */ React.createElement("span", { style: { flex: 1 } }, renderContent(li, `${blocks.length}-${i}`)))
+          )))
+        );
+        listBuffer = [];
+      }
+    };
+    lines.forEach((raw) => {
+      const line = raw.trim();
+      if (!line) {
+        flushList();
+        return;
+      }
+      if (/^#{1,3}\s+/.test(line)) {
+        flushList();
+        const level = line.match(/^#+/)[0].length;
+        const content = line.replace(/^#{1,3}\s+/, "");
+        blocks.push(
+          /* @__PURE__ */ React.createElement(
+            "p",
+            {
+              key: blocks.length,
+              dir: blockDir(content),
+              className: "flex items-start gap-1",
+              style: {
+                fontWeight: 800,
+                fontSize: level === 1 ? 16 : level === 2 ? 15 : 14,
+                margin: "10px 0 4px",
+                color: colors.ink,
+                ...blockAlignStyle
+              }
+            },
+            shouldSpeak(content) && /* @__PURE__ */ React.createElement(SpeakButton, { text: content, code: speakCode, color: colors.inkSoft, edge: isPersianScriptLine(content) ? void 0 : "end" }),
+            /* @__PURE__ */ React.createElement("span", { style: { flex: 1 } }, renderContent(content, blocks.length))
+          )
+        );
+        return;
+      }
+      if (/^-{3,}$/.test(line)) {
+        flushList();
+        blocks.push(
+          /* @__PURE__ */ React.createElement("hr", { key: blocks.length, style: { border: "none", borderTop: `1px dashed ${colors.cardBorder}`, margin: "8px 0" } })
+        );
+        return;
+      }
+      if (/^[-*]\s+/.test(line)) {
+        listBuffer.push(line.replace(/^[-*]\s+/, ""));
+        return;
+      }
+      flushList();
+      blocks.push(
+        /* @__PURE__ */ React.createElement("p", { key: blocks.length, dir: blockDir(line), className: "flex items-start gap-1", style: { margin: "4px 0", lineHeight: 1.9, ...blockAlignStyle } }, shouldSpeak(line) && /* @__PURE__ */ React.createElement(SpeakButton, { text: line, code: speakCode, color: colors.inkSoft, edge: isPersianScriptLine(line) ? void 0 : "end" }), /* @__PURE__ */ React.createElement("span", { style: { flex: 1 } }, renderContent(line, blocks.length)))
+      );
+    });
+    flushList();
+    return /* @__PURE__ */ React.createElement("div", null, blocks);
+  },
+  (prev, next) => prev.text === next.text && prev.speakCode === next.speakCode && prev.nativeLang === next.nativeLang && prev.aiSettings === next.aiSettings && prev.wordTapTarget === next.wordTapTarget && prev.justify === next.justify
+);
+const WORD_COLLECTIONS_KEY = "phrasebook-word-collections-v1";
+function loadWordCollections() {
+  try {
+    const raw = window.localStorage.getItem(WORD_COLLECTIONS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+function saveWordCollectionsList(list) {
+  try {
+    window.localStorage.setItem(WORD_COLLECTIONS_KEY, JSON.stringify(list));
+  } catch {
+  }
+}
+function parseCollectionText(rawText) {
+  return rawText.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+    const m = line.match(/^(.+?)\s*[-–:=]\s*(.+)$/);
+    return m ? { term: m[1].trim(), meaning: m[2].trim() } : { term: line, meaning: "" };
+  }).filter((w) => w.term);
+}
+function addWordCollection({ langCode, title, rawText }) {
+  const words = parseCollectionText(rawText);
+  if (!title.trim() || !words.length) return null;
+  const entry = {
+    id: `${Date.now()}`,
+    langCode,
+    title: title.trim(),
+    words,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  const list = loadWordCollections();
+  list.unshift(entry);
+  saveWordCollectionsList(list);
+  return entry;
+}
+function deleteWordCollection(id) {
+  saveWordCollectionsList(loadWordCollections().filter((c) => c.id !== id));
+}
+function addWordToCollectionEntry(id, term, meaning) {
+  const t = (term || "").trim();
+  if (!t) return null;
+  const list = loadWordCollections();
+  const idx = list.findIndex((c) => c.id === id);
+  if (idx === -1) return null;
+  const words = list[idx].words.filter((w) => normalizeWord(w.term) !== normalizeWord(t));
+  words.unshift({ term: t, meaning: (meaning || "").trim() });
+  list[idx] = { ...list[idx], words };
+  saveWordCollectionsList(list);
+  return list[idx];
+}
+function updateWordInCollectionEntry(id, originalTerm, patch) {
+  const list = loadWordCollections();
+  const idx = list.findIndex((c) => c.id === id);
+  if (idx === -1) return null;
+  const words = list[idx].words.map(
+    (w) => w.term === originalTerm ? { term: (patch.term ?? w.term).trim(), meaning: (patch.meaning ?? w.meaning ?? "").trim() } : w
+  );
+  list[idx] = { ...list[idx], words };
+  saveWordCollectionsList(list);
+  return list[idx];
+}
+function removeWordFromCollectionEntry(id, term) {
+  const list = loadWordCollections();
+  const idx = list.findIndex((c) => c.id === id);
+  if (idx === -1) return null;
+  const words = list[idx].words.filter((w) => w.term !== term);
+  list[idx] = { ...list[idx], words };
+  saveWordCollectionsList(list);
+  return list[idx];
+}
+const LEITNER_CUSTOM_WORDS_KEY = "phrasebook-leitner-custom-words-v1";
+const LEITNER_CUSTOM_WORDS_CHANGED_EVENT = "phrasebook:leitnerCustomWordsChanged";
+function loadLeitnerCustomWords() {
+  try {
+    const raw = window.localStorage.getItem(LEITNER_CUSTOM_WORDS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+function saveLeitnerCustomWordsList(list) {
+  try {
+    window.localStorage.setItem(LEITNER_CUSTOM_WORDS_KEY, JSON.stringify(list));
+    window.dispatchEvent(new Event(LEITNER_CUSTOM_WORDS_CHANGED_EVENT));
+  } catch {
+  }
+}
+function addLeitnerCustomWord(word, langCode, opts) {
+  const w = normalizeWord(word);
+  if (!w) return false;
+  const nativeLang = opts && opts.nativeLang || "fa";
+  const meaning = opts && opts.meaning || "";
+  const id = `custom:${langCode}:${w}`;
+  const list = loadLeitnerCustomWords();
+  const idx = list.findIndex((e) => e.id === id);
+  if (idx >= 0) {
+    if (meaning && !list[idx].t[nativeLang]) {
+      list[idx] = { ...list[idx], t: { ...list[idx].t, [nativeLang]: meaning } };
+      saveLeitnerCustomWordsList(list);
+    }
+    return false;
+  }
+  const entry = { id, langCode, t: { [langCode]: word, ...meaning ? { [nativeLang]: meaning } : {} } };
+  list.unshift(entry);
+  saveLeitnerCustomWordsList(list);
+  return true;
+}
+function findInVocab(word, langCode) {
+  const w = normalizeWord(word);
+  if (!w) return null;
+  const hit = VOCAB.find((v) => normalizeWord(v.t[langCode]) === w);
+  if (!hit) return null;
+  return {
+    pos: hit.pos,
+    possiblePos: [hit.pos],
+    posLabel: POS_FA[hit.pos] || hit.pos,
+    possiblePosLabels: [POS_FA[hit.pos] || hit.pos],
+    meaning: hit.meaningFa,
+    meaningFa: hit.meaningFa,
+    source: "vocab"
+  };
+}
+async function lookupWordMeaning({ word, sentence, langCode, nativeLang }) {
+  const local = nativeLang === "fa" ? findInVocab(word, langCode) : null;
+  if (local) return local;
+  const cacheKey = `${langCode}:${nativeLang}:${normalizeWord(word)}`;
+  const cache = loadWordCache();
+  if (cache[cacheKey]) return { ...cache[cacheKey], source: "cache" };
+  const meaning = await translateFree(word, nativeLang || "fa", langCode);
+  const result = { meaning: meaning || word };
+  cache[cacheKey] = result;
+  saveWordCache(cache);
+  return { ...result, source: "translate" };
+}
+const LANGUAGES = [
+  { code: "fa", label: "فارسی", abbr: "FA" },
+  { code: "en", label: "انگلیسی", abbr: "EN" },
+  { code: "it", label: "ایتالیایی", abbr: "IT" },
+  { code: "hi", label: "هندی", abbr: "HI" },
+  { code: "tr", label: "ترکی", abbr: "TR" },
+  { code: "ar", label: "عربی", abbr: "AR" },
+  { code: "es", label: "اسپانیایی", abbr: "ES" },
+  { code: "de", label: "آلمانی", abbr: "DE" },
+  { code: "fr", label: "فرانسوی", abbr: "FR" },
+  { code: "zh", label: "چینی", abbr: "ZH" },
+  { code: "ko", label: "کره‌ای", abbr: "KO" },
+  { code: "ru", label: "روسی", abbr: "RU" },
+  { code: "ja", label: "ژاپنی", abbr: "JA" }
+];
+const ENGLISH_LANG_NAME = {
+  fa: "Persian",
+  en: "English",
+  it: "Italian",
+  hi: "Hindi",
+  tr: "Turkish",
+  ar: "Arabic",
+  es: "Spanish",
+  de: "German",
+  fr: "French",
+  zh: "Chinese",
+  ko: "Korean",
+  ru: "Russian",
+  ja: "Japanese"
+};
+function englishLangName(code) {
+  return ENGLISH_LANG_NAME[code] || code;
+}
+const RTL_LANGS = ["fa", "ar"];
+const dirFor = (code) => RTL_LANGS.includes(code) ? "rtl" : "ltr";
+function detectPastedTextLanguage(text) {
+  const sample = (text || "").slice(0, 4e3);
+  if (!sample.trim()) return null;
+  if (/[\u0900-\u097F]/.test(sample)) return "hi";
+  if (/[\u0600-\u06FF]/.test(sample)) {
+    return /[\u067E\u0686\u0698\u06AF]/.test(sample) ? "fa" : "ar";
+  }
+  if (/[\u3040-\u30FF]/.test(sample)) return "ja";
+  if (/[\uAC00-\uD7A3]/.test(sample)) return "ko";
+  if (/[\u4E00-\u9FFF]/.test(sample)) return "zh";
+  if (/[\u0400-\u04FF]/.test(sample)) return "ru";
+  const words = sample.toLowerCase().match(/[a-zàâäçèéêëîïôöùûüÿñßışğî]+/g) || [];
+  if (!words.length) return null;
+  const wordSet = new Set(words);
+  const scoreOf = (list) => list.reduce((sum, w) => sum + (wordSet.has(w) ? 1 : 0), 0);
+  const stop = {
+    de: ["der", "die", "das", "und", "ist", "nicht", "mit", "für", "ein", "eine", "sie", "auf", "was", "wie", "wenn", "aber", "auch", "sich", "dass", "ich"],
+    es: ["el", "la", "los", "las", "de", "que", "y", "en", "no", "es", "un", "una", "para", "por", "con", "su", "del", "al", "se", "lo"],
+    fr: ["le", "la", "les", "et", "est", "une", "des", "dans", "pour", "que", "qui", "ne", "pas", "ce", "vous", "je", "nous", "avec", "au", "un"],
+    it: ["il", "la", "di", "che", "è", "un", "una", "per", "non", "con", "gli", "le", "sono", "questo", "questa", "del", "alla", "si", "mi", "ma"],
+    tr: ["ve", "bir", "bu", "için", "ile", "de", "da", "çok", "ama", "ne", "gibi", "daha", "var", "yok", "ben", "sen", "biz", "onun", "şey", "değil"],
+    en: ["the", "and", "is", "to", "of", "in", "that", "it", "was", "for", "on", "with", "he", "she", "you", "this", "but", "not", "are", "as"]
+  };
+  const scores = Object.entries(stop).map(([code, list]) => [code, scoreOf(list)]);
+  scores.sort((a, b) => b[1] - a[1]);
+  const [topCode, topScore] = scores[0];
+  return topScore > 0 ? topCode : null;
+}
+const PHRASEBOOK_LANGUAGES = LANGUAGES;
+function syncLangPickerFromTargetOrder(prevLangPickerOrder, nextTargetOrder) {
+  const slots = [];
+  prevLangPickerOrder.forEach((code, idx) => {
+    if (nextTargetOrder.includes(code)) slots.push(idx);
+  });
+  if (!slots.length) return prevLangPickerOrder;
+  const next = [...prevLangPickerOrder];
+  slots.forEach((idx, i) => {
+    next[idx] = nextTargetOrder[i];
+  });
+  return next;
+}
+function syncTargetOrderFromLangPicker(nextLangPickerOrder, prevTargetOrder) {
+  const next = nextLangPickerOrder.filter((c) => prevTargetOrder.includes(c));
+  return next.length === prevTargetOrder.length ? next : prevTargetOrder;
+}
+const CATEGORIES = {
+  greetings: "احوال‌پرسی",
+  airport: "فرودگاه",
+  restaurant: "رستوران",
+  shopping: "خرید",
+  hotel: "هتل",
+  directions: "جهت‌یابی",
+  emergency: "اضطراری",
+  numbers: "اعداد و زمان",
+  meeting: "ملاقات",
+  introducing: "معرفی کردن",
+  old_friend: "دوست قدیمی",
+  acquainted: "آشنایی",
+  invitation: "دعوت",
+  goodbye: "خداحافظی",
+  telephone: "تلفن",
+  transport: "حمل‌ونقل",
+  taxi: "تاکسی",
+  common: "عبارات رایج",
+  exercises: "تمرین مکالمه",
+  bus: "اتوبوس",
+  rental: "اجاره ماشین",
+  train: "قطار",
+  gas: "پمپ بنزین",
+  repair: "تعمیر ماشین"
+};
+const CATEGORIES_EN = {
+  greetings: "Greetings",
+  airport: "Airport",
+  restaurant: "Restaurant",
+  shopping: "Shopping",
+  hotel: "Hotel",
+  directions: "Directions",
+  emergency: "Emergency",
+  numbers: "Numbers & time",
+  meeting: "Meeting",
+  introducing: "Introducing",
+  old_friend: "Old friend",
+  acquainted: "Getting acquainted",
+  invitation: "Invitation",
+  goodbye: "Goodbye",
+  telephone: "Telephone",
+  transport: "Transport",
+  taxi: "Taxi",
+  common: "Common phrases",
+  exercises: "Conversation practice",
+  bus: "Bus",
+  rental: "Car rental",
+  train: "Train",
+  gas: "Gas station",
+  repair: "Car repair"
+};
+function categoryLabel(cat, uiLang) {
+  const table = uiLang === "en" ? CATEGORIES_EN : CATEGORIES;
+  return table[cat] || cat;
+}
+const conversation = [];
+const LEVEL_BY_EN_WORD = /* @__PURE__ */ new Map();
+[...WORDS_AZ, ...NEWS_WORDS, ...DAILY_WORDS].forEach((w) => {
+  const key = normalizeWord(w.en);
+  if (key && !LEVEL_BY_EN_WORD.has(key)) LEVEL_BY_EN_WORD.set(key, w.level);
+});
+(DAILY_CONVERSATIONS || []).forEach((sc) => {
+  [...sc.speakerA || [], ...sc.speakerB || []].forEach((it) => {
+    const key = normalizeWord(it.en);
+    if (key && it.level && !LEVEL_BY_EN_WORD.has(key)) LEVEL_BY_EN_WORD.set(key, it.level);
+  });
+});
+const LEVEL_BY_LANG_WORD = /* @__PURE__ */ new Map();
+[...VOCAB, ...conversation].forEach((v) => {
+  if (!v.level) return;
+  Object.entries(v.t || {}).forEach(([code, text]) => {
+    const key = `${code}:${normalizeWord(text)}`;
+    if (text && !LEVEL_BY_LANG_WORD.has(key)) LEVEL_BY_LANG_WORD.set(key, v.level);
+  });
+});
+function lookupSavedWordLevel(word, langCode) {
+  const w = normalizeWord(word);
+  if (!w) return null;
+  if (langCode === "en" && LEVEL_BY_EN_WORD.has(w)) return LEVEL_BY_EN_WORD.get(w);
+  const key = `${langCode}:${w}`;
+  if (LEVEL_BY_LANG_WORD.has(key)) return LEVEL_BY_LANG_WORD.get(key);
+  return null;
+}
+function LangStamp({ lang, active, onClick, disabled }) {
+  return /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: disabled ? void 0 : onClick,
+      disabled,
+      style: {
+        fontFamily: fontFa,
+        width: 44,
+        height: 44,
+        borderRadius: "50%",
+        border: `2px dashed ${active ? colors.gold : colors.cardBorder}`,
+        backgroundColor: active ? colors.gold : "transparent",
+        color: active ? colors.paper : colors.inkSoft,
+        fontWeight: 700,
+        fontSize: 11,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.3 : 1,
+        transition: "background-color 0.15s, border-color 0.15s"
+      },
+      "aria-pressed": active,
+      title: disabled ? `${lang.label} (زبان مادری‌ته، نمی‌تونه هم‌زمان مقصد باشه)` : lang.label
+    },
+    lang.abbr
+  );
+}
+function DraggableLangRow({ order, setOrder, languages, isActive, isDisabled, onClick }) {
+  const dragState = useRef({ code: null, startX: 0, startY: 0, dragging: false, longPressTimer: null });
+  const [dragCode, setDragCode] = useState(null);
+  function clearLongPress(st) {
+    if (st.longPressTimer) {
+      clearTimeout(st.longPressTimer);
+      st.longPressTimer = null;
+    }
+  }
+  function reorderTo(code, clientX, clientY) {
+    const el = document.elementFromPoint(clientX, clientY);
+    const stampEl = el && el.closest("[data-lang-order-code]");
+    if (!stampEl) return;
+    const hoveredCode = stampEl.getAttribute("data-lang-order-code");
+    if (hoveredCode === code) return;
+    const fromIndex = order.indexOf(code);
+    const toIndex = order.indexOf(hoveredCode);
+    if (fromIndex === -1 || toIndex === -1) return;
+    const next = [...order];
+    next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, code);
+    setOrder(next);
+  }
+  useEffect(() => {
+    function handleMouseMove(e) {
+      const st = dragState.current;
+      if (!st.code) return;
+      if (!st.dragging) {
+        const dx = Math.abs(e.clientX - st.startX);
+        const dy = Math.abs(e.clientY - st.startY);
+        if (dx < 8 && dy < 8) return;
+        st.dragging = true;
+        setDragCode(st.code);
+      }
+      reorderTo(st.code, e.clientX, e.clientY);
+    }
+    function handleTouchMove(e) {
+      const st = dragState.current;
+      if (!st.code) return;
+      const t = e.touches[0];
+      if (!st.dragging) {
+        const dx = Math.abs(t.clientX - st.startX);
+        const dy = Math.abs(t.clientY - st.startY);
+        if (dx > 10 || dy > 10) {
+          clearLongPress(st);
+          st.code = null;
+        }
+        return;
+      }
+      if (e.cancelable) e.preventDefault();
+      reorderTo(st.code, t.clientX, t.clientY);
+    }
+    function handleUp() {
+      const st = dragState.current;
+      clearLongPress(st);
+      dragState.current = { code: null, startX: 0, startY: 0, dragging: false, longPressTimer: null };
+      setDragCode(null);
+    }
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("touchmove", handleTouchMove, { passive: false });
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("touchend", handleUp);
+    window.addEventListener("touchcancel", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("touchend", handleUp);
+      window.removeEventListener("touchcancel", handleUp);
+    };
+  }, [order, setOrder]);
+  const orderedLangs = [
+    ...order.map((code) => languages.find((l) => l.code === code)).filter(Boolean),
+    ...languages.filter((l) => !order.includes(l.code))
+  ];
+  return /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 overflow-x-auto pb-1", style: { WebkitOverflowScrolling: "touch" } }, orderedLangs.map((l) => /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      key: l.code,
+      "data-lang-order-code": l.code,
+      onMouseDown: (e) => {
+        dragState.current = { code: l.code, startX: e.clientX, startY: e.clientY, dragging: false, longPressTimer: null };
+      },
+      onTouchStart: (e) => {
+        const t = e.touches[0];
+        const st = { code: l.code, startX: t.clientX, startY: t.clientY, dragging: false, longPressTimer: null };
+        dragState.current = st;
+        st.longPressTimer = setTimeout(() => {
+          if (dragState.current === st && st.code) {
+            st.dragging = true;
+            setDragCode(st.code);
+          }
+        }, 320);
+      },
+      style: {
+        touchAction: "pan-x",
+        cursor: "grab",
+        flexShrink: 0,
+        transform: dragCode === l.code ? "scale(1.15)" : "scale(1)",
+        transition: "transform 0.12s"
+      }
+    },
+    /* @__PURE__ */ React.createElement(
+      LangStamp,
+      {
+        lang: l,
+        active: isActive(l.code),
+        disabled: isDisabled ? isDisabled(l.code) : false,
+        onClick: () => {
+          if (!dragState.current.dragging) onClick(l.code);
+        }
+      }
+    )
+  )));
+}
+function OfflineWordsModal({ open, onClose, aiSettings }) {
+  const [selectedLangs, setSelectedLangs] = useState([]);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [currentWord, setCurrentWord] = useState("");
+  const [cachedCount, setCachedCount] = useState(null);
+  const [finished, setFinished] = useState(false);
+  const cancelRef = useRef(false);
+  useEffect(() => {
+    if (open) {
+      getTranslationCacheCount().then(setCachedCount);
+      setFinished(false);
+    }
+  }, [open]);
+  const allWords = useMemo(() => {
+    const map = /* @__PURE__ */ new Map();
+    [VOCAB, WORDS_AZ, NEWS_WORDS, DAILY_WORDS].forEach((list) => {
+      (list || []).forEach((w) => {
+        if (w?.en && !map.has(w.en)) map.set(w.en, true);
+      });
+    });
+    return Array.from(map.keys());
+  }, []);
+  if (!open) return null;
+  const toggleLang = (code) => {
+    setSelectedLangs((prev) => prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]);
+  };
+  const startDownload = async () => {
+    if (selectedLangs.length === 0 || running) return;
+    setRunning(true);
+    setFinished(false);
+    cancelRef.current = false;
+    const jobs = [];
+    selectedLangs.forEach((lang) => allWords.forEach((word) => jobs.push({ word, lang })));
+    setProgress({ done: 0, total: jobs.length });
+    let doneCount = 0;
+    const CONCURRENCY = 4;
+    let cursor = 0;
+    async function worker() {
+      while (cursor < jobs.length) {
+        if (cancelRef.current) return;
+        const job = jobs[cursor++];
+        setCurrentWord(job.word);
+        try {
+          await translateFree(job.word, job.lang, "en", aiSettings);
+        } catch {
+        }
+        doneCount++;
+        setProgress({ done: doneCount, total: jobs.length });
+      }
+    }
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    setRunning(false);
+    setFinished(!cancelRef.current);
+    getTranslationCacheCount().then(setCachedCount);
+  };
+  const cancelDownload = () => {
+    cancelRef.current = true;
+    setRunning(false);
+  };
+  const pct = progress.total ? Math.round(progress.done / progress.total * 100) : 0;
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      onClick: () => !running && onClose(),
+      style: { position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }
+    },
+    /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        dir: "rtl",
+        onClick: (e) => e.stopPropagation(),
+        style: { backgroundColor: colors.paper, borderRadius: 18, padding: 20, width: "100%", maxWidth: 380, maxHeight: "85vh", overflowY: "auto", boxShadow: "0 16px 40px rgba(0,0,0,0.3)" }
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between", style: { marginBottom: 4 } }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 15, fontWeight: 800, color: colors.ink } }, "دانلود آفلاین لغات"), !running && /* @__PURE__ */ React.createElement("button", { onClick: onClose, "aria-label": "بستن" }, /* @__PURE__ */ React.createElement(X, { size: 18, color: colors.inkSoft }))),
+      /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft, lineHeight: 1.8, marginBottom: 14 } }, "زبان‌های موردنظرت رو انتخاب کن. برنامه ", allWords.length.toLocaleString("fa-IR"), " لغت رو یکی‌یکی با سرویس‌های ترجمه‌ی رایگان ترجمه و روی گوشی ذخیره می‌کنه — فقط همین یک‌بار به اینترنت نیاز داره؛ بعدش این لغات کاملاً آفلاین در دسترسن."),
+      !running && !finished && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2", style: { marginBottom: 16 } }, LANGUAGES.filter((l) => l.code !== "en").map((l) => /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: l.code,
+          onClick: () => toggleLang(l.code),
+          style: {
+            padding: "6px 14px",
+            borderRadius: 20,
+            fontSize: 12.5,
+            fontWeight: 600,
+            border: `1.5px solid ${selectedLangs.includes(l.code) ? colors.gold : colors.cardBorder}`,
+            backgroundColor: selectedLangs.includes(l.code) ? colors.goldSoft : "white",
+            color: colors.ink
+          }
+        },
+        l.label
+      ))), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: startDownload,
+          disabled: selectedLangs.length === 0,
+          style: {
+            width: "100%",
+            padding: "11px",
+            borderRadius: 12,
+            fontSize: 14,
+            fontWeight: 700,
+            backgroundColor: selectedLangs.length ? colors.ink : "#ccc",
+            color: colors.paper
+          }
+        },
+        "شروع دانلود",
+        selectedLangs.length > 0 && ` (${(allWords.length * selectedLangs.length).toLocaleString("fa-IR")} ترجمه)`
+      )),
+      running && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { height: 10, borderRadius: 6, backgroundColor: "#eee", overflow: "hidden", marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${pct}%`, backgroundColor: colors.gold, transition: "width .2s" } })), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft, marginBottom: 4 } }, progress.done.toLocaleString("fa-IR"), " از ", progress.total.toLocaleString("fa-IR"), " (", pct, "٪)"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: colors.inkSoft, marginBottom: 16, direction: "ltr", textAlign: "left", opacity: 0.7 } }, currentWord), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: cancelDownload,
+          style: { width: "100%", padding: "10px", borderRadius: 12, fontSize: 13, fontWeight: 600, border: `1.5px solid ${colors.rose}`, color: colors.rose }
+        },
+        "لغو"
+      )),
+      finished && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", padding: "10px 0" } }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, fontWeight: 700, color: colors.ink, marginBottom: 6 } }, "✅ تمام شد"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft, marginBottom: 16 } }, "الان ", cachedCount?.toLocaleString("fa-IR"), " ترجمه روی گوشی ذخیره‌ست و کاملاً آفلاین در دسترسه."), /* @__PURE__ */ React.createElement("button", { onClick: onClose, style: { width: "100%", padding: "10px", borderRadius: 12, fontSize: 13, fontWeight: 700, backgroundColor: colors.ink, color: colors.paper } }, "باشه")),
+      !running && !finished && cachedCount !== null && cachedCount > 0 && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: colors.inkSoft, marginTop: 12, textAlign: "center" } }, cachedCount.toLocaleString("fa-IR"), " ترجمه از قبل ذخیره شده (این‌ها دوباره دانلود نمی‌شن)")
+    )
+  );
+}
+function detectPlatform() {
+  const ua = typeof navigator !== "undefined" && navigator.userAgent || "";
+  if (/android/i.test(ua)) return "android";
+  if (/iphone|ipad|ipod/i.test(ua)) return "ios";
+  return "desktop";
+}
+function openLanguagePackSettings(platform) {
+  if (platform === "android") {
+    try {
+      window.location.href = "intent://#Intent;action=com.android.settings.TTS_SETTINGS;end";
+    } catch (e) {
+    }
+  }
+}
+function LanguageVoiceSettings({ uiLang, colors: colors2 }) {
+  const [voices, setVoices] = useState(
+    () => typeof window !== "undefined" && window.speechSynthesis ? window.speechSynthesis.getVoices() : []
+  );
+  const [voicePrefs, setVoicePrefsState] = useState(loadVoicePrefs);
+  const platform = useMemo(detectPlatform, []);
+  useEffect(() => {
+    if (!window.speechSynthesis) return;
+    const refresh = () => setVoices(window.speechSynthesis.getVoices());
+    refresh();
+    window.speechSynthesis.addEventListener("voiceschanged", refresh);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", refresh);
+  }, []);
+  useEffect(() => {
+    const refresh = () => setVoicePrefsState(loadVoicePrefs());
+    window.addEventListener(VOICE_PREFS_CHANGED_EVENT, refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener(VOICE_PREFS_CHANGED_EVENT, refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
+  const installSteps = platform === "android" ? tr("androidInstallSteps", uiLang) : platform === "ios" ? tr("iosInstallSteps", uiLang) : tr("desktopInstallSteps", uiLang);
+  return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 16 } }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, fontWeight: 700, color: colors2.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 } }, "🔊 ", tr("voiceSectionTitle", uiLang)), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => openLanguagePackSettings(platform),
+      className: "flex items-center gap-2",
+      style: {
+        fontSize: 12.5,
+        fontWeight: 700,
+        color: colors2.ink,
+        border: `1px solid ${colors2.cardBorder}`,
+        borderRadius: 12,
+        padding: "9px 12px",
+        width: "100%",
+        marginBottom: 6
+      }
+    },
+    "📥 ",
+    tr("installLanguagePacks", uiLang)
+  ), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: colors2.inkSoft, marginBottom: 6, lineHeight: 1.6 } }, tr("installLanguagePacksHint", uiLang)), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 10.5, color: colors2.inkSoft, marginBottom: 12, lineHeight: 1.6, opacity: 0.85 } }, installSteps), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 4 } }, LANGUAGES.filter((l) => l.code !== "fa").map((l) => {
+    const matches = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith(l.code));
+    const hasVoices = matches.length > 0;
+    const currentURI = voicePrefs[l.code] || "";
+    return /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: l.code,
+        style: {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          border: `1px solid ${colors2.cardBorder}`,
+          borderRadius: 10,
+          padding: "7px 10px"
+        }
+      },
+      /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, fontWeight: 600, color: colors2.ink, flexShrink: 0 } }, l.label),
+      hasVoices ? /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: currentURI,
+          onChange: (e) => setVoicePrefForLang(l.code, e.target.value || null),
+          style: {
+            fontSize: 11.5,
+            border: `1px solid ${colors2.cardBorder}`,
+            borderRadius: 8,
+            padding: "4px 6px",
+            color: colors2.ink,
+            flex: 1,
+            minWidth: 0
+          }
+        },
+        /* @__PURE__ */ React.createElement("option", { value: "" }, tr("voiceAutoOption", uiLang)),
+        matches.map((v) => /* @__PURE__ */ React.createElement("option", { key: v.voiceURI, value: v.voiceURI }, v.name, " (", v.lang, ")"))
+      ) : /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: colors2.inkSoft, opacity: 0.8 } }, tr("voiceNotInstalled", uiLang))
+    );
+  })), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 10.5, color: colors2.inkSoft, marginTop: 6, lineHeight: 1.6, opacity: 0.85 } }, "🌐 ", tr("persianVoiceNote", uiLang)));
+}
+function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
+  const [offlineModalOpen, setOfflineModalOpen] = useState(false);
+  const [open, setOpen] = useState(false);
+  const panelRef = useRef(null);
+  const uiLang = appPrefs.uiLang || "fa";
+  const panelDir = APP_LANGUAGES[uiLang]?.dir || "rtl";
+  const panelFont = uiLang === "en" ? fontLatin : fontFa;
+  const [targetTextPrefs, setTargetTextPrefsState] = useState(loadTargetTextPrefs);
+  const updateTargetTextPrefs = (patch) => {
+    setTargetTextPrefsState((prev) => {
+      const next = { ...prev, ...patch };
+      saveTargetTextPrefs(next);
+      return next;
+    });
+  };
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e) {
+      if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+  const update = (key, value) => setAppPrefs((prev) => ({ ...prev, [key]: value }));
+  return /* @__PURE__ */ React.createElement("div", { style: { position: "relative" }, ref: panelRef }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => setOpen((v) => !v),
+      "aria-label": tr("settingsTitle", uiLang),
+      title: tr("settingsTitle", uiLang),
+      style: { color: colors.goldSoft, display: "flex" }
+    },
+    /* @__PURE__ */ React.createElement(Menu, { size: 20 })
+  ), open && /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      dir: panelDir,
+      style: {
+        position: "absolute",
+        top: "calc(100% + 10px)",
+        left: 0,
+        width: 280,
+        maxHeight: "70vh",
+        overflowY: "auto",
+        backgroundColor: colors.paper,
+        color: colors.ink,
+        border: `1px solid ${colors.cardBorder}`,
+        borderRadius: 16,
+        padding: 16,
+        boxShadow: "0 12px 30px rgba(0,0,0,0.25)",
+        zIndex: 50,
+        fontFamily: panelFont
+      }
+    },
+    /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 } }, tr("account", uiLang)),
+    /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2", style: { marginBottom: 14 } }, user?.picture ? /* @__PURE__ */ React.createElement("img", { src: user.picture, alt: "", style: { width: 30, height: 30, borderRadius: "50%" } }) : /* @__PURE__ */ React.createElement("div", { style: { width: 30, height: 30, borderRadius: "50%", background: colors.gold, color: colors.paper, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, flexShrink: 0 } }, (user?.name || user?.email || "?").trim().charAt(0).toUpperCase()), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, user?.name || tr("guestUser", uiLang)), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, user?.email))),
+    /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: onLogout,
+        className: "flex items-center gap-2",
+        style: { fontSize: 12, color: colors.rose, marginBottom: 16 }
+      },
+      /* @__PURE__ */ React.createElement(LogOut, { size: 14 }),
+      " ",
+      tr("logout", uiLang)
+    ),
+    /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 } }, /* @__PURE__ */ React.createElement(Globe, { size: 14 }), " ", tr("languageSectionTitle", uiLang)),
+    /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2", style: { marginBottom: 16 } }, Object.entries(APP_LANGUAGES).map(([key, l]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key,
+        onClick: () => update("uiLang", key),
+        "aria-pressed": uiLang === key,
+        style: {
+          padding: "5px 14px",
+          borderRadius: 20,
+          fontSize: 12,
+          border: `1px solid ${uiLang === key ? colors.gold : colors.cardBorder}`,
+          backgroundColor: uiLang === key ? colors.goldSoft : "white",
+          color: colors.ink
+        }
+      },
+      l.label
+    ))),
+    /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 } }, /* @__PURE__ */ React.createElement(Palette, { size: 14 }), " ", tr("themeSectionTitle", uiLang)),
+    /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2", style: { marginBottom: 16 } }, Object.entries(APP_THEMES).map(([key, th]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key,
+        onClick: () => update("theme", key),
+        title: th.label[uiLang] || th.label.fa,
+        "aria-pressed": appPrefs.theme === key,
+        style: {
+          width: 34,
+          height: 34,
+          borderRadius: "50%",
+          backgroundColor: th.swatch,
+          border: appPrefs.theme === key ? `3px solid ${colors.ink}` : `1px solid ${colors.cardBorder}`,
+          flexShrink: 0
+        }
+      }
+    ))),
+    /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 } }, /* @__PURE__ */ React.createElement(Type, { size: 14 }), " ", tr("fontSectionTitle", uiLang)),
+    /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2", style: { marginBottom: 16 } }, Object.entries(APP_FONTS).map(([key, f]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key,
+        onClick: () => update("font", key),
+        style: {
+          padding: "5px 12px",
+          borderRadius: 20,
+          fontSize: 12,
+          border: `1px solid ${appPrefs.font === key ? colors.gold : colors.cardBorder}`,
+          backgroundColor: appPrefs.font === key ? colors.goldSoft : "white",
+          color: colors.ink
+        }
+      },
+      f.label[uiLang] || f.label.fa
+    ))),
+    /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 } }, tr("fontSizeTitle", uiLang)),
+    /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2", style: { marginBottom: 16 } }, Object.entries(APP_FONT_SIZES).map(([key, s]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key,
+        onClick: () => update("fontSize", key),
+        style: {
+          padding: "5px 12px",
+          borderRadius: 20,
+          fontSize: 12,
+          border: `1px solid ${appPrefs.fontSize === key ? colors.gold : colors.cardBorder}`,
+          backgroundColor: appPrefs.fontSize === key ? colors.goldSoft : "white",
+          color: colors.ink
+        }
+      },
+      s.label[uiLang] || s.label.fa
+    ))),
+    /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 } }, /* @__PURE__ */ React.createElement(Type, { size: 14 }), " ", uiLang === "en" ? "Target-language font size" : "اندازه‌ی فونتِ زبان‌های مقصد"),
+    /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3", style: { marginBottom: 16 } }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => updateTargetTextPrefs({ scale: Math.max(70, (targetTextPrefs.scale || 100) - 10) }),
+        style: {
+          width: 28,
+          height: 28,
+          borderRadius: "50%",
+          border: `1px solid ${colors.cardBorder}`,
+          backgroundColor: "white",
+          color: colors.ink,
+          fontWeight: 700,
+          flexShrink: 0
+        },
+        "aria-label": uiLang === "en" ? "Decrease" : "کم کردن"
+      },
+      "−"
+    ), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "range",
+        min: 70,
+        max: 160,
+        step: 5,
+        value: targetTextPrefs.scale || 100,
+        onChange: (e) => updateTargetTextPrefs({ scale: Number(e.target.value) }),
+        style: { flex: 1, accentColor: colors.gold }
+      }
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => updateTargetTextPrefs({ scale: Math.min(160, (targetTextPrefs.scale || 100) + 10) }),
+        style: {
+          width: 28,
+          height: 28,
+          borderRadius: "50%",
+          border: `1px solid ${colors.cardBorder}`,
+          backgroundColor: "white",
+          color: colors.ink,
+          fontWeight: 700,
+          flexShrink: 0
+        },
+        "aria-label": uiLang === "en" ? "Increase" : "زیاد کردن"
+      },
+      "+"
+    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: colors.inkSoft, minWidth: 36, textAlign: "center" } }, (targetTextPrefs.scale || 100).toLocaleString(uiLang === "en" ? "en-US" : "fa-IR"), "٪")),
+    /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 } }, uiLang === "en" ? "Bold target text" : "بولدشدنِ متنِ زبانِ مقصد"),
+    /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2", style: { marginBottom: 16 } }, [
+      ["none", uiLang === "en" ? "None" : "هیچ‌کدام"],
+      ["text", uiLang === "en" ? "Original text" : "متن اصلی"],
+      ["translation", uiLang === "en" ? "Translation" : "ترجمه"],
+      ["both", uiLang === "en" ? "Both" : "هر دو (متن و ترجمه)"]
+    ].map(([key, label]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key,
+        onClick: () => updateTargetTextPrefs({ bold: key }),
+        "aria-pressed": (targetTextPrefs.bold || "both") === key,
+        style: {
+          padding: "5px 12px",
+          borderRadius: 20,
+          fontSize: 12,
+          border: `1px solid ${(targetTextPrefs.bold || "both") === key ? colors.gold : colors.cardBorder}`,
+          backgroundColor: (targetTextPrefs.bold || "both") === key ? colors.goldSoft : "white",
+          color: colors.ink,
+          fontWeight: key === "none" ? 400 : 700
+        }
+      },
+      label
+    ))),
+    /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 } }, "📅 ", tr("calendarSectionTitle", uiLang)),
+    /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2", style: { marginBottom: 16 } }, [
+      ["jalali", "calendarJalali"],
+      ["gregorian", "calendarGregorian"],
+      ["both", "calendarBoth"]
+    ].map(([key, labelKey]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key,
+        onClick: () => update("calendarSystem", key),
+        "aria-pressed": (appPrefs.calendarSystem || "jalali") === key,
+        style: {
+          padding: "5px 14px",
+          borderRadius: 20,
+          fontSize: 12,
+          border: `1px solid ${(appPrefs.calendarSystem || "jalali") === key ? colors.gold : colors.cardBorder}`,
+          backgroundColor: (appPrefs.calendarSystem || "jalali") === key ? colors.goldSoft : "white",
+          color: colors.ink
+        }
+      },
+      tr(labelKey, uiLang)
+    ))),
+    /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 } }, uiLang === "en" ? "Read-aloud highlight color" : "رنگ هایلایتِ خواندن"),
+    /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2", style: { marginBottom: 16 } }, HIGHLIGHT_COLOR_PALETTE.map((hex) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: hex,
+        onClick: () => update("highlightColor", hex),
+        "aria-pressed": appPrefs.highlightColor === hex,
+        title: hex,
+        style: {
+          width: 30,
+          height: 30,
+          borderRadius: "50%",
+          backgroundColor: hex,
+          border: appPrefs.highlightColor === hex ? `3px solid ${colors.ink}` : `1px solid ${colors.cardBorder}`,
+          flexShrink: 0
+        }
+      }
+    ))),
+    /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setOfflineModalOpen(true),
+        className: "flex items-center gap-2",
+        style: { fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: "9px 12px", width: "100%" }
+      },
+      /* @__PURE__ */ React.createElement(BookOpen, { size: 14 }),
+      " ",
+      tr("offlineDownload", uiLang)
+    )
+  ), /* @__PURE__ */ React.createElement(OfflineWordsModal, { open: offlineModalOpen, onClose: () => setOfflineModalOpen(false), aiSettings }));
+}
+function TabButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyProp }) {
+  return /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick,
+      className: "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium",
+      style: {
+        fontFamily: fontFamilyProp || fontFa,
+        backgroundColor: active ? colors.ink : "transparent",
+        color: active ? colors.paper : colors.inkSoft,
+        border: `1px solid ${active ? colors.ink : colors.cardBorder}`,
+        whiteSpace: "nowrap"
+      }
+    },
+    /* @__PURE__ */ React.createElement(Icon, { size: 16 }),
+    label
+  );
+}
+function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolveStartOffset, onPlayed, fullText }) {
+  const locale = TTS_LOCALE[code] || "en-US";
+  const jumpText = fullText || text;
+  const myKey = `${locale}::${jumpText}`;
+  const [state, setState] = useState(() => speechController.getState());
+  const [localMsg, setLocalMsg] = useState(null);
+  const [voiceHint, setVoiceHint] = useState(null);
+  useEffect(() => speechController.subscribe(setState), []);
+  useEffect(() => {
+    if (!localMsg) return;
+    const t = setTimeout(() => setLocalMsg(null), 5e3);
+    return () => clearTimeout(t);
+  }, [localMsg]);
+  useEffect(() => {
+    if (!voiceHint) return;
+    const t = setTimeout(() => setVoiceHint(null), 6e3);
+    return () => clearTimeout(t);
+  }, [voiceHint]);
+  const errorMsg = localMsg || (state.ttsError && state.ttsError === myKey ? "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن" : null);
+  const isActive = state.key === myKey && state.status !== "idle";
+  const isPlaying = isActive && state.status === "playing";
+  const c = color || colors.gold;
+  const handleToggle = (e) => {
+    e.stopPropagation();
+    const effectiveStartOffset = resolveStartOffset ? resolveStartOffset() : startOffset;
+    if (fullText) {
+      const st = speechController.getState();
+      let fullTextResult = null;
+      if (st.key === myKey && st.status !== "idle") {
+        const meta = speechController.getChunksMeta();
+        const off = Number.isInteger(effectiveStartOffset) ? effectiveStartOffset : 0;
+        let idx = 0;
+        for (let i = 0; i < meta.length; i++) {
+          if (off >= meta[i].start) idx = i;
+          else break;
+        }
+        if (idx === st.chunkIndex) {
+          fullTextResult = speechController.toggle(jumpText, code);
+        } else {
+          speechController.seekToChunk(idx);
+        }
+      } else {
+        fullTextResult = speechController.toggle(jumpText, code, effectiveStartOffset, forceRepeat === false ? void 0 : { loop: true });
+      }
+      if (fullTextResult === "online-fallback") {
+        const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
+        setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — فعلاً از اینترنت پخش می‌شه`);
+      }
+      if (onPlayed) onPlayed();
+      return;
+    }
+    const result = speechController.toggle(text, code, effectiveStartOffset, forceRepeat ? { loop: true } : void 0);
+    if (onPlayed) onPlayed();
+    if (result === "unsupported") {
+      setLocalMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
+    } else if (result === "error") {
+      setLocalMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
+    } else if (result === "online-fallback") {
+      const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
+      setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — فعلاً از اینترنت پخش می‌شه`);
+    }
+  };
+  const orderStyle = edge === "end" ? 999 : -1;
+  return /* @__PURE__ */ React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 4, order: orderStyle, position: "relative" } }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: handleToggle,
+      "aria-label": isPlaying ? "توقف موقت" : "تلفظ",
+      title: isPlaying ? "توقف موقت" : isActive ? "ادامه" : "تلفظ",
+      style: {
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        color: c,
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        padding: 2
+      }
+    },
+    isPlaying ? /* @__PURE__ */ React.createElement(Pause, { size: 16 }) : /* @__PURE__ */ React.createElement(Volume2, { size: 16 })
+  ), (errorMsg || voiceHint) && /* @__PURE__ */ React.createElement(
+    "span",
+    {
+      style: {
+        position: "absolute",
+        top: "100%",
+        insetInlineStart: 0,
+        marginTop: 2,
+        fontSize: 11,
+        color: errorMsg ? colors.rose : colors.teal,
+        whiteSpace: "nowrap",
+        fontFamily: fontFa,
+        zIndex: 5,
+        pointerEvents: "none"
+      }
+    },
+    errorMsg || voiceHint
+  ));
+}
+function PlayerCentralButton() {
+  const [state, setState] = useState(() => speechController.getState());
+  useEffect(() => speechController.subscribe(setState), []);
+  const isActive = state.status !== "idle" && !!state.key;
+  const isPlaying = isActive && state.status === "playing";
+  const shortText = isActive ? state.key?.split("::")?.[1]?.slice(0, 20) : "";
+  const handleClick = () => {
+    if (!isActive) return;
+    const parts = state.key?.split("::");
+    if (parts && parts.length === 2) {
+      const code = Object.keys(TTS_LOCALE).find((k) => TTS_LOCALE[k] === parts[0]) || "en";
+      speechController.toggle(parts[1], code);
+    }
+  };
+  return /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: handleClick,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        color: isActive ? colors.gold : colors.cardBorder,
+        opacity: isActive ? 1 : 0.5,
+        padding: 2,
+        flexShrink: 0
+      },
+      title: isActive ? isPlaying ? "توقف پخش" : "ادامه‌ی پخش" : "هیچ صدایی در حال پخش نیست",
+      "aria-label": isActive ? isPlaying ? "توقف" : "ادامه" : "خاموش"
+    },
+    isPlaying ? /* @__PURE__ */ React.createElement(Pause, { size: 18 }) : /* @__PURE__ */ React.createElement(PlayCircle, { size: 18 }),
+    isActive && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap", maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis" } }, shortText)
+  );
+}
+function RepeatButton({ color }) {
+  const [state, setState] = useState(() => speechController.getState());
+  useEffect(() => speechController.subscribe(setState), []);
+  const handleClick = (e) => {
+    e.stopPropagation();
+    speechController.cycleGlobalRepeat();
+  };
+  const c = color || colors.gold;
+  const repeatSetting = state.globalRepeatSetting;
+  const active = repeatSetting !== 0;
+  const label = repeatSetting === "inf" ? "∞" : repeatSetting === 0 ? "" : String(repeatSetting);
+  return /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: handleClick,
+      "aria-label": "تکرار سراسری",
+      title: repeatSetting === 0 ? "تکرار خاموش — بزن روشن کن (روی هر جمله/پاراگرافی که پخش کنی اعمال می‌شه)" : repeatSetting === "inf" ? "تکرار بی‌نهایت — بزن خاموش کن" : `تکرار ${repeatSetting} بار — روی هر 🔊ای که بزنی اعمال می‌شه`,
+      style: {
+        position: "relative",
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        padding: 2,
+        color: active ? c : colors.cardBorder,
+        opacity: active ? 1 : 0.6
+      }
+    },
+    /* @__PURE__ */ React.createElement(Repeat, { size: 15 }),
+    label && /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        style: {
+          position: "absolute",
+          top: -5,
+          right: -7,
+          fontSize: 9,
+          fontWeight: 700,
+          lineHeight: 1,
+          backgroundColor: c,
+          color: "white",
+          borderRadius: 6,
+          padding: "1px 3px",
+          minWidth: 10,
+          textAlign: "center"
+        }
+      },
+      label
+    )
+  );
+}
+function RestartButton({ color, startText, startCode }) {
+  const [state, setState] = useState(() => speechController.getState());
+  useEffect(() => speechController.subscribe(setState), []);
+  const locale = TTS_LOCALE[startCode] || "en-US";
+  const myKey = startText ? `${locale}::${startText}` : null;
+  const isLoaded = !!myKey && state.key === myKey && state.status !== "idle";
+  const disabled = !startText;
+  const handleClick = (e) => {
+    e.stopPropagation();
+    if (!startText) return;
+    if (isLoaded) {
+      speechController.seekToChunk(0);
+    } else {
+      speechController.toggle(startText, startCode);
+      speechController.seekToChunk(0);
+    }
+  };
+  const c = color || colors.gold;
+  return /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: handleClick,
+      disabled,
+      "aria-label": "شروع مجدد از ابتدای این تب",
+      title: "شروع مجدد از ابتدای همینِ متن — هایلایت هم همراهش از اول می‌شه",
+      style: {
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "none",
+        border: "none",
+        cursor: disabled ? "default" : "pointer",
+        padding: 2,
+        color: disabled ? colors.cardBorder : c,
+        opacity: disabled ? 0.4 : 1
+      }
+    },
+    /* @__PURE__ */ React.createElement(RotateCcw, { size: 15 })
+  );
+}
+function MainPlayButton({ startText, startCode, resolveStartOffset, color, size }) {
+  const [state, setState] = useState(() => speechController.getState());
+  const [localMsg, setLocalMsg] = useState(null);
+  useEffect(() => speechController.subscribe(setState), []);
+  useEffect(() => {
+    if (!localMsg) return;
+    const t = setTimeout(() => setLocalMsg(null), 5e3);
+    return () => clearTimeout(t);
+  }, [localMsg]);
+  const isActive = state.status !== "idle" && !!state.key;
+  const isPlaying = isActive && state.status === "playing";
+  const canStart = !isActive && !!startText;
+  const disabled = !isActive && !canStart;
+  const c = color || colors.teal;
+  const btnSize = size || 30;
+  const myKey = startText ? `${TTS_LOCALE[startCode] || "en-US"}::${startText}` : null;
+  const errorMsg = localMsg || (state.ttsError && myKey && state.ttsError === myKey ? "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن" : null);
+  const handleClick = () => {
+    if (isActive) {
+      const parts = state.key?.split("::");
+      if (parts && parts.length === 2) {
+        const code = Object.keys(TTS_LOCALE).find((k) => TTS_LOCALE[k] === parts[0]) || "en";
+        speechController.toggle(parts[1], code);
+      }
+      return;
+    }
+    if (!startText) return;
+    const offset = resolveStartOffset ? resolveStartOffset() : void 0;
+    const result = speechController.toggle(startText, startCode, offset, { loop: true });
+    if (result === "unsupported") {
+      setLocalMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
+    } else if (result === "error") {
+      setLocalMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
+    }
+  };
+  return /* @__PURE__ */ React.createElement("span", { style: { position: "relative", display: "inline-flex" } }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: handleClick,
+      disabled,
+      "aria-label": isPlaying ? "توقف موقت" : "پخش",
+      title: isPlaying ? "توقف موقت" : isActive ? "ادامه‌ی پخش" : canStart ? "پخشِ کل متن" : "متنی برای پخش نیست",
+      style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: btnSize + 14,
+        height: btnSize + 14,
+        borderRadius: "50%",
+        background: "none",
+        border: "none",
+        cursor: disabled ? "default" : "pointer",
+        color: disabled ? colors.cardBorder : c,
+        opacity: disabled ? 0.45 : 1,
+        flexShrink: 0,
+        padding: 0
+      }
+    },
+    isPlaying ? /* @__PURE__ */ React.createElement(Pause, { size: btnSize }) : /* @__PURE__ */ React.createElement(PlayCircle, { size: btnSize })
+  ), errorMsg && /* @__PURE__ */ React.createElement(
+    "span",
+    {
+      style: {
+        position: "absolute",
+        top: "100%",
+        left: "50%",
+        transform: "translateX(-50%)",
+        marginTop: 2,
+        fontSize: 11,
+        color: colors.rose,
+        whiteSpace: "nowrap",
+        fontFamily: fontFa,
+        zIndex: 5,
+        pointerEvents: "none"
+      }
+    },
+    errorMsg
+  ));
+}
+function ChunkNavButton({ direction, color }) {
+  const [state, setState] = useState(() => speechController.getState());
+  useEffect(() => speechController.subscribe(setState), []);
+  const isActive = state.status !== "idle" && !!state.key && state.total > 0;
+  const atStart = state.chunkIndex <= 0;
+  const atEnd = state.chunkIndex >= state.total - 1;
+  const disabled = !isActive || (direction === "prev" ? atStart : atEnd);
+  const c = color || colors.ink;
+  const handleClick = () => {
+    if (disabled) return;
+    speechController.seekToChunk(state.chunkIndex + (direction === "prev" ? -1 : 1));
+  };
+  return /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: handleClick,
+      disabled,
+      "aria-label": direction === "prev" ? "جمله‌ی قبل" : "جمله‌ی بعد",
+      title: direction === "prev" ? "جمله‌ی قبل" : "جمله‌ی بعد",
+      style: {
+        background: "none",
+        border: "none",
+        cursor: disabled ? "default" : "pointer",
+        color: disabled ? colors.cardBorder : c,
+        opacity: disabled ? 0.45 : 1,
+        padding: 6,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0
+      }
+    },
+    direction === "prev" ? /* @__PURE__ */ React.createElement(SkipBack, { size: 20 }) : /* @__PURE__ */ React.createElement(SkipForward, { size: 20 })
+  );
+}
+const TTS_MS_PER_CHAR = 90;
+function PlayerProgressTrack({ color }) {
+  const [state, setState] = useState(() => speechController.getState());
+  useEffect(() => speechController.subscribe(setState), []);
+  const trackRef = useRef(null);
+  const [dragPct, setDragPct] = useState(null);
+  const draggingRef = useRef(false);
+  const isActive = state.status !== "idle" && !!state.key && state.total > 0;
+  const meta = isActive ? speechController.getChunksMeta() : [];
+  const fullLen = isActive ? speechController.getFullTextLength() : 0;
+  const msPerChar = TTS_MS_PER_CHAR / Math.max(state.rate || 1, 0.25);
+  const totalMs = fullLen * msPerChar;
+  const chunkStart = isActive && meta[state.chunkIndex] ? meta[state.chunkIndex].start : 0;
+  const restPct = fullLen ? chunkStart / fullLen * 100 : 0;
+  const shownPct = dragPct != null ? dragPct : restPct;
+  const c = color || colors.gold;
+  function fmtTime(ms) {
+    const s = Math.max(0, Math.round(ms / 1e3));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return toFaDigits(`${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`);
+  }
+  function pctFromClientX(clientX) {
+    const el = trackRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    const pct = (rect.right - clientX) / rect.width * 100;
+    return Math.min(100, Math.max(0, pct));
+  }
+  function idxFromPct(pct) {
+    if (!meta.length || !fullLen) return 0;
+    const targetChar = pct / 100 * fullLen;
+    let idx = 0;
+    for (let i = 0; i < meta.length; i++) {
+      if (targetChar >= meta[i].start) idx = i;
+    }
+    return idx;
+  }
+  function onMove(clientX) {
+    setDragPct(pctFromClientX(clientX));
+  }
+  function onEnd(clientX) {
+    const pct = pctFromClientX(clientX);
+    const idx = idxFromPct(pct);
+    setDragPct(null);
+    draggingRef.current = false;
+    speechController.seekToChunk(idx);
+  }
+  function startDrag(clientX) {
+    if (!isActive) return;
+    draggingRef.current = true;
+    onMove(clientX);
+  }
+  useEffect(() => {
+    function handleMouseMove(e) {
+      if (draggingRef.current) onMove(e.clientX);
+    }
+    function handleMouseUp(e) {
+      if (draggingRef.current) onEnd(e.clientX);
+    }
+    function handleTouchMove(e) {
+      if (draggingRef.current && e.touches[0]) onMove(e.touches[0].clientX);
+    }
+    function handleTouchEnd(e) {
+      if (draggingRef.current) {
+        const t = e.changedTouches[0];
+        onEnd(t ? t.clientX : 0);
+      }
+    }
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("touchmove", handleTouchMove, { passive: true });
+    window.addEventListener("touchend", handleTouchEnd);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [isActive, fullLen]);
+  return /* @__PURE__ */ React.createElement("div", { className: "px-4 flex items-center gap-2", style: { paddingTop: 2 } }, /* @__PURE__ */ React.createElement("span", { style: { fontVariantNumeric: "tabular-nums", fontSize: 12, color: colors.inkSoft, minWidth: 36, textAlign: "center", flexShrink: 0 } }, isActive ? fmtTime(shownPct / 100 * totalMs) : "۰۰:۰۰"), /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      ref: trackRef,
+      onMouseDown: (e) => startDrag(e.clientX),
+      onTouchStart: (e) => {
+        const t = e.touches[0];
+        if (t) startDrag(t.clientX);
+      },
+      style: {
+        position: "relative",
+        flex: 1,
+        height: 24,
+        display: "flex",
+        alignItems: "center",
+        cursor: isActive ? "pointer" : "default",
+        touchAction: "none",
+        opacity: isActive ? 1 : 0.45
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", right: 0, left: 0, height: 4, borderRadius: 2, background: colors.goldSoft } }),
+    isActive && meta.length > 1 && fullLen > 0 && /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", right: 0, left: 0, height: 4 } }, meta.slice(1).map((m, i) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: i,
+        style: { position: "absolute", top: 0, width: 2, height: 4, background: "rgba(28,37,65,.3)", right: `${m.start / fullLen * 100}%` }
+      }
+    ))),
+    /* @__PURE__ */ React.createElement("div", { style: { position: "absolute", right: 0, height: 4, borderRadius: 2, background: c, width: `${shownPct}%` } }),
+    /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        style: {
+          position: "absolute",
+          width: 15,
+          height: 15,
+          borderRadius: "50%",
+          background: c,
+          border: `2px solid ${colors.paper}`,
+          boxShadow: "0 1px 4px rgba(28,37,65,.35)",
+          right: `${shownPct}%`,
+          transform: "translateX(50%)"
+        }
+      }
+    )
+  ), /* @__PURE__ */ React.createElement("span", { style: { fontVariantNumeric: "tabular-nums", fontSize: 12, color: colors.inkSoft, minWidth: 36, textAlign: "center", flexShrink: 0 } }, isActive ? fmtTime(totalMs) : "۰۰:۰۰"), /* @__PURE__ */ React.createElement(SpeedControl, { color: colors.gold }));
+}
+function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
+  const [active, setActive] = useState(false);
+  const activeRef = useRef(false);
+  const idxRef = useRef(0);
+  const piRef = useRef(0);
+  const lastKeyRef = useRef(null);
+  const savedIdxRef = useRef(0);
+  const lastItemsRef = useRef([]);
+  const [elapsed, setElapsed] = useState(0);
+  const getItemsRef = useRef(getItems);
+  useEffect(() => {
+    getItemsRef.current = getItems;
+  });
+  useEffect(() => {
+    if (!active) {
+      setElapsed(0);
+      return;
+    }
+    const start = Date.now();
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1e3)), 1e3);
+    return () => clearInterval(id);
+  }, [active]);
+  function playAt(i, startCharOffset) {
+    if (!activeRef.current) return;
+    const items = getItemsRef.current && getItemsRef.current() || [];
+    lastItemsRef.current = items;
+    if (i >= items.length) {
+      activeRef.current = false;
+      setActive(false);
+      lastKeyRef.current = null;
+      savedIdxRef.current = 0;
+      return;
+    }
+    const item = items[i];
+    idxRef.current = i;
+    if (!item || !item.text) {
+      playAt(i + 1);
+      return;
+    }
+    if (item.pi !== void 0) piRef.current = item.pi;
+    if (item.el && item.el.scrollIntoView) {
+      item.el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    const locale = TTS_LOCALE[item.code] || "en-US";
+    lastKeyRef.current = `${locale}::${item.text}`;
+    speechController.toggle(item.text, item.code, startCharOffset);
+  }
+  useEffect(() => {
+    return speechController.subscribe((state) => {
+      if (!activeRef.current) return;
+      if (state.status !== "idle" || !state.key) return;
+      if (state.key === lastKeyRef.current) {
+        playAt(idxRef.current + 1);
+      } else if (lastKeyRef.current) {
+        playAt(idxRef.current);
+      }
+    });
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (activeRef.current) {
+        activeRef.current = false;
+        speechController.stop();
+      }
+    };
+  }, []);
+  const prevModeKeyRef = useRef(modeKey);
+  useEffect(() => {
+    if (modeKey === prevModeKeyRef.current) return;
+    prevModeKeyRef.current = modeKey;
+    if (!activeRef.current) return;
+    const pi = piRef.current;
+    const oldItems = lastItemsRef.current || [];
+    const newItems = getItemsRef.current && getItemsRef.current() || [];
+    const oldPlayingItem = oldItems[idxRef.current];
+    function fallback() {
+      let newIdx2 = newItems.findIndex((it) => it.pi === pi);
+      if (newIdx2 === -1) newIdx2 = 0;
+      playAt(newIdx2);
+    }
+    if (!oldPlayingItem) {
+      fallback();
+      return;
+    }
+    const localOffset = speechController.getCharOffset();
+    const oldOfParagraph = oldItems.filter((it) => it.pi === pi);
+    let paragraphOffset = localOffset;
+    if (oldOfParagraph.length > 1) {
+      let acc = 0;
+      for (const it of oldOfParagraph) {
+        if (it === oldPlayingItem) {
+          paragraphOffset = acc + localOffset;
+          break;
+        }
+        acc += it.text.length + 1;
+      }
+    }
+    const newOfParagraph = newItems.filter((it) => it.pi === pi);
+    let targetItem = null;
+    let targetOffset = 0;
+    if (newOfParagraph.length > 1) {
+      let acc = 0;
+      for (let k = 0; k < newOfParagraph.length; k++) {
+        const it = newOfParagraph[k];
+        const end = acc + it.text.length;
+        if (paragraphOffset <= end || k === newOfParagraph.length - 1) {
+          targetItem = it;
+          targetOffset = Math.max(0, paragraphOffset - acc);
+          break;
+        }
+        acc = end + 1;
+      }
+    } else if (newOfParagraph.length === 1) {
+      targetItem = newOfParagraph[0];
+      targetOffset = paragraphOffset;
+    }
+    if (!targetItem) {
+      fallback();
+      return;
+    }
+    const newIdx = newItems.indexOf(targetItem);
+    const newLocale = TTS_LOCALE[targetItem.code] || "en-US";
+    const newKeyForTarget = `${newLocale}::${targetItem.text}`;
+    if (newKeyForTarget === lastKeyRef.current) {
+      idxRef.current = newIdx;
+      lastItemsRef.current = newItems;
+      return;
+    }
+    const startCharOffset = Math.max(0, Math.min(targetOffset, Math.max(targetItem.text.length - 1, 0)));
+    playAt(newIdx, startCharOffset);
+  }, [modeKey]);
+  const c = color || colors.gold;
+  function handleClick(e) {
+    e.stopPropagation();
+    if (active) {
+      savedIdxRef.current = idxRef.current;
+      activeRef.current = false;
+      setActive(false);
+      speechController.stop();
+    } else {
+      activeRef.current = true;
+      idxRef.current = savedIdxRef.current;
+      setActive(true);
+      playAt(savedIdxRef.current);
+    }
+  }
+  return /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: handleClick,
+      className: "flex items-center gap-1",
+      style: {
+        color: active ? c : colors.inkSoft,
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        padding: 2,
+        flexShrink: 0
+      },
+      title: active ? "توقف خواندن خودکار" : "خواندن خودکار همه (با اسکرول خودکار)",
+      "aria-label": active ? "توقف خواندن خودکار" : "خواندن خودکار همه"
+    },
+    active ? /* @__PURE__ */ React.createElement(Pause, { size: 16 }) : /* @__PURE__ */ React.createElement(PlayCircle, { size: 16 }),
+    label && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" } }, label)
+  ), active && trackLangCode && /* @__PURE__ */ React.createElement(
+    "span",
+    {
+      style: {
+        fontSize: 11,
+        fontWeight: 700,
+        color: c,
+        fontVariantNumeric: "tabular-nums",
+        whiteSpace: "nowrap"
+      },
+      title: "مدت زمان خواندن این جلسه"
+    },
+    "⏱ ",
+    String(Math.floor(elapsed / 60)).padStart(2, "0"),
+    ":",
+    String(elapsed % 60).padStart(2, "0")
+  ));
+}
+function SpeedControl({ color }) {
+  const [rate, setRateState] = useState(() => speechController.getRate());
+  useEffect(
+    () => speechController.subscribe((s) => setRateState(s.rate)),
+    []
+  );
+  const c = color || colors.gold;
+  const step = (delta) => {
+    const next = Math.round((rate + delta) * 10) / 10;
+    speechController.setRate(next);
+  };
+  const btnStyle = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 20,
+    height: 20,
+    borderRadius: 999,
+    border: `1px solid ${colors.cardBorder}`,
+    background: "white",
+    color: c,
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1,
+    cursor: "pointer",
+    flexShrink: 0,
+    padding: 0
+  };
+  return /* @__PURE__ */ React.createElement(
+    "span",
+    {
+      title: `سرعت پخش: ${rate.toFixed(1)}×`,
+      style: { display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }
+    },
+    /* @__PURE__ */ React.createElement(Gauge, { size: 15, color: colors.inkSoft }),
+    /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        onClick: () => step(-0.1),
+        disabled: rate <= 0.25,
+        style: { ...btnStyle, opacity: rate <= 0.25 ? 0.4 : 1 },
+        "aria-label": "کم کردن سرعت پخش"
+      },
+      "−"
+    ),
+    /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "range",
+        min: 0.25,
+        max: 2,
+        step: 0.05,
+        value: rate,
+        onChange: (e) => speechController.setRate(e.target.value),
+        style: { width: 44, accentColor: c },
+        "aria-label": "سرعت پخش صدا"
+      }
+    ),
+    /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        onClick: () => step(0.1),
+        disabled: rate >= 2,
+        style: { ...btnStyle, opacity: rate >= 2 ? 0.4 : 1 },
+        "aria-label": "زیاد کردن سرعت پخش"
+      },
+      "+"
+    ),
+    /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap", minWidth: 24 } }, rate.toFixed(1), "×")
+  );
+}
+function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabelProp, aiSettings, color, fontFamily, fontWeight, fontSize, alignSourceText, alignSourceLang, storyBaseOffset, onSpeakOffset, originExtra }) {
+  const [openKey, setOpenKey] = useState(null);
+  const [info, setInfo] = useState(null);
+  const [anchorRect, setAnchorRect] = useState(null);
+  const [coords, setCoords] = useState(null);
+  const [saved, setSaved] = useState(false);
+  const [grammarSaved, setGrammarSaved] = useState(false);
+  const [leitnerAdded, setLeitnerAdded] = useState(false);
+  const [activeTerm, setActiveTerm] = useState("");
+  const [activeTermLocalEnd, setActiveTermLocalEnd] = useState(0);
+  const [savedTerms, setSavedTerms] = useState([]);
+  const [crossTerms, setCrossTerms] = useState([]);
+  const popupRef = useRef(null);
+  const containerRef = useRef(null);
+  const isFa = nativeLang === "fa";
+  const nativeLabel = nativeLabelProp || LANGUAGES.find((l) => l.code === nativeLang)?.label || "Persian";
+  const popDir = dirFor(nativeLang || "fa");
+  const popFont = RTL_LANGS.includes(nativeLang || "fa") ? fontFa : fontLatin;
+  const targetTextPrefs = useTargetTextPrefs();
+  const isTranslationInstance = !!alignSourceText;
+  const targetShouldBold = targetTextPrefs.bold === "both" || targetTextPrefs.bold === "text" && !isTranslationInstance || targetTextPrefs.bold === "translation" && isTranslationInstance;
+  const targetEffectiveWeight = targetShouldBold ? fontWeight || 700 : 400;
+  const targetEffectiveSize = Math.round((fontSize || 14) * ((targetTextPrefs.scale || 100) / 100));
+  useEffect(() => {
+    const refresh = () => setSavedTerms(loadSavedStoryWords().filter((e) => e.langCode === langCode));
+    refresh();
+    window.addEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
+  }, [langCode]);
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      const others = loadSavedStoryWords().filter((e) => e.langCode !== langCode);
+      const cached = others.filter((e) => e.translations && e.translations[langCode]).map((e) => e.translations[langCode]);
+      if (!cancelled) setCrossTerms(cached);
+      others.forEach((e) => {
+        if (e.translations && e.translations[langCode]) return;
+        if (alignSourceText && e.langCode === alignSourceLang && findWholeWordIndex(alignSourceText, e.word) === -1) {
+          return;
+        }
+        const fetchKey = `${e.langCode}:${normalizeWord(e.word)}:${langCode}`;
+        if (crossTranslateInFlight.has(fetchKey)) return;
+        crossTranslateInFlight.add(fetchKey);
+        const aligned = alignSourceText && e.langCode === alignSourceLang ? translateWordInContext(alignSourceText, e.word, alignSourceLang, langCode) : Promise.resolve(null);
+        aligned.then((result) => result || translateFree(e.word, langCode, e.langCode)).then((result) => {
+          if (result && normalizeWord(result) !== normalizeWord(e.word)) {
+            updateSavedWordTranslation(e.word, e.langCode, langCode, result);
+          }
+        }).catch(() => {
+        }).finally(() => crossTranslateInFlight.delete(fetchKey));
+      });
+    };
+    refresh();
+    window.addEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
+    };
+  }, [langCode, alignSourceText, alignSourceLang]);
+  useLayoutEffect(() => {
+    if (openKey === null || !anchorRect || !popupRef.current) return;
+    const margin = 8;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const el = popupRef.current;
+    const w = Math.min(el.offsetWidth, vw - margin * 2);
+    const h = el.offsetHeight;
+    let left = anchorRect.left + anchorRect.width / 2 - w / 2;
+    left = Math.max(margin, Math.min(left, vw - w - margin));
+    let top = anchorRect.top - h - 8;
+    if (top < margin) top = Math.min(anchorRect.bottom + 8, vh - h - margin);
+    setCoords({ top, left, width: w });
+  }, [openKey, anchorRect, info]);
+  useEffect(() => {
+    if (openKey === null) return;
+    const close = () => {
+      setOpenKey(null);
+      setCoords(null);
+    };
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    document.addEventListener("mousedown", close);
+    document.addEventListener("touchstart", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("touchstart", close);
+    };
+  }, [openKey]);
+  if (!text) return null;
+  const tokens = text.split(/(\s+)/);
+  const savedNorms = new Set(
+    [...savedTerms.map((e) => e.word), ...crossTerms].map((w) => normalizeWord(w)).filter(Boolean)
+  );
+  const wordTokIdx = [];
+  tokens.forEach((t, i) => {
+    if (!(/^\s+$/.test(t) || t === "")) wordTokIdx.push(i);
+  });
+  const groupAt = {};
+  const groupSkip = /* @__PURE__ */ new Set();
+  if (savedNorms.size) {
+    const phraseWordLens = [...savedTerms.map((e) => e.word), ...crossTerms].map((w) => (w.match(/\S+/g) || []).length).filter((n) => n > 0);
+    const MAX_EXPR_WORDS = phraseWordLens.length ? Math.min(60, Math.max(...phraseWordLens)) : 1;
+    let p = 0;
+    while (p < wordTokIdx.length) {
+      let matched = false;
+      const maxW = Math.min(MAX_EXPR_WORDS, wordTokIdx.length - p);
+      for (let w = maxW; w >= 1; w--) {
+        const startTok = wordTokIdx[p];
+        const endTok = wordTokIdx[p + w - 1];
+        const phrase = tokens.slice(startTok, endTok + 1).join("");
+        const norm = normalizeWord(phrase);
+        if (norm && savedNorms.has(norm)) {
+          groupAt[startTok] = { start: startTok, end: endTok, text: phrase };
+          for (let k = startTok + 1; k <= endTok; k++) groupSkip.add(k);
+          p += w;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) p += 1;
+    }
+  }
+  async function openLookup(term, startTok, endTok, evt) {
+    const clean = normalizeWord(term);
+    if (!clean) return;
+    const key = `${startTok}-${endTok}`;
+    if (openKey === key) {
+      setOpenKey(null);
+      setCoords(null);
+      return;
+    }
+    setAnchorRect(evt.currentTarget.getBoundingClientRect());
+    setActiveTerm(term);
+    setActiveTermLocalEnd(tokens.slice(0, endTok + 1).join("").length);
+    setSaved(isWordSaved(term, langCode));
+    setGrammarSaved(false);
+    setLeitnerAdded(false);
+    setOpenKey(key);
+    setInfo("loading");
+    try {
+      const result = await lookupWordMeaning({ word: term, sentence: text, langCode, nativeLang });
+      setInfo(result);
+      if (result && result !== "error" && result.meaning) {
+        updateSavedWordTranslation(term, langCode, nativeLang, result.meaning);
+      }
+    } catch (e) {
+      setInfo("error");
+    }
+  }
+  function saveActiveTermToGrammar() {
+    if (!activeTerm) return;
+    const meaningText = info && info !== "loading" && info !== "error" ? info.meaning : "";
+    const basicMarkdown = `## 🧩 ${activeTerm}
+
+` + (meaningText ? `**🔹 معنی:** ${meaningText}
+
+` : "") + `**جمله:** ${text}`;
+    const entry = saveGrammarNote({ langCode, word: activeTerm, sentence: text, markdown: basicMarkdown });
+    setGrammarSaved(true);
+    if (!entry) return;
+    lookupWordGrammarDetail({ word: activeTerm, sentence: text, langCode, nativeLang, nativeLabel, aiSettings }).then((md) => {
+      if (md) updateGrammarNoteMarkdown(entry.id, md);
+    }).catch(() => {
+    });
+  }
+  function addActiveTermToLeitner() {
+    if (!activeTerm || !requestAddToLeitner) return;
+    const meaningText = info && info !== "loading" && info !== "error" ? info.meaning : "";
+    requestAddToLeitner(activeTerm, langCode, meaningText);
+    setLeitnerAdded(true);
+  }
+  async function retryLookup() {
+    if (!activeTerm) return;
+    setInfo("loading");
+    try {
+      const result = await lookupWordMeaning({ word: activeTerm, sentence: text, langCode, nativeLang });
+      setInfo(result);
+    } catch (e) {
+      setInfo("error");
+    }
+  }
+  return /* @__PURE__ */ React.createElement(
+    "span",
+    {
+      ref: containerRef,
+      "data-lang-code": langCode,
+      "data-story-base-offset": storyBaseOffset != null ? storyBaseOffset : void 0,
+      style: { position: "relative", display: "inline" }
+    },
+    tokens.map((tok, idx) => {
+      if (/^\s+$/.test(tok) || tok === "") return /* @__PURE__ */ React.createElement(React.Fragment, { key: idx }, tok);
+      if (groupSkip.has(idx)) return null;
+      const group = groupAt[idx];
+      const displayText = group ? group.text : tok;
+      const startTok = group ? group.start : idx;
+      const endTok = group ? group.end : idx;
+      const isOpen = openKey === `${startTok}-${endTok}`;
+      const isUnderlined = !!group;
+      return (
+        // نکته‌ی مهم: این span باید display:inline بمونه، نه inline-block.
+        // inline-block هر کلمه رو برای مرورگر یه «جعبه‌ی اتمیک» جدا حساب
+        // می‌کنه، و درگ‌کردنِ انتخاب روی چند خط از میونِ ده‌ها تا از این
+        // جعبه‌ها دقیقاً همون باگیه که باعث می‌شه انتخاب نصفه‌ونیمه بشه یا
+        // با کلیک لغو بشه (رفتار انتخاب‌متنِ استاندارد فقط با inline درست
+        // کار می‌کنه). موقعیتِ پاپ‌آپ زیرش هم position:fixed هست، پس به
+        // relative‌بودنِ این span هیچ وابستگی نداره.
+        /* @__PURE__ */ React.createElement("span", { key: idx, style: { display: "inline" } }, /* @__PURE__ */ React.createElement(
+          "span",
+          {
+            onClick: (e) => {
+              e.stopPropagation();
+              openLookup(displayText, startTok, endTok, e);
+            },
+            style: {
+              fontFamily: fontFamily || fontLatin,
+              color: color || colors.teal,
+              fontWeight: targetEffectiveWeight,
+              fontSize: targetEffectiveSize,
+              cursor: "pointer",
+              textDecorationLine: isUnderlined ? "underline" : "none",
+              textDecorationStyle: "dotted",
+              textDecorationColor: colors.gold,
+              textUnderlineOffset: 3
+            }
+          },
+          displayText
+        ), isOpen && /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            ref: popupRef,
+            onClick: (e) => e.stopPropagation(),
+            onMouseDown: (e) => e.stopPropagation(),
+            onTouchStart: (e) => e.stopPropagation(),
+            style: {
+              position: "fixed",
+              top: coords ? coords.top : -9999,
+              left: coords ? coords.left : -9999,
+              visibility: coords ? "visible" : "hidden",
+              width: coords ? coords.width : void 0,
+              minWidth: 180,
+              maxWidth: "min(85vw, 280px)",
+              maxHeight: "60vh",
+              overflowY: "auto",
+              background: colors.ink,
+              color: colors.paper,
+              borderRadius: 10,
+              padding: "8px 10px",
+              fontSize: 12,
+              fontFamily: popFont,
+              zIndex: 100,
+              boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
+              direction: popDir,
+              textAlign: popDir === "rtl" ? "right" : "left",
+              overflowWrap: "break-word"
+            }
+          },
+          info === "loading" && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement(Loader2, { size: 12, className: "spin" }), /* @__PURE__ */ React.createElement("span", null, isFa ? "در حال یافتن معنی..." : "Looking up meaning...")),
+          info !== "loading" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2", style: { marginBottom: 4 } }, /* @__PURE__ */ React.createElement(
+            SpeakButton,
+            {
+              text: activeTerm,
+              code: langCode,
+              color: colors.goldSoft,
+              onPlayed: onSpeakOffset ? () => onSpeakOffset(activeTermLocalEnd) : void 0
+            }
+          ), /* @__PURE__ */ React.createElement("span", { dir: "auto", style: { fontWeight: 800, fontSize: 13 } }, activeTerm)), info && info !== "error" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 2, fontSize: 10, color: colors.inkSoft, opacity: 0.85 } }, isFa ? "ترجمه:" : "Translation:"), /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 6 } }, info.meaning)) : /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 6 } }, /* @__PURE__ */ React.createElement("span", { style: { color: colors.rose, fontSize: 11 } }, isFa ? "معنی پیدا نشد (احتمالاً آفلاینی)" : "Couldn't find a meaning (maybe offline)"), /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: (e) => {
+                e.stopPropagation();
+                retryLookup();
+              },
+              style: {
+                display: "block",
+                marginTop: 6,
+                fontSize: 11,
+                fontWeight: 700,
+                color: colors.paper,
+                background: "rgba(255,255,255,0.08)",
+                border: "1px solid rgba(255,255,255,0.25)",
+                borderRadius: 6,
+                padding: "3px 8px"
+              }
+            },
+            isFa ? "تلاش دوباره" : "Retry"
+          )), /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: (e) => {
+                e.stopPropagation();
+                if (!activeTerm) return;
+                const meaningNow = info && info !== "loading" && info !== "error" ? info.meaning : "";
+                const nowSaved = toggleSavedStoryWord(activeTerm, langCode, { meaning: meaningNow, nativeLang, originExtra });
+                setSaved(nowSaved);
+                if (nowSaved) {
+                  try {
+                    window.dispatchEvent(
+                      new CustomEvent(STORY_WORD_PICKED_EVENT, { detail: { word: activeTerm, langCode } })
+                    );
+                  } catch {
+                  }
+                }
+              },
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 11,
+                fontWeight: 700,
+                color: saved ? colors.gold : colors.paper,
+                background: "rgba(255,255,255,0.08)",
+                border: `1px solid ${saved ? colors.gold : "rgba(255,255,255,0.25)"}`,
+                borderRadius: 6,
+                padding: "3px 8px",
+                marginBottom: 6
+              }
+            },
+            /* @__PURE__ */ React.createElement(Bookmark, { size: 11, fill: saved ? colors.gold : "none" }),
+            saved ? isFa ? "ذخیره شد برای داستان بعدی" : "Saved for next story" : isFa ? "ذخیره برای داستان بعدی" : "Save for next story"
+          ), /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: (e) => {
+                e.stopPropagation();
+                saveActiveTermToGrammar();
+              },
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 11,
+                fontWeight: 700,
+                color: grammarSaved ? colors.gold : colors.paper,
+                background: "rgba(255,255,255,0.08)",
+                border: `1px solid ${grammarSaved ? colors.gold : "rgba(255,255,255,0.25)"}`,
+                borderRadius: 6,
+                padding: "3px 8px"
+              }
+            },
+            /* @__PURE__ */ React.createElement(Type, { size: 11 }),
+            grammarSaved ? isFa ? "ذخیره شد در گرامر" : "Saved to grammar" : isFa ? "افزودن به یادگیری گرامر" : "Add to grammar learning"
+          ), /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: (e) => {
+                e.stopPropagation();
+                addActiveTermToLeitner();
+              },
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 11,
+                fontWeight: 700,
+                color: leitnerAdded ? colors.gold : colors.paper,
+                background: "rgba(255,255,255,0.08)",
+                border: `1px solid ${leitnerAdded ? colors.gold : "rgba(255,255,255,0.25)"}`,
+                borderRadius: 6,
+                padding: "3px 8px"
+              }
+            },
+            /* @__PURE__ */ React.createElement(RotateCcw, { size: 11 }),
+            leitnerAdded ? isFa ? "به جعبه‌ی لایتنر اضافه شد" : "Added to Leitner box" : isFa ? "افزودن به جعبه‌ی لایتنر" : "Add to Leitner box"
+          ))
+        ))
+      );
+    })
+  );
+}
+function LevelBadge({ level }) {
+  return /* @__PURE__ */ React.createElement(
+    "span",
+    {
+      style: {
+        fontFamily: fontLatin,
+        fontSize: 10,
+        fontWeight: 700,
+        color: colors.ink,
+        backgroundColor: colors.goldSoft,
+        borderRadius: 6,
+        padding: "1px 6px",
+        flexShrink: 0
+      }
+    },
+    level
+  );
+}
+function LevelFilterRow({ levelFilter, setLevelFilter }) {
+  return /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 overflow-x-auto pb-1" }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => setLevelFilter("all"),
+      style: {
+        fontFamily: fontFa,
+        fontSize: 12,
+        fontWeight: 600,
+        padding: "4px 12px",
+        borderRadius: 14,
+        border: `1px solid ${colors.cardBorder}`,
+        backgroundColor: levelFilter === "all" ? colors.ink : "white",
+        color: levelFilter === "all" ? colors.paper : colors.inkSoft,
+        flexShrink: 0
+      }
+    },
+    "همه سطح‌ها"
+  ), LEVELS.map((lvl) => /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      key: lvl,
+      onClick: () => setLevelFilter(lvl),
+      style: {
+        fontFamily: fontLatin,
+        fontSize: 12,
+        fontWeight: 700,
+        padding: "4px 12px",
+        borderRadius: 14,
+        border: `1px solid ${colors.cardBorder}`,
+        backgroundColor: levelFilter === lvl ? colors.ink : "white",
+        color: levelFilter === lvl ? colors.paper : colors.inkSoft,
+        flexShrink: 0
+      }
+    },
+    lvl
+  )));
+}
+function OrderChips({ order, languages, onReorder, onRemove }) {
+  const [dragCode, setDragCode] = useState(null);
+  useEffect(() => {
+    if (!dragCode) return;
+    const handleMove = (e) => {
+      const point = e.touches ? e.touches[0] : e;
+      const el = document.elementFromPoint(point.clientX, point.clientY);
+      const chipEl = el && el.closest("[data-order-code]");
+      if (!chipEl) return;
+      const hoveredCode = chipEl.getAttribute("data-order-code");
+      if (hoveredCode === dragCode) return;
+      const fromIndex = order.indexOf(dragCode);
+      const toIndex = order.indexOf(hoveredCode);
+      if (fromIndex === -1 || toIndex === -1) return;
+      const next = [...order];
+      next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, dragCode);
+      onReorder(next);
+    };
+    const handleUp = () => setDragCode(null);
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("touchmove", handleMove, { passive: false });
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("touchend", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("touchend", handleUp);
+    };
+  }, [dragCode, order, onReorder]);
+  return /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 overflow-x-auto pb-1" }, order.map((code) => {
+    const lang = languages.find((l) => l.code === code);
+    if (!lang) return null;
+    return /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: code,
+        "data-order-code": code,
+        onMouseDown: () => setDragCode(code),
+        onTouchStart: (e) => {
+          e.preventDefault();
+          setDragCode(code);
+        },
+        style: {
+          touchAction: "none",
+          userSelect: "none",
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "6px 12px",
+          borderRadius: 20,
+          backgroundColor: dragCode === code ? colors.gold : "white",
+          color: dragCode === code ? colors.paper : colors.ink,
+          border: `1px solid ${colors.cardBorder}`,
+          fontSize: 13,
+          fontWeight: 600,
+          cursor: "grab",
+          flexShrink: 0
+        }
+      },
+      /* @__PURE__ */ React.createElement("span", { style: { color: dragCode === code ? colors.paper : colors.gold, fontSize: 11 } }, "⠿"),
+      lang.label,
+      onRemove && order.length > 1 && /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: (e) => {
+            e.stopPropagation();
+            onRemove(code);
+          },
+          onMouseDown: (e) => e.stopPropagation(),
+          onTouchStart: (e) => e.stopPropagation(),
+          "aria-label": `حذف ${lang.label}`,
+          title: `حذف ${lang.label}`,
+          style: {
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 16,
+            height: 16,
+            borderRadius: "50%",
+            border: "none",
+            background: dragCode === code ? "rgba(255,255,255,0.3)" : colors.paperDark,
+            color: dragCode === code ? colors.paper : colors.inkSoft,
+            flexShrink: 0,
+            cursor: "pointer"
+          }
+        },
+        /* @__PURE__ */ React.createElement(X, { size: 10 })
+      )
+    );
+  }));
+}
+function countOccurrences(story, word) {
+  if (!story || !word) return 0;
+  const escaped = word.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const matches = story.match(new RegExp(escaped, "gi"));
+  return matches ? matches.length : 0;
+}
+const STORY_LENGTHS = [
+  { key: "short", label: "کوتاه", paragraphs: "1-2", paragraphMin: 1, paragraphMax: 2, sentencesHint: "short, roughly 4-6 sentences per paragraph", tokens: 1100 },
+  { key: "medium", label: "متوسط", paragraphs: "2-3", paragraphMin: 2, paragraphMax: 3, sentencesHint: "medium length, roughly 5-8 sentences per paragraph", tokens: 1900 },
+  { key: "long", label: "بلند", paragraphs: "4-6", paragraphMin: 4, paragraphMax: 6, sentencesHint: "long, roughly 6-10 sentences per paragraph", tokens: 3200 }
+];
+const CONTENT_TYPES = [
+  { key: "general", label: "عمومی", prompt: "a general, everyday short story" },
+  { key: "news", label: "خبری", prompt: "a short news-style report, written like a news article" },
+  { key: "psychology", label: "روان‌شناسی", prompt: "a short piece exploring a psychology or self-understanding theme" },
+  { key: "children", label: "کودکانه", prompt: "a simple, gentle children's story" },
+  { key: "funny", label: "خنده‌دار", prompt: "a lighthearted, funny, comedic story with a humorous twist" },
+  { key: "mystery", label: "رازآلود و ترسناک", prompt: "a suspenseful, mysterious, slightly scary story with an eerie atmosphere" },
+  { key: "crime", label: "جنایی", prompt: "a crime/detective story involving an investigation or mystery to solve" },
+  { key: "scientific", label: "علمی", prompt: "a short popular-science explainer written as a narrative" },
+  { key: "conversational", label: "مکالمه‌ای", prompt: "a natural back-and-forth dialogue between two people" },
+  { key: "philosophical", label: "فلسفی", prompt: "a short philosophical reflection or thought experiment" },
+  { key: "metaphysical", label: "متافیزیکی", prompt: "a short metaphysical/speculative piece about existence, mind, or reality" }
+];
+function OfflineDictionaryCard({ code, label }) {
+  const [status, setStatus] = useState("checking");
+  const [progress, setProgress] = useState(0);
+  const [count, setCount] = useState(0);
+  const [errMsg, setErrMsg] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    offlineDictionary.isDownloaded(code).then((yes) => {
+      if (cancelled) return;
+      if (yes) {
+        setStatus("ready");
+        setCount(offlineDictionary.entryCount(code));
+      } else {
+        setStatus("idle");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
+  const handleDownload = async () => {
+    setStatus("downloading");
+    setProgress(0);
+    setErrMsg("");
+    try {
+      const n = await offlineDictionary.download(code, setProgress);
+      setCount(n);
+      setStatus("ready");
+    } catch (e) {
+      setStatus("error");
+      setErrMsg(e?.message || "دانلود ناموفق بود");
+    }
+  };
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        border: `1px solid ${colors.cardBorder}`,
+        borderRadius: 12,
+        padding: 12,
+        backgroundColor: "white"
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: 600 } }, "دیکشنری آفلاین ", label), status === "ready" && /* @__PURE__ */ React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 4, color: colors.teal, fontSize: 11, fontWeight: 600 } }, /* @__PURE__ */ React.createElement(Check, { size: 13 }), " آماده (", count, " لغت)")),
+    status === "idle" && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: handleDownload,
+        style: {
+          marginTop: 8,
+          fontSize: 12,
+          padding: "6px 12px",
+          borderRadius: 8,
+          border: "none",
+          backgroundColor: colors.gold,
+          color: "white",
+          cursor: "pointer"
+        }
+      },
+      "دانلود برای استفاده‌ی آفلاین"
+    ),
+    status === "downloading" && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: colors.inkSoft, marginBottom: 4 } }, "در حال دانلود… ", progress, "٪"), /* @__PURE__ */ React.createElement("div", { style: { height: 6, backgroundColor: colors.cardBorder, borderRadius: 4, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { height: "100%", width: `${progress}%`, backgroundColor: colors.gold, transition: "width .15s linear" } }))),
+    status === "ready" && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: colors.inkSoft, marginTop: 6 } }, "از این به بعد، جستجوی این لغات حتی بدون اینترنت هم کار می‌کنه — رایگان و آنی."),
+    status === "error" && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: colors.rose } }, errMsg), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: handleDownload,
+        style: { marginTop: 4, fontSize: 12, color: colors.gold, textDecoration: "underline", background: "none", border: "none", cursor: "pointer" }
+      },
+      "دوباره امتحان کن"
+    ))
+  );
+}
+function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSettings }) {
+  const [query, setQuery] = useState("");
+  const [result, setResult] = useState(null);
+  const [offlineHits, setOfflineHits] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [showHistory, setShowHistory] = useState(false);
+  const targetLangs = PHRASEBOOK_LANGUAGES.filter((l) => l.code !== "fa");
+  const lookup = async (term, opts = {}) => {
+    const word = (term ?? query).trim();
+    if (!word || loading) return;
+    setError("");
+    setResult(null);
+    setOfflineHits([]);
+    if (!opts.forceAI && offlineDictionary.isLoadedInMemory("en")) {
+      const hits = offlineDictionary.lookup(word, "en");
+      if (hits.length) {
+        setOfflineHits(hits);
+        return;
+      }
+    }
+    setLoading(true);
+    try {
+      const langLabelPairs = targetLangs.map((l) => ({ code: l.code, label: l.label }));
+      const schema = `{"word": "the term exactly as given, corrected for obvious typos", "detectedLang": "ISO 639-1 code of the language the term is written in", "pos": "part of speech in Persian (اسم/فعل/صفت/قید/حرف اضافه/عبارت)", "ipa": "IPA pronunciation if it's a single word, else empty string", "meaningFa": "clear definition/meaning of the word IN PERSIAN, 1-2 sentences", "translations": {${langLabelPairs.map((p) => `"${p.code}": "translation of the term into ${p.label}"`).join(", ")}, "fa": "Persian translation (if the term itself isn't Persian)"}, "examples": [{"text": "an example sentence using the term, in the term's own language", "fa": "Persian translation of that example sentence"}]}`;
+      const prompt = `You are a multilingual dictionary. The user (native language: ${nativeLabel}) looked up this word or phrase: "${word}". Identify what language it's in, then respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: ${schema}. Give exactly 2 example sentences. Keep translations natural and idiomatic, not literal word-for-word.`;
+      const res = await callAI({ prompt, maxTokens: 1800, aiSettings });
+      const cleaned = res.replace(/```json|```/g, "").trim();
+      let parsed;
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch (parseErr) {
+        throw new Error("parse-error: پاسخ هوش مصنوعی JSON معتبر نبود، دوباره امتحان کن.");
+      }
+      setResult(parsed);
+      setDictHistory((prev) => {
+        const withoutDup = prev.filter((h) => h.word.toLowerCase() !== (parsed.word || word).toLowerCase());
+        return [{ ...parsed, lookedUpAt: Date.now() }, ...withoutDup].slice(0, 50);
+      });
+    } catch (e) {
+      const msg = String(e?.message || "");
+      if (msg.startsWith("ai-backend-error:")) {
+        setError(`خطای سرور: ${msg.replace("ai-backend-error: ", "")}`);
+      } else if (msg.startsWith("parse-error:")) {
+        setError(msg.replace("parse-error: ", ""));
+      } else {
+        setError(`خطای اتصال: ${msg || "دلیل نامشخص"}`);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+  const openFromHistory = (entry) => {
+    setResult(entry);
+    setQuery(entry.word);
+    setShowHistory(false);
+  };
+  const removeFromHistory = (word) => {
+    setDictHistory((prev) => prev.filter((h) => h.word !== word));
+  };
+  return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 700, fontSize: 16 } }, "دیکشنری"), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => setShowHistory((s) => !s),
+      style: {
+        fontSize: 12,
+        padding: "5px 12px",
+        borderRadius: 20,
+        border: `1px solid ${colors.cardBorder}`,
+        backgroundColor: showHistory ? colors.ink : "white",
+        color: showHistory ? "white" : colors.ink
+      }
+    },
+    "تاریخچه (",
+    dictHistory.length,
+    ")"
+  )), /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontFa, fontSize: 13, color: colors.inkSoft } }, "هر کلمه یا اصطلاحی رو، به هر زبونی، تایپ کن — معنی، تلفظ، مثال و ترجمه‌ش به همه‌ی زبون‌های اپ رو زنده از AI می‌گیره."), /* @__PURE__ */ React.createElement(OfflineDictionaryCard, { code: "en", label: "انگلیسی" }), /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      className: "flex items-center gap-2 px-3",
+      style: { backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 20, height: 44 }
+    },
+    /* @__PURE__ */ React.createElement(Search, { size: 16, color: colors.inkSoft }),
+    /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        value: query,
+        onChange: (e) => setQuery(e.target.value),
+        onKeyDown: (e) => e.key === "Enter" && lookup(),
+        placeholder: "مثلاً: apprehensive یا سرسبز یا break a leg",
+        style: { flex: 1, fontFamily: fontFa, border: "none", outline: "none", fontSize: 14, backgroundColor: "transparent" }
+      }
+    ),
+    query && /* @__PURE__ */ React.createElement("button", { onClick: () => {
+      setQuery("");
+      setResult(null);
+      setOfflineHits([]);
+    }, "aria-label": "پاک کردن" }, /* @__PURE__ */ React.createElement(X, { size: 16, color: colors.inkSoft }))
+  ), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => lookup(),
+      disabled: !query.trim() || loading,
+      className: "w-full py-2 rounded-lg font-medium",
+      style: {
+        fontFamily: fontFa,
+        backgroundColor: !query.trim() || loading ? colors.cardBorder : colors.gold,
+        color: "white",
+        opacity: loading ? 0.7 : 1
+      }
+    },
+    loading ? "در حال جستجو..." : "جستجو"
+  ), offlineHits.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: 12, backgroundColor: "white" } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: colors.teal, fontWeight: 600 } }, "از دیکشنری آفلاین (بدون اینترنت)")), offlineHits.map((h, i) => /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      key: i,
+      className: "flex items-center justify-between",
+      style: { padding: "8px 2px", borderTop: i > 0 ? `1px solid ${colors.cardBorder}` : "none" }
+    },
+    /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 600, fontSize: 15 } }, h.fa),
+    /* @__PURE__ */ React.createElement("span", { style: { color: colors.teal, fontSize: 14, direction: "ltr" } }, h.en)
+  )), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => lookup(query, { forceAI: true }),
+      disabled: loading,
+      style: { marginTop: 8, fontSize: 12, color: colors.gold, textDecoration: "underline", background: "none", border: "none", cursor: "pointer" }
+    },
+    "جستجوی کامل‌تر با هوش مصنوعی (مثال، تلفظ، ترجمه به همه‌ی زبون‌ها)"
+  )), error && /* @__PURE__ */ React.createElement("div", { style: { backgroundColor: "#F8E8E8", border: `1px solid ${colors.rose}`, borderRadius: 10, padding: 12 } }, /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontFa, fontSize: 13, color: colors.rose, marginBottom: 8 } }, error), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => lookup(),
+      disabled: loading,
+      style: {
+        fontFamily: fontFa,
+        fontSize: 12,
+        fontWeight: 700,
+        color: "white",
+        backgroundColor: colors.rose,
+        borderRadius: 8,
+        padding: "5px 14px",
+        opacity: loading ? 0.6 : 1
+      }
+    },
+    "تلاش دوباره"
+  )), showHistory && /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-2" }, dictHistory.length === 0 && /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontFa, fontSize: 13, color: colors.inkSoft, textAlign: "center", padding: 16 } }, "هنوز چیزی جستجو نکردی."), dictHistory.map((h) => /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      key: h.word,
+      onClick: () => openFromHistory(h),
+      className: "flex items-center justify-between p-3 rounded-lg cursor-pointer",
+      style: { backgroundColor: "white", border: `1px solid ${colors.cardBorder}` }
+    },
+    /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontLatin, fontWeight: 600, fontSize: 14, color: colors.ink } }, h.word), /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontFa, fontSize: 12, color: colors.inkSoft } }, h.meaningFa)),
+    /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
+      e.stopPropagation();
+      removeFromHistory(h.word);
+    }, "aria-label": "حذف" }, /* @__PURE__ */ React.createElement(X, { size: 16, color: colors.inkSoft }))
+  ))), !showHistory && result && /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-3 p-4 rounded-lg", style: { backgroundColor: "white", border: `1px solid ${colors.cardBorder}` } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2", style: { direction: "ltr" } }, /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontLatin, fontWeight: 800, fontSize: 20, color: mainTextColor } }, result.word), /* @__PURE__ */ React.createElement(SpeakButton, { text: result.word, code: result.detectedLang || "en", edge: "end" }), result.pos && /* @__PURE__ */ React.createElement(
+    "span",
+    {
+      style: {
+        fontFamily: fontFa,
+        fontSize: 11,
+        color: colors.gold,
+        border: `1px solid ${colors.goldSoft}`,
+        borderRadius: 6,
+        padding: "1px 6px"
+      }
+    },
+    result.pos
+  )), result.ipa && /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontLatin, fontSize: 13, color: colors.inkSoft, direction: "ltr" } }, "/", result.ipa, "/"), result.meaningFa && /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontFa, fontSize: 14, fontWeight: 800, color: translationColor } }, result.meaningFa), result.translations && /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-1", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontFa, fontSize: 12, fontWeight: 700, color: colors.inkSoft } }, "ترجمه‌ها"), targetLangs.map((l) => result.translations[l.code] ? /* @__PURE__ */ React.createElement("div", { key: l.code, style: { display: "flex", alignItems: "center", gap: 8, direction: "ltr" } }, /* @__PURE__ */ React.createElement(
+    "span",
+    {
+      style: {
+        fontFamily: fontFa,
+        fontSize: 10,
+        fontWeight: 700,
+        color: colors.gold,
+        border: `1px solid ${colors.goldSoft}`,
+        borderRadius: 6,
+        padding: "1px 5px",
+        flexShrink: 0
+      }
+    },
+    l.abbr
+  ), /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontLatin, color: translationColor, fontWeight: 800, fontSize: 14, flex: 1 } }, result.translations[l.code]), /* @__PURE__ */ React.createElement(SpeakButton, { text: result.translations[l.code], code: l.code, color: translationColor, edge: "end" })) : null)), Array.isArray(result.examples) && result.examples.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-2", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontFa, fontSize: 12, fontWeight: 700, color: colors.inkSoft } }, "مثال"), result.examples.map((ex, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { backgroundColor: colors.paper, borderRadius: 8, padding: 8 } }, /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontLatin, fontSize: 13, color: colors.ink, direction: "ltr" } }, ex.text), ex.fa && /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontFa, fontSize: 12, color: colors.inkSoft, marginTop: 2 } }, ex.fa))))));
+}
+function splitTextIntoSentenceStrings(text) {
+  const t = (text || "").trim();
+  if (!t) return [];
+  const re = /[^.!?؟。！]+[.!?؟。！]*/g;
+  const out = [];
+  let m;
+  while (m = re.exec(t)) {
+    const trimmed = m[0].trim();
+    if (trimmed) out.push(trimmed);
+  }
+  return out.length ? out : [t];
+}
+function enforceSentenceSplit(paragraphs) {
+  return (paragraphs || []).map((p) => {
+    const joined = (p.sentences || []).map((s) => s?.text || "").join(" ");
+    const resplit = splitTextIntoSentenceStrings(joined);
+    return { ...p, sentences: resplit.map((text) => ({ text })) };
+  });
+}
+function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, autoScrollActive, calendarSystem, highlightColor, uid }) {
+  const storyLangOptions = targetOrder && targetOrder.length ? targetOrder : LANGUAGES.filter((l) => l.code !== nativeLang).map((l) => l.code);
+  const defaultStoryLang = (targetOrder || []).find((c) => storyLangOptions.includes(c)) || storyLangOptions[0] || "en";
+  const [storyLang, setStoryLang] = useState(defaultStoryLang);
+  useEffect(() => {
+    if (!storyLangOptions.includes(storyLang)) {
+      setStoryLang(defaultStoryLang);
+    }
+  }, [defaultStoryLang, storyLangOptions.join(",")]);
+  const sentenceElsRef = useRef({});
+  const paragraphElsRef = useRef({});
+  const [storyLevel, setStoryLevel] = useState("A2");
+  const [contentType, setContentType] = useState("general");
+  const [storyLength, setStoryLength] = useState("medium");
+  const [repeatCount, setRepeatCount] = useState(8);
+  const [selectedWords, setSelectedWords] = useState([]);
+  const [customWord, setCustomWord] = useState("");
+  const [wordTranslating, setWordTranslating] = useState(false);
+  const [translateNote, setTranslateNote] = useState("");
+  const [collections, setCollections] = useState([]);
+  const [activeCollectionId, setActiveCollectionId] = useState("");
+  const [showAddCollection, setShowAddCollection] = useState(false);
+  const [newCollectionTitle, setNewCollectionTitle] = useState("");
+  const [newCollectionText, setNewCollectionText] = useState("");
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState("");
+  const pdfInputRef = useRef(null);
+  const [pdfReadBusy, setPdfReadBusy] = useState(false);
+  const [pdfReadError, setPdfReadError] = useState("");
+  const pdfReadInputRef = useRef(null);
+  const [pastedReadingText, setPastedReadingText] = useState("");
+  const [showPasteReading, setShowPasteReading] = useState(false);
+  const [linkReadUrl, setLinkReadUrl] = useState("");
+  const [showLinkReading, setShowLinkReading] = useState(false);
+  const [linkReadBusy, setLinkReadBusy] = useState(false);
+  const [linkReadError, setLinkReadError] = useState("");
+  const [newWordTerm, setNewWordTerm] = useState("");
+  const [newWordMeaning, setNewWordMeaning] = useState("");
+  const [addingWord, setAddingWord] = useState(false);
+  const [editingTerm, setEditingTerm] = useState(null);
+  const [editDraftMeaning, setEditDraftMeaning] = useState("");
+  const [translatingAll, setTranslatingAll] = useState(false);
+  const [vocabQuery, setVocabQuery] = useState("");
+  const [paragraphs, setParagraphs] = useState([]);
+  const [currentStoryId, setCurrentStoryId] = useState(null);
+  const [highlightSentence, setHighlightSentence] = useState(null);
+  const pendingScrollRef = useRef(null);
+  const [translationLangs, setTranslationLangs] = useState(
+    Array.from(/* @__PURE__ */ new Set([nativeLang, ...targetOrder || []])).filter((c) => c !== defaultStoryLang)
+  );
+  const [granularity, setGranularity] = useState("sentence");
+  const [questions, setQuestions] = useState([]);
+  const [answers, setAnswers] = useState({});
+  const [submitted, setSubmitted] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState("");
+  const [repeatNotice, setRepeatNotice] = useState("");
+  const [showSaved, setShowSaved] = useState(false);
+  const [isPublicStory, setIsPublicStory] = useState(true);
+  const [checkingSimilar, setCheckingSimilar] = useState(false);
+  const [similarMatch, setSimilarMatch] = useState(null);
+  const [showCommunity, setShowCommunity] = useState(false);
+  const [communitySort, setCommunitySort] = useState("popular");
+  const [communityLevelFilter, setCommunityLevelFilter] = useState("all");
+  const [communityList, setCommunityList] = useState([]);
+  const [communityLoading, setCommunityLoading] = useState(false);
+  const [savedStoriesLevelFilter, setSavedStoriesLevelFilter] = useState("all");
+  const [savedStoriesSort, setSavedStoriesSort] = useState("newest");
+  const [justSaved, setJustSaved] = useState(false);
+  const [savedWordsForLang, setSavedWordsForLang] = useState([]);
+  useEffect(() => {
+    const refresh = () => setSavedWordsForLang(loadSavedStoryWords().filter((e) => e.langCode === storyLang));
+    refresh();
+    window.addEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
+  }, [storyLang]);
+  useEffect(() => {
+    function handlePicked(e) {
+      const { word, langCode } = e && e.detail || {};
+      if (!word || langCode !== storyLang) return;
+      setSelectedWords((prev) => prev.includes(word) ? prev : [...prev, word]);
+    }
+    window.addEventListener(STORY_WORD_PICKED_EVENT, handlePicked);
+    return () => window.removeEventListener(STORY_WORD_PICKED_EVENT, handlePicked);
+  }, [storyLang]);
+  const storyLangLabel = LANGUAGES.find((l) => l.code === storyLang)?.label || storyLang;
+  const allSentences = paragraphs.flatMap(
+    (p, pi) => (p.sentences || []).map((s, si) => ({ ...s, _pi: pi, _si: si }))
+  );
+  const fullStoryText = allSentences.map((s) => s?.text || "").join(" ");
+  const sentenceOffsets = useMemo(() => {
+    let offset = 0;
+    return allSentences.map((s, idx) => {
+      const start = offset;
+      const text = s?.text || "";
+      offset += text.length;
+      if (idx < allSentences.length - 1) offset += 1;
+      return { pi: s._pi, si: s._si, start, end: start + text.length };
+    });
+  }, [fullStoryText]);
+  const sentenceOffsetMap = useMemo(() => {
+    const map = {};
+    sentenceOffsets.forEach((s) => {
+      map[`${s.pi}-${s.si}`] = s;
+    });
+    return map;
+  }, [sentenceOffsets]);
+  const paragraphBaseOffsetMap = useMemo(() => {
+    const map = {};
+    sentenceOffsets.forEach((s) => {
+      if (!(s.pi in map)) map[s.pi] = s.start;
+    });
+    return map;
+  }, [sentenceOffsets]);
+  const fullTranslatedTextByLang = useMemo(() => {
+    const map = {};
+    (translationLangs || []).forEach((code) => {
+      if (allSentences.length && allSentences.every((s) => s?.t?.[code])) {
+        map[code] = allSentences.map((s) => s.t[code]).join(" ");
+      }
+    });
+    return map;
+  }, [allSentences, translationLangs.join(",")]);
+  const translatedSentenceOffsetsByLang = useMemo(() => {
+    const map = {};
+    Object.keys(fullTranslatedTextByLang).forEach((code) => {
+      let offset = 0;
+      map[code] = allSentences.map((s, idx) => {
+        const t = s?.t?.[code] || "";
+        const start = offset;
+        offset += t.length;
+        if (idx < allSentences.length - 1) offset += 1;
+        return { pi: s._pi, si: s._si, start, end: start + t.length };
+      });
+    });
+    return map;
+  }, [fullTranslatedTextByLang, allSentences]);
+  const translatedSentenceOffsetMapByLang = useMemo(() => {
+    const map = {};
+    Object.keys(translatedSentenceOffsetsByLang).forEach((code) => {
+      const inner = {};
+      translatedSentenceOffsetsByLang[code].forEach((s) => {
+        inner[`${s.pi}-${s.si}`] = s;
+      });
+      map[code] = inner;
+    });
+    return map;
+  }, [translatedSentenceOffsetsByLang]);
+  const translatedParagraphBaseOffsetMapByLang = useMemo(() => {
+    const map = {};
+    Object.keys(translatedSentenceOffsetsByLang).forEach((code) => {
+      const inner = {};
+      translatedSentenceOffsetsByLang[code].forEach((s) => {
+        if (!(s.pi in inner)) inner[s.pi] = s.start;
+      });
+      map[code] = inner;
+    });
+    return map;
+  }, [translatedSentenceOffsetsByLang]);
+  const mainStoryKey = fullStoryText ? `${TTS_LOCALE[storyLang] || "en-US"}::${fullStoryText}` : null;
+  function reportStoryWordSpoken(baseOffset, localEnd) {
+    if (!mainStoryKey) return;
+    rememberMainTextResumeOffset(mainStoryKey, (baseOffset || 0) + (localEnd || 0));
+  }
+  const [activeStorySentence, setActiveStorySentence] = useState(null);
+  useEffect(() => {
+    const myKey = `${TTS_LOCALE[storyLang] || "en-US"}::${fullStoryText}`;
+    const update = (state) => {
+      if (!fullStoryText || state.key !== myKey || state.status === "idle") {
+        setActiveStorySentence(null);
+        return;
+      }
+      const offset = speechController.getCharOffset();
+      let found = sentenceOffsets[0] || null;
+      for (const s of sentenceOffsets) {
+        if (offset >= s.start) found = s;
+        else break;
+      }
+      setActiveStorySentence((prev) => {
+        const next = found ? { pi: found.pi, si: found.si } : null;
+        if (prev && next && prev.pi === next.pi && prev.si === next.si) return prev;
+        return next;
+      });
+    };
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [fullStoryText, storyLang, sentenceOffsets]);
+  const [activeTranslation, setActiveTranslation] = useState(null);
+  const translationLangsKey = (translationLangs || []).join(",");
+  useEffect(() => {
+    const update = (state) => {
+      if (!state.key || state.status === "idle") {
+        setActiveTranslation(null);
+        return;
+      }
+      for (const code of translationLangs || []) {
+        const text = fullTranslatedTextByLang[code];
+        if (!text) continue;
+        const myKey = `${TTS_LOCALE[code] || "en-US"}::${text}`;
+        if (state.key === myKey) {
+          const offset = speechController.getCharOffset();
+          const offs = translatedSentenceOffsetsByLang[code] || [];
+          let found = offs[0] || null;
+          for (const s of offs) {
+            if (offset >= s.start) found = s;
+            else break;
+          }
+          setActiveTranslation((prev) => {
+            const next = found ? { code, pi: found.pi, si: found.si } : null;
+            if (prev && next && prev.code === next.code && prev.pi === next.pi && prev.si === next.si) return prev;
+            return next;
+          });
+          return;
+        }
+      }
+      setActiveTranslation(null);
+    };
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [translationLangsKey, fullTranslatedTextByLang, translatedSentenceOffsetsByLang]);
+  useEffect(() => {
+    if (!autoScrollActive || !activeStorySentence) return;
+    const node = granularity === "sentence" ? sentenceElsRef.current[`${activeStorySentence.pi}-${activeStorySentence.si}`] : paragraphElsRef.current[activeStorySentence.pi];
+    if (node && node.scrollIntoView) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [autoScrollActive, activeStorySentence?.pi, activeStorySentence?.si, granularity]);
+  useEffect(() => {
+    if (!autoScrollActive || !activeTranslation) return;
+    const node = granularity === "sentence" ? sentenceElsRef.current[`${activeTranslation.pi}-${activeTranslation.si}`] : paragraphElsRef.current[activeTranslation.pi];
+    if (node && node.scrollIntoView) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [autoScrollActive, activeTranslation?.pi, activeTranslation?.si, granularity]);
+  useEffect(() => {
+    latestStoryTextContext = { text: fullStoryText, code: storyLang };
+    if (onFullTextChange) onFullTextChange({ text: fullStoryText, code: storyLang });
+  }, [fullStoryText, storyLang]);
+  useEffect(() => {
+    setCollections(loadWordCollections().filter((c) => c.langCode === storyLang));
+    setActiveCollectionId("");
+  }, [storyLang]);
+  useEffect(() => {
+    if (jumpTo && jumpTo.lang) {
+      setStoryLang(jumpTo.lang);
+      if (Array.isArray(jumpTo.words) && jumpTo.words.length) {
+        setSelectedWords((prev) => {
+          const merged = [...prev];
+          jumpTo.words.forEach((w) => {
+            if (!merged.includes(w)) merged.push(w);
+          });
+          return merged;
+        });
+      }
+    }
+    if (jumpTo && jumpTo.pi != null) {
+      if (jumpTo.storyId != null) {
+        const match = savedStories.find((s) => s.id === jumpTo.storyId);
+        if (match) openSavedStory(match);
+      } else {
+        setShowSaved(false);
+      }
+      if (jumpTo.si != null) setGranularity("sentence");
+      pendingScrollRef.current = { pi: jumpTo.pi, si: jumpTo.si };
+    }
+  }, [jumpTo?.token]);
+  useLayoutEffect(() => {
+    const target = pendingScrollRef.current;
+    if (!target) return;
+    const node = target.si != null ? sentenceElsRef.current[`${target.pi}-${target.si}`] : paragraphElsRef.current[target.pi];
+    if (!node) return;
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightSentence({ pi: target.pi, si: target.si });
+    pendingScrollRef.current = null;
+    const t = setTimeout(() => setHighlightSentence(null), 2400);
+    return () => clearTimeout(t);
+  });
+  const activeCollection = collections.find((c) => c.id === activeCollectionId) || null;
+  const refreshCollections = () => setCollections(loadWordCollections().filter((c) => c.langCode === storyLang));
+  const handleSaveCollection = () => {
+    const entry = addWordCollection({ langCode: storyLang, title: newCollectionTitle, rawText: newCollectionText });
+    if (!entry) return;
+    refreshCollections();
+    setActiveCollectionId(entry.id);
+    setNewCollectionTitle("");
+    setNewCollectionText("");
+    setShowAddCollection(false);
+  };
+  const PDF_MAX_BYTES = 8 * 1024 * 1024;
+  const PDF_MAX_PAGES = 80;
+  const PDF_MAX_CHARS = 2e4;
+  const handlePdfUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = "";
+    if (!file) return;
+    setPdfError("");
+    if (file.size > PDF_MAX_BYTES) {
+      setPdfError(`حجمِ فایل بیشتر از ${Math.round(PDF_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه — یه PDF کوچیک‌تر امتحان کن`);
+      return;
+    }
+    setPdfBusy(true);
+    try {
+      const pdfjsLib = await import("pdfjs-dist");
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
+      const buf = await file.arrayBuffer();
+      const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+      const pageCount = Math.min(doc.numPages, PDF_MAX_PAGES);
+      let lines = [];
+      for (let i = 1; i <= pageCount; i++) {
+        const page = await doc.getPage(i);
+        const content = await page.getTextContent();
+        const pageText = content.items.map((it) => it.str).join(" ");
+        pageText.split(/\n|(?<=[.،,؛])\s+/).map((s) => s.trim()).filter(Boolean).forEach((s) => lines.push(s));
+        if (lines.join("\n").length > PDF_MAX_CHARS) break;
+      }
+      let text = lines.join("\n");
+      let truncated = doc.numPages > pageCount;
+      if (text.length > PDF_MAX_CHARS) {
+        text = text.slice(0, PDF_MAX_CHARS);
+        truncated = true;
+      }
+      if (!text.trim()) {
+        setPdfError("متنی از این PDF استخراج نشد — شاید این فایل اسکن/عکسه، نه متنِ واقعی");
+        return;
+      }
+      setNewCollectionText(text);
+      if (!newCollectionTitle.trim()) {
+        setNewCollectionTitle(file.name.replace(/\.pdf$/i, ""));
+      }
+      setShowAddCollection(true);
+      if (truncated) {
+        setPdfError("توجه: چون فایل بزرگ بود، فقط بخشی از متنش خونده شد — قبل از ذخیره می‌تونی ویرایشش کنی");
+      }
+    } catch (err) {
+      setPdfError("خوندنِ این PDF مشکل داشت — فایل ممکنه خراب یا رمزگذاری‌شده باشه");
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+  const handleAddWordToCollection = async () => {
+    if (!activeCollection) return;
+    const term = newWordTerm.trim();
+    if (!term) return;
+    setAddingWord(true);
+    let meaning = newWordMeaning.trim();
+    try {
+      if (!meaning) {
+        const res = await translateFree(term, nativeLang, storyLang, aiSettings);
+        meaning = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim();
+      }
+    } catch (e) {
+    }
+    addWordToCollectionEntry(activeCollection.id, term, meaning);
+    refreshCollections();
+    setNewWordTerm("");
+    setNewWordMeaning("");
+    setAddingWord(false);
+  };
+  const startEditWord = (w) => {
+    setEditingTerm(w.term);
+    setEditDraftMeaning(w.meaning || "");
+  };
+  const saveEditWord = (originalTerm) => {
+    if (!activeCollection) return;
+    updateWordInCollectionEntry(activeCollection.id, originalTerm, { meaning: editDraftMeaning });
+    refreshCollections();
+    setEditingTerm(null);
+  };
+  const removeWord = (term) => {
+    if (!activeCollection) return;
+    removeWordFromCollectionEntry(activeCollection.id, term);
+    setSelectedWords((prev) => prev.filter((w) => w !== term));
+    refreshCollections();
+  };
+  const handleTranslateAllMissing = async () => {
+    if (!activeCollection) return;
+    const missing = activeCollection.words.filter((w) => !w.meaning);
+    if (!missing.length) return;
+    setTranslatingAll(true);
+    try {
+      const meanings = await Promise.all(
+        missing.map(
+          (w) => translateFree(w.term, nativeLang, storyLang, aiSettings).catch(() => "")
+        )
+      );
+      const list = loadWordCollections();
+      const idx = list.findIndex((c) => c.id === activeCollection.id);
+      if (idx !== -1) {
+        const words = list[idx].words.map((w) => {
+          const mi = missing.findIndex((m) => m.term === w.term);
+          return mi !== -1 && meanings[mi] ? { ...w, meaning: String(meanings[mi]).trim() } : w;
+        });
+        list[idx] = { ...list[idx], words };
+        saveWordCollectionsList(list);
+      }
+      refreshCollections();
+    } catch (e) {
+      alert("ترجمه‌ی خودکار انجام نشد، دوباره امتحان کن.");
+    } finally {
+      setTranslatingAll(false);
+    }
+  };
+  const translationLangOptions = LANGUAGES.map((l) => l.code).filter((c) => c !== storyLang);
+  const toggleTranslationLang = (code) => {
+    setTranslationLangs(
+      (prev) => prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+    );
+  };
+  const selectAllTranslationLangs = () => setTranslationLangs(translationLangOptions);
+  const clearAllTranslationLangs = () => setTranslationLangs([]);
+  useEffect(() => {
+    setTranslationLangs((prev) => prev.filter((c) => c !== storyLang));
+  }, [storyLang]);
+  const translationLangOptionsKey = translationLangOptions.join(",");
+  useEffect(() => {
+    setTranslationLangs((prev) => prev.filter((c) => translationLangOptions.includes(c)));
+  }, [translationLangOptionsKey]);
+  useEffect(() => {
+    if (!paragraphs.length || !translationLangs.length) return;
+    const missingLangs = translationLangs.filter(
+      (code) => paragraphs.some((p) => (p.sentences || []).some((s) => !s.t || !(code in s.t)))
+    );
+    if (!missingLangs.length) return;
+    let cancelled = false;
+    (async () => {
+      const updated = await Promise.all(
+        paragraphs.map(async (p) => {
+          const sentences = await Promise.all(
+            (p.sentences || []).map(async (s) => {
+              const additions = {};
+              for (const code of missingLangs) {
+                if (s.t && code in s.t) continue;
+                try {
+                  additions[code] = await translateFree(s.text || "", code, storyLang, aiSettings, true);
+                } catch (e) {
+                  additions[code] = s.text || "";
+                }
+              }
+              return Object.keys(additions).length ? { ...s, t: { ...s.t || {}, ...additions } } : s;
+            })
+          );
+          return { ...p, sentences };
+        })
+      );
+      if (!cancelled) setParagraphs(updated);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [translationLangs, paragraphs, storyLang]);
+  const filteredVocab = useMemo(() => {
+    const qRaw = vocabQuery.trim();
+    if (!qRaw) return [];
+    const q = qRaw.toLowerCase();
+    const matches = VOCAB.filter((v) => {
+      const w = v.t[storyLang] || v.t.en || "";
+      if (selectedWords.includes(w)) return false;
+      return w.toLowerCase().includes(q) || v.meaningFa.includes(qRaw);
+    });
+    return matches.slice(0, 20);
+  }, [vocabQuery, storyLang, selectedWords]);
+  const otherTabMatches = useMemo(() => {
+    const qRaw = vocabQuery.trim();
+    if (!qRaw) return [];
+    const q = qRaw.toLowerCase();
+    const seen = /* @__PURE__ */ new Set();
+    const results = [];
+    for (const pool of [STORY_SEARCH_WORD_POOL, STORY_SEARCH_CONVERSATION_POOL]) {
+      for (const item of pool) {
+        if (results.length >= 30) break;
+        const key = item.term.toLowerCase();
+        if (seen.has(key)) continue;
+        if (key.includes(q) || item.fa && item.fa.includes(qRaw)) {
+          seen.add(key);
+          results.push(item);
+        }
+      }
+      if (results.length >= 30) break;
+    }
+    return results;
+  }, [vocabQuery]);
+  const matchingSavedWords = useMemo(() => {
+    const qRaw = vocabQuery.trim();
+    if (!qRaw) return [];
+    const q = qRaw.toLowerCase();
+    const matches = savedWordsForLang.filter((e) => {
+      if (selectedWords.includes(e.word)) return false;
+      return e.word.toLowerCase().includes(q) || e.meaning && e.meaning.includes(qRaw);
+    });
+    return matches.slice(0, 20);
+  }, [vocabQuery, savedWordsForLang, selectedWords]);
+  const [translatingPick, setTranslatingPick] = useState(null);
+  const [pickedTermTranslations, setPickedTermTranslations] = useState({});
+  const pickForeignWord = async (term) => {
+    if (storyLang === "en") {
+      toggleWord(term);
+      return;
+    }
+    setTranslatingPick(term);
+    try {
+      const res = await translateFree(term, storyLang, "en", aiSettings);
+      const translated = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim() || term;
+      setPickedTermTranslations((prev) => ({ ...prev, [term]: translated }));
+      toggleWord(translated);
+    } catch (e) {
+      setPickedTermTranslations((prev) => ({ ...prev, [term]: term }));
+      toggleWord(term);
+    } finally {
+      setTranslatingPick(null);
+    }
+  };
+  const toggleWord = (word) => {
+    setSelectedWords((prev) => {
+      const already = prev.includes(word);
+      if (!already) {
+        ensureSavedStoryWord(word, storyLang);
+      }
+      return already ? prev.filter((w) => w !== word) : [...prev, word];
+    });
+  };
+  const addCustomWord = async () => {
+    const w = customWord.trim();
+    if (!w) return;
+    setCustomWord("");
+    setTranslateNote("");
+    setWordTranslating(true);
+    try {
+      const res = await translateFree(w, storyLang, "auto", aiSettings);
+      const translated = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim() || w;
+      if (!selectedWords.includes(translated)) {
+        setSelectedWords((prev) => [...prev, translated]);
+        ensureSavedStoryWord(translated, storyLang);
+      }
+      if (normalizeWord(translated) !== normalizeWord(w)) {
+        setTranslateNote(`«${w}» → «${translated}» اضافه شد`);
+        setTimeout(() => setTranslateNote(""), 3e3);
+      }
+    } catch (e) {
+      if (!selectedWords.includes(w)) {
+        setSelectedWords((prev) => [...prev, w]);
+        ensureSavedStoryWord(w, storyLang);
+      }
+      setTranslateNote(`ترجمه‌ی خودکار ناموفق بود؛ «${w}» به‌همون شکل اضافه شد`);
+      setTimeout(() => setTranslateNote(""), 3e3);
+    } finally {
+      setWordTranslating(false);
+    }
+  };
+  const suggestForgottenWords = () => {
+    const ranked = Object.entries(wordStats).filter(([, s]) => s.lang === storyLang).sort((a, b) => b[1].missed - b[1].correct - (a[1].missed - a[1].correct)).slice(0, 5).map(([key, s]) => s.word || key.slice(key.indexOf(":") + 1)).filter(Boolean);
+    if (ranked.length) {
+      setSelectedWords(ranked);
+      ranked.forEach((w) => ensureSavedStoryWord(w, storyLang));
+    }
+  };
+  const generateStory = async ({ force } = {}) => {
+    if (!selectedWords.length || generating) return;
+    setSimilarMatch(null);
+    if (!force) {
+      setCheckingSimilar(true);
+      const match = await communityFindSimilarStory({
+        langCode: storyLang,
+        level: storyLevel,
+        contentType,
+        storyLength,
+        words: selectedWords
+      });
+      setCheckingSimilar(false);
+      if (match) {
+        setSimilarMatch(match);
+        return;
+      }
+    }
+    selectedWords.forEach((w) => ensureSavedStoryWord(w, storyLang));
+    setGenerating(true);
+    setError("");
+    setRepeatNotice("");
+    setParagraphs([]);
+    setQuestions([]);
+    setAnswers({});
+    setSubmitted(false);
+    try {
+      const genre = CONTENT_TYPES.find((c) => c.key === contentType) || CONTENT_TYPES[0];
+      const lengthCfg = STORY_LENGTHS.find((l) => l.key === storyLength) || STORY_LENGTHS[1];
+      const countWordOccurrences = (text, word) => {
+        const esc = word.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        if (!esc) return 0;
+        const re = new RegExp(`(?<![\\p{L}\\p{N}])${esc}[\\p{L}\\p{N}]*`, "giu");
+        const matches = text.match(re);
+        return matches ? matches.length : 0;
+      };
+      const wordUnitCount = (w) => w.trim().split(/\s+/).filter(Boolean).length;
+      const effectiveTarget = (w) => {
+        const units = wordUnitCount(w);
+        if (units <= 3) return repeatCount;
+        if (units <= 6) return Math.max(1, Math.min(repeatCount, 3));
+        return 1;
+      };
+      const targetParagraphs = Math.round((lengthCfg.paragraphMin + lengthCfg.paragraphMax) / 2);
+      const buildParagraphBudget = (numParagraphs) => {
+        const budget = Array.from({ length: numParagraphs }, () => ({}));
+        selectedWords.forEach((w) => {
+          const target = effectiveTarget(w);
+          const base = Math.floor(target / numParagraphs);
+          const remainder = target % numParagraphs;
+          const order = Array.from({ length: numParagraphs }, (_, i) => i).sort(() => Math.random() - 0.5);
+          for (let i = 0; i < numParagraphs; i++) budget[i][w] = base;
+          for (let i = 0; i < remainder; i++) budget[order[i]][w] += 1;
+        });
+        return budget;
+      };
+      const paraBudget = buildParagraphBudget(targetParagraphs);
+      const budgetTable = paraBudget.map((b, i) => {
+        const entries = Object.entries(b).filter(([, c]) => c > 0);
+        const line = entries.length ? entries.map(([w, c]) => `"${w}" ×${c}`).join(", ") : "(no target word required here — just continue the narrative)";
+        return `Paragraph ${i + 1}: ${line}`;
+      }).join("\n");
+      const buildPrompt = (correction) => `You are a skilled storyteller writing ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}.
+
+TOPIC/GENRE — hard requirement, not a suggestion: the story MUST genuinely be ${genre.prompt}. Its plot, tone, setting, and vocabulary must clearly and unmistakably belong to this genre from the first sentence — do not default to a generic everyday story if the genre is something else.
+
+LENGTH — hard requirement: write EXACTLY ${targetParagraphs} paragraphs in total (not fewer, not more), each with ${lengthCfg.sentencesHint}. The "paragraphs" array in your JSON output must contain exactly ${targetParagraphs} paragraph objects, in order.
+
+NARRATIVE QUALITY:
+- Write ONE genuinely coherent, connected story with a real narrative arc (setup → development → payoff/ending appropriate to the genre) — NOT a disconnected list of example sentences that merely happen to sit next to each other.
+- Every sentence must follow logically or causally from the one before it and set up the one after it: consistent characters, setting, and cause-and-effect, the way a real short story reads — a reader should never be able to tell which sentence was "built around" which target word.
+- The plot and content must feel fully intentional and relevant to the target words themselves — build a story that is actually ABOUT something connected to these words, not a generic story with the words awkwardly inserted.
+- You do NOT need to introduce the target words in the order they're listed — use whatever order serves the story best.
+- Paragraphs must flow into each other (later paragraphs should refer back to people, places, or events from earlier ones), not restart the scene each time.
+- Every word/phrase you use — target words included — must be used with its correct, natural meaning and normal collocations, exactly as a native speaker would use it. Never force a target word into a sentence where it doesn't semantically fit just to hit the repetition budget (e.g. don't write something like "took off a pineapple from the table" — "take off" doesn't collocate with a fruit; "picked up a pineapple" would be correct). If a target word doesn't fit naturally in a given spot, rewrite the sentence or move the word elsewhere in the story instead of producing an unnatural sentence.
+
+REPETITION — follow this PER-PARAGRAPH budget exactly, instead of trying to track a global count yourself. Each line below lists which target words (and how many times each, counting all grammatical forms/inflections together) should appear in THAT paragraph specifically. This budget already sums to the right total across the whole story, so just follow it paragraph by paragraph — being off by 1 in a single paragraph is fine, but don't ignore the split. Weave the words naturally into the sentence flow — don't just list them mechanically. Note: some target items below are full sentences or phrases rather than single words — for those, a budget of "×1" simply means work that sentence/phrase into the story naturally once; you do NOT need to repeat a long phrase verbatim multiple times.
+
+${budgetTable}
+${correction ? "\n" + correction : ""}
+
+Do NOT lengthen any paragraph far beyond the sentence-count guideline above just to fit more repetitions of a word; if a word's budget doesn't fit naturally, reuse it within an existing sentence instead of adding new sentences.
+
+After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
+      const tokenBudget = Math.min(lengthCfg.tokens + 300, 8e3);
+      const runAttempt = async (correction) => {
+        const res = await callAI({ prompt: buildPrompt(correction), maxTokens: tokenBudget, aiSettings });
+        const cleaned = res.replace(/```json|```/g, "").trim();
+        try {
+          return JSON.parse(cleaned);
+        } catch (parseErr) {
+          throw new Error("parse-error: پاسخ هوش مصنوعی کامل یا JSON معتبر نبود — دوباره امتحان کن.");
+        }
+      };
+      const scoreAttempt = (parsedAttempt) => {
+        const paras = parsedAttempt.paragraphs || [];
+        const paraTexts = paras.map((p) => (p.sentences || []).map((s) => s.text).join(" "));
+        const text = paraTexts.join(" ");
+        const attemptCounts = selectedWords.map((w) => {
+          const target = effectiveTarget(w);
+          return { word: w, count: countWordOccurrences(text, w), target };
+        });
+        const repDeviation = attemptCounts.reduce((sum, c) => sum + Math.abs(c.count - c.target), 0);
+        const offenders = attemptCounts.filter(
+          (c) => Math.abs(c.count - c.target) > 2 && (c.count > c.target * 2 || c.count < c.target / 2)
+        );
+        const paraCount = paras.length;
+        const paraDeviation = paraCount !== targetParagraphs ? Math.abs(paraCount - targetParagraphs) * 3 : 0;
+        const lengthOk = paraCount >= lengthCfg.paragraphMin && paraCount <= lengthCfg.paragraphMax;
+        return { counts: attemptCounts, paraTexts, paraCount, lengthOk, deviation: repDeviation + paraDeviation, offenders };
+      };
+      let parsed = await runAttempt();
+      let best = { parsed, ...scoreAttempt(parsed) };
+      if (best.paraCount === targetParagraphs && best.offenders.length > 0) {
+        const paragraphsToPatch = [];
+        best.paraTexts.forEach((ptext, i) => {
+          const needs = [];
+          selectedWords.forEach((w) => {
+            const target = paraBudget[i][w] || 0;
+            const actual = countWordOccurrences(ptext, w);
+            if (Math.abs(actual - target) > 1) needs.push({ word: w, target, actual });
+          });
+          if (needs.length) paragraphsToPatch.push({ index: i, needs });
+        });
+        if (paragraphsToPatch.length) {
+          const buildPatchPrompt = ({ index, needs }) => {
+            const prev = best.paraTexts[index - 1] || "(this is the first paragraph — no previous context)";
+            const next = best.paraTexts[index + 1] || "(this is the last paragraph — no next context)";
+            const current = best.paraTexts[index];
+            const needsList = needs.map((n) => `"${n.word}": currently appears ${n.actual} time(s), should appear ${n.target} time(s)`).join("; ");
+            return `You are lightly editing ONE paragraph of an existing ${storyLangLabel} story (CEFR ${storyLevel}) to fix word-usage counts, WITHOUT changing the plot, characters, or events.
+
+Previous paragraph (context only — do NOT rewrite this): ${prev}
+
+Paragraph to rewrite: ${current}
+
+Next paragraph (context only — do NOT rewrite this): ${next}
+
+Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the previous/next paragraphs and keeps roughly the same length and tone, but adjusts these word counts (counting all grammatical forms/inflections together): ${needsList}. Weave the words naturally into the sentences — don't just repeat them mechanically or list them. Respond ONLY with strict JSON, no markdown fences, no extra text: {"sentences": [{"text": "..."}]}`;
+          };
+          const patchResults = await Promise.allSettled(
+            paragraphsToPatch.map(
+              (item) => callAI({ prompt: buildPatchPrompt(item), maxTokens: 900, aiSettings }).then((res) => {
+                const cleaned = res.replace(/```json|```/g, "").trim();
+                return { index: item.index, parsed: JSON.parse(cleaned) };
+              })
+            )
+          );
+          const patchedParagraphs = [...best.parsed.paragraphs];
+          patchResults.forEach((r) => {
+            if (r.status === "fulfilled" && r.value?.parsed?.sentences?.length) {
+              const resplit = splitTextIntoSentenceStrings(r.value.parsed.sentences.map((s) => s?.text || "").join(" "));
+              patchedParagraphs[r.value.index] = { sentences: resplit.map((text) => ({ text })) };
+            }
+          });
+          const patchedAttempt = { ...best.parsed, paragraphs: patchedParagraphs };
+          const patchedScore = { parsed: patchedAttempt, ...scoreAttempt(patchedAttempt) };
+          if (patchedScore.deviation < best.deviation) best = patchedScore;
+        }
+      }
+      if (best.offenders.length > 0 || !best.lengthOk) {
+        const repDetail = best.offenders.map((c) => `"${c.word}": you used it ${c.count} times, but the target is about ${c.target}`).join("; ");
+        const lengthDetail = best.lengthOk ? "" : ` Also, your previous attempt had ${best.paraCount} paragraphs, but it must have exactly ${targetParagraphs} paragraphs — fix the paragraph count too.`;
+        const correction = `Your previous attempt had a large repetition imbalance for some words (${repDetail || "see above"}).${lengthDetail} Rewrite the story from scratch and this time follow the per-paragraph budget closely — being off by 1 in a single paragraph is fine, just avoid using a word way more than double or way less than half of its total target across the story. Keep the story just as natural, coherent, and connected as before (or more so) while you do this — don't turn it into disconnected example sentences to make counting easier.`;
+        try {
+          const retryParsed = await runAttempt(correction);
+          const retryScore = { parsed: retryParsed, ...scoreAttempt(retryParsed) };
+          if (retryScore.deviation < best.deviation) {
+            best = retryScore;
+          }
+        } catch {
+        }
+      }
+      parsed = best.parsed;
+      if (best.offenders && best.offenders.length > 0) {
+        const detail = best.offenders.map((o) => `«${o.word}»: ${o.count} بار`).join("، ");
+        setRepeatNotice(`تعداد تکرار این لغت‌ها با ${repeatCount} بار خواسته‌شده فاصله‌ی زیادی داره — ${detail}. می‌تونی دوباره «بساز داستان» رو بزنی.`);
+      }
+      const storyParagraphs = enforceSentenceSplit(parsed.paragraphs || []);
+      setParagraphs(storyParagraphs);
+      setCurrentStoryId(null);
+      const finalQuestions = Array.isArray(parsed.questions) ? parsed.questions : [];
+      setQuestions(finalQuestions);
+      if (isPublicStory) {
+        communityPublishStory({
+          langCode: storyLang,
+          level: storyLevel,
+          contentType,
+          storyLength,
+          words: selectedWords,
+          paragraphs: storyParagraphs,
+          questions: finalQuestions,
+          uid
+        });
+      }
+    } catch (e) {
+      const msg = String(e?.message || "");
+      if (msg.startsWith("ai-backend-error:")) {
+        setError(`خطای سرور: ${msg.replace("ai-backend-error: ", "")}`);
+      } else if (msg.startsWith("parse-error:")) {
+        setError(msg.replace("parse-error: ", ""));
+      } else {
+        setError(`خطای اتصال: ${msg || "دلیل نامشخص"}`);
+      }
+    } finally {
+      setGenerating(false);
+    }
+  };
+  const PDF_READ_MAX_BYTES = 8 * 1024 * 1024;
+  const PDF_READ_MAX_PAGES = 300;
+  const PDF_READ_SENTENCES_PER_PARAGRAPH = 5;
+  const PDF_READ_MAX_SENTENCES = 2e3;
+  const handlePdfImportForReading = async (e) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = "";
+    if (!file) return;
+    setPdfReadError("");
+    if (file.size > PDF_READ_MAX_BYTES) {
+      setPdfReadError(`حجمِ فایل بیشتر از ${Math.round(PDF_READ_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه — یه PDF کوچیک‌تر امتحان کن (حداکثر ${PDF_READ_MAX_PAGES} صفحه هم پردازش می‌شه)`);
+      return;
+    }
+    setPdfReadBusy(true);
+    try {
+      const pdfjsLib = await import("pdfjs-dist");
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
+      const buf = await file.arrayBuffer();
+      const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+      const pageCount = Math.min(doc.numPages, PDF_READ_MAX_PAGES);
+      let allSentences2 = [];
+      for (let i = 1; i <= pageCount; i++) {
+        const page = await doc.getPage(i);
+        const content = await page.getTextContent();
+        const pageText = content.items.map((it) => it.str).join(" ");
+        allSentences2.push(...splitTextIntoSentenceStrings(pageText));
+        if (allSentences2.length > PDF_READ_MAX_SENTENCES) break;
+      }
+      let truncated = doc.numPages > pageCount;
+      if (allSentences2.length > PDF_READ_MAX_SENTENCES) {
+        allSentences2 = allSentences2.slice(0, PDF_READ_MAX_SENTENCES);
+        truncated = true;
+      }
+      if (!allSentences2.length) {
+        setPdfReadError("متنی از این PDF استخراج نشد — شاید این فایل اسکن/عکسه، نه متنِ واقعی");
+        return;
+      }
+      const detectedLang = detectPastedTextLanguage(allSentences2.join(" "));
+      if (detectedLang) setStoryLang(detectedLang);
+      const storyParagraphs = [];
+      for (let i = 0; i < allSentences2.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
+        const chunk = allSentences2.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
+        storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
+      }
+      setParagraphs(storyParagraphs);
+      setCurrentStoryId(null);
+      setQuestions([]);
+      setAnswers({});
+      setSubmitted(false);
+      setError("");
+      setRepeatNotice("");
+      if (truncated) {
+        setPdfReadError("توجه: چون فایل بزرگ بود، فقط بخشی از متنش خونده و آماده‌ی خوانش شد");
+      }
+    } catch (err) {
+      setPdfReadError("خوندنِ این PDF مشکل داشت — فایل ممکنه خراب یا رمزگذاری‌شده باشه");
+    } finally {
+      setPdfReadBusy(false);
+    }
+  };
+  const handlePastedTextForReading = () => {
+    setPdfReadError("");
+    const raw = pastedReadingText.trim();
+    if (!raw) return;
+    const allSentences2 = splitTextIntoSentenceStrings(raw);
+    if (!allSentences2.length) {
+      setPdfReadError("متنی برای خوندن پیدا نشد");
+      return;
+    }
+    const detectedLang = detectPastedTextLanguage(raw);
+    if (detectedLang) setStoryLang(detectedLang);
+    const storyParagraphs = [];
+    for (let i = 0; i < allSentences2.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
+      const chunk = allSentences2.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
+      storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
+    }
+    setParagraphs(storyParagraphs);
+    setCurrentStoryId(null);
+    setQuestions([]);
+    setAnswers({});
+    setSubmitted(false);
+    setError("");
+    setRepeatNotice("");
+    setPastedReadingText("");
+    setShowPasteReading(false);
+  };
+  const extractMainBodyText = (html) => {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("script, style, noscript, nav, header, footer, aside, svg, form, iframe").forEach((el) => el.remove());
+    const direct = doc.querySelector("article") || doc.querySelector("main") || doc.querySelector("[role='main']");
+    if (direct && direct.textContent.trim().length > 200) {
+      return direct.textContent;
+    }
+    const candidates = doc.body ? Array.from(doc.body.querySelectorAll("div, section, article")) : [];
+    let best = doc.body;
+    let bestLen = 0;
+    for (const el of candidates) {
+      const ownText = Array.from(el.childNodes).filter((n) => n.nodeType === 3 || ["P", "SPAN", "STRONG", "EM", "B", "I", "A"].includes(n.nodeName)).map((n) => n.textContent).join(" ");
+      if (ownText.length > bestLen) {
+        bestLen = ownText.length;
+        best = el;
+      }
+    }
+    return (bestLen > 200 ? best : doc.body)?.textContent || "";
+  };
+  const handleLinkImportForReading = async () => {
+    setLinkReadError("");
+    let raw = linkReadUrl.trim();
+    if (!raw) return;
+    if (!/^https?:\/\//i.test(raw)) raw = `https://${raw}`;
+    let normalizedUrl;
+    try {
+      normalizedUrl = new URL(raw).toString();
+    } catch {
+      setLinkReadError("این لینک معتبر نیست — لطفاً آدرسِ کامل صفحه رو وارد کن");
+      return;
+    }
+    setLinkReadBusy(true);
+    try {
+      let html = "";
+      try {
+        const directRes = await fetch(normalizedUrl);
+        if (directRes.ok) html = await directRes.text();
+      } catch {
+      }
+      if (!html) {
+        const base = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || DEFAULT_BACKEND_URL;
+        const proxyRes = await fetch(`${base}/api/fetch-url?url=${encodeURIComponent(normalizedUrl)}`);
+        if (!proxyRes.ok) {
+          throw new Error(
+            proxyRes.status === 404 ? "fetch-url-not-configured" : `HTTP ${proxyRes.status}`
+          );
+        }
+        html = await proxyRes.text();
+      }
+      const bodyText = extractMainBodyText(html).replace(/\s+/g, " ").trim();
+      if (!bodyText) {
+        setLinkReadError("متنی از این صفحه استخراج نشد — شاید محتوای این سایت با جاوااسکریپت ساخته می‌شه");
+        return;
+      }
+      let allSentences2 = splitTextIntoSentenceStrings(bodyText);
+      if (!allSentences2.length) {
+        setLinkReadError("متنی برای خوندن پیدا نشد");
+        return;
+      }
+      let truncated = false;
+      if (allSentences2.length > PDF_READ_MAX_SENTENCES) {
+        allSentences2 = allSentences2.slice(0, PDF_READ_MAX_SENTENCES);
+        truncated = true;
+      }
+      const detectedLang = detectPastedTextLanguage(bodyText);
+      if (detectedLang) setStoryLang(detectedLang);
+      const storyParagraphs = [];
+      for (let i = 0; i < allSentences2.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
+        const chunk = allSentences2.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
+        storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
+      }
+      setParagraphs(storyParagraphs);
+      setCurrentStoryId(null);
+      setQuestions([]);
+      setAnswers({});
+      setSubmitted(false);
+      setError("");
+      setRepeatNotice("");
+      setLinkReadUrl("");
+      setShowLinkReading(false);
+      if (truncated) {
+        setLinkReadError("توجه: چون متنِ صفحه زیاد بود، فقط بخشی از اون آماده‌ی خوانش شد");
+      }
+    } catch (err) {
+      setLinkReadError(
+        err?.message === "fetch-url-not-configured" ? "خوندنِ این لینک نیاز به یه تنظیمِ اضافه تو سرور داره — فعلاً از کپی/پیستِ متن استفاده کن" : "این لینک قابلِ خوندن نبود — یا سایت اجازه‌ی دسترسیِ مستقیم نمی‌ده، یا آدرس اشتباهه"
+      );
+    } finally {
+      setLinkReadBusy(false);
+    }
+  };
+  const saveCurrentStory = () => {
+    if (!paragraphs.length) return;
+    const entry = {
+      id: Date.now(),
+      storyLang,
+      storyLevel,
+      contentType,
+      storyLength,
+      selectedWords,
+      paragraphs,
+      questions,
+      savedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    setSavedStories((prev) => [entry, ...prev]);
+    setCurrentStoryId(entry.id);
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 1800);
+  };
+  const openSavedStory = (entry) => {
+    setStoryLang(entry.storyLang);
+    setStoryLevel(entry.storyLevel);
+    setStoryLength(entry.storyLength || "medium");
+    setContentType(entry.contentType || "general");
+    setSelectedWords(entry.selectedWords);
+    setParagraphs(entry.paragraphs);
+    setQuestions(entry.questions || []);
+    setAnswers({});
+    setSubmitted(false);
+    setShowSaved(false);
+    setCurrentStoryId(entry.id);
+  };
+  const deleteSavedStory = (id) => {
+    setSavedStories((prev) => prev.filter((s) => s.id !== id));
+  };
+  const openCommunityStory = (entry) => {
+    setStoryLang(entry.lang_code);
+    setStoryLevel(entry.level);
+    setStoryLength(entry.story_length || "medium");
+    setContentType(entry.content_type || "general");
+    setSelectedWords(entry.words || []);
+    setParagraphs(entry.paragraphs);
+    setQuestions(entry.questions || []);
+    setAnswers({});
+    setSubmitted(false);
+    setShowSaved(false);
+    setShowCommunity(false);
+    setCurrentStoryId(null);
+    setSimilarMatch(null);
+    setError("");
+    setRepeatNotice("");
+    if (entry.id) communityBumpStat(entry.id, "views");
+  };
+  useEffect(() => {
+    if (!showCommunity) return;
+    let cancelled = false;
+    setCommunityLoading(true);
+    communityListStories({
+      langCode: storyLang,
+      level: communityLevelFilter,
+      sort: communitySort,
+      limitN: 20
+    }).then((list) => {
+      if (!cancelled) {
+        setCommunityList(list);
+        setCommunityLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showCommunity, storyLang, communityLevelFilter, communitySort]);
+  const submitQuiz = () => {
+    setSubmitted(true);
+    setWordStats((prev) => {
+      const next = { ...prev };
+      questions.forEach((q, i) => {
+        if (!q.word) return;
+        const key = `${storyLang}:${q.word.toLowerCase()}`;
+        const cur = next[key] || { lang: storyLang, word: q.word, missed: 0, correct: 0 };
+        const isRight = answers[i] === q.answerIndex;
+        next[key] = {
+          lang: storyLang,
+          word: q.word,
+          missed: cur.missed + (isRight ? 0 : 1),
+          correct: cur.correct + (isRight ? 1 : 0)
+        };
+      });
+      return next;
+    });
+  };
+  return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 700, fontSize: 16 } }, "داستان‌ساز"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => {
+        setShowCommunity((s) => !s);
+        setShowSaved(false);
+      },
+      style: {
+        fontSize: 12,
+        padding: "5px 12px",
+        borderRadius: 20,
+        border: `1px solid ${colors.cardBorder}`,
+        backgroundColor: showCommunity ? colors.teal : "white",
+        color: showCommunity ? "white" : colors.ink
+      }
+    },
+    "🌍 داستان‌های کاربران"
+  ), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => {
+        setShowSaved((s) => !s);
+        setShowCommunity(false);
+      },
+      style: {
+        fontSize: 12,
+        padding: "5px 12px",
+        borderRadius: 20,
+        border: `1px solid ${colors.cardBorder}`,
+        backgroundColor: showSaved ? colors.ink : "white",
+        color: showSaved ? "white" : colors.ink
+      }
+    },
+    "داستان‌های ذخیره‌شده (",
+    savedStories.length,
+    ")"
+  ))), showCommunity ? /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-3" }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft } }, "داستان‌هایی که کاربرهای دیگه با زبان «", storyLangLabel, "» ساخته و «عمومی» گذاشته‌ان — خوندنشون کاملاً رایگانه و AI صدا زده نمی‌شه."), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2" }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => setCommunitySort("popular"),
+      style: {
+        padding: "5px 12px",
+        borderRadius: 20,
+        fontSize: 12,
+        border: `1px solid ${communitySort === "popular" ? colors.gold : colors.cardBorder}`,
+        backgroundColor: communitySort === "popular" ? colors.goldSoft : "white"
+      }
+    },
+    "🔥 محبوب‌ترین"
+  ), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => setCommunitySort("newest"),
+      style: {
+        padding: "5px 12px",
+        borderRadius: 20,
+        fontSize: 12,
+        border: `1px solid ${communitySort === "newest" ? colors.gold : colors.cardBorder}`,
+        backgroundColor: communitySort === "newest" ? colors.goldSoft : "white"
+      }
+    },
+    "🆕 جدیدترین"
+  )), /* @__PURE__ */ React.createElement(LevelFilterRow, { levelFilter: communityLevelFilter, setLevelFilter: setCommunityLevelFilter }), communityLoading && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: colors.inkSoft } }, "در حال بارگذاری..."), !communityLoading && communityList.length === 0 && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: colors.inkSoft } }, "هنوز داستانِ عمومی‌ای برای «", storyLangLabel, "»", communityLevelFilter !== "all" ? ` و سطحِ ${communityLevelFilter}` : "", " ساخته نشده."), !communityLoading && communityList.map((s) => /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      key: s.id,
+      style: { backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 14 }
+    },
+    /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 700, fontSize: 13 } }, LANGUAGES.find((l) => l.code === s.lang_code)?.label, " · ", s.level, " ·", " ", CONTENT_TYPES.find((c) => c.key === s.content_type)?.label || "عمومی", " ·", " ", STORY_LENGTHS.find((l) => l.key === s.story_length)?.label || "متوسط"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft } }, (s.words || []).join("، ")), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: colors.inkSoft, marginTop: 4 } }, "👁 ", s.views || 0, " مطالعه · ❤️ ", s.saves || 0, " ذخیره")), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => openCommunityStory(s),
+        style: { fontSize: 12, color: colors.teal, textDecoration: "underline", whiteSpace: "nowrap" }
+      },
+      "باز کردن"
+    ))
+  ))) : showSaved ? /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-3" }, /* @__PURE__ */ React.createElement(LevelFilterRow, { levelFilter: savedStoriesLevelFilter, setLevelFilter: setSavedStoriesLevelFilter }), savedStories.length > 1 && /* @__PURE__ */ React.createElement("div", { className: "flex justify-start" }, /* @__PURE__ */ React.createElement(SavedStoriesSortMenu, { sortKey: savedStoriesSort, setSortKey: setSavedStoriesSort })), savedStories.length === 0 && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: colors.inkSoft } }, "هنوز داستانی ذخیره نکردی."), savedStories.length > 0 && (() => {
+    const groups = (savedStoriesLevelFilter !== "all" ? [[savedStoriesLevelFilter, savedStories.filter((s) => s.storyLevel === savedStoriesLevelFilter)]] : [
+      ...LEVELS.map((lv) => [lv, savedStories.filter((s) => s.storyLevel === lv)]),
+      ["نامشخص", savedStories.filter((s) => !LEVELS.includes(s.storyLevel))]
+    ].filter(([, list]) => list.length > 0)).map(([lv, list]) => [lv, sortSavedStories(list, savedStoriesSort)]);
+    if (!groups.length) {
+      return /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: colors.inkSoft } }, "داستانی با سطح ", savedStoriesLevelFilter, " ذخیره نشده.");
+    }
+    return groups.map(([lv, list]) => /* @__PURE__ */ React.createElement("div", { key: lv, className: "flex flex-col gap-2" }, savedStoriesLevelFilter === "all" && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, fontWeight: 700, color: colors.teal, margin: "4px 0 0" } }, "سطح ", lv, " (", list.length, ")"), list.map((s) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: s.id,
+        style: { position: "relative", backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 14, paddingTop: s.savedAt ? 26 : 14 }
+      },
+      s.savedAt && /* @__PURE__ */ React.createElement(
+        "p",
+        {
+          style: {
+            position: "absolute",
+            top: 8,
+            left: 10,
+            margin: 0,
+            fontSize: 10.5,
+            color: colors.inkSoft,
+            whiteSpace: "nowrap",
+            // چون این برچسب داخلِ صفحه‌ی RTL می‌شینه، بدونِ این‌جهت‌دهیِ
+            // صریح، الگوریتمِ Bidi ممکنه ترتیبِ تاریخ/ساعت رو برعکس
+            // نشون بده. با direction: ltr همیشه از چپ به راست —
+            // اول تاریخ، بعد ساعت — دقیقاً به همون ترتیبی که
+            // formatSavedDate می‌سازه، نمایش داده می‌شه.
+            direction: "ltr",
+            unicodeBidi: "isolate",
+            textAlign: "left"
+          }
+        },
+        "📅 ",
+        formatSavedDate(s.savedAt, calendarSystem)
+      ),
+      /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 700, fontSize: 13 } }, LANGUAGES.find((l) => l.code === s.storyLang)?.label, " · ", s.storyLevel, " ·", " ", CONTENT_TYPES.find((c) => c.key === s.contentType)?.label || "عمومی", " ·", " ", STORY_LENGTHS.find((l) => l.key === s.storyLength)?.label || "متوسط"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft } }, s.selectedWords.join("، "))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => openSavedStory(s),
+          style: { fontSize: 12, color: colors.teal, textDecoration: "underline" }
+        },
+        "باز کردن"
+      ), /* @__PURE__ */ React.createElement("button", { onClick: () => deleteSavedStory(s.id), "aria-label": "حذف" }, /* @__PURE__ */ React.createElement(X, { size: 16, color: colors.rose }))))
+    ))));
+  })()) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: { backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }
+    },
+    /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 700, marginBottom: 10 } }, "۱. زبان و سطح داستان"),
+    storyLangOptions.length > 1 ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft, marginBottom: 6 } }, "زبان داستان (از بین زبان‌های مقصدی که بالای صفحه انتخاب کردی)"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 mb-3" }, storyLangOptions.map((code) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: code,
+        onClick: () => setStoryLang(code),
+        style: {
+          padding: "6px 14px",
+          borderRadius: 20,
+          fontSize: 13,
+          border: `1px solid ${storyLang === code ? colors.gold : colors.cardBorder}`,
+          backgroundColor: storyLang === code ? colors.goldSoft : "white",
+          color: colors.ink
+        }
+      },
+      LANGUAGES.find((l) => l.code === code)?.label
+    )))) : /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft, marginBottom: 10 } }, "زبان داستان: ", storyLangLabel, " (طبق زبان مقصدی که بالای صفحه انتخاب کردی)"),
+    /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft, margin: "0 0 6px" } }, "سطح داستان"),
+    /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 mb-1" }, LEVELS.map((lv) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: lv,
+        onClick: () => setStoryLevel(lv),
+        style: {
+          padding: "4px 12px",
+          borderRadius: 20,
+          fontSize: 12,
+          border: `1px solid ${storyLevel === lv ? colors.teal : colors.cardBorder}`,
+          backgroundColor: storyLevel === lv ? colors.teal : "white",
+          color: storyLevel === lv ? "white" : colors.ink
+        }
+      },
+      lv
+    ))),
+    /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft, margin: "10px 0 6px" } }, "نوع محتوا"),
+    /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 mb-1" }, CONTENT_TYPES.map((c) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: c.key,
+        onClick: () => setContentType(c.key),
+        style: {
+          padding: "4px 12px",
+          borderRadius: 20,
+          fontSize: 12,
+          border: `1px solid ${contentType === c.key ? colors.rose : colors.cardBorder}`,
+          backgroundColor: contentType === c.key ? colors.rose : "white",
+          color: contentType === c.key ? "white" : colors.ink
+        }
+      },
+      c.label
+    ))),
+    /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft, margin: "10px 0 6px" } }, "طول داستان"),
+    /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 mb-1" }, STORY_LENGTHS.map((l) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: l.key,
+        onClick: () => setStoryLength(l.key),
+        style: {
+          padding: "4px 12px",
+          borderRadius: 20,
+          fontSize: 12,
+          border: `1px solid ${storyLength === l.key ? colors.gold : colors.cardBorder}`,
+          backgroundColor: storyLength === l.key ? colors.gold : "white",
+          color: storyLength === l.key ? "white" : colors.ink
+        }
+      },
+      l.label
+    ))),
+    /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 mt-3" }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, color: colors.inkSoft } }, "تعداد تکرار هر لغت"), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "range",
+        min: 1,
+        max: 15,
+        value: repeatCount,
+        onChange: (e) => setRepeatCount(Number(e.target.value)),
+        style: { flex: 1 }
+      }
+    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: 700 } }, repeatCount))
+  ), /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: { backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }
+    },
+    /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 700 } }, "۲. انتخاب لغت‌ها"), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: suggestForgottenWords,
+        style: { fontSize: 12, color: colors.teal, textDecoration: "underline" }
+      },
+      "پیشنهاد بر اساس فراموشی"
+    )),
+    /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mb-1" }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        value: customWord,
+        onChange: (e) => setCustomWord(e.target.value),
+        onKeyDown: (e) => e.key === "Enter" && !wordTranslating && addCustomWord(),
+        placeholder: `یه لغت بنویس (به هر زبونی) — به ${storyLangLabel} ترجمه و اضافه می‌شه...`,
+        dir: "auto",
+        disabled: wordTranslating,
+        style: {
+          flex: 1,
+          border: `1px solid ${colors.cardBorder}`,
+          borderRadius: 10,
+          padding: "8px 10px",
+          fontSize: 13,
+          outline: "none",
+          textAlign: "start",
+          opacity: wordTranslating ? 0.6 : 1
+        }
+      }
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: addCustomWord,
+        disabled: wordTranslating,
+        style: { backgroundColor: colors.ink, color: "white", borderRadius: 10, padding: "0 12px", opacity: wordTranslating ? 0.6 : 1 }
+      },
+      wordTranslating ? /* @__PURE__ */ React.createElement(Loader2, { size: 16, className: "spin" }) : /* @__PURE__ */ React.createElement(Plus, { size: 16 })
+    )),
+    translateNote && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: colors.inkSoft, marginBottom: 8 } }, translateNote),
+    /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        value: vocabQuery,
+        onChange: (e) => setVocabQuery(e.target.value),
+        placeholder: "یا از لغات، مکالمات روزمره، لغات و اخبار، اسلنگ، لغات ذخیره‌شده جستجو کن...",
+        style: {
+          width: "100%",
+          border: `1px solid ${colors.cardBorder}`,
+          borderRadius: 10,
+          padding: "8px 10px",
+          fontSize: 13,
+          outline: "none",
+          marginBottom: 10
+        }
+      }
+    ),
+    /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 mb-3", style: { maxHeight: 140, overflowY: "auto" } }, filteredVocab.map((v) => {
+      const w = v.t[storyLang] || v.t.en;
+      const active = selectedWords.includes(w);
+      return /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: v.id,
+          onClick: () => toggleWord(w),
+          style: {
+            padding: "5px 12px",
+            borderRadius: 20,
+            fontSize: 12,
+            border: `1px solid ${active ? colors.gold : colors.cardBorder}`,
+            backgroundColor: active ? colors.goldSoft : colors.paper
+          }
+        },
+        w
+      );
+    }), matchingSavedWords.map((e) => {
+      const active = selectedWords.includes(e.word);
+      return /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: `saved-${e.word}`,
+          onClick: () => toggleWord(e.word),
+          title: "از لغات ذخیره‌شده",
+          className: "flex items-center gap-1",
+          style: {
+            padding: "5px 12px",
+            borderRadius: 20,
+            fontSize: 12,
+            border: `1px solid ${active ? colors.gold : colors.teal}`,
+            backgroundColor: active ? colors.goldSoft : "white"
+          }
+        },
+        /* @__PURE__ */ React.createElement(Bookmark, { size: 11, color: colors.teal }),
+        e.word
+      );
+    }), otherTabMatches.filter((item) => {
+      const mapped = storyLang === "en" ? item.term : pickedTermTranslations[item.term];
+      return !mapped || !selectedWords.includes(mapped);
+    }).map((item) => {
+      const busy = translatingPick === item.term;
+      return /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: `other-${item.source}-${item.term}`,
+          onClick: () => pickForeignWord(item.term),
+          disabled: busy,
+          title: item.source,
+          className: "flex items-center gap-1",
+          style: {
+            padding: "5px 12px",
+            borderRadius: 20,
+            fontSize: 12,
+            border: `1px solid ${colors.cardBorder}`,
+            backgroundColor: colors.paper,
+            opacity: busy ? 0.6 : 1
+          }
+        },
+        busy && /* @__PURE__ */ React.createElement(Loader2, { size: 11, className: "spin" }),
+        item.term,
+        /* @__PURE__ */ React.createElement("span", { style: { fontSize: 9, color: colors.inkSoft } }, "(", item.source, ")")
+      );
+    })),
+    selectedWords.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2" }, selectedWords.map((w) => /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        key: w,
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          padding: "4px 10px",
+          borderRadius: 20,
+          fontSize: 12,
+          backgroundColor: colors.ink,
+          color: "white"
+        }
+      },
+      w,
+      /* @__PURE__ */ React.createElement("button", { onClick: () => toggleWord(w), "aria-label": "حذف" }, /* @__PURE__ */ React.createElement(X, { size: 12 }))
+    ))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setSelectedWords([]),
+        style: { fontSize: 11, color: colors.rose, textDecoration: "underline" }
+      },
+      "پاک کردن همه"
+    )))
+  ), translationLangOptions.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mb-3", style: { border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12, backgroundColor: colors.paper } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft } }, "داستان همزمان به چه زبان‌هایی ترجمه بشه؟ (می‌تونی چند تا انتخاب کنی)"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: selectAllTranslationLangs, style: { fontSize: 11, color: colors.teal, textDecoration: "underline" } }, "انتخاب همه"), /* @__PURE__ */ React.createElement("button", { onClick: clearAllTranslationLangs, style: { fontSize: 11, color: colors.rose, textDecoration: "underline" } }, "پاک کردن همه"))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2" }, translationLangOptions.map((code) => /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      key: code,
+      onClick: () => toggleTranslationLang(code),
+      style: {
+        padding: "3px 10px",
+        borderRadius: 20,
+        fontSize: 12,
+        border: `1px solid ${translationLangs.includes(code) ? colors.gold : colors.cardBorder}`,
+        backgroundColor: translationLangs.includes(code) ? colors.goldSoft : "white"
+      }
+    },
+    LANGUAGES.find((l) => l.code === code)?.label
+  )))), similarMatch && /* @__PURE__ */ React.createElement("div", { style: { backgroundColor: colors.goldSoft, border: `1px solid ${colors.gold}`, borderRadius: 12, padding: 14 } }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, fontWeight: 700, marginBottom: 4 } }, "یک داستانِ مشابه (شباهت حدود ", Math.round(similarMatch.score * 100), "٪) قبلاً ساخته شده"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft, marginBottom: 10 } }, "همون زبان، همون سطح و اکثر لغاتِ هدف رو داره. می‌تونی رایگان بخونیش، یا بازم با AI یه داستانِ تازه بسازی."), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => openCommunityStory(similarMatch),
+      style: { flex: 1, padding: "8px 10px", borderRadius: 10, fontSize: 12, fontWeight: 700, backgroundColor: colors.teal, color: "white" }
+    },
+    "📖 خواندن داستانِ مشابه (رایگان)"
+  ), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => generateStory({ force: true }),
+      disabled: generating,
+      style: { flex: 1, padding: "8px 10px", borderRadius: 10, fontSize: 12, fontWeight: 700, backgroundColor: "white", border: `1px solid ${colors.gold}`, color: colors.ink, opacity: generating ? 0.6 : 1 }
+    },
+    "✨ ساخت داستانِ جدید (AI)"
+  ))), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => generateStory(),
+      disabled: !selectedWords.length || generating || checkingSimilar,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        backgroundColor: colors.gold,
+        color: "white",
+        borderRadius: 14,
+        padding: "12px 16px",
+        fontWeight: 700,
+        opacity: !selectedWords.length || generating || checkingSimilar ? 0.6 : 1
+      }
+    },
+    /* @__PURE__ */ React.createElement(Sparkles, { size: 18 }),
+    checkingSimilar ? "در حال جستجوی داستانِ مشابه..." : generating ? "در حال ساخت داستان..." : "بساز داستان"
+  ), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement(
+    "input",
+    {
+      ref: pdfReadInputRef,
+      type: "file",
+      accept: "application/pdf",
+      onChange: handlePdfImportForReading,
+      style: { display: "none" }
+    }
+  ), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => pdfReadInputRef.current?.click(),
+      disabled: pdfReadBusy,
+      className: "flex items-center justify-center gap-2",
+      style: {
+        width: "100%",
+        border: `1px dashed ${colors.cardBorder}`,
+        borderRadius: 14,
+        padding: "10px 16px",
+        fontWeight: 700,
+        fontSize: 13,
+        color: colors.teal,
+        opacity: pdfReadBusy ? 0.6 : 1
+      }
+    },
+    pdfReadBusy ? /* @__PURE__ */ React.createElement(Loader2, { size: 16, className: "spin" }) : /* @__PURE__ */ React.createElement("span", null, "📖"),
+    pdfReadBusy ? "در حال خوندنِ PDF..." : "به‌جاش یه PDF برای خوانش وارد کن"
+  ), pdfReadError && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: colors.rose, marginTop: 6 } }, pdfReadError), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 10, color: colors.inkSoft, marginTop: 4 } }, "به‌جای ساختِ داستان با هوش‌مصنوعی، متنِ خودِ PDF رو با همین سیستمِ خوانش (ترجمه، هایلایت، صدا) نشون می‌ده — بدونِ نیاز به انتخابِ لغت. تا ", PDF_READ_MAX_PAGES, " صفحه پشتیبانی می‌شه؛ اگه متن خیلی زیاد باشه، فقط بخشِ اولش آماده‌ی خوانش می‌شه."), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "start" } }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => setShowLinkReading((v) => !v),
+      className: "flex items-center justify-center gap-2",
+      style: {
+        width: "100%",
+        border: `1px dashed ${colors.cardBorder}`,
+        borderRadius: 14,
+        padding: "10px 16px",
+        fontWeight: 700,
+        fontSize: 13,
+        color: colors.teal,
+        marginTop: 8
+      }
+    },
+    /* @__PURE__ */ React.createElement("span", null, "🔗"),
+    showLinkReading ? "بستنِ وارد کردنِ لینک" : "یا لینکِ یه صفحه رو وارد کن"
+  ), showLinkReading && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(
+    "input",
+    {
+      type: "text",
+      value: linkReadUrl,
+      onChange: (e) => setLinkReadUrl(e.target.value),
+      placeholder: "https://example.com/article",
+      dir: "ltr",
+      style: {
+        width: "100%",
+        border: `1px solid ${colors.cardBorder}`,
+        borderRadius: 10,
+        padding: "8px 10px",
+        fontSize: 13,
+        outline: "none",
+        textAlign: "left"
+      }
+    }
+  ), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 10, color: colors.inkSoft, marginTop: 4 } }, "فقط متنِ اصلیِ صفحه (بدنه‌ی نوشته) استخراج می‌شه — منو، هدر، فوتر و تبلیغ‌ها نادیده گرفته می‌شن."), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: handleLinkImportForReading,
+      disabled: !linkReadUrl.trim() || linkReadBusy,
+      className: "flex items-center justify-center gap-2",
+      style: {
+        marginTop: 6,
+        width: "100%",
+        backgroundColor: colors.teal,
+        color: "white",
+        borderRadius: 10,
+        padding: "8px 10px",
+        fontSize: 13,
+        fontWeight: 700,
+        opacity: !linkReadUrl.trim() || linkReadBusy ? 0.5 : 1
+      }
+    },
+    linkReadBusy ? /* @__PURE__ */ React.createElement(Loader2, { size: 16, className: "spin" }) : /* @__PURE__ */ React.createElement("span", null, "🔗"),
+    linkReadBusy ? "در حال خوندنِ صفحه..." : "دریافتِ متن از لینک"
+  ), linkReadError && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: colors.rose, marginTop: 6 } }, linkReadError))), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => setShowPasteReading((v) => !v),
+      className: "flex items-center justify-center gap-2",
+      style: {
+        width: "100%",
+        border: `1px dashed ${colors.cardBorder}`,
+        borderRadius: 14,
+        padding: "10px 16px",
+        fontWeight: 700,
+        fontSize: 13,
+        color: colors.teal,
+        marginTop: 8
+      }
+    },
+    /* @__PURE__ */ React.createElement("span", null, "📋"),
+    showPasteReading ? "بستنِ پیست متن" : "یا یه متن/داستان رو اینجا پیست کن"
+  ), showPasteReading && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, textAlign: "start" } }, /* @__PURE__ */ React.createElement(
+    "textarea",
+    {
+      value: pastedReadingText,
+      onChange: (e) => setPastedReadingText(e.target.value),
+      placeholder: "متن یا داستانی که می‌خوای بخونی رو اینجا پیست کن...",
+      dir: "auto",
+      rows: 6,
+      style: {
+        width: "100%",
+        border: `1px solid ${colors.cardBorder}`,
+        borderRadius: 10,
+        padding: "8px 10px",
+        fontSize: 13,
+        outline: "none"
+      }
+    }
+  ), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: handlePastedTextForReading,
+      disabled: !pastedReadingText.trim(),
+      style: {
+        marginTop: 6,
+        width: "100%",
+        backgroundColor: colors.teal,
+        color: "white",
+        borderRadius: 10,
+        padding: "8px 10px",
+        fontSize: 13,
+        fontWeight: 700,
+        opacity: !pastedReadingText.trim() ? 0.5 : 1
+      }
+    },
+    "📖 آماده‌ی خوانش کن"
+  ))), error && /* @__PURE__ */ React.createElement("div", { style: { backgroundColor: "#F8E8E8", border: `1px solid ${colors.rose}`, borderRadius: 10, padding: 12 } }, /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontFa, fontSize: 13, color: colors.rose, marginBottom: 8 } }, error), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => generateStory(),
+      disabled: generating,
+      style: {
+        fontFamily: fontFa,
+        fontSize: 12,
+        fontWeight: 700,
+        color: "white",
+        backgroundColor: colors.rose,
+        borderRadius: 8,
+        padding: "5px 14px",
+        opacity: generating ? 0.6 : 1
+      }
+    },
+    "تلاش دوباره"
+  )), repeatNotice && !error && /* @__PURE__ */ React.createElement("div", { style: { backgroundColor: "#FFF6E0", border: `1px solid ${colors.gold}`, borderRadius: 10, padding: 12 } }, /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontFa, fontSize: 12, color: colors.ink } }, repeatNotice)), paragraphs.length > 0 && /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: { backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }
+    },
+    /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 700 } }, "داستان"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 flex-wrap", style: { rowGap: 8 } }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: saveCurrentStory,
+        title: justSaved ? "ذخیره شد" : "ذخیره داستان",
+        "aria-label": justSaved ? "ذخیره شد" : "ذخیره داستان",
+        style: {
+          display: "flex",
+          alignItems: "center",
+          color: justSaved ? colors.teal : colors.gold,
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: 2,
+          flexShrink: 0
+        }
+      },
+      justSaved ? /* @__PURE__ */ React.createElement(Check, { size: 16 }) : /* @__PURE__ */ React.createElement(Bookmark, { size: 16 })
+    ))),
+    translationLangOptions.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mb-3" }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft, marginBottom: 6 } }, "نمایش ترجمه:"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2" }, [
+      { key: "sentence", label: "جمله به جمله" },
+      { key: "paragraph", label: "پاراگراف به پاراگراف" },
+      { key: "none", label: "هیچکدام" }
+    ].map((opt) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: opt.key,
+        onClick: () => setGranularity(opt.key),
+        style: {
+          padding: "3px 10px",
+          borderRadius: 20,
+          fontSize: 12,
+          border: `1px solid ${granularity === opt.key ? colors.teal : colors.cardBorder}`,
+          backgroundColor: granularity === opt.key ? colors.teal : "white",
+          color: granularity === opt.key ? "white" : colors.ink
+        }
+      },
+      opt.label
+    )))),
+    /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-5" }, paragraphs.map((p, pi) => {
+      const paragraphText = (p.sentences || []).map((s) => s?.text || "").join(" ");
+      const showTranslations = granularity !== "none" && translationLangs.length > 0;
+      return /* @__PURE__ */ React.createElement("div", { key: pi, style: { borderBottom: pi < paragraphs.length - 1 ? `1px dashed ${colors.cardBorder}` : "none", paddingBottom: 14 } }, granularity === "sentence" ? /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-3" }, (p.sentences || []).map((s, si) => {
+        const isSentenceActive = highlightSentence && highlightSentence.pi === pi && highlightSentence.si === si || activeStorySentence && activeStorySentence.pi === pi && activeStorySentence.si === si;
+        return /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            key: si,
+            ref: (el) => sentenceElsRef.current[`${pi}-${si}`] = el,
+            style: { position: "relative", paddingInlineStart: 10 }
+          },
+          /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-2", dir: dirFor(storyLang) }, /* @__PURE__ */ React.createElement(
+            SpeakButton,
+            {
+              text: s.text,
+              code: storyLang,
+              color: colors.inkSoft,
+              edge: dirFor(storyLang) === "ltr" ? "end" : void 0,
+              fullText: fullStoryText,
+              startOffset: sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0
+            }
+          ), /* @__PURE__ */ React.createElement(
+            "p",
+            {
+              style: {
+                flex: 1,
+                minWidth: 0,
+                fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin,
+                fontSize: 15,
+                lineHeight: 1.8,
+                textAlign: "justify",
+                fontWeight: 900,
+                // برخی فونت‌های سریف بارگذاری‌شده (مثل Lora) وزن ۸۰۰/۹۰۰ واقعی
+                // ندارن و مرورگر بی‌سروصدا همون رگولار رو نشون می‌ده؛ این
+                // text-stroke تضمین می‌کنه متن اصلیِ داستان همیشه پررنگ دیده
+                // بشه، صرف‌نظر از اینکه فونت خودش وزن سنگین داره یا نه.
+                WebkitTextStroke: `0.4px ${mainTextColor}`
+              }
+            },
+            /* @__PURE__ */ React.createElement(
+              "span",
+              {
+                style: {
+                  backgroundColor: isSentenceActive ? highlightColor || READ_MARKER_COLOR : "transparent",
+                  borderRadius: 5,
+                  padding: isSentenceActive ? "2px 4px" : "2px 0",
+                  WebkitBoxDecorationBreak: "clone",
+                  boxDecorationBreak: "clone",
+                  transition: "background-color 0.35s ease"
+                }
+              },
+              /* @__PURE__ */ React.createElement(
+                ClickableSentence,
+                {
+                  text: s.text,
+                  langCode: storyLang,
+                  nativeLang,
+                  nativeLabel,
+                  aiSettings,
+                  color: mainTextColor,
+                  fontWeight: 900,
+                  storyBaseOffset: sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0,
+                  onSpeakOffset: (localEnd) => reportStoryWordSpoken(sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0, localEnd),
+                  originExtra: { storyId: currentStoryId, pi, si }
+                }
+              )
+            )
+          )),
+          showTranslations && translationLangs.map((code) => {
+            const translated = s.t?.[code];
+            const isTranslationSentenceActive = activeTranslation && activeTranslation.code === code && activeTranslation.pi === pi && activeTranslation.si === si;
+            const fullTranslated = fullTranslatedTextByLang[code];
+            const translatedStartOffset = translatedSentenceOffsetMapByLang[code]?.[`${pi}-${si}`]?.start ?? 0;
+            return /* @__PURE__ */ React.createElement(
+              "div",
+              {
+                key: code,
+                className: "flex items-start gap-2",
+                dir: dirFor(code),
+                style: {
+                  marginTop: 3
+                }
+              },
+              translated && /* @__PURE__ */ React.createElement(
+                SpeakButton,
+                {
+                  text: translated,
+                  code,
+                  color: translationColor,
+                  edge: dirFor(code) === "ltr" ? "end" : void 0,
+                  fullText: fullTranslated || translated,
+                  startOffset: translatedStartOffset
+                }
+              ),
+              /* @__PURE__ */ React.createElement(
+                "p",
+                {
+                  style: {
+                    flex: 1,
+                    minWidth: 0,
+                    fontSize: 13.5,
+                    color: translationColor,
+                    fontWeight: 900,
+                    textAlign: "justify",
+                    fontFamily: code === "fa" ? fontFa : fontLatin
+                  }
+                },
+                /* @__PURE__ */ React.createElement("span", { style: { fontSize: 10, color: colors.gold } }, "[", code, "]"),
+                " ",
+                translated ? /* @__PURE__ */ React.createElement(
+                  "span",
+                  {
+                    style: {
+                      backgroundColor: isTranslationSentenceActive ? highlightColor || READ_MARKER_COLOR : "transparent",
+                      borderRadius: 5,
+                      padding: isTranslationSentenceActive ? "2px 4px" : "2px 0",
+                      WebkitBoxDecorationBreak: "clone",
+                      boxDecorationBreak: "clone",
+                      transition: "background-color 0.35s ease"
+                    }
+                  },
+                  /* @__PURE__ */ React.createElement(
+                    ClickableSentence,
+                    {
+                      text: translated,
+                      langCode: code,
+                      nativeLang,
+                      nativeLabel,
+                      aiSettings,
+                      color: translationColor,
+                      fontFamily: code === "fa" ? fontFa : fontLatin,
+                      alignSourceText: s.text,
+                      alignSourceLang: storyLang,
+                      storyBaseOffset: translatedStartOffset,
+                      originExtra: { storyId: currentStoryId, pi, si }
+                    }
+                  )
+                ) : /* @__PURE__ */ React.createElement("span", { style: { color: colors.inkSoft, opacity: 0.7 } }, "(در حال ترجمه...)")
+              )
+            );
+          })
+        );
+      })) : /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          ref: (el) => paragraphElsRef.current[pi] = el,
+          style: { position: "relative", paddingInlineStart: 10 }
+        },
+        (() => {
+          const isParaActive = highlightSentence && highlightSentence.pi === pi || activeStorySentence && activeStorySentence.pi === pi;
+          return /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-2", dir: dirFor(storyLang) }, /* @__PURE__ */ React.createElement(
+            SpeakButton,
+            {
+              text: paragraphText,
+              code: storyLang,
+              color: colors.inkSoft,
+              edge: dirFor(storyLang) === "ltr" ? "end" : void 0,
+              fullText: fullStoryText,
+              startOffset: paragraphBaseOffsetMap[pi] ?? 0
+            }
+          ), /* @__PURE__ */ React.createElement(
+            "p",
+            {
+              style: {
+                flex: 1,
+                minWidth: 0,
+                fontFamily: RTL_LANGS.includes(storyLang) ? fontFa : fontLatin,
+                fontSize: 15,
+                lineHeight: 1.8,
+                textAlign: "justify",
+                fontWeight: 900,
+                WebkitTextStroke: `0.4px ${mainTextColor}`
+              }
+            },
+            /* @__PURE__ */ React.createElement(
+              "span",
+              {
+                style: {
+                  backgroundColor: isParaActive ? highlightColor || READ_MARKER_COLOR : "transparent",
+                  borderRadius: 5,
+                  padding: isParaActive ? "2px 4px" : "2px 0",
+                  WebkitBoxDecorationBreak: "clone",
+                  boxDecorationBreak: "clone",
+                  transition: "background-color 0.35s ease"
+                }
+              },
+              /* @__PURE__ */ React.createElement(
+                ClickableSentence,
+                {
+                  text: paragraphText,
+                  langCode: storyLang,
+                  nativeLang,
+                  nativeLabel,
+                  aiSettings,
+                  color: mainTextColor,
+                  fontWeight: 900,
+                  storyBaseOffset: paragraphBaseOffsetMap[pi] ?? 0,
+                  onSpeakOffset: (localEnd) => reportStoryWordSpoken(paragraphBaseOffsetMap[pi] ?? 0, localEnd),
+                  originExtra: { storyId: currentStoryId, pi, si: null }
+                }
+              )
+            )
+          ));
+        })(),
+        showTranslations && translationLangs.map((code) => {
+          const sentencesList = p.sentences || [];
+          const translated = sentencesList.length && sentencesList.every((s) => s?.t?.[code]) ? sentencesList.map((s) => s.t[code]).join(" ") : null;
+          const isTranslationParaActive = activeTranslation && activeTranslation.code === code && activeTranslation.pi === pi;
+          const fullTranslated = fullTranslatedTextByLang[code];
+          const translatedStartOffset = translatedParagraphBaseOffsetMapByLang[code]?.[pi] ?? 0;
+          return /* @__PURE__ */ React.createElement(
+            "div",
+            {
+              key: code,
+              className: "flex items-start gap-2",
+              dir: dirFor(code),
+              style: { marginTop: 4 }
+            },
+            translated && /* @__PURE__ */ React.createElement(
+              SpeakButton,
+              {
+                text: translated,
+                code,
+                color: translationColor,
+                edge: dirFor(code) === "ltr" ? "end" : void 0,
+                fullText: fullTranslated || translated,
+                startOffset: translatedStartOffset
+              }
+            ),
+            /* @__PURE__ */ React.createElement(
+              "p",
+              {
+                style: {
+                  flex: 1,
+                  minWidth: 0,
+                  fontSize: 13.5,
+                  color: translationColor,
+                  fontWeight: 900,
+                  textAlign: "justify",
+                  fontFamily: code === "fa" ? fontFa : fontLatin
+                }
+              },
+              /* @__PURE__ */ React.createElement("span", { style: { fontSize: 10, color: colors.gold } }, "[", code, "]"),
+              " ",
+              translated ? /* @__PURE__ */ React.createElement(
+                "span",
+                {
+                  style: {
+                    backgroundColor: isTranslationParaActive ? highlightColor || READ_MARKER_COLOR : "transparent",
+                    borderRadius: 5,
+                    padding: isTranslationParaActive ? "2px 4px" : "2px 0",
+                    WebkitBoxDecorationBreak: "clone",
+                    boxDecorationBreak: "clone",
+                    transition: "background-color 0.35s ease"
+                  }
+                },
+                /* @__PURE__ */ React.createElement(
+                  ClickableSentence,
+                  {
+                    text: translated,
+                    langCode: code,
+                    nativeLang,
+                    nativeLabel,
+                    aiSettings,
+                    color: translationColor,
+                    fontFamily: code === "fa" ? fontFa : fontLatin,
+                    alignSourceText: paragraphText,
+                    alignSourceLang: storyLang,
+                    storyBaseOffset: translatedStartOffset,
+                    originExtra: { storyId: currentStoryId, pi, si: null }
+                  }
+                )
+              ) : /* @__PURE__ */ React.createElement("span", { style: { color: colors.inkSoft, opacity: 0.7 } }, "(در حال ترجمه...)")
+            )
+          );
+        })
+      ));
+    })),
+    /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 mt-4", style: { borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 10 } }, selectedWords.map((w) => /* @__PURE__ */ React.createElement("span", { key: w, style: { fontSize: 11, color: colors.inkSoft, backgroundColor: colors.paper, borderRadius: 10, padding: "3px 8px" } }, w, ": ", countOccurrences(fullStoryText, w), " بار")))
+  ), questions.length > 0 && /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: { backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }
+    },
+    /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 700, marginBottom: 12 } }, "تمرین درک مطلب"),
+    /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, questions.map((q, i) => /* @__PURE__ */ React.createElement("div", { key: i }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, marginBottom: 8 } }, i + 1, ". ", q.question, " ", /* @__PURE__ */ React.createElement("span", { style: { color: colors.teal, fontSize: 12 } }, "(", q.word, ")")), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-2" }, q.options.map((opt, oi) => {
+      const isChosen = answers[i] === oi;
+      const isCorrect = q.answerIndex === oi;
+      let bg = "white";
+      if (submitted && isCorrect) bg = "#DDEEE4";
+      else if (submitted && isChosen && !isCorrect) bg = "#F3DADA";
+      else if (isChosen) bg = colors.paper;
+      return /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: oi,
+          disabled: submitted,
+          onClick: () => setAnswers((prev) => ({ ...prev, [i]: oi })),
+          style: {
+            textAlign: "right",
+            padding: "8px 12px",
+            borderRadius: 10,
+            border: `1px solid ${colors.cardBorder}`,
+            backgroundColor: bg,
+            fontSize: 13
+          }
+        },
+        opt
+      );
+    }))))),
+    !submitted ? /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: submitQuiz,
+        disabled: Object.keys(answers).length < questions.length,
+        style: {
+          marginTop: 16,
+          backgroundColor: colors.teal,
+          color: "white",
+          borderRadius: 12,
+          padding: "10px 16px",
+          fontWeight: 700,
+          opacity: Object.keys(answers).length < questions.length ? 0.6 : 1
+        }
+      },
+      "بررسی جواب‌ها"
+    ) : /* @__PURE__ */ React.createElement("p", { style: { marginTop: 16, fontSize: 14, fontWeight: 700 } }, questions.filter((q, i) => answers[i] === q.answerIndex).length, " از ", questions.length, " درست بود. لغاتی که اشتباه زدی خودکار برای داستان بعدی «پیشنهاد بر اساس فراموشی» می‌شن.")
+  )));
+}
+function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabel, targetOrder, dictHistory, setDictHistory, onGoToDictionary, uiLang }) {
+  const [words, setWords] = useState([]);
+  const [picked, setPicked] = useState({});
+  const [query, setQuery] = useState("");
+  const [actionMsg, setActionMsg] = useState("");
+  const pressStateRef = useRef({ key: null, timer: null, moved: false, startX: 0, startY: 0, fired: false });
+  const clearPress = () => {
+    if (pressStateRef.current.timer) clearTimeout(pressStateRef.current.timer);
+    pressStateRef.current = { ...pressStateRef.current, key: null, timer: null, moved: false, startX: 0, startY: 0 };
+  };
+  const jumpToOrigin = (entry) => {
+    if (!onJumpToOrigin) return;
+    const ok = onJumpToOrigin(entry);
+    setActionMsg(
+      ok ? trf("jumpedToOriginMsg", uiLang, { word: entry.word }) : tr("jumpToOriginUnknownMsg", uiLang)
+    );
+  };
+  const beginPress = (key, clientX, clientY, entry, target) => {
+    if (target && target.closest && target.closest("[data-jump-exclude]")) return;
+    clearPress();
+    pressStateRef.current = {
+      key,
+      startX: clientX,
+      startY: clientY,
+      moved: false,
+      fired: false,
+      timer: setTimeout(() => {
+        if (pressStateRef.current.key === key && !pressStateRef.current.moved) {
+          pressStateRef.current.fired = true;
+          jumpToOrigin(entry);
+        }
+      }, 550)
+    };
+  };
+  const handleCardClickCapture = (ev) => {
+    if (pressStateRef.current.fired) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      pressStateRef.current.fired = false;
+    }
+  };
+  const movePress = (clientX, clientY) => {
+    const st = pressStateRef.current;
+    if (!st.key) return;
+    if (Math.abs(clientX - st.startX) > 10 || Math.abs(clientY - st.startY) > 10) {
+      st.moved = true;
+      if (st.timer) clearTimeout(st.timer);
+    }
+  };
+  useEffect(() => {
+    const refresh = () => setWords(loadSavedStoryWords());
+    refresh();
+    window.addEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, refresh);
+  }, []);
+  const relevantLangs = Array.from(/* @__PURE__ */ new Set([nativeLang, ...targetOrder || []])).filter(Boolean);
+  useEffect(() => {
+    if (!relevantLangs.length) return;
+    words.forEach((e) => {
+      relevantLangs.forEach((toLang) => {
+        if (toLang === e.langCode) return;
+        if (e.translations && e.translations[toLang]) return;
+        const fetchKey = `${e.langCode}:${normalizeWord(e.word)}:${toLang}`;
+        if (crossTranslateInFlight.has(fetchKey)) return;
+        crossTranslateInFlight.add(fetchKey);
+        translateFree(e.word, toLang, e.langCode).then((result) => {
+          if (result && normalizeWord(result) !== normalizeWord(e.word)) {
+            updateSavedWordTranslation(e.word, e.langCode, toLang, result);
+          }
+        }).catch(() => {
+        }).finally(() => crossTranslateInFlight.delete(fetchKey));
+      });
+    });
+  }, [words, relevantLangs.join(",")]);
+  const togglePick = (code, word) => {
+    setPicked((prev) => {
+      const set = new Set(prev[code] || []);
+      if (set.has(word)) set.delete(word);
+      else set.add(word);
+      return { ...prev, [code]: set };
+    });
+  };
+  const normalizedQuery = query.trim().toLowerCase();
+  const matchesQuery = (e) => {
+    if (!normalizedQuery) return true;
+    if ((e.word || "").toLowerCase().includes(normalizedQuery)) return true;
+    if (e.translations) {
+      return Object.values(e.translations).some((t) => (t || "").toLowerCase().includes(normalizedQuery));
+    }
+    return false;
+  };
+  const filteredWords = words.filter(matchesQuery);
+  const byLang = {};
+  filteredWords.forEach((w) => {
+    if (!byLang[w.langCode]) byLang[w.langCode] = [];
+    byLang[w.langCode].push(w);
+  });
+  const langCodes = Object.keys(byLang);
+  const totalPicked = Object.values(picked).reduce((sum, set) => sum + (set ? set.size : 0), 0);
+  const allVisibleSelected = filteredWords.length > 0 && filteredWords.every((e) => (picked[e.langCode] || /* @__PURE__ */ new Set()).has(e.word));
+  const toggleSelectAll = () => {
+    setPicked((prev) => {
+      const next = { ...prev };
+      filteredWords.forEach((e) => {
+        const set = new Set(next[e.langCode] || []);
+        if (allVisibleSelected) set.delete(e.word);
+        else set.add(e.word);
+        next[e.langCode] = set;
+      });
+      return next;
+    });
+  };
+  const deleteSelected = () => {
+    if (!totalPicked) return;
+    if (!window.confirm(trf("confirmDeleteSelectedWords", uiLang, { n: totalPicked }))) return;
+    Object.entries(picked).forEach(([code, set]) => {
+      (set || /* @__PURE__ */ new Set()).forEach((word) => removeSavedStoryWord(word, code));
+    });
+    setPicked({});
+    setActionMsg(trf("wordsDeletedMsg", uiLang, { n: totalPicked }));
+  };
+  const clearAll = () => {
+    if (!filteredWords.length) return;
+    const msg = normalizedQuery ? trf("confirmClearFiltered", uiLang, { n: filteredWords.length }) : trf("confirmClearAllSaved", uiLang, { n: filteredWords.length });
+    if (!window.confirm(msg)) return;
+    filteredWords.forEach((e) => removeSavedStoryWord(e.word, e.langCode));
+    setPicked({});
+    setActionMsg(trf("wordsClearedMsg", uiLang, { n: filteredWords.length }));
+  };
+  const copySelectedToDictionary = () => {
+    if (!totalPicked || !setDictHistory) return;
+    const toCopy = [];
+    Object.entries(picked).forEach(([code, set]) => {
+      (set || /* @__PURE__ */ new Set()).forEach((word) => {
+        const entry = words.find((w) => w.langCode === code && w.word === word);
+        if (entry) toCopy.push(entry);
+      });
+    });
+    if (!toCopy.length) return;
+    const existingKeys = new Set((dictHistory || []).map((h) => (h.word || "").toLowerCase()));
+    const additions = [];
+    toCopy.forEach((e) => {
+      const key = (e.word || "").toLowerCase();
+      if (!key || existingKeys.has(key)) return;
+      existingKeys.add(key);
+      additions.push({
+        word: e.word,
+        detectedLang: e.langCode,
+        pos: "",
+        ipa: "",
+        meaningFa: e.langCode !== nativeLang ? e.translations && e.translations[nativeLang] || "" : "",
+        translations: { ...e.translations || {} },
+        examples: [],
+        lookedUpAt: Date.now()
+      });
+    });
+    if (additions.length) {
+      setDictHistory((prev) => [...additions, ...prev].slice(0, 50));
+    }
+    const skipped = toCopy.length - additions.length;
+    setActionMsg(
+      additions.length && skipped ? trf("addedToDictBoth", uiLang, { added: additions.length, skipped }) : additions.length ? trf("addedToDictOnly", uiLang, { added: additions.length }) : tr("allAlreadyInDict", uiLang)
+    );
+  };
+  useEffect(() => {
+    if (!actionMsg) return;
+    const t = setTimeout(() => setActionMsg(""), 4e3);
+    return () => clearTimeout(t);
+  }, [actionMsg]);
+  const toolbarButtonStyle = {
+    fontSize: 12,
+    padding: "6px 12px",
+    borderRadius: 20,
+    border: `1px solid ${colors.cardBorder}`,
+    backgroundColor: "white",
+    whiteSpace: "nowrap"
+  };
+  return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontWeight: 800, fontSize: 18, color: colors.ink, marginBottom: 4 } }, tr("savedWordsTitle", uiLang)), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: colors.inkSoft, lineHeight: 1.7 } }, tr("savedWordsHint", uiLang))), words.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-2" }, /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      className: "flex items-center gap-2 px-3",
+      style: { backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 20, height: 40 }
+    },
+    /* @__PURE__ */ React.createElement(Search, { size: 15, color: colors.inkSoft }),
+    /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        value: query,
+        onChange: (e) => setQuery(e.target.value),
+        placeholder: tr("searchSavedWords", uiLang),
+        dir: "auto",
+        style: { flex: 1, fontFamily: uiLang === "en" ? fontLatin : fontFa, border: "none", outline: "none", fontSize: 13, backgroundColor: "transparent" }
+      }
+    ),
+    query && /* @__PURE__ */ React.createElement("button", { onClick: () => setQuery(""), "aria-label": tr("clearSearchAria", uiLang), style: { display: "flex" } }, /* @__PURE__ */ React.createElement(X, { size: 15, color: colors.inkSoft }))
+  ), /* @__PURE__ */ React.createElement("div", { className: "flex items-center flex-wrap gap-2" }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: toggleSelectAll,
+      disabled: filteredWords.length === 0,
+      className: "flex items-center gap-1",
+      style: { ...toolbarButtonStyle, color: colors.ink, opacity: filteredWords.length ? 1 : 0.5 }
+    },
+    /* @__PURE__ */ React.createElement(CheckSquare, { size: 13 }),
+    allVisibleSelected ? tr("deselectAll", uiLang) : tr("selectAll", uiLang)
+  ), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: clearAll,
+      disabled: filteredWords.length === 0,
+      className: "flex items-center gap-1",
+      style: { ...toolbarButtonStyle, color: colors.rose, opacity: filteredWords.length ? 1 : 0.5 }
+    },
+    /* @__PURE__ */ React.createElement(Trash2, { size: 13 }),
+    tr("clearAllWords", uiLang)
+  ), totalPicked > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("button", { onClick: deleteSelected, className: "flex items-center gap-1", style: { ...toolbarButtonStyle, color: colors.rose } }, /* @__PURE__ */ React.createElement(X, { size: 13 }), trf("deleteNSelected", uiLang, { n: totalPicked })), /* @__PURE__ */ React.createElement("button", { onClick: copySelectedToDictionary, className: "flex items-center gap-1", style: { ...toolbarButtonStyle, color: colors.teal } }, /* @__PURE__ */ React.createElement(Copy, { size: 13 }), tr("copyToDictionary", uiLang)))), actionMsg && /* @__PURE__ */ React.createElement("p", { className: "flex items-center gap-2", style: { fontSize: 12, color: colors.teal } }, actionMsg, onGoToDictionary && /دیکشنری|dictionary/i.test(actionMsg) && /* @__PURE__ */ React.createElement("button", { onClick: onGoToDictionary, style: { textDecoration: "underline", color: colors.teal } }, tr("viewInDictionary", uiLang)))), langCodes.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: colors.inkSoft } }, words.length === 0 ? tr("noSavedWordsYet", uiLang) : tr("noSavedWordsForSearch", uiLang)) : langCodes.map((code) => {
+    const label = uiLang === "en" ? englishLangName(code) : LANGUAGES.find((l) => l.code === code)?.label || code;
+    const pickedSet = picked[code] || /* @__PURE__ */ new Set();
+    return /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: code,
+        style: { backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 700 } }, label, " (", byLang[code].length, ")"), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => onJumpToStory(code, Array.from(pickedSet)),
+          disabled: pickedSet.size === 0,
+          className: "flex items-center gap-1",
+          style: {
+            fontSize: 12,
+            color: pickedSet.size ? colors.teal : colors.inkSoft,
+            textDecoration: "underline",
+            opacity: pickedSet.size ? 1 : 0.5
+          }
+        },
+        /* @__PURE__ */ React.createElement(Sparkles, { size: 13 }),
+        pickedSet.size ? trf("addNWordsToStory", uiLang, { n: pickedSet.size }) : tr("addToStoryBuilder", uiLang)
+      )),
+      /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2" }, byLang[code].map((e) => {
+        const isPicked = pickedSet.has(e.word);
+        const otherLangs = relevantLangs.filter((l) => l !== code);
+        const level = lookupSavedWordLevel(e.word, code);
+        const pressKey = `${code}:${e.word}`;
+        return /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            key: e.word,
+            title: tr("longPressToJump", uiLang),
+            onMouseDown: (ev) => beginPress(pressKey, ev.clientX, ev.clientY, e, ev.target),
+            onMouseMove: (ev) => movePress(ev.clientX, ev.clientY),
+            onMouseUp: clearPress,
+            onMouseLeave: clearPress,
+            onTouchStart: (ev) => {
+              const t = ev.touches[0];
+              beginPress(pressKey, t.clientX, t.clientY, e, ev.target);
+            },
+            onTouchMove: (ev) => {
+              const t = ev.touches[0];
+              movePress(t.clientX, t.clientY);
+            },
+            onTouchEnd: clearPress,
+            onTouchCancel: clearPress,
+            onContextMenu: (ev) => ev.preventDefault(),
+            onClickCapture: handleCardClickCapture,
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+              minWidth: 110,
+              maxWidth: 210,
+              borderRadius: 14,
+              border: `1px solid ${isPicked ? colors.gold : colors.cardBorder}`,
+              backgroundColor: isPicked ? colors.goldSoft : colors.paper,
+              padding: "7px 10px",
+              touchAction: "pan-y",
+              WebkitUserSelect: "none",
+              userSelect: "none",
+              WebkitTouchCallout: "none"
+            }
+          },
+          /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-2", style: { direction: "ltr" } }, /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: () => togglePick(code, e.word),
+              dir: "auto",
+              style: {
+                fontWeight: 700,
+                fontSize: 13,
+                color: colors.ink,
+                textAlign: "start",
+                overflowWrap: "break-word"
+              }
+            },
+            e.word
+          ), /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-1", style: { flexShrink: 0 }, "data-jump-exclude": "1" }, /* @__PURE__ */ React.createElement(SpeakButton, { text: e.word, code, color: colors.gold }), /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: () => removeSavedStoryWord(e.word, code),
+              style: { color: colors.inkSoft, display: "flex" },
+              title: tr("deletePermanently", uiLang)
+            },
+            /* @__PURE__ */ React.createElement(X, { size: 12 })
+          ))),
+          level && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(LevelBadge, { level })),
+          otherLangs.map((toLang) => {
+            const translation = e.translations && e.translations[toLang] || "";
+            const toLabel = uiLang === "en" ? englishLangName(toLang) : LANGUAGES.find((l) => l.code === toLang)?.label || toLang;
+            return /* @__PURE__ */ React.createElement("div", { key: toLang, className: "flex items-center justify-between gap-2", style: { direction: "ltr" } }, /* @__PURE__ */ React.createElement(
+              "div",
+              {
+                dir: dirFor(toLang),
+                title: toLabel,
+                style: {
+                  fontSize: 11,
+                  color: colors.inkSoft,
+                  lineHeight: 1.6,
+                  fontFamily: toLang === "fa" ? fontFa : fontLatin,
+                  overflowWrap: "break-word",
+                  flex: 1
+                }
+              },
+              translation || "…"
+            ), translation && /* @__PURE__ */ React.createElement(SpeakButton, { text: translation, code: toLang, color: colors.teal }));
+          })
+        );
+      }))
+    );
+  }));
+}
+function GrammarPanel({
+  nativeLang,
+  nativeLabel,
+  targetOrder,
+  aiSettings,
+  jumpTo,
+  playerBarHeight = 0,
+  practiceOpacity = 100,
+  setPracticeOpacity,
+  onPracticePanelHeightChange
+}) {
+  const [notes, setNotes] = useState([]);
+  const [expandedNote, setExpandedNote] = useState(null);
+  const [pending, setPending] = useState(null);
+  const [noteSelectMode, setNoteSelectMode] = useState(false);
+  const [selectedNoteIds, setSelectedNoteIds] = useState(() => /* @__PURE__ */ new Set());
+  const grammarLocale = TTS_LOCALE[nativeLang] || "en-US";
+  const formatNoteDateKey = useCallback(
+    (iso) => {
+      const d = new Date(iso);
+      if (isNaN(d)) return nativeLang === "fa" ? "بدون تاریخ" : "No date";
+      return d.toLocaleDateString(grammarLocale, { weekday: "short", year: "numeric", month: "short", day: "numeric" });
+    },
+    [grammarLocale, nativeLang]
+  );
+  const formatNoteTime = useCallback(
+    (iso) => {
+      const d = new Date(iso);
+      if (isNaN(d)) return "";
+      return d.toLocaleTimeString(grammarLocale, { hour: "2-digit", minute: "2-digit" });
+    },
+    [grammarLocale]
+  );
+  const noteGroups = useMemo(() => {
+    const map = /* @__PURE__ */ new Map();
+    for (const n of notes) {
+      const key = formatNoteDateKey(n.savedAt);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(n);
+    }
+    return Array.from(map.entries()).map(([label, items]) => ({ label, items }));
+  }, [notes, formatNoteDateKey]);
+  function toggleNoteSelected(id) {
+    setSelectedNoteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleGroupSelected(items) {
+    setSelectedNoteIds((prev) => {
+      const next = new Set(prev);
+      const allSelected = items.every((n) => next.has(n.id));
+      items.forEach((n) => allSelected ? next.delete(n.id) : next.add(n.id));
+      return next;
+    });
+  }
+  function selectAllNotes() {
+    setSelectedNoteIds(new Set(notes.map((n) => n.id)));
+  }
+  function exitNoteSelectMode() {
+    setNoteSelectMode(false);
+    setSelectedNoteIds(/* @__PURE__ */ new Set());
+  }
+  function deleteSelectedNotes() {
+    if (!selectedNoteIds.size) return;
+    if (!window.confirm(nativeLang === "fa" ? `${selectedNoteIds.size} یادداشتِ انتخاب‌شده پاک بشه؟` : `Delete ${selectedNoteIds.size} selected notes?`)) return;
+    removeGrammarNotesBulk(selectedNoteIds);
+    setExpandedNote(null);
+    exitNoteSelectMode();
+  }
+  const [chatLang, setChatLang] = useState(targetOrder && targetOrder[0] || "en");
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
+  const chatEndRef = useRef(null);
+  const chatTextareaRef = useRef(null);
+  const [tappedMsgIndex, setTappedMsgIndex] = useState(null);
+  const [editingMsgIndex, setEditingMsgIndex] = useState(null);
+  const [editingMsgText, setEditingMsgText] = useState("");
+  const editMsgTextareaRef = useRef(null);
+  const [practiceSheet, setPracticeSheet] = useState("peek");
+  const [practiceOpenHeight, setPracticeOpenHeight] = useState(null);
+  const [practiceDragHeight, setPracticeDragHeight] = useState(null);
+  const practicePanelRef = useRef(null);
+  const practiceHeaderRef = useRef(null);
+  const practiceDragInfoRef = useRef(null);
+  const [practiceHeaderH, setPracticeHeaderH] = useState(56);
+  const [practiceViewportH, setPracticeViewportH] = useState(
+    () => typeof window === "undefined" ? 800 : Math.round(window.visualViewport && window.visualViewport.height || window.innerHeight)
+  );
+  const [practiceMoveOffset, setPracticeMoveOffset] = useState({ x: 0, y: 0 });
+  const [practiceMoveDragOffset, setPracticeMoveDragOffset] = useState(null);
+  const practiceMoveDragInfoRef = useRef(null);
+  const practiceMoved = practiceMoveOffset.x !== 0 || practiceMoveOffset.y !== 0;
+  const practiceLiveMoveOffset = practiceMoveDragOffset || practiceMoveOffset;
+  useLayoutEffect(() => {
+    const el = practiceHeaderRef.current;
+    if (!el) return;
+    setPracticeHeaderH(Math.ceil(el.getBoundingClientRect().height));
+  }, []);
+  useEffect(() => {
+    const update = () => {
+      const h = window.visualViewport && window.visualViewport.height || window.innerHeight;
+      setPracticeViewportH(Math.round(h));
+    };
+    update();
+    window.addEventListener("resize", update);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", update);
+      window.visualViewport.addEventListener("scroll", update);
+    }
+    return () => {
+      window.removeEventListener("resize", update);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", update);
+        window.visualViewport.removeEventListener("scroll", update);
+      }
+    };
+  }, []);
+  const practiceSnapHeight = useCallback(
+    (state) => {
+      if (state === "peek") return practiceHeaderH;
+      return practiceOpenHeight != null ? practiceOpenHeight : Math.round(practiceViewportH * 0.5);
+    },
+    [practiceViewportH, practiceHeaderH, practiceOpenHeight]
+  );
+  const practiceCurrentHeight = practiceDragHeight != null ? practiceDragHeight : practiceSnapHeight(practiceSheet);
+  const handlePracticeMoveStart = useCallback(
+    (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      e.stopPropagation();
+      practiceMoveDragInfoRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        startOffset: practiceMoveOffset
+      };
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+      }
+    },
+    [practiceMoveOffset]
+  );
+  const handlePracticeMoveMove = useCallback(
+    (e) => {
+      const info = practiceMoveDragInfoRef.current;
+      if (!info) return;
+      e.stopPropagation();
+      const dx = e.clientX - info.startX;
+      const dy = e.clientY - info.startY;
+      const vw = typeof window === "undefined" ? 400 : window.innerWidth;
+      const panelH = practiceCurrentHeight;
+      const minY = -Math.max(0, practiceViewportH - panelH);
+      const maxY = 0;
+      const maxX = Math.max(0, vw - 60);
+      const minX = -maxX;
+      const nextX = Math.min(maxX, Math.max(minX, info.startOffset.x + dx));
+      const nextY = Math.min(maxY, Math.max(minY, info.startOffset.y + dy));
+      setPracticeMoveDragOffset({ x: nextX, y: nextY });
+    },
+    [practiceViewportH, practiceCurrentHeight]
+  );
+  const handlePracticeMoveEnd = useCallback(
+    (e) => {
+      try {
+        e && e.currentTarget && e.currentTarget.releasePointerCapture && e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+      }
+      const info = practiceMoveDragInfoRef.current;
+      practiceMoveDragInfoRef.current = null;
+      if (!info) return;
+      setPracticeMoveOffset((prev) => practiceMoveDragOffset || prev);
+      setPracticeMoveDragOffset(null);
+    },
+    [practiceMoveDragOffset]
+  );
+  const resetPracticePosition = useCallback(() => {
+    practiceMoveDragInfoRef.current = null;
+    setPracticeMoveDragOffset(null);
+    setPracticeMoveOffset({ x: 0, y: 0 });
+  }, []);
+  const handlePracticeDragStart = useCallback(
+    (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      practiceDragInfoRef.current = {
+        startY: e.clientY,
+        startHeight: practiceSnapHeight(practiceSheet),
+        moved: false
+      };
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+      }
+    },
+    [practiceSheet, practiceSnapHeight]
+  );
+  const handlePracticeDragMove = useCallback(
+    (e) => {
+      const info = practiceDragInfoRef.current;
+      if (!info) return;
+      const delta = info.startY - e.clientY;
+      if (Math.abs(delta) > 4) info.moved = true;
+      const min = practiceHeaderH;
+      const max = Math.round(practiceViewportH * 0.92);
+      setPracticeDragHeight(Math.min(max, Math.max(min, info.startHeight + delta)));
+    },
+    [practiceHeaderH, practiceViewportH]
+  );
+  const handlePracticeDragEnd = useCallback(() => {
+    const info = practiceDragInfoRef.current;
+    practiceDragInfoRef.current = null;
+    if (!info) return;
+    if (!info.moved) {
+      setPracticeSheet((prev) => prev === "peek" ? "open" : "peek");
+      setPracticeDragHeight(null);
+      return;
+    }
+    const finalHeight = practiceDragHeight != null ? practiceDragHeight : info.startHeight;
+    if (finalHeight <= practiceHeaderH + 2) {
+      setPracticeSheet("peek");
+    } else {
+      setPracticeSheet("open");
+      setPracticeOpenHeight(finalHeight);
+    }
+    setPracticeDragHeight(null);
+  }, [practiceDragHeight, practiceHeaderH]);
+  useLayoutEffect(() => {
+    const el = practicePanelRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect?.height;
+      if (h && onPracticePanelHeightChange) onPracticePanelHeightChange(Math.ceil(h));
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      if (onPracticePanelHeightChange) onPracticePanelHeightChange(0);
+    };
+  }, [onPracticePanelHeightChange]);
+  const [noteAskInput, setNoteAskInput] = useState({});
+  const [noteAskLoading, setNoteAskLoading] = useState({});
+  const [noteAskError, setNoteAskError] = useState({});
+  const noteElsRef = useRef({});
+  const noteAskTextareaRefs = useRef({});
+  const [savedWordsTick, setSavedWordsTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setSavedWordsTick((t) => t + 1);
+    window.addEventListener(SAVED_WORDS_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, bump);
+  }, []);
+  const isFa = nativeLang === "fa";
+  useEffect(() => {
+    const refresh = () => setNotes(loadGrammarNotes());
+    refresh();
+    window.addEventListener(GRAMMAR_NOTES_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(GRAMMAR_NOTES_CHANGED_EVENT, refresh);
+  }, []);
+  useEffect(() => {
+    if (!jumpTo || !jumpTo.word) return;
+    let cancelled = false;
+    setPending({ word: jumpTo.word, sentence: jumpTo.sentence, langCode: jumpTo.langCode, markdown: "loading" });
+    lookupWordGrammarDetail({
+      word: jumpTo.word,
+      sentence: jumpTo.sentence,
+      langCode: jumpTo.langCode,
+      nativeLang,
+      nativeLabel,
+      aiSettings,
+      targetOrder
+    }).then((md) => {
+      if (!cancelled) setPending((p) => p && p.word === jumpTo.word ? { ...p, markdown: md } : p);
+    }).catch(() => {
+      if (!cancelled) setPending((p) => p && p.word === jumpTo.word ? { ...p, markdown: "error" } : p);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [jumpTo?.token]);
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ block: "nearest" });
+  }, [chatMessages, chatLoading]);
+  useEffect(() => {
+    const el = chatTextareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [chatInput]);
+  function clearChat() {
+    setChatMessages([]);
+    setChatError("");
+  }
+  async function askAboutNote(note) {
+    const question = (noteAskInput[note.id] || "").trim();
+    if (!question || noteAskLoading[note.id]) return;
+    setNoteAskInput((s) => ({ ...s, [note.id]: "" }));
+    setNoteAskError((s) => ({ ...s, [note.id]: "" }));
+    setNoteAskLoading((s) => ({ ...s, [note.id]: true }));
+    const ta = noteAskTextareaRefs.current[note.id];
+    if (ta) ta.style.height = "auto";
+    try {
+      const history = [
+        { role: "user", text: note.sentence || note.word },
+        { role: "ai", text: note.markdown },
+        ...(note.thread || []).flatMap((t) => [
+          { role: "user", text: t.question },
+          { role: "ai", text: t.answer }
+        ])
+      ];
+      const answer = await askGrammarTeacher({
+        userSentence: question,
+        langCode: note.langCode,
+        nativeLang,
+        nativeLabel,
+        aiSettings,
+        history,
+        targetOrder
+      });
+      appendGrammarNoteThread(note.id, { question, answer });
+    } catch (e) {
+      setNoteAskError((s) => ({
+        ...s,
+        [note.id]: e?.message?.replace(/^ai-backend-error:\s*/, "") || (isFa ? "خطا در دریافت پاسخ" : "Couldn't get a reply")
+      }));
+    } finally {
+      setNoteAskLoading((s) => ({ ...s, [note.id]: false }));
+    }
+  }
+  async function sendChat() {
+    const sentence = chatInput.trim();
+    if (!sentence || chatLoading) return;
+    setChatInput("");
+    setChatError("");
+    const nextMessages = [...chatMessages, { role: "user", text: sentence }];
+    setChatMessages(nextMessages);
+    setChatLoading(true);
+    try {
+      const reply = await askGrammarTeacher({
+        userSentence: sentence,
+        langCode: chatLang,
+        nativeLang,
+        nativeLabel,
+        aiSettings,
+        history: chatMessages,
+        targetOrder
+      });
+      setChatMessages((m) => [...m, { role: "ai", text: reply, forSentence: sentence }]);
+    } catch (e) {
+      setChatError(e?.message?.replace(/^ai-backend-error:\s*/, "") || (isFa ? "خطا در دریافت پاسخ" : "Couldn't get a reply"));
+    } finally {
+      setChatLoading(false);
+    }
+  }
+  async function retryLastMessage() {
+    const last = chatMessages[chatMessages.length - 1];
+    if (!last || last.role !== "user" || chatLoading) return;
+    setChatError("");
+    setChatLoading(true);
+    try {
+      const reply = await askGrammarTeacher({
+        userSentence: last.text,
+        langCode: chatLang,
+        nativeLang,
+        nativeLabel,
+        aiSettings,
+        history: chatMessages.slice(0, -1),
+        targetOrder
+      });
+      setChatMessages((m) => [...m, { role: "ai", text: reply, forSentence: last.text }]);
+    } catch (e) {
+      setChatError(e?.message?.replace(/^ai-backend-error:\s*/, "") || (isFa ? "خطا در دریافت پاسخ" : "Couldn't get a reply"));
+    } finally {
+      setChatLoading(false);
+    }
+  }
+  function startEditingMsg(i, currentText) {
+    setTappedMsgIndex(null);
+    setEditingMsgIndex(i);
+    setEditingMsgText(currentText);
+  }
+  function cancelEditingMsg() {
+    setEditingMsgIndex(null);
+    setEditingMsgText("");
+  }
+  async function saveEditingMsg() {
+    const text = editingMsgText.trim();
+    const idx = editingMsgIndex;
+    if (!text || idx == null) {
+      cancelEditingMsg();
+      return;
+    }
+    const historyBeforeEdit = chatMessages.slice(0, idx);
+    const truncated = [...historyBeforeEdit, { role: "user", text }];
+    setChatMessages(truncated);
+    cancelEditingMsg();
+    setChatError("");
+    setChatLoading(true);
+    try {
+      const reply = await askGrammarTeacher({
+        userSentence: text,
+        langCode: chatLang,
+        nativeLang,
+        nativeLabel,
+        aiSettings,
+        history: historyBeforeEdit,
+        targetOrder
+      });
+      setChatMessages((m) => [...m, { role: "ai", text: reply, forSentence: text }]);
+    } catch (e) {
+      setChatError(e?.message?.replace(/^ai-backend-error:\s*/, "") || (isFa ? "خطا در دریافت پاسخ" : "Couldn't get a reply"));
+    } finally {
+      setChatLoading(false);
+    }
+  }
+  useEffect(() => {
+    const el = editMsgTextareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [editingMsgText, editingMsgIndex]);
+  const langOptions = targetOrder && targetOrder.length ? targetOrder : LANGUAGES.map((l) => l.code);
+  const [msgTranslations, setMsgTranslations] = useState({});
+  const [openMsgTranslation, setOpenMsgTranslation] = useState({});
+  async function toggleMessageTranslation(msgIndex, text, langCode) {
+    setOpenMsgTranslation((prev) => ({ ...prev, [msgIndex]: prev[msgIndex] === langCode ? null : langCode }));
+    const key = `${msgIndex}:${langCode}`;
+    if (msgTranslations[key]) return;
+    setMsgTranslations((prev) => ({ ...prev, [key]: "loading" }));
+    try {
+      const plain = String(text || "").split(/\r?\n/).map((l) => stripMdInline(l)).join("\n");
+      const result = await translateFree(plain, langCode, "auto", aiSettings);
+      setMsgTranslations((prev) => ({ ...prev, [key]: result || "—" }));
+    } catch {
+      setMsgTranslations((prev) => ({ ...prev, [key]: "—" }));
+    }
+  }
+  useEffect(() => {
+    const first = targetOrder && targetOrder.length ? targetOrder[0] : null;
+    if (first) setChatLang(first);
+  }, [targetOrder && targetOrder[0]]);
+  return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { fontWeight: 800, fontSize: 18, color: colors.ink, marginBottom: 4 } }, "گرامر"), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: colors.inkSoft, lineHeight: 1.7 } }, "توضیحات گرامری‌ای که از روی لغت‌های داستان ذخیره کردی اینجاست. پایین‌تر هم می‌تونی با هوش مصنوعی جمله بنویسی تا مثل یه معلم زبان، اصلاحش کنه و گرامرش رو کلمه‌به‌کلمه بهت یاد بده — یا هر سوال گرامری دیگه‌ای هم داشتی همون‌جا بپرسی.")), pending && /* @__PURE__ */ React.createElement("div", { style: { backgroundColor: "white", border: `1px solid ${colors.gold}`, borderRadius: 16, padding: 16 } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement(SpeakButton, { text: pending.word, code: pending.langCode }), /* @__PURE__ */ React.createElement("p", { dir: "auto", style: { fontWeight: 700 } }, pending.word), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => toggleSavedStoryWord(pending.word, pending.langCode),
+      title: isWordSaved(pending.word, pending.langCode) ? "حذف از لغات ذخیره‌شده" : "ذخیره‌ی لغت",
+      style: { color: isWordSaved(pending.word, pending.langCode) ? colors.gold : colors.inkSoft, display: "flex" }
+    },
+    /* @__PURE__ */ React.createElement(Bookmark, { size: 14, fill: isWordSaved(pending.word, pending.langCode) ? colors.gold : "none" })
+  )), /* @__PURE__ */ React.createElement("button", { onClick: () => setPending(null), style: { color: colors.inkSoft, display: "flex" } }, /* @__PURE__ */ React.createElement(X, { size: 16 }))), pending.markdown === "loading" && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1", style: { fontSize: 13, color: colors.inkSoft } }, /* @__PURE__ */ React.createElement(Loader2, { size: 14, className: "spin" }), "در حال آماده کردن توضیح کامل..."), pending.markdown === "error" && /* @__PURE__ */ React.createElement("p", { style: { color: colors.rose, fontSize: 13 } }, "خطا در دریافت توضیح. دوباره امتحان کن."), pending.markdown && pending.markdown !== "loading" && pending.markdown !== "error" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(MiniMarkdown, { text: pending.markdown, speakCode: pending.langCode, nativeLang, aiSettings }), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => {
+        saveGrammarNote({
+          langCode: pending.langCode,
+          word: pending.word,
+          sentence: pending.sentence,
+          markdown: pending.markdown
+        });
+        setPending(null);
+      },
+      className: "flex items-center gap-1",
+      style: {
+        marginTop: 8,
+        fontSize: 12,
+        fontWeight: 700,
+        color: "white",
+        background: colors.gold,
+        borderRadius: 8,
+        padding: "6px 12px"
+      }
+    },
+    /* @__PURE__ */ React.createElement(Bookmark, { size: 13 }),
+    "ذخیره در یادگیری گرامر"
+  ))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-2" }, notes.length === 0 && !pending && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, color: colors.inkSoft } }, "هنوز نکته‌ی گرامری‌ای ذخیره نکردی. روی هر کلمه‌ی داخل داستان بزن و «افزودن به یادگیری گرامر» رو انتخاب کن."), notes.length > 0 && !noteSelectMode && /* @__PURE__ */ React.createElement("div", { className: "flex justify-end" }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => setNoteSelectMode(true),
+      className: "flex items-center gap-1",
+      style: { fontSize: 12, color: colors.rose, fontWeight: 700 }
+    },
+    /* @__PURE__ */ React.createElement(ListChecks, { size: 13 }),
+    "انتخاب / حذف"
+  )), notes.length > 0 && noteSelectMode && /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      className: "flex items-center justify-between flex-wrap",
+      style: { gap: 8, backgroundColor: colors.goldSoft, borderRadius: 12, padding: "8px 10px" }
+    },
+    /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2", style: { fontSize: 12, fontWeight: 700, color: colors.ink } }, selectedNoteIds.size > 0 ? `${selectedNoteIds.size} مورد انتخاب شد` : "انتخاب کن"),
+    /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: selectAllNotes,
+        className: "flex items-center gap-1",
+        style: { fontSize: 12, fontWeight: 700, color: colors.teal }
+      },
+      /* @__PURE__ */ React.createElement(ListChecks, { size: 13 }),
+      "انتخاب همه"
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: deleteSelectedNotes,
+        disabled: !selectedNoteIds.size,
+        className: "flex items-center gap-1",
+        style: { fontSize: 12, fontWeight: 700, color: colors.rose, opacity: selectedNoteIds.size ? 1 : 0.5 }
+      },
+      /* @__PURE__ */ React.createElement(Trash2, { size: 13 }),
+      "حذف"
+    ), /* @__PURE__ */ React.createElement("button", { onClick: exitNoteSelectMode, style: { fontSize: 12, color: colors.inkSoft, fontWeight: 700 } }, "انصراف"))
+  ), noteGroups.map((group) => {
+    const groupAllSelected = noteSelectMode && group.items.every((n) => selectedNoteIds.has(n.id));
+    return /* @__PURE__ */ React.createElement("div", { key: group.label, className: "flex flex-col gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2", style: { marginTop: 4 } }, noteSelectMode && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => toggleGroupSelected(group.items),
+        style: { color: groupAllSelected ? colors.gold : colors.inkSoft, display: "flex" },
+        title: "انتخابِ همه‌ی این تاریخ"
+      },
+      groupAllSelected ? /* @__PURE__ */ React.createElement(CheckSquare, { size: 15 }) : /* @__PURE__ */ React.createElement(Square, { size: 15 })
+    ), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, fontWeight: 700, color: colors.inkSoft } }, group.label)), group.items.map((n) => {
+      const isOpen = expandedNote === n.id;
+      const langLabel = LANGUAGES.find((l) => l.code === n.langCode)?.label || n.langCode;
+      const wordSaved = isWordSaved(n.word, n.langCode);
+      const isSelected = selectedNoteIds.has(n.id);
+      return /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          key: n.id,
+          ref: (el) => noteElsRef.current[n.id] = el,
+          style: {
+            backgroundColor: "white",
+            border: `1px solid ${isSelected ? colors.gold : colors.cardBorder}`,
+            borderRadius: 14,
+            padding: 12
+          }
+        },
+        /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            className: "flex items-center justify-between",
+            onClick: () => noteSelectMode ? toggleNoteSelected(n.id) : setExpandedNote(isOpen ? null : n.id),
+            style: { cursor: "pointer" }
+          },
+          /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, noteSelectMode ? /* @__PURE__ */ React.createElement("span", { style: { color: isSelected ? colors.gold : colors.inkSoft, display: "flex" } }, isSelected ? /* @__PURE__ */ React.createElement(CheckSquare, { size: 16 }) : /* @__PURE__ */ React.createElement(Square, { size: 16 })) : /* @__PURE__ */ React.createElement(SpeakButton, { text: extractSpeakableText(n.markdown) || n.word, code: n.langCode }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", { dir: "auto", style: { fontWeight: 700, fontSize: 14 } }, n.word), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: colors.inkSoft } }, langLabel, n.savedAt ? ` · ${formatNoteTime(n.savedAt)}` : ""))),
+          !noteSelectMode && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: (e) => {
+                e.stopPropagation();
+                toggleSavedStoryWord(n.word, n.langCode);
+              },
+              style: { color: wordSaved ? colors.gold : colors.inkSoft, display: "flex" },
+              title: wordSaved ? "حذف از لغات ذخیره‌شده" : "ذخیره‌ی لغت"
+            },
+            /* @__PURE__ */ React.createElement(Bookmark, { size: 14, fill: wordSaved ? colors.gold : "none" })
+          ), /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: (e) => {
+                e.stopPropagation();
+                removeGrammarNote(n.id);
+              },
+              style: { color: colors.inkSoft, display: "flex" },
+              title: "حذف"
+            },
+            /* @__PURE__ */ React.createElement(X, { size: 14 })
+          ), isOpen ? /* @__PURE__ */ React.createElement(ChevronLeft, { size: 16 }) : /* @__PURE__ */ React.createElement(ChevronRight, { size: 16 }))
+        ),
+        isOpen && !noteSelectMode && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 8 } }, /* @__PURE__ */ React.createElement(MiniMarkdown, { text: n.markdown, speakCode: n.langCode, nativeLang, aiSettings }), (n.thread || []).map((t, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { dir: "auto", style: { fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 4 } }, t.question), /* @__PURE__ */ React.createElement("div", { style: { background: colors.goldSoft, borderRadius: 10, padding: "8px 10px" } }, /* @__PURE__ */ React.createElement(MiniMarkdown, { text: t.answer, speakCode: n.langCode, nativeLang, aiSettings })))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 items-end", style: { marginTop: 10, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 10 } }, /* @__PURE__ */ React.createElement(
+          "textarea",
+          {
+            ref: (el) => noteAskTextareaRefs.current[n.id] = el,
+            dir: "auto",
+            rows: 1,
+            value: noteAskInput[n.id] || "",
+            onChange: (e) => {
+              setNoteAskInput((s) => ({ ...s, [n.id]: e.target.value }));
+              e.target.style.height = "auto";
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+            },
+            onKeyDown: (e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                askAboutNote(n);
+              }
+            },
+            placeholder: isFa ? "سوالی درباره‌ی همین نکته داری؟ (برای خط جدید Enter، برای پرسیدن دکمه رو بزن)" : "Ask about this note... (Enter for new line, tap the button to ask)",
+            style: {
+              flex: 1,
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: 8,
+              padding: "6px 8px",
+              fontSize: 12,
+              fontFamily: "inherit",
+              resize: "none",
+              lineHeight: 1.6,
+              maxHeight: 120
+            }
+          }
+        ), /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onClick: () => askAboutNote(n),
+            disabled: noteAskLoading[n.id] || !(noteAskInput[n.id] || "").trim(),
+            style: {
+              backgroundColor: colors.gold,
+              color: "white",
+              borderRadius: 8,
+              padding: "6px 10px",
+              fontSize: 12,
+              display: "flex",
+              alignItems: "center",
+              opacity: noteAskLoading[n.id] || !(noteAskInput[n.id] || "").trim() ? 0.6 : 1,
+              flexShrink: 0
+            }
+          },
+          noteAskLoading[n.id] ? /* @__PURE__ */ React.createElement(Loader2, { size: 13, className: "spin" }) : isFa ? "بپرس" : "Ask"
+        )), noteAskError[n.id] && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: colors.rose, marginTop: 4 } }, noteAskError[n.id]))
+      );
+    }));
+  })), createPortal(
+    /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        ref: practicePanelRef,
+        style: {
+          position: "fixed",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 42,
+          height: practiceCurrentHeight,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          backgroundColor: colors.paperDark,
+          border: `1px solid ${PRACTICE_PANEL_BORDER}`,
+          borderTop: `1px solid ${PRACTICE_PANEL_BORDER}`,
+          boxShadow: "0 -4px 14px rgba(28,37,65,0.12)",
+          transform: `translate3d(${practiceLiveMoveOffset.x}px, ${practiceLiveMoveOffset.y}px, 0)`,
+          transition: practiceDragHeight != null ? "none" : practiceMoveDragOffset != null ? "none" : "height 0.24s cubic-bezier(.2,.8,.2,1), transform 0.24s cubic-bezier(.2,.8,.2,1)"
+          // توجه: touchAction:none اینجا (روی کلِ باکس) عمداً گذاشته نشده —
+          // چون این ویژگی روی تمامِ فرزندها هم اثر می‌ذاره (فرزند نمی‌تونه
+          // با pan-y دوباره بازش کنه) و اسکرولِ لمسیِ لیستِ پیام‌ها رو
+          // می‌بست. به‌جاش فقط روی خودِ دستگیره‌ها (هدر/گریپِ جابجایی)
+          // که واقعاً از پوینترایونت‌های دستی استفاده می‌کنن گذاشته می‌شه.
+        }
+      },
+      /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          ref: practiceHeaderRef,
+          onPointerDown: handlePracticeDragStart,
+          onPointerMove: handlePracticeDragMove,
+          onPointerUp: handlePracticeDragEnd,
+          onPointerCancel: handlePracticeDragEnd,
+          role: "button",
+          tabIndex: 0,
+          "aria-expanded": practiceSheet !== "peek",
+          "aria-label": practiceSheet === "peek" ? "بازکردنِ گفتگوی تمرین جمله‌سازی و گرامر" : "جمع‌کردنِ گفتگوی تمرین جمله‌سازی و گرامر",
+          style: { backgroundColor: colors.teal, cursor: "grab", userSelect: "none", flexShrink: 0, touchAction: "none" }
+        },
+        /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            "aria-hidden": "true",
+            style: {
+              width: 36,
+              height: 4,
+              borderRadius: 2,
+              backgroundColor: "rgba(255,255,255,0.55)",
+              margin: "6px auto 0"
+            }
+          }
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "px-3 py-2 flex items-center justify-between gap-1", style: { flexWrap: "nowrap" } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1", style: { fontWeight: 700, color: "#fff", minWidth: 0, flex: "1 1 auto" } }, /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            onPointerDown: (e) => {
+              e.stopPropagation();
+              handlePracticeMoveStart(e);
+            },
+            onPointerMove: handlePracticeMoveMove,
+            onPointerUp: handlePracticeMoveEnd,
+            onPointerCancel: handlePracticeMoveEnd,
+            role: "button",
+            tabIndex: 0,
+            "aria-label": isFa ? "جابجاکردنِ آزادِ باکس رویِ صفحه" : "Freely move this box",
+            title: isFa ? "نگه‌دار و بکش تا باکس رو جابجا کنی" : "Hold and drag to move this box",
+            style: {
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 24,
+              height: 24,
+              cursor: "grab",
+              touchAction: "none",
+              userSelect: "none",
+              flexShrink: 0
+            }
+          },
+          /* @__PURE__ */ React.createElement(
+            "div",
+            {
+              "aria-hidden": "true",
+              style: {
+                display: "grid",
+                gridTemplateColumns: "repeat(2, 3px)",
+                gridAutoRows: "3px",
+                gap: 3
+              }
+            },
+            Array.from({ length: 6 }).map((_, i) => /* @__PURE__ */ React.createElement("span", { key: i, style: { width: 3, height: 3, borderRadius: "50%", backgroundColor: "rgba(255,255,255,0.85)" } }))
+          )
+        ), practiceMoved && /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onPointerDown: (e) => e.stopPropagation(),
+            onClick: (e) => {
+              e.stopPropagation();
+              resetPracticePosition();
+            },
+            className: "flex items-center justify-center",
+            style: {
+              width: 24,
+              height: 24,
+              borderRadius: "50%",
+              backgroundColor: "rgba(255,255,255,0.18)",
+              color: "#fff",
+              flexShrink: 0
+            },
+            title: isFa ? "بازگرداندنِ باکس به جای اولش" : "Reset box position",
+            "aria-label": isFa ? "بازگرداندنِ باکس به جای اولش" : "Reset box position"
+          },
+          /* @__PURE__ */ React.createElement(RotateCcw, { size: 12, color: "#fff" })
+        ), /* @__PURE__ */ React.createElement(
+          "span",
+          {
+            "aria-hidden": "true",
+            style: {
+              position: "relative",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 20,
+              height: 20,
+              borderRadius: "50%",
+              backgroundColor: colors.teal,
+              border: "2px solid rgba(255,255,255,0.85)",
+              flexShrink: 0
+            }
+          },
+          /* @__PURE__ */ React.createElement(MessageCircle, { size: 11, color: "#ffffff", fill: "rgba(255,255,255,0.15)", strokeWidth: 2.25 }),
+          chatMessages.length > 0 && practiceSheet === "peek" && /* @__PURE__ */ React.createElement(
+            "span",
+            {
+              "aria-hidden": "true",
+              style: {
+                position: "absolute",
+                top: -2,
+                insetInlineEnd: -2,
+                width: 9,
+                height: 9,
+                borderRadius: "50%",
+                backgroundColor: colors.gold,
+                border: `2px solid ${colors.teal}`
+              }
+            }
+          )
+        ), /* @__PURE__ */ React.createElement(
+          "span",
+          {
+            style: {
+              fontSize: 15,
+              fontWeight: 800,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              minWidth: 0
+            }
+          },
+          "تمرین جمله‌سازی و گرامر"
+        ), practiceSheet === "peek" ? /* @__PURE__ */ React.createElement(ChevronUp, { size: 15, color: "#fff" }) : /* @__PURE__ */ React.createElement(ChevronDown, { size: 15, color: "#fff" })), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1", style: { flexShrink: 0 }, onPointerDown: (e) => e.stopPropagation() }, chatMessages.length > 0 && /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onClick: clearChat,
+            className: "flex items-center justify-center",
+            style: { width: 24, height: 24, color: "#fff", opacity: 0.9, flexShrink: 0 },
+            title: isFa ? "پاک‌کردن گفتگو" : "Clear conversation",
+            "aria-label": isFa ? "پاک‌کردن گفتگو" : "Clear conversation"
+          },
+          /* @__PURE__ */ React.createElement(Trash2, { size: 13 })
+        )))
+      ),
+      /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          style: {
+            width: "min(100%, 640px)",
+            margin: "0 auto",
+            flex: 1,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column"
+          }
+        },
+        /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            "aria-hidden": practiceSheet === "peek",
+            className: "px-4",
+            style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }
+          },
+          /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft, margin: "8px 0 8px", flexShrink: 0 } }, "یه جمله به ", LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang, " بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. یا هر سوال گرامری‌ای که داری — چه درباره‌ی این جمله، چه یه سوال کاملاً جدا — همین‌جا بپرس تا مثل یه معلم زبان جواب بدم."),
+          chatMessages.length > 0 && /* @__PURE__ */ React.createElement(
+            "div",
+            {
+              style: {
+                flex: 1,
+                minHeight: 0,
+                overflowY: "auto",
+                marginBottom: 10,
+                paddingRight: 2,
+                // پنلِ بیرونی برای امکانِ کشیدنِ دستی (تغییرِ ارتفاع/جابجایی)
+                // touchAction:none داره؛ چون این ویژگی روی فرزندها هم اثر
+                // می‌ذاره، اینجا صریحاً pan-y می‌ذاریم تا اسکرولِ عمودیِ
+                // معمولیِ لمسی (مثلِ هر اپِ چتی) روی خودِ لیستِ پیام‌ها کار کنه.
+                touchAction: "pan-y",
+                WebkitOverflowScrolling: "touch"
+              }
+            },
+            chatMessages.map((m, i) => {
+              const isUser = m.role === "user";
+              const isEditing = editingMsgIndex === i;
+              return /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", justifyContent: isUser ? "flex-start" : "flex-end", marginBottom: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { maxWidth: "90%", display: "flex", flexDirection: "column", alignItems: isUser ? "flex-start" : "flex-end" } }, isEditing ? /* @__PURE__ */ React.createElement(
+                "div",
+                {
+                  style: {
+                    width: "100%",
+                    minWidth: 180,
+                    padding: 6,
+                    borderRadius: 12,
+                    backgroundColor: colors.paper,
+                    border: `1.5px solid ${colors.teal}`
+                  }
+                },
+                /* @__PURE__ */ React.createElement(
+                  "textarea",
+                  {
+                    ref: editMsgTextareaRef,
+                    dir: "auto",
+                    autoFocus: true,
+                    rows: 1,
+                    value: editingMsgText,
+                    onChange: (e) => setEditingMsgText(e.target.value),
+                    onKeyDown: (e) => {
+                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        saveEditingMsg();
+                      } else if (e.key === "Escape") {
+                        cancelEditingMsg();
+                      }
+                    },
+                    style: {
+                      width: "100%",
+                      border: "none",
+                      outline: "none",
+                      resize: "none",
+                      padding: "4px 6px",
+                      fontSize: 13,
+                      fontFamily: "inherit",
+                      lineHeight: 1.6,
+                      maxHeight: 140,
+                      backgroundColor: "transparent",
+                      color: colors.ink
+                    }
+                  }
+                ),
+                /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-end gap-2", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement(
+                  "button",
+                  {
+                    onClick: cancelEditingMsg,
+                    className: "flex items-center gap-1",
+                    style: { fontSize: 11, color: colors.inkSoft }
+                  },
+                  /* @__PURE__ */ React.createElement(X, { size: 12 }),
+                  "انصراف"
+                ), /* @__PURE__ */ React.createElement(
+                  "button",
+                  {
+                    onClick: saveEditingMsg,
+                    className: "flex items-center gap-1",
+                    style: { fontSize: 11, color: "white", fontWeight: 700, backgroundColor: colors.teal, borderRadius: 8, padding: "3px 8px" }
+                  },
+                  /* @__PURE__ */ React.createElement(Check, { size: 12 }),
+                  "ذخیره"
+                ))
+              ) : /* @__PURE__ */ React.createElement(
+                "div",
+                {
+                  dir: isUser ? isPersianScriptLine(m.text || "") ? "rtl" : "ltr" : "auto",
+                  onClick: () => isUser && setTappedMsgIndex((prev) => prev === i ? null : i),
+                  style: {
+                    maxWidth: "100%",
+                    padding: "8px 12px",
+                    borderRadius: 12,
+                    fontSize: 13,
+                    backgroundColor: isUser ? colors.paper : colors.goldSoft,
+                    border: `1px solid ${colors.cardBorder}`,
+                    cursor: isUser ? "pointer" : "default",
+                    // متنِ خودِ کاربر (سوال) مستقیم همینجا چاپ می‌شه؛
+                    // چون MiniMarkdown نیست، justify و فیکسِ
+                    // bidiِ ترکیبِ فارسی/عربی با بقیه‌ی زبون‌ها
+                    // باید مستقیم همینجا هم گذاشته بشه (جوابِ
+                    // هوش‌مصنوعی این استایل رو از طریقِ prop
+                    // «justify» به MiniMarkdown می‌گیره، پایین‌تر).
+                    ...isUser ? { textAlign: "justify", unicodeBidi: "plaintext" } : null
+                  }
+                },
+                isUser ? m.text : /* @__PURE__ */ React.createElement(MiniMarkdown, { text: m.text, speakCode: chatLang, nativeLang, aiSettings, wordTapTarget: targetOrder && targetOrder[0], justify: true }),
+                m.role === "ai" && langOptions.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 flex-wrap", style: { marginTop: 8, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 6 } }, /* @__PURE__ */ React.createElement(Globe, { size: 12, color: colors.inkSoft }), langOptions.map((code) => {
+                  const label = LANGUAGES.find((l) => l.code === code)?.label || code;
+                  const isOpenLang = openMsgTranslation[i] === code;
+                  return /* @__PURE__ */ React.createElement(
+                    "button",
+                    {
+                      key: code,
+                      onClick: (e) => {
+                        e.stopPropagation();
+                        toggleMessageTranslation(i, m.text, code);
+                      },
+                      style: {
+                        fontSize: 10,
+                        fontWeight: 700,
+                        borderRadius: 999,
+                        padding: "2px 8px",
+                        backgroundColor: isOpenLang ? colors.teal : "white",
+                        color: isOpenLang ? "white" : colors.inkSoft,
+                        border: `1px solid ${isOpenLang ? colors.teal : colors.cardBorder}`
+                      }
+                    },
+                    label
+                  );
+                })),
+                m.role === "ai" && openMsgTranslation[i] && (() => {
+                  const key = `${i}:${openMsgTranslation[i]}`;
+                  const val = msgTranslations[key];
+                  return /* @__PURE__ */ React.createElement(
+                    "div",
+                    {
+                      dir: "auto",
+                      style: {
+                        marginTop: 6,
+                        fontSize: 12,
+                        color: colors.ink,
+                        backgroundColor: "white",
+                        borderRadius: 8,
+                        padding: "6px 8px",
+                        border: `1px solid ${colors.cardBorder}`,
+                        whiteSpace: "pre-wrap"
+                      }
+                    },
+                    val === "loading" ? /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-1", style: { color: colors.inkSoft } }, /* @__PURE__ */ React.createElement(Loader2, { size: 12, className: "spin" }), "در حال ترجمه...") : val
+                  );
+                })(),
+                m.role === "ai" && /* @__PURE__ */ React.createElement("div", { className: "flex justify-end", style: { marginTop: 6 } }, m.savedToGrammar ? /* @__PURE__ */ React.createElement(
+                  "span",
+                  {
+                    className: "flex items-center gap-1",
+                    style: { fontSize: 11, color: colors.gold, fontWeight: 700 }
+                  },
+                  /* @__PURE__ */ React.createElement(Bookmark, { size: 12, fill: colors.gold }),
+                  "ذخیره شد"
+                ) : /* @__PURE__ */ React.createElement(
+                  "button",
+                  {
+                    onClick: (e) => {
+                      e.stopPropagation();
+                      saveGrammarNote({
+                        langCode: chatLang,
+                        word: m.forSentence || "جمله",
+                        sentence: m.forSentence || "",
+                        markdown: m.text
+                      });
+                      setChatMessages(
+                        (prev) => prev.map((msg, idx) => idx === i ? { ...msg, savedToGrammar: true } : msg)
+                      );
+                    },
+                    className: "flex items-center gap-1",
+                    style: { fontSize: 11, color: colors.teal, textDecoration: "underline" }
+                  },
+                  /* @__PURE__ */ React.createElement(Bookmark, { size: 12 }),
+                  "ذخیره در یادگیری گرامر"
+                ))
+              ), isUser && !isEditing && tappedMsgIndex === i && /* @__PURE__ */ React.createElement(
+                "button",
+                {
+                  onClick: () => startEditingMsg(i, m.text),
+                  className: "flex items-center gap-1",
+                  style: { fontSize: 11, color: colors.teal, fontWeight: 700, marginTop: 4 }
+                },
+                /* @__PURE__ */ React.createElement(Pencil, { size: 12 }),
+                "ویرایش"
+              )));
+            }),
+            chatLoading && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1", style: { fontSize: 12, color: colors.inkSoft } }, /* @__PURE__ */ React.createElement(Loader2, { size: 13, className: "spin" }), "در حال بررسی جمله..."),
+            /* @__PURE__ */ React.createElement("div", { ref: chatEndRef })
+          ),
+          chatError && /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-2", style: { marginBottom: 8, flexShrink: 0 } }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.rose, margin: 0 } }, chatError), /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: retryLastMessage,
+              disabled: chatLoading,
+              className: "flex items-center gap-1",
+              style: { fontSize: 11, color: "white", fontWeight: 700, backgroundColor: colors.teal, borderRadius: 8, padding: "4px 10px", flexShrink: 0, opacity: chatLoading ? 0.6 : 1 }
+            },
+            /* @__PURE__ */ React.createElement(RotateCcw, { size: 12 }),
+            "تلاش دوباره"
+          ))
+        ),
+        /* @__PURE__ */ React.createElement("div", { className: "px-4", style: { paddingBottom: 8, flexShrink: 0 } }, /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            className: "flex gap-2 items-end",
+            style: {
+              backgroundColor: colors.paper,
+              border: `1.5px solid ${colors.teal}`,
+              borderRadius: 12,
+              padding: 6,
+              marginTop: practiceSheet === "peek" ? 8 : 0
+            }
+          },
+          /* @__PURE__ */ React.createElement(
+            "button",
+            {
+              onClick: () => {
+                setPracticeSheet((s) => s === "peek" ? "half" : s);
+                sendChat();
+              },
+              disabled: chatLoading || !chatInput.trim(),
+              style: {
+                backgroundColor: colors.teal,
+                color: "#fff",
+                borderRadius: 10,
+                padding: "8px 14px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: chatLoading || !chatInput.trim() ? 0.5 : 1,
+                boxShadow: chatLoading || !chatInput.trim() ? "none" : "0 2px 8px rgba(28,37,65,0.25)",
+                flexShrink: 0
+              }
+            },
+            /* @__PURE__ */ React.createElement(Send, { size: 16, color: "#fff" })
+          ),
+          /* @__PURE__ */ React.createElement(
+            "textarea",
+            {
+              ref: chatTextareaRef,
+              dir: "auto",
+              rows: 1,
+              value: chatInput,
+              onFocus: () => setPracticeSheet((s) => s === "peek" ? "half" : s),
+              onChange: (e) => setChatInput(e.target.value),
+              onKeyDown: (e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  sendChat();
+                }
+              },
+              placeholder: "جمله‌ت رو بنویس یا سوالت رو بپرس... (برای خط جدید Enter، برای ارسال دکمه رو بزن)",
+              style: {
+                flex: 1,
+                border: "none",
+                outline: "none",
+                resize: "none",
+                padding: "8px 10px",
+                fontSize: 13,
+                fontFamily: "inherit",
+                lineHeight: 1.6,
+                maxHeight: 140,
+                backgroundColor: "transparent",
+                color: colors.ink
+              }
+            }
+          )
+        ))
+      )
+    ),
+    document.body
+  ));
+}
+function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
+  const [nativeLang, setNativeLang] = useState("fa");
+  const [targetOrder, setTargetOrder] = useState([]);
+  const [langPickerOrder, setLangPickerOrder] = useState(() => PHRASEBOOK_LANGUAGES.map((l) => l.code));
+  const [favorites, setFavorites] = useState(/* @__PURE__ */ new Set());
+  const [wordFavorites, setWordFavorites] = useState(/* @__PURE__ */ new Set());
+  const [tab, setTab] = useState("conversations");
+  useEffect(() => {
+    setCurrentOriginTab(tab);
+  }, [tab]);
+  const [boxes, setBoxes] = useState(() => {
+    const initial = {};
+    conversation.forEach((p) => initial[p.id] = 1);
+    return initial;
+  });
+  const [reviewIndex, setReviewIndex] = useState(0);
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [query, setQuery] = useState("");
+  const [levelFilter, setLevelFilter] = useState("all");
+  const [wordJumpTarget, setWordJumpTarget] = useState(null);
+  const [playerOpacity, setPlayerOpacity] = useState(() => {
+    const saved = localStorage.getItem("phrasebook-player-opacity");
+    const n = saved === null ? 100 : Number(saved);
+    return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 100;
+  });
+  useEffect(() => {
+    localStorage.setItem("phrasebook-player-opacity", String(playerOpacity));
+  }, [playerOpacity]);
+  const [showPlayerSettings, setShowPlayerSettings] = useState(false);
+  const [practiceOpacity, setPracticeOpacity] = useState(() => {
+    const saved = localStorage.getItem("phrasebook-practice-opacity");
+    const n = saved === null ? 100 : Number(saved);
+    return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 100;
+  });
+  useEffect(() => {
+    localStorage.setItem("phrasebook-practice-opacity", String(practiceOpacity));
+  }, [practiceOpacity]);
+  const [playerBarHeight, setPlayerBarHeight] = useState(108);
+  const playerBarRef = useRef(null);
+  useLayoutEffect(() => {
+    const el = playerBarRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect?.height;
+      if (h) setPlayerBarHeight(Math.ceil(h));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const playerLongPressRef = useRef({ startX: 0, startY: 0, timer: null, active: false, fired: false });
+  function clearPlayerLongPress() {
+    const st = playerLongPressRef.current;
+    if (st.timer) {
+      clearTimeout(st.timer);
+      st.timer = null;
+    }
+    st.active = false;
+  }
+  function startPlayerLongPress(x, y) {
+    const st = playerLongPressRef.current;
+    clearPlayerLongPress();
+    st.startX = x;
+    st.startY = y;
+    st.active = true;
+    st.fired = false;
+    st.timer = setTimeout(() => {
+      if (!st.active) return;
+      st.active = false;
+      const state = speechController.getState();
+      if (!state.key) return;
+      st.fired = true;
+      const targetTab = getLastPlayOriginTab();
+      if (targetTab && targetTab !== tab) setTab(targetTab);
+    }, 550);
+  }
+  function movePlayerLongPress(x, y) {
+    const st = playerLongPressRef.current;
+    if (!st.active) return;
+    if (Math.abs(x - st.startX) > 12 || Math.abs(y - st.startY) > 12) clearPlayerLongPress();
+  }
+  function handlePlayerClickCapture(e) {
+    const st = playerLongPressRef.current;
+    if (st.fired) {
+      e.preventDefault();
+      e.stopPropagation();
+      st.fired = false;
+    }
+  }
+  const [practicePanelHeight, setPracticePanelHeight] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const [cloudChecked, setCloudChecked] = useState(false);
+  const [wordStats, setWordStats] = useState({});
+  const [savedStories, setSavedStories] = useState([]);
+  const [dictHistory, setDictHistory] = useState([]);
+  const [backendUrl, setBackendUrl] = useState("");
+  const [storyJump, setStoryJump] = useState(null);
+  const [storyPlayerText, setStoryPlayerText] = useState({ text: "", code: "" });
+  const [dailyPlayerText, setDailyPlayerText] = useState({ text: "", code: "" });
+  const [wordListPlayerText, setWordListPlayerText] = useState({ text: "", code: "" });
+  const [grammarJump, setGrammarJump] = useState(null);
+  const aiSettings = { backendUrl, setBackendUrl };
+  const userStorageKey = `${STORAGE_KEY}:${user?.email || "guest"}`;
+  useEffect(() => {
+    requestGrammarJump = (word, sentence, langCode) => {
+      setGrammarJump({ word, sentence, langCode, token: Date.now() });
+      setTab("grammar");
+    };
+    return () => {
+      requestGrammarJump = null;
+    };
+  }, []);
+  const [leitnerCustomWords, setLeitnerCustomWords] = useState(() => loadLeitnerCustomWords());
+  const [leitnerWordsVersion, setLeitnerWordsVersion] = useState(0);
+  useEffect(() => {
+    setLeitnerCustomWords(loadLeitnerCustomWords());
+  }, [leitnerWordsVersion]);
+  useEffect(() => {
+    const refresh = () => setLeitnerCustomWords(loadLeitnerCustomWords());
+    window.addEventListener(LEITNER_CUSTOM_WORDS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(LEITNER_CUSTOM_WORDS_CHANGED_EVENT, refresh);
+  }, []);
+  useEffect(() => {
+    requestAddToLeitner = (word, langCode, meaning) => {
+      addLeitnerCustomWord(word, langCode, { meaning, nativeLang });
+      setLeitnerWordsVersion((v) => v + 1);
+    };
+    return () => {
+      requestAddToLeitner = null;
+    };
+  }, [nativeLang]);
+  const [savedWordsVersion, setSavedWordsVersion] = useState(0);
+  useEffect(() => {
+    const bump = () => setSavedWordsVersion((v) => v + 1);
+    window.addEventListener(SAVED_WORDS_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, bump);
+  }, []);
+  const wordsWithSaved = useMemo(() => {
+    const existing = new Set(WORDS_AZ.map((w) => normalizeWord(w.en)));
+    const extras = loadSavedStoryWords().filter((e) => e.langCode === "en" && !/\s/.test(normalizeWord(e.word))).filter((e) => !existing.has(normalizeWord(e.word))).map((e) => ({
+      id: `saved:${normalizeWord(e.word)}`,
+      en: e.word,
+      fa: e.translations && e.translations.fa || "",
+      level: lookupSavedWordLevel(e.word, "en") || null,
+      pos: null,
+      isUserSaved: true
+    }));
+    return extras.length ? [...extras, ...WORDS_AZ] : WORDS_AZ;
+  }, [savedWordsVersion]);
+  const favoritedWords = useMemo(() => {
+    const sources = [wordsWithSaved, NEWS_WORDS, DAILY_WORDS, SLANG_WORDS];
+    const seen = /* @__PURE__ */ new Set();
+    const result = [];
+    sources.forEach((list) => {
+      (list || []).forEach((w) => {
+        if (wordFavorites.has(w.id) && !seen.has(w.id)) {
+          seen.add(w.id);
+          result.push(w);
+        }
+      });
+    });
+    return result;
+  }, [wordsWithSaved, wordFavorites]);
+  const [grammarNotesVersion, setGrammarNotesVersion] = useState(0);
+  useEffect(() => {
+    const bump = () => setGrammarNotesVersion((v) => v + 1);
+    window.addEventListener(GRAMMAR_NOTES_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(GRAMMAR_NOTES_CHANGED_EVENT, bump);
+  }, []);
+  const [wordExamplesVersion, setWordExamplesVersion] = useState(0);
+  useEffect(() => {
+    const bump = () => setWordExamplesVersion((v) => v + 1);
+    window.addEventListener(WORD_EXAMPLES_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(WORD_EXAMPLES_CHANGED_EVENT, bump);
+  }, []);
+  const applySavedState = (saved, opts) => {
+    if (!saved) return;
+    const merge = !!(opts && opts.merge);
+    if (saved.nativeLang) setNativeLang(saved.nativeLang);
+    if (Array.isArray(saved.langPickerOrder) && saved.langPickerOrder.length) setLangPickerOrder(saved.langPickerOrder);
+    if (Array.isArray(saved.favorites)) setFavorites(new Set(saved.favorites));
+    if (Array.isArray(saved.wordFavorites)) setWordFavorites(new Set(saved.wordFavorites));
+    if (saved.boxes) setBoxes((prev) => ({ ...prev, ...saved.boxes }));
+    if (saved.wordStats) setWordStats(saved.wordStats);
+    if (saved.savedStories) {
+      if (merge) {
+        setSavedStories((prev) => {
+          const prevIds = new Set((prev || []).map((s) => s.id));
+          const additions = (saved.savedStories || []).filter((s) => s && !prevIds.has(s.id));
+          return additions.length ? [...additions, ...prev] : prev;
+        });
+      } else {
+        setSavedStories(saved.savedStories);
+      }
+    }
+    if (saved.dictHistory) setDictHistory(saved.dictHistory);
+    if (saved.backendUrl) setBackendUrl(saved.backendUrl);
+    if (Array.isArray(saved.savedStoryWords)) {
+      if (merge) {
+        mergeSavedStoryWordsFromCloud(saved.savedStoryWords);
+      } else {
+        try {
+          window.localStorage.setItem(SAVED_STORY_WORDS_KEY, JSON.stringify(saved.savedStoryWords));
+          window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
+        } catch {
+        }
+      }
+    }
+    if (Array.isArray(saved.grammarNotes)) {
+      if (merge) {
+        mergeGrammarNotesFromCloud(saved.grammarNotes);
+      } else {
+        try {
+          window.localStorage.setItem(GRAMMAR_NOTES_KEY, JSON.stringify(saved.grammarNotes));
+          window.dispatchEvent(new Event(GRAMMAR_NOTES_CHANGED_EVENT));
+        } catch {
+        }
+      }
+    }
+    if (saved.wordExamples) {
+      if (merge) {
+        mergeWordExamplesFromCloud(saved.wordExamples);
+      } else {
+        try {
+          window.localStorage.setItem(WORD_EXAMPLES_KEY, JSON.stringify(saved.wordExamples));
+          window.dispatchEvent(new Event(WORD_EXAMPLES_CHANGED_EVENT));
+        } catch {
+        }
+      }
+    }
+  };
+  useEffect(() => {
+    let cancelled = false;
+    setCloudChecked(false);
+    (async () => {
+      try {
+        const local = await storage.get(userStorageKey, false);
+        const savedLocal = local && local.value ? JSON.parse(local.value) : null;
+        if (!cancelled) applySavedState(savedLocal);
+      } catch (e) {
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+      if (user?.uid) {
+        try {
+          const cloud = await supabaseLoadState(user.uid);
+          if (!cancelled && cloud) applySavedState(cloud, { merge: true });
+        } catch (e) {
+        } finally {
+          if (!cancelled) setCloudChecked(true);
+        }
+      } else {
+        if (!cancelled) setCloudChecked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+  const pendingSaveRef = useRef(null);
+  useEffect(() => {
+    pendingSaveRef.current = () => {
+      const payload = {
+        nativeLang,
+        targetOrder,
+        langPickerOrder,
+        favorites: Array.from(favorites),
+        wordFavorites: Array.from(wordFavorites),
+        boxes,
+        wordStats,
+        savedStories,
+        dictHistory,
+        backendUrl,
+        savedStoryWords: loadSavedStoryWords(),
+        grammarNotes: loadGrammarNotes(),
+        wordExamples: loadAllWordExamples()
+      };
+      try {
+        window.localStorage.setItem(userStorageKey, JSON.stringify(payload));
+      } catch (e) {
+      }
+      if (user?.uid) supabaseSaveState(user.uid, payload);
+      return payload;
+    };
+  });
+  useEffect(() => {
+    if (!loaded || !cloudChecked) return;
+    const timeout = setTimeout(() => {
+      if (pendingSaveRef.current) pendingSaveRef.current();
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [nativeLang, targetOrder, langPickerOrder, favorites, wordFavorites, boxes, wordStats, savedStories, dictHistory, backendUrl, loaded, cloudChecked, userStorageKey, user?.uid, savedWordsVersion, grammarNotesVersion, wordExamplesVersion]);
+  useEffect(() => {
+    if (!loaded || !cloudChecked) return;
+    const flush = () => {
+      if (pendingSaveRef.current) pendingSaveRef.current();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+    };
+  }, [loaded, cloudChecked]);
+  const toggleTargetLang = (code) => {
+    setTargetOrder((prev) => {
+      if (prev.includes(code)) {
+        if (prev.length === 1) return prev;
+        return prev.filter((c) => c !== code);
+      }
+      return [...prev, code];
+    });
+  };
+  const toggleFavorite = (id) => {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  const toggleWordFavorite = (id) => {
+    setWordFavorites((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  const nativeLabel = LANGUAGES.find((l) => l.code === nativeLang)?.label;
+  const targetLangList = targetOrder.map((code) => LANGUAGES.find((l) => l.code === code)).filter(Boolean);
+  const targetLabel = targetLangList.map((l) => l.label).join("، ");
+  const reviewPool = useMemo(() => [...conversation, ...leitnerCustomWords], [leitnerCustomWords]);
+  const showPlayerBar = true;
+  const activeTabAudio = tab === "story" && storyPlayerText.text ? {
+    text: storyPlayerText.text,
+    code: storyPlayerText.code,
+    resolveStartOffset: () => consumeMainTextResumeOffset(`${TTS_LOCALE[storyPlayerText.code] || "en-US"}::${storyPlayerText.text}`)
+  } : tab === "conversations" && dailyPlayerText.text ? { text: dailyPlayerText.text, code: dailyPlayerText.code } : (tab === "words" || tab === "vocab" || tab === "slang" || tab === "favorites") && wordListPlayerText.text ? {
+    text: wordListPlayerText.text,
+    code: wordListPlayerText.code,
+    resolveStartOffset: () => consumeMainTextResumeOffset(`${TTS_LOCALE[wordListPlayerText.code] || "en-US"}::${wordListPlayerText.text}`)
+  } : null;
+  if (!loaded) {
+    return /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        dir: "rtl",
+        lang: "fa",
+        style: { fontFamily: fontFa, backgroundColor: colors.paper, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: colors.inkSoft }
+      },
+      /* @__PURE__ */ React.createElement("style", null, `@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap');`),
+      "در حال بارگذاری..."
+    );
+  }
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      dir: "rtl",
+      lang: "fa",
+      style: {
+        fontFamily: fontFa,
+        backgroundColor: colors.paper,
+        minHeight: "100vh",
+        color: colors.ink,
+        position: "relative"
+      }
+    },
+    /* @__PURE__ */ React.createElement(GlobalAddToStorySelection, { fallbackLangCode: nativeLang, nativeLang, nativeLabel, aiSettings }),
+    /* @__PURE__ */ React.createElement("style", null, `
+        @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Lora:ital@0;1&display=swap');
+        * { box-sizing: border-box; }
+        /* منوی بومیِ گوشی/مرورگر (کپی، اشتراک‌گذاری، انتخاب همه، جستجوی وب)
+           هیچ‌جای این برنامه لازم نیست — همه‌جا به‌جاش دکمه‌ی «افزودن به
+           داستان» خودمون (GlobalAddToStorySelection) هست. */
+        * { -webkit-touch-callout: none; }
+        ::selection { background: ${colors.goldSoft}; }
+        /* هایلایتِ محدوده‌ی انتخاب‌شده برای «افزودن به داستان» —
+           جایگزینِ انتخابِ بومیِ مرورگر (که فوراً پاک می‌شه)، تا رنگش
+           تا وقتی پاپ‌آپِ «ذخیره / گرامر» بازه سرِ جاش بمونه. */
+        ::highlight(hope-story-sel) { background-color: ${colors.goldSoft}; color: ${colors.ink}; }
+        .spin { animation: pb-spin 0.8s linear infinite; }
+        @keyframes pb-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `),
+    /* @__PURE__ */ React.createElement(
+      "header",
+      {
+        style: { backgroundColor: colors.ink, color: colors.paper },
+        className: "px-4 pt-6 pb-5"
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-end mb-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, user?.picture ? /* @__PURE__ */ React.createElement("img", { src: user.picture, alt: "", style: { width: 26, height: 26, borderRadius: "50%" } }) : /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          style: {
+            width: 26,
+            height: 26,
+            borderRadius: "50%",
+            background: colors.gold,
+            color: colors.ink,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 12,
+            fontWeight: 800
+          }
+        },
+        (user?.name || user?.email || "?").trim().charAt(0).toUpperCase()
+      ), /* @__PURE__ */ React.createElement(SettingsMenu, { appPrefs, setAppPrefs, user, onLogout, aiSettings }))),
+      /* @__PURE__ */ React.createElement("p", { style: { color: colors.goldSoft, fontSize: 13 } }, "از ", nativeLabel, " به ", targetLabel, " · ", user?.name || user?.email),
+      /* @__PURE__ */ React.createElement("div", { className: "mt-4" }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.paperDark, marginBottom: 6 } }, "زبان مادری (برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)"), /* @__PURE__ */ React.createElement(
+        DraggableLangRow,
+        {
+          order: langPickerOrder,
+          setOrder: (next) => {
+            setLangPickerOrder(next);
+            setTargetOrder((prev) => syncTargetOrderFromLangPicker(next, prev));
+          },
+          languages: PHRASEBOOK_LANGUAGES,
+          isActive: (code) => code === nativeLang,
+          onClick: (code) => setNativeLang(code)
+        }
+      ), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.paperDark, margin: "10px 0 6px" } }, "زبان‌های مقصد (چند تا رو می‌تونی هم‌زمان انتخاب کنی — برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)"), /* @__PURE__ */ React.createElement(
+        DraggableLangRow,
+        {
+          order: langPickerOrder,
+          setOrder: (next) => {
+            setLangPickerOrder(next);
+            setTargetOrder((prev) => syncTargetOrderFromLangPicker(next, prev));
+          },
+          languages: PHRASEBOOK_LANGUAGES,
+          isActive: (code) => targetOrder.includes(code),
+          onClick: (code) => toggleTargetLang(code)
+        }
+      ), targetLangList.length > 1 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.paperDark, margin: "10px 0 6px" } }, "ترتیب نمایش ترجمه‌ها (بکش تا جابجا بشه)"), /* @__PURE__ */ React.createElement(
+        OrderChips,
+        {
+          order: targetOrder,
+          languages: PHRASEBOOK_LANGUAGES,
+          onReorder: (next) => {
+            setTargetOrder(next);
+            setLangPickerOrder((prev) => syncLangPickerFromTargetOrder(prev, next));
+          },
+          onRemove: toggleTargetLang
+        }
+      )))
+    ),
+    /* @__PURE__ */ React.createElement("nav", { className: "flex gap-2 px-4 py-3 overflow-x-auto", style: { backgroundColor: colors.paperDark } }, /* @__PURE__ */ React.createElement(TabButton, { label: tr("tabConversations", appPrefs.uiLang), icon: MessageCircle, active: tab === "conversations", onClick: () => setTab("conversations"), fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }), /* @__PURE__ */ React.createElement(TabButton, { label: tr("tabStory", appPrefs.uiLang), icon: Sparkles, active: tab === "story", onClick: () => setTab("story"), fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }), /* @__PURE__ */ React.createElement(TabButton, { label: tr("tabSaved", appPrefs.uiLang), icon: Bookmark, active: tab === "saved", onClick: () => setTab("saved"), fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }), /* @__PURE__ */ React.createElement(TabButton, { label: tr("tabGrammar", appPrefs.uiLang), icon: Type, active: tab === "grammar", onClick: () => setTab("grammar"), fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }), /* @__PURE__ */ React.createElement(TabButton, { label: tr("tabWords", appPrefs.uiLang), icon: Layers, active: tab === "words", onClick: () => setTab("words"), fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }), /* @__PURE__ */ React.createElement(TabButton, { label: tr("tabFavorites", appPrefs.uiLang), icon: Heart, active: tab === "favorites", onClick: () => setTab("favorites"), fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }), /* @__PURE__ */ React.createElement(TabButton, { label: tr("tabVocab", appPrefs.uiLang), icon: Newspaper, active: tab === "vocab", onClick: () => setTab("vocab"), fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }), /* @__PURE__ */ React.createElement(TabButton, { label: tr("tabSlang", appPrefs.uiLang), icon: Sparkles, active: tab === "slang", onClick: () => setTab("slang"), fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }), /* @__PURE__ */ React.createElement(TabButton, { label: tr("tabDictionary", appPrefs.uiLang), icon: Search, active: tab === "dictionary", onClick: () => setTab("dictionary"), fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }), /* @__PURE__ */ React.createElement(TabButton, { label: tr("tabReview", appPrefs.uiLang), icon: RotateCcw, active: tab === "review", onClick: () => {
+      setTab("review");
+      setReviewIndex(0);
+      setShowAnswer(false);
+    }, fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa })),
+    (tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "slang") && /* @__PURE__ */ React.createElement("div", { className: "px-4 pt-3" }, /* @__PURE__ */ React.createElement(LevelFilterRow, { levelFilter, setLevelFilter })),
+    (tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "slang") && /* @__PURE__ */ React.createElement("div", { className: "px-4 pt-3" }, /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        className: "flex items-center gap-2 px-3",
+        style: { backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 20, height: 40 }
+      },
+      /* @__PURE__ */ React.createElement(Search, { size: 16, color: colors.inkSoft }),
+      /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          value: query,
+          onChange: (e) => setQuery(e.target.value),
+          placeholder: tab === "words" || tab === "vocab" || tab === "slang" ? tr("searchWordsPlaceholder", appPrefs.uiLang) : tab === "conversations" ? tr("searchConversationsPlaceholder", appPrefs.uiLang) : tr("searchPhrasesPlaceholder", appPrefs.uiLang),
+          style: { flex: 1, fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa, border: "none", outline: "none", fontSize: 14, backgroundColor: "transparent" }
+        }
+      ),
+      query && /* @__PURE__ */ React.createElement("button", { onClick: () => setQuery(""), "aria-label": "پاک کردن جستجو" }, /* @__PURE__ */ React.createElement(X, { size: 16, color: colors.inkSoft }))
+    )),
+    /* @__PURE__ */ React.createElement(
+      "main",
+      {
+        className: "px-4 py-4",
+        style: {
+          // نوارِ «تمرین جمله‌سازی» حالا همیشه چسبیده به کفِ صفحه‌ست (بالای
+          // پلیر) و توی همه‌ی تب‌ها دیده می‌شه، پس محتوای اصلی باید به
+          // اندازه‌ی ارتفاعِ واقعیِ همون نوار (practicePanelHeight، که با
+          // ResizeObserver اندازه‌گیری می‌شه) از پایین فاصله بگیره تا زیرِ
+          // نوار گم نشه.
+          paddingBottom: (showPlayerBar ? 150 : 96) + practicePanelHeight
+        }
+      },
+      tab === "conversations" && /* @__PURE__ */ React.createElement(
+        DailyConversationsTab,
+        {
+          data: DAILY_CONVERSATIONS,
+          query,
+          uiLang: appPrefs.uiLang || "fa",
+          nativeLang,
+          nativeLabel,
+          aiSettings,
+          ClickableSentence,
+          SpeakButton,
+          targetLangs: targetLangList,
+          translateFree,
+          getCachedTranslationMap,
+          levelFilter,
+          speechController,
+          onFullTextChange: setDailyPlayerText,
+          autoScrollActive: tab === "conversations",
+          highlightColor: appPrefs.highlightColor
+        }
+      ),
+      tab === "favorites" && /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-6" }, favorites.size === 0 && favoritedWords.length === 0 ? /* @__PURE__ */ React.createElement("p", { style: { color: colors.inkSoft, fontSize: 14, textAlign: "center", marginTop: 40 } }, tr("noFavoritesYet", appPrefs.uiLang)) : /* @__PURE__ */ React.createElement(React.Fragment, null, favorites.size > 0 && /* @__PURE__ */ React.createElement(
+        PhraseList,
+        {
+          conversation: conversation.filter((p) => favorites.has(p.id)),
+          nativeLang,
+          targetLangs: targetLangList,
+          favorites,
+          toggleFavorite,
+          query,
+          levelFilter,
+          aiSettings,
+          autoplayEnabled: tab === "favorites",
+          emptyText: "",
+          uiLang: appPrefs.uiLang,
+          onFullTextChange: setWordListPlayerText,
+          autoScrollActive: tab === "favorites",
+          highlightColor: appPrefs.highlightColor
+        }
+      ), favoritedWords.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { color: colors.gold, fontWeight: 700, fontSize: 13, marginBottom: 8 } }, tr("favoritesWordsHeading", appPrefs.uiLang)), /* @__PURE__ */ React.createElement(
+        WordList,
+        {
+          words: favoritedWords,
+          wordFavorites,
+          toggleWordFavorite,
+          query,
+          levelFilter,
+          emptyText: "",
+          uiLang: appPrefs.uiLang,
+          nativeLang,
+          nativeLabel,
+          targetLangs: targetLangList,
+          aiSettings,
+          ClickableSentence,
+          autoplayEnabled: tab === "favorites",
+          onFullTextChange: favorites.size > 0 ? void 0 : setWordListPlayerText,
+          autoScrollActive: tab === "favorites",
+          highlightColor: appPrefs.highlightColor,
+          jumpTarget: wordJumpTarget
+        }
+      )))),
+      tab === "words" && /* @__PURE__ */ React.createElement(
+        WordList,
+        {
+          words: wordsWithSaved,
+          wordFavorites,
+          toggleWordFavorite,
+          query,
+          levelFilter,
+          emptyText: tr("noWordsInList", appPrefs.uiLang),
+          uiLang: appPrefs.uiLang,
+          nativeLang,
+          nativeLabel,
+          targetLangs: targetLangList,
+          aiSettings,
+          ClickableSentence,
+          autoplayEnabled: tab === "words",
+          onFullTextChange: setWordListPlayerText,
+          autoScrollActive: tab === "words",
+          highlightColor: appPrefs.highlightColor,
+          jumpTarget: wordJumpTarget
+        }
+      ),
+      tab === "vocab" && /* @__PURE__ */ React.createElement(
+        WordList,
+        {
+          words: NEWS_WORDS,
+          wordFavorites,
+          toggleWordFavorite,
+          query,
+          levelFilter,
+          emptyText: tr("noWordsInList", appPrefs.uiLang),
+          uiLang: appPrefs.uiLang,
+          nativeLang,
+          nativeLabel,
+          targetLangs: targetLangList,
+          aiSettings,
+          ClickableSentence,
+          autoplayEnabled: tab === "vocab",
+          onFullTextChange: setWordListPlayerText,
+          autoScrollActive: tab === "vocab",
+          highlightColor: appPrefs.highlightColor,
+          jumpTarget: wordJumpTarget
+        }
+      ),
+      tab === "slang" && /* @__PURE__ */ React.createElement(
+        WordList,
+        {
+          words: SLANG_WORDS,
+          wordFavorites,
+          toggleWordFavorite,
+          query,
+          levelFilter,
+          emptyText: tr("noWordsInList", appPrefs.uiLang),
+          uiLang: appPrefs.uiLang,
+          nativeLang,
+          nativeLabel,
+          targetLangs: targetLangList,
+          aiSettings,
+          ClickableSentence,
+          autoplayEnabled: tab === "slang",
+          onFullTextChange: setWordListPlayerText,
+          autoScrollActive: tab === "slang",
+          highlightColor: appPrefs.highlightColor,
+          jumpTarget: wordJumpTarget
+        }
+      ),
+      tab === "review" && /* @__PURE__ */ React.createElement(
+        ReviewBox,
+        {
+          conversation: reviewPool,
+          boxes,
+          setBoxes,
+          nativeLang,
+          targetLangs: targetLangList,
+          index: reviewIndex,
+          setIndex: setReviewIndex,
+          showAnswer,
+          setShowAnswer
+        }
+      ),
+      tab === "dictionary" && /* @__PURE__ */ React.createElement(
+        Dictionary,
+        {
+          nativeLang,
+          nativeLabel,
+          dictHistory,
+          setDictHistory,
+          aiSettings
+        }
+      ),
+      tab === "saved" && /* @__PURE__ */ React.createElement(
+        SavedWordsPanel,
+        {
+          uiLang: appPrefs.uiLang,
+          nativeLang,
+          nativeLabel,
+          targetOrder,
+          dictHistory,
+          setDictHistory,
+          onGoToDictionary: () => setTab("dictionary"),
+          onJumpToStory: (lang, words) => {
+            setStoryJump({ lang, words, token: Date.now() });
+          },
+          onJumpToOrigin: (entry) => {
+            const originTab = entry && entry.origin && entry.origin.tab;
+            if (!originTab) return false;
+            setTab(originTab);
+            if (originTab === "story" && entry.origin.pi != null) {
+              setStoryJump({
+                storyId: entry.origin.storyId ?? null,
+                pi: entry.origin.pi,
+                si: entry.origin.si ?? null,
+                token: Date.now()
+              });
+            }
+            if (["words", "vocab", "slang", "favorites"].includes(originTab) && entry.origin.id != null) {
+              setLevelFilter("all");
+              setQuery("");
+              setWordJumpTarget({ id: entry.origin.id, token: Date.now() });
+            } else if (["conversations", "words", "favorites", "vocab", "slang"].includes(originTab)) {
+              setQuery(entry.word);
+            }
+            return true;
+          }
+        }
+      ),
+      /* @__PURE__ */ React.createElement("div", { style: { display: tab === "grammar" ? "block" : "none" } }, /* @__PURE__ */ React.createElement(
+        GrammarPanel,
+        {
+          nativeLang,
+          nativeLabel,
+          targetOrder,
+          aiSettings,
+          jumpTo: grammarJump,
+          playerBarHeight: showPlayerBar ? playerBarHeight : 0,
+          practiceOpacity,
+          setPracticeOpacity,
+          onPracticePanelHeightChange: setPracticePanelHeight
+        }
+      )),
+      /* @__PURE__ */ React.createElement("div", { style: { display: tab === "story" ? "block" : "none" } }, /* @__PURE__ */ React.createElement(
+        StoryBuilder,
+        {
+          nativeLang,
+          nativeLabel,
+          targetOrder,
+          wordStats,
+          setWordStats,
+          savedStories,
+          setSavedStories,
+          aiSettings,
+          jumpTo: storyJump,
+          onFullTextChange: setStoryPlayerText,
+          autoScrollActive: tab === "story",
+          calendarSystem: appPrefs.calendarSystem || "jalali",
+          highlightColor: appPrefs.highlightColor,
+          uid: user?.uid
+        }
+      ))
+    ),
+    showPlayerBar && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        ref: playerBarRef,
+        onMouseDown: (e) => startPlayerLongPress(e.clientX, e.clientY),
+        onMouseMove: (e) => movePlayerLongPress(e.clientX, e.clientY),
+        onMouseUp: clearPlayerLongPress,
+        onMouseLeave: clearPlayerLongPress,
+        onTouchStart: (e) => {
+          const t = e.touches[0];
+          if (t) startPlayerLongPress(t.clientX, t.clientY);
+        },
+        onTouchMove: (e) => {
+          const t = e.touches[0];
+          if (t) movePlayerLongPress(t.clientX, t.clientY);
+        },
+        onTouchEnd: clearPlayerLongPress,
+        onTouchCancel: clearPlayerLongPress,
+        onClickCapture: handlePlayerClickCapture,
+        onContextMenu: (e) => {
+          if (playerLongPressRef.current.fired) e.preventDefault();
+        },
+        style: {
+          position: "fixed",
+          left: 0,
+          right: 0,
+          bottom: practicePanelHeight,
+          zIndex: 40,
+          backgroundColor: colors.paper,
+          opacity: playerOpacity / 100,
+          borderTop: `1px solid ${colors.cardBorder}`,
+          boxShadow: "0 -4px 14px rgba(28,37,65,0.12)",
+          WebkitUserSelect: "none",
+          userSelect: "none",
+          WebkitTouchCallout: "none"
+        }
+      },
+      /* @__PURE__ */ React.createElement(PlayerProgressTrack, { color: colors.gold }),
+      /* @__PURE__ */ React.createElement("div", { className: "px-4", style: { paddingTop: 2, paddingBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-around" } }, /* @__PURE__ */ React.createElement(RepeatButton, { color: colors.gold }), /* @__PURE__ */ React.createElement(RestartButton, { color: colors.gold, startText: activeTabAudio?.text, startCode: activeTabAudio?.code }), /* @__PURE__ */ React.createElement(ChunkNavButton, { direction: "prev", color: colors.ink }), /* @__PURE__ */ React.createElement(
+        MainPlayButton,
+        {
+          startText: activeTabAudio?.text,
+          startCode: activeTabAudio?.code,
+          resolveStartOffset: activeTabAudio?.resolveStartOffset,
+          color: colors.teal
+        }
+      ), /* @__PURE__ */ React.createElement(ChunkNavButton, { direction: "next", color: colors.ink }), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => setShowPlayerSettings((v) => !v),
+          "aria-label": "تنظیماتِ پلیر",
+          title: "تنظیماتِ پلیر (شفافیت)",
+          style: {
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: showPlayerSettings ? colors.gold : colors.ink,
+            padding: 6,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0
+          }
+        },
+        /* @__PURE__ */ React.createElement(ListMusic, { size: 20 })
+      )),
+      showPlayerSettings && /* @__PURE__ */ React.createElement("div", { className: "px-4 flex items-center gap-2", style: { paddingTop: 2, paddingBottom: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" } }, "شفافیت پلیر"), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "range",
+          min: 0,
+          max: 100,
+          value: playerOpacity,
+          onChange: (e) => setPlayerOpacity(Number(e.target.value)),
+          "aria-label": "شفافیت پلیر",
+          style: { flex: 1, accentColor: colors.gold }
+        }
+      ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" } }, playerOpacity, "%"))
+    ), playerOpacity <= 7 && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setPlayerOpacity(100),
+        "aria-label": "بازنشانی شفافیت پلیر به ۱۰۰٪",
+        title: "بازنشانی شفافیت",
+        style: {
+          position: "fixed",
+          left: 10,
+          bottom: practicePanelHeight + 10,
+          zIndex: 41,
+          width: 34,
+          height: 34,
+          borderRadius: "50%",
+          border: `1px solid ${colors.cardBorder}`,
+          backgroundColor: colors.paper,
+          color: colors.gold,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: "0 2px 8px rgba(28,37,65,0.25)",
+          opacity: 1
+        }
+      },
+      /* @__PURE__ */ React.createElement(RotateCcw, { size: 16 })
+    ))
+  );
+}
+function PhraseList({ conversation: conversation2, nativeLang, targetLangs, favorites, toggleFavorite, emptyText, query, levelFilter, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, highlightColor, uiLang }) {
+  const q = (query || "").trim().toLowerCase();
+  let filtered = levelFilter && levelFilter !== "all" ? conversation2.filter((p) => p.level === levelFilter) : conversation2;
+  filtered = q ? filtered.filter((p) => {
+    const nativeText = (p.t[nativeLang] || "").toLowerCase();
+    if (nativeText.includes(q)) return true;
+    return targetLangs.some((l) => (p.t[l.code] || "").toLowerCase().includes(q));
+  }) : filtered;
+  const firstTargetCode = targetLangs[0]?.code;
+  const autoplayItems = filtered.map((p) => ({ id: p.id, text: firstTargetCode ? p.t[firstTargetCode] : "", code: firstTargetCode }));
+  const { registerRef } = useAutoplayOnScroll(autoplayEnabled, autoplayItems);
+  const fullText = firstTargetCode ? filtered.map((p) => p.t[firstTargetCode] || "").join(" ") : "";
+  const translationInfo = useMemo(() => {
+    const info = {};
+    targetLangs.forEach((l) => {
+      let offset = 0;
+      const parts = [];
+      const offsets = [];
+      filtered.forEach((p) => {
+        const val = p.t[l.code];
+        if (!val) return;
+        const start = offset;
+        parts.push(val);
+        offset += val.length + 1;
+        offsets.push({ id: p.id, start, end: start + val.length });
+      });
+      info[l.code] = { fullText: parts.join(" "), offsets };
+    });
+    return info;
+  }, [filtered, targetLangs]);
+  const nativeInfo = useMemo(() => {
+    let offset = 0;
+    const parts = [];
+    const offsets = [];
+    filtered.forEach((p) => {
+      const val = p.t[nativeLang];
+      if (!val) return;
+      const start = offset;
+      parts.push(val);
+      offset += val.length + 1;
+      offsets.push({ id: p.id, start, end: start + val.length });
+    });
+    return { fullText: parts.join(" "), offsets };
+  }, [filtered, nativeLang]);
+  useEffect(() => {
+    if (onFullTextChange) onFullTextChange({ text: fullText, code: firstTargetCode });
+  }, [fullText]);
+  useEffect(() => {
+    return () => {
+      if (onFullTextChange) onFullTextChange({ text: "", code: "" });
+    };
+  }, []);
+  const [activeTranslation, setActiveTranslation] = useState(null);
+  useEffect(() => {
+    const update = (state) => {
+      if (!state.key || state.status === "idle") {
+        setActiveTranslation(null);
+        return;
+      }
+      if (nativeInfo && nativeInfo.fullText) {
+        const nativeKey = `${TTS_LOCALE[nativeLang] || "en-US"}::${nativeInfo.fullText}`;
+        if (state.key === nativeKey) {
+          const offset = speechController.getCharOffset();
+          let found = nativeInfo.offsets[0] || null;
+          for (const p of nativeInfo.offsets) {
+            if (offset >= p.start) found = p;
+            else break;
+          }
+          setActiveTranslation((prev) => {
+            if (prev && prev.code === nativeLang && found && prev.id === found.id) return prev;
+            return found ? { code: nativeLang, id: found.id } : null;
+          });
+          return;
+        }
+      }
+      for (const l of targetLangs) {
+        const info = translationInfo[l.code];
+        if (!info || !info.fullText) continue;
+        const myKey = `${TTS_LOCALE[l.code] || "en-US"}::${info.fullText}`;
+        if (state.key !== myKey) continue;
+        const offset = speechController.getCharOffset();
+        let found = info.offsets[0] || null;
+        for (const p of info.offsets) {
+          if (offset >= p.start) found = p;
+          else break;
+        }
+        setActiveTranslation((prev) => {
+          if (prev && prev.code === l.code && found && prev.id === found.id) return prev;
+          return found ? { code: l.code, id: found.id } : null;
+        });
+        return;
+      }
+      setActiveTranslation(null);
+    };
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [targetLangs, translationInfo, nativeInfo, nativeLang]);
+  const activePhraseId = activeTranslation ? activeTranslation.id : null;
+  const phraseNodeMapRef = useRef(/* @__PURE__ */ new Map());
+  useEffect(() => {
+    if (!autoScrollActive || activePhraseId == null) return;
+    const node = phraseNodeMapRef.current.get(String(activePhraseId));
+    if (node && node.scrollIntoView) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [autoScrollActive, activePhraseId]);
+  const registerPhraseRef = (id) => (node) => {
+    const key = String(id);
+    if (node) phraseNodeMapRef.current.set(key, node);
+    else phraseNodeMapRef.current.delete(key);
+  };
+  if (filtered.length === 0) {
+    return /* @__PURE__ */ React.createElement("p", { style: { color: colors.inkSoft, fontSize: 14, textAlign: "center", marginTop: 40 } }, q ? tr("noPhrasesForSearch", uiLang) : emptyText || tr("noPhrasesToShow", uiLang));
+  }
+  const grouped = filtered.reduce((acc, p) => {
+    acc[p.category] = acc[p.category] || [];
+    acc[p.category].push(p);
+    return acc;
+  }, {});
+  return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-6" }, Object.entries(grouped).map(([cat, items]) => /* @__PURE__ */ React.createElement("section", { key: cat }, /* @__PURE__ */ React.createElement("h2", { style: { color: colors.gold, fontWeight: 700, fontSize: 13, marginBottom: 8 } }, categoryLabel(cat, uiLang)), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-2" }, items.map((p) => /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      key: p.id,
+      ref: (el) => {
+        registerRef(p.id)(el);
+        registerPhraseRef(p.id)(el);
+      },
+      className: "flex items-center justify-between p-3 rounded-lg",
+      style: {
+        backgroundColor: activePhraseId === p.id ? highlightColor || READ_MARKER_COLOR : "white",
+        border: `1px solid ${colors.cardBorder}`,
+        transition: "background-color 0.35s ease"
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { className: "flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2", style: { direction: "ltr" } }, p.level && /* @__PURE__ */ React.createElement(LevelBadge, { level: p.level }), /* @__PURE__ */ React.createElement(
+      "p",
+      {
+        style: {
+          flex: 1,
+          fontWeight: 800,
+          fontSize: 15,
+          color: mainTextColor,
+          backgroundColor: activeTranslation && activeTranslation.code === nativeLang && activeTranslation.id === p.id ? highlightColor || READ_MARKER_COLOR : "transparent",
+          borderRadius: 5,
+          padding: activeTranslation && activeTranslation.code === nativeLang && activeTranslation.id === p.id ? "2px 4px" : "2px 0",
+          transition: "background-color 0.35s ease"
+        }
+      },
+      p.t[nativeLang]
+    ), /* @__PURE__ */ React.createElement(
+      SpeakButton,
+      {
+        text: p.t[nativeLang],
+        code: nativeLang,
+        edge: "end",
+        fullText: nativeInfo.fullText,
+        startOffset: nativeInfo.offsets.find((o) => o.id === p.id)?.start
+      }
+    )), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-1", style: { marginTop: 4 } }, targetLangs.map((l) => {
+      const info = translationInfo[l.code];
+      const myOffset = info && info.offsets.find((o) => o.id === p.id);
+      const isTransActive = activeTranslation && activeTranslation.code === l.code && activeTranslation.id === p.id;
+      return /* @__PURE__ */ React.createElement("div", { key: l.code, style: { display: "flex", alignItems: "center", gap: 8, direction: "ltr" } }, /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          style: {
+            fontFamily: fontFa,
+            fontSize: 10,
+            fontWeight: 700,
+            color: colors.gold,
+            border: `1px solid ${colors.goldSoft}`,
+            borderRadius: 6,
+            padding: "1px 5px",
+            flexShrink: 0
+          }
+        },
+        l.abbr
+      ), /* @__PURE__ */ React.createElement(
+        "p",
+        {
+          style: {
+            flex: 1,
+            fontWeight: 800,
+            color: translationColor,
+            backgroundColor: isTransActive ? highlightColor || READ_MARKER_COLOR : "transparent",
+            borderRadius: 5,
+            padding: isTransActive ? "2px 4px" : "2px 0",
+            transition: "background-color 0.35s ease"
+          }
+        },
+        p.t[l.code] ? /* @__PURE__ */ React.createElement(
+          ClickableSentence,
+          {
+            text: p.t[l.code],
+            langCode: l.code,
+            nativeLang,
+            aiSettings,
+            color: translationColor
+          }
+        ) : "—"
+      ), p.t[l.code] && /* @__PURE__ */ React.createElement(
+        SpeakButton,
+        {
+          text: p.t[l.code],
+          code: l.code,
+          color: translationColor,
+          edge: "end",
+          fullText: info ? info.fullText : void 0,
+          startOffset: myOffset ? myOffset.start : void 0
+        }
+      ));
+    }))),
+    /* @__PURE__ */ React.createElement("button", { onClick: () => toggleFavorite(p.id), "aria-label": tr("addToFavoritesAria", uiLang), style: { marginRight: 4 } }, /* @__PURE__ */ React.createElement(
+      Star,
+      {
+        size: 20,
+        color: colors.gold,
+        fill: favorites.has(p.id) ? colors.gold : "none"
+      }
+    ))
+  ))))));
+}
+function VocabList({ words, nativeLang, targetLangs, levelFilter, aiSettings, autoplayEnabled }) {
+  const [openIds, setOpenIds] = useState(/* @__PURE__ */ new Set());
+  const toggleOpen = (id) => {
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  const filtered = levelFilter && levelFilter !== "all" ? words.filter((w) => w.level === levelFilter) : words;
+  const autoplayItems = filtered.map((w) => ({ id: w.id, text: w.t[nativeLang] ?? w.t.fa, code: nativeLang }));
+  const { registerRef } = useAutoplayOnScroll(autoplayEnabled, autoplayItems);
+  if (filtered.length === 0) {
+    return /* @__PURE__ */ React.createElement("p", { style: { color: colors.inkSoft, fontSize: 14, textAlign: "center", marginTop: 40 } }, "در این سطح لغتی نیست.");
+  }
+  return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-2" }, filtered.map((w) => {
+    const isOpen = openIds.has(w.id);
+    return /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: w.id,
+        ref: registerRef(w.id),
+        onClick: () => toggleOpen(w.id),
+        className: "p-3 rounded-lg",
+        style: { backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, cursor: "pointer" }
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 800, fontSize: 16, color: mainTextColor } }, w.t[nativeLang] ?? w.t.fa), /* @__PURE__ */ React.createElement(SpeakButton, { text: w.t[nativeLang] ?? w.t.fa, code: nativeLang })), /* @__PURE__ */ React.createElement(LevelBadge, { level: w.level })),
+      isOpen && /* @__PURE__ */ React.createElement("div", { className: "mt-2 pt-2", style: { borderTop: `1px dashed ${colors.cardBorder}` } }, /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.gold, fontWeight: 700, marginBottom: 4 } }, POS_FA[w.pos] || w.pos), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, color: colors.inkSoft, marginBottom: 8 } }, w.meaningFa), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-1" }, targetLangs.map((l) => /* @__PURE__ */ React.createElement("div", { key: l.code, style: { display: "flex", alignItems: "center", gap: 8, direction: "ltr" } }, /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          style: {
+            fontFamily: fontFa,
+            fontSize: 10,
+            fontWeight: 700,
+            color: colors.gold,
+            border: `1px solid ${colors.goldSoft}`,
+            borderRadius: 6,
+            padding: "1px 5px",
+            flexShrink: 0
+          }
+        },
+        l.abbr
+      ), /* @__PURE__ */ React.createElement("p", { style: { flex: 1, fontWeight: 800, color: translationColor } }, w.t[l.code] ? /* @__PURE__ */ React.createElement(
+        ClickableSentence,
+        {
+          text: w.t[l.code],
+          langCode: l.code,
+          nativeLang,
+          aiSettings,
+          color: translationColor,
+          originExtra: { id: w.id }
+        }
+      ) : "—"), w.t[l.code] && /* @__PURE__ */ React.createElement(SpeakButton, { text: w.t[l.code], code: l.code, color: translationColor, edge: "end" }))))),
+      !isOpen && /* @__PURE__ */ React.createElement("p", { style: { color: colors.cardBorder, fontSize: 11, marginTop: 4 } }, "(برای دیدن معنی لمس کن)")
+    );
+  }));
+}
+const STORY_SELECTION_HIGHLIGHT = "hope-story-sel";
+function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, nativeLabel, aiSettings }) {
+  const [popup, setPopup] = useState(null);
+  const [translation, setTranslation] = useState(null);
+  const popupElRef = useRef(null);
+  const openedAtRef = useRef(0);
+  const HOLD_TO_OPEN_MS = 160;
+  const pendingRef = useRef(null);
+  const holdRef = useRef({ timer: null, startX: 0, startY: 0 });
+  const [pendingActive, setPendingActive] = useState(false);
+  const clearHold = () => {
+    if (holdRef.current.timer) {
+      clearTimeout(holdRef.current.timer);
+      holdRef.current.timer = null;
+    }
+  };
+  const [measuredHeight, setMeasuredHeight] = useState(null);
+  const [speakState, setSpeakState] = useState(() => speechController.getState());
+  useEffect(() => speechController.subscribe(setSpeakState), []);
+  const [popupSpeakMsg, setPopupSpeakMsg] = useState(null);
+  useEffect(() => {
+    if (!popupSpeakMsg) return;
+    const t = setTimeout(() => setPopupSpeakMsg(null), 5e3);
+    return () => clearTimeout(t);
+  }, [popupSpeakMsg]);
+  const clearSelectionHighlight = () => {
+    try {
+      if (typeof CSS !== "undefined" && CSS.highlights) {
+        CSS.highlights.delete(STORY_SELECTION_HIGHLIGHT);
+      }
+    } catch {
+    }
+  };
+  const clearPending = () => {
+    pendingRef.current = null;
+    clearHold();
+    setPendingActive(false);
+    clearSelectionHighlight();
+  };
+  const closePopup = () => {
+    setPopup(null);
+    setTranslation(null);
+    clearSelectionHighlight();
+  };
+  const isGhostEvent = () => Date.now() - openedAtRef.current < 250;
+  useLayoutEffect(() => {
+    if (!popup || !popupElRef.current) return;
+    setMeasuredHeight(popupElRef.current.offsetHeight);
+  }, [popup, translation]);
+  useEffect(() => {
+    if (!popup) return;
+    const targetLang = nativeLang || fallbackLangCode;
+    if (targetLang === popup.langCode) {
+      setTranslation(null);
+      return;
+    }
+    let cancelled = false;
+    setTranslation({ status: "loading" });
+    translateFree(popup.text, targetLang, popup.langCode, aiSettings).then((result) => {
+      if (cancelled) return;
+      const clean = (result || "").trim();
+      if (clean && clean !== popup.text.trim()) {
+        setTranslation({ status: "done", text: clean });
+      } else {
+        setTranslation({ status: "error" });
+      }
+    }).catch(() => {
+      if (!cancelled) setTranslation({ status: "error" });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [popup, nativeLang, fallbackLangCode, aiSettings]);
+  function retryTranslation() {
+    if (!popup) return;
+    const targetLang = nativeLang || fallbackLangCode;
+    setTranslation({ status: "loading" });
+    translateFree(popup.text, targetLang, popup.langCode, aiSettings).then((result) => {
+      const clean = (result || "").trim();
+      setTranslation(clean && clean !== popup.text.trim() ? { status: "done", text: clean } : { status: "error" });
+    }).catch(() => setTranslation({ status: "error" }));
+  }
+  const [saved, setSaved] = useState(false);
+  const [grammarSaved, setGrammarSaved] = useState(false);
+  useEffect(() => {
+    const resolveLangCode = (node) => {
+      const el = node && node.nodeType === 1 ? node : node?.parentElement;
+      const host = el && el.closest ? el.closest("[data-lang-code]") : null;
+      return host && host.getAttribute("data-lang-code") || fallbackLangCode;
+    };
+    const handleUp = (e) => {
+      if (e && e.target) {
+        if (popupElRef.current && popupElRef.current.contains(e.target)) return;
+        if (e.target.closest && e.target.closest("[data-hope-selection-overlay]")) return;
+      }
+      const sel = window.getSelection && window.getSelection();
+      const selectedText = sel ? sel.toString().trim() : "";
+      if (!selectedText || !sel.rangeCount) return;
+      const active = document.activeElement;
+      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) return;
+      closePopup();
+      let rect;
+      let range;
+      try {
+        range = sel.getRangeAt(0);
+        rect = range.getBoundingClientRect();
+      } catch {
+        return;
+      }
+      if (!rect || !rect.width && !rect.height) return;
+      const langCode = resolveLangCode(sel.anchorNode);
+      let storyResumeOffset = null;
+      try {
+        const endEl = range.endContainer && range.endContainer.nodeType === 1 ? range.endContainer : range.endContainer?.parentElement;
+        const storyEl = endEl && endEl.closest ? endEl.closest("[data-story-base-offset]") : null;
+        if (storyEl) {
+          const measureRange = document.createRange();
+          measureRange.selectNodeContents(storyEl);
+          measureRange.setEnd(range.endContainer, range.endOffset);
+          const localEnd = measureRange.toString().length;
+          const baseOffset = Number(storyEl.getAttribute("data-story-base-offset")) || 0;
+          storyResumeOffset = baseOffset + localEnd;
+        }
+      } catch {
+      }
+      try {
+        if (typeof CSS !== "undefined" && CSS.highlights && typeof Highlight === "function") {
+          const highlightRange = sel.getRangeAt(0).cloneRange();
+          CSS.highlights.set(STORY_SELECTION_HIGHLIGHT, new Highlight(highlightRange));
+        }
+      } catch {
+      }
+      setSaved(isWordSaved(selectedText, langCode));
+      setGrammarSaved(false);
+      setMeasuredHeight(null);
+      let rects = [];
+      try {
+        rects = Array.from(range.getClientRects()).map((r) => ({ top: r.top, left: r.left, width: r.width, height: r.height }));
+      } catch {
+      }
+      pendingRef.current = { top: rect.top, left: rect.left + rect.width / 2, text: selectedText, langCode, storyResumeOffset, rects };
+      setPendingActive(true);
+      try {
+        window.getSelection()?.removeAllRanges?.();
+      } catch {
+      }
+    };
+    const handleContextMenu = (e) => {
+      const el = e.target;
+      const isEditable = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+      if (isEditable) return;
+      e.preventDefault();
+    };
+    const handleScroll = () => {
+      closePopup();
+      clearPending();
+    };
+    document.addEventListener("mouseup", handleUp);
+    document.addEventListener("touchend", handleUp);
+    document.addEventListener("contextmenu", handleContextMenu);
+    window.addEventListener("scroll", handleScroll, true);
+    return () => {
+      document.removeEventListener("mouseup", handleUp);
+      document.removeEventListener("touchend", handleUp);
+      document.removeEventListener("contextmenu", handleContextMenu);
+      window.removeEventListener("scroll", handleScroll, true);
+      clearSelectionHighlight();
+    };
+  }, [fallbackLangCode]);
+  const startHold = (x, y) => {
+    if (!pendingRef.current || popupElRef.current) return;
+    clearHold();
+    holdRef.current.startX = x;
+    holdRef.current.startY = y;
+    holdRef.current.timer = setTimeout(() => {
+      const p = pendingRef.current;
+      if (!p) return;
+      openedAtRef.current = Date.now();
+      setPopup(p);
+      pendingRef.current = null;
+      setPendingActive(false);
+    }, HOLD_TO_OPEN_MS);
+  };
+  const moveHold = (x, y) => {
+    if (!holdRef.current.timer) return;
+    const dx = Math.abs(x - holdRef.current.startX);
+    const dy = Math.abs(y - holdRef.current.startY);
+    if (dx > 12 || dy > 12) clearHold();
+  };
+  useEffect(() => {
+    const onMouseMove = (e) => moveHold(e.clientX, e.clientY);
+    const onTouchMove = (e) => {
+      const t = e.touches[0];
+      if (t) moveHold(t.clientX, t.clientY);
+    };
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", clearHold);
+    document.addEventListener("touchmove", onTouchMove, { passive: true });
+    document.addEventListener("touchend", clearHold);
+    document.addEventListener("touchcancel", clearHold);
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", clearHold);
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", clearHold);
+      document.removeEventListener("touchcancel", clearHold);
+    };
+  }, []);
+  useEffect(() => {
+    if (!popup && !pendingActive) return;
+    const onOutside = (e) => {
+      if (popup) {
+        if (popupElRef.current && popupElRef.current.contains(e.target)) return;
+        closePopup();
+        return;
+      }
+      setTimeout(() => {
+        const sel = window.getSelection && window.getSelection();
+        if (sel && sel.toString().trim()) return;
+        if (holdRef.current.timer) return;
+        clearPending();
+      }, 0);
+    };
+    document.addEventListener("mousedown", onOutside);
+    document.addEventListener("touchstart", onOutside);
+    return () => {
+      document.removeEventListener("mousedown", onOutside);
+      document.removeEventListener("touchstart", onOutside);
+    };
+  }, [popup, pendingActive]);
+  if (!popup) {
+    if (!pendingActive || !pendingRef.current || !pendingRef.current.rects || !pendingRef.current.rects.length) return null;
+    return /* @__PURE__ */ React.createElement("div", { "data-hope-selection-overlay": "1", style: { position: "fixed", inset: 0, zIndex: 9998, pointerEvents: "none" } }, pendingRef.current.rects.map((r, i) => /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: i,
+        onMouseDown: (e) => {
+          e.stopPropagation();
+          startHold(e.clientX, e.clientY);
+        },
+        onTouchStart: (e) => {
+          e.stopPropagation();
+          const t = e.touches[0];
+          if (t) startHold(t.clientX, t.clientY);
+        },
+        onContextMenu: (e) => e.preventDefault(),
+        style: {
+          position: "fixed",
+          top: r.top,
+          left: r.left,
+          width: r.width,
+          height: r.height,
+          pointerEvents: "auto",
+          background: "transparent",
+          WebkitUserSelect: "none",
+          userSelect: "none",
+          WebkitTouchCallout: "none",
+          touchAction: "none"
+        }
+      }
+    )));
+  }
+  function saveSelectionToGrammar() {
+    if (!popup) return;
+    const basicMarkdown = `## 🧩 ${popup.text}
+
+**جمله:** ${popup.text}`;
+    const entry = saveGrammarNote({ langCode: popup.langCode, word: popup.text, sentence: popup.text, markdown: basicMarkdown });
+    setGrammarSaved(true);
+    if (!entry) return;
+    lookupWordGrammarDetail({
+      word: popup.text,
+      sentence: popup.text,
+      langCode: popup.langCode,
+      nativeLang: nativeLang || fallbackLangCode,
+      nativeLabel,
+      aiSettings
+    }).then((md) => {
+      if (md) updateGrammarNoteMarkdown(entry.id, md);
+    }).catch(() => {
+    });
+  }
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      ref: popupElRef,
+      onMouseDown: (e) => e.stopPropagation(),
+      onTouchStart: (e) => e.stopPropagation(),
+      onMouseUp: (e) => e.stopPropagation(),
+      onTouchEnd: (e) => e.stopPropagation(),
+      onContextMenu: (e) => e.preventDefault(),
+      style: {
+        position: "fixed",
+        top: Math.max(8, popup.top - (measuredHeight != null ? measuredHeight + 10 : translation ? 128 : 88)),
+        left: Math.min(Math.max(90, popup.left), window.innerWidth - 90),
+        transform: "translateX(-50%)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "stretch",
+        gap: 6,
+        minWidth: 190,
+        maxWidth: "min(92vw, 320px)",
+        background: colors.ink,
+        color: colors.paper,
+        borderRadius: 10,
+        padding: "10px 12px",
+        fontFamily: fontFa,
+        zIndex: 9999,
+        boxShadow: "0 4px 14px rgba(0,0,0,0.28)",
+        WebkitUserSelect: "none",
+        userSelect: "none",
+        WebkitTouchCallout: "none",
+        touchAction: "manipulation"
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 2 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } }, /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        dir: dirFor(popup.langCode),
+        style: { fontWeight: 800, fontSize: 16, overflowWrap: "break-word", flex: 1 }
+      },
+      popup.text
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: (e) => {
+          e.stopPropagation();
+          if (isGhostEvent()) return;
+          const result = speechController.toggle(popup.text, popup.langCode);
+          if (popup.storyResumeOffset != null && latestStoryTextContext.text && popup.langCode === latestStoryTextContext.code) {
+            rememberMainTextResumeOffset(
+              `${TTS_LOCALE[latestStoryTextContext.code] || "en-US"}::${latestStoryTextContext.text}`,
+              popup.storyResumeOffset
+            );
+          }
+          if (result === "unsupported") {
+            setPopupSpeakMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
+          } else if (result === "error") {
+            setPopupSpeakMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
+          }
+        },
+        "aria-label": "خواندنِ بخشِ انتخاب‌شده",
+        title: "خواندنِ همینِ بخشِ انتخاب‌شده",
+        style: {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+          width: 26,
+          height: 26,
+          color: colors.goldSoft,
+          background: "transparent",
+          border: "none",
+          cursor: "pointer"
+        }
+      },
+      speakState.key === `${TTS_LOCALE[popup.langCode] || "en-US"}::${popup.text}` && speakState.status === "playing" ? /* @__PURE__ */ React.createElement(Pause, { size: 16 }) : /* @__PURE__ */ React.createElement(Volume2, { size: 16 })
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: (e) => {
+          e.stopPropagation();
+          closePopup();
+        },
+        "aria-label": "بستن",
+        style: {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+          width: 22,
+          height: 22,
+          color: colors.paper,
+          opacity: 0.7,
+          background: "transparent",
+          border: "none",
+          cursor: "pointer"
+        }
+      },
+      /* @__PURE__ */ React.createElement(X, { size: 15 })
+    )), (popupSpeakMsg || speakState.ttsError && speakState.ttsError === `${TTS_LOCALE[popup.langCode] || "en-US"}::${popup.text}`) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: "#ff9a9a" } }, popupSpeakMsg || "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن")),
+    translation && /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        dir: dirFor(nativeLang || fallbackLangCode),
+        style: { textAlign: dirFor(nativeLang || fallbackLangCode) === "rtl" ? "right" : "left" }
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, opacity: 0.6, marginBottom: 2 } }, "ترجمه:"),
+      translation.status === "loading" && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1", style: { color: colors.paper, opacity: 0.85, fontSize: 13 } }, /* @__PURE__ */ React.createElement(Loader2, { size: 12, className: "spin" }), /* @__PURE__ */ React.createElement("span", null, "در حال یافتن ترجمه...")),
+      translation.status === "done" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "flex-start", gap: 6, fontSize: 13 } }, /* @__PURE__ */ React.createElement(SpeakButton, { text: translation.text, code: nativeLang || fallbackLangCode, color: colors.goldSoft }), /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          style: {
+            flex: 1,
+            overflowWrap: "break-word",
+            // دقیقاً هم‌زمان با «ذخیره برای داستان بعدی» زده می‌شه: تا
+            // وقتی محدوده ذخیره نشده زیرخط نداره، همین که saved=true
+            // بشه (چه با زدنِ دکمه، چه چون از قبل ذخیره بوده) ترجمه‌ی
+            // زبانِ مقصد هم مثلِ بقیه‌ی جاهای برنامه زیرخطِ نقطه‌چینِ
+            // طلایی می‌گیره.
+            textDecorationLine: saved ? "underline" : "none",
+            textDecorationStyle: "dotted",
+            textDecorationColor: colors.gold,
+            textUnderlineOffset: 3
+          }
+        },
+        translation.text
+      )),
+      translation.status === "error" && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { color: colors.rose, fontSize: 11 } }, "ترجمه پیدا نشد (احتمالاً آفلاینی)"), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: (e) => {
+            e.stopPropagation();
+            retryTranslation();
+          },
+          style: {
+            fontSize: 11,
+            fontWeight: 700,
+            color: colors.paper,
+            background: "rgba(255,255,255,0.08)",
+            border: "1px solid rgba(255,255,255,0.25)",
+            borderRadius: 6,
+            padding: "2px 7px"
+          }
+        },
+        "تلاش دوباره"
+      ))
+    ),
+    /* @__PURE__ */ React.createElement("div", { style: { height: 1, background: "rgba(255,255,255,0.15)", margin: "2px 0" } }),
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4 } }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: (e) => {
+          e.stopPropagation();
+          if (isGhostEvent()) return;
+          const nowSaved = toggleSavedStoryWord(popup.text, popup.langCode, { nativeLang: nativeLang || fallbackLangCode });
+          setSaved(nowSaved);
+          if (nowSaved) {
+            try {
+              window.dispatchEvent(
+                new CustomEvent(STORY_WORD_PICKED_EVENT, { detail: { word: popup.text, langCode: popup.langCode } })
+              );
+            } catch {
+            }
+          }
+        },
+        style: {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+          fontSize: 12,
+          fontWeight: 700,
+          color: saved ? colors.gold : colors.paper,
+          background: "rgba(255,255,255,0.08)",
+          border: `1px solid ${saved ? colors.gold : "rgba(255,255,255,0.25)"}`,
+          borderRadius: 6,
+          padding: "6px 8px",
+          cursor: "pointer"
+        }
+      },
+      /* @__PURE__ */ React.createElement(Bookmark, { size: 13, fill: saved ? colors.gold : "none" }),
+      saved ? "ذخیره شد برای داستان بعدی" : "ذخیره برای داستان بعدی"
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: (e) => {
+          e.stopPropagation();
+          if (isGhostEvent()) return;
+          saveSelectionToGrammar();
+        },
+        style: {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+          fontSize: 12,
+          fontWeight: 700,
+          color: grammarSaved ? colors.gold : colors.paper,
+          background: "rgba(255,255,255,0.08)",
+          border: `1px solid ${grammarSaved ? colors.gold : "rgba(255,255,255,0.25)"}`,
+          borderRadius: 6,
+          padding: "6px 8px",
+          cursor: "pointer"
+        }
+      },
+      /* @__PURE__ */ React.createElement(Type, { size: 13 }),
+      grammarSaved ? "ذخیره شد در گرامر" : "افزودن به یادگیری گرامر"
+    ))
+  );
+}
+const WORDS_PAGE_SIZE = 60;
+function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence: ClickableSentence2, highlightColor, jumpTarget, uiLang }) {
+  const displayLangs = targetLangs && targetLangs.length ? targetLangs.filter((l) => l.code !== "en") : [];
+  const effectiveDisplayLangs = displayLangs.length ? displayLangs : [{ code: "fa", label: "فارسی", abbr: "FA" }];
+  const q = (query || "").trim().toLowerCase();
+  const [wordTranslationValues, setWordTranslationValues] = useState({});
+  const reportWordTranslation = useCallback((langCode, wordId, value) => {
+    setWordTranslationValues((prev) => {
+      const langMap = prev[langCode] || {};
+      if (langMap[wordId] === value) return prev;
+      return { ...prev, [langCode]: { ...langMap, [wordId]: value } };
+    });
+  }, []);
+  let filtered = levelFilter && levelFilter !== "all" ? words.filter((w) => w.level === levelFilter) : words;
+  filtered = q ? filtered.filter((w) => {
+    if (w.t) {
+      return Object.values(w.t).some((v) => typeof v === "string" && v.toLowerCase().includes(q));
+    }
+    if (w.en.toLowerCase().includes(q) || w.fa.includes(q)) return true;
+    return effectiveDisplayLangs.some((l) => {
+      const live = wordTranslationValues[l.code] && wordTranslationValues[l.code][w.id];
+      if (live && live.toLowerCase().includes(q)) return true;
+      const cached = loadWordTranslation(w.en, l.code);
+      return cached && cached.toLowerCase().includes(q);
+    });
+  }) : filtered;
+  const [visibleCount, setVisibleCount] = useState(WORDS_PAGE_SIZE);
+  useEffect(() => {
+    setVisibleCount(WORDS_PAGE_SIZE);
+  }, [q, levelFilter, words]);
+  const visible = filtered.slice(0, visibleCount);
+  const hasMore = visibleCount < filtered.length;
+  const sentinelRef = useRef(null);
+  useEffect(() => {
+    if (!hasMore) return;
+    const node = sentinelRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((c) => Math.min(c + WORDS_PAGE_SIZE, filtered.length));
+        }
+      },
+      { rootMargin: "600px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, filtered.length]);
+  const autoplayItems = filtered.map((w) => ({ id: w.id, text: w.en, code: "en" }));
+  const { registerRef } = useAutoplayOnScroll(autoplayEnabled, autoplayItems);
+  const fullText = filtered.map((w) => w.en).join(". ") + (filtered.length ? "." : "");
+  const wordOffsets = useMemo(() => {
+    let offset = 0;
+    return filtered.map((w, idx) => {
+      const start = offset;
+      offset += w.en.length;
+      const end = offset;
+      offset += idx < filtered.length - 1 ? 2 : 1;
+      return { id: w.id, start, end };
+    });
+  }, [fullText]);
+  useEffect(() => {
+    if (onFullTextChange) onFullTextChange({ text: fullText, code: "en" });
+  }, [fullText]);
+  useEffect(() => {
+    return () => {
+      if (onFullTextChange) onFullTextChange({ text: "", code: "" });
+    };
+  }, []);
+  const [activeWordId, setActiveWordId] = useState(null);
+  useEffect(() => {
+    const myKey = `en-US::${fullText}`;
+    const update = (state) => {
+      if (!fullText || state.key !== myKey || state.status === "idle") {
+        setActiveWordId(null);
+        return;
+      }
+      const offset = speechController.getCharOffset();
+      let found = wordOffsets[0] || null;
+      for (const w of wordOffsets) {
+        if (offset >= w.start) found = w;
+        else break;
+      }
+      setActiveWordId((prev) => {
+        const next = found ? found.id : null;
+        return prev === next ? prev : next;
+      });
+    };
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [fullText, wordOffsets]);
+  const listNodeMapRef = useRef(/* @__PURE__ */ new Map());
+  useEffect(() => {
+    if (!autoScrollActive || activeWordId == null) return;
+    const node = listNodeMapRef.current.get(String(activeWordId));
+    if (node && node.scrollIntoView) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [autoScrollActive, activeWordId]);
+  const registerListRef = (id) => (node) => {
+    const key = String(id);
+    if (node) listNodeMapRef.current.set(key, node);
+    else listNodeMapRef.current.delete(key);
+  };
+  const [justJumpedId, setJustJumpedId] = useState(null);
+  useEffect(() => {
+    if (!jumpTarget || jumpTarget.id == null) return;
+    const idx = filtered.findIndex((w) => w.id === jumpTarget.id);
+    if (idx === -1) return;
+    setVisibleCount((prev) => Math.max(prev, Math.min(idx + WORDS_PAGE_SIZE, filtered.length)));
+    setJustJumpedId(jumpTarget.id);
+    const t = setTimeout(() => setJustJumpedId(null), 2200);
+    return () => clearTimeout(t);
+  }, [jumpTarget?.token]);
+  useEffect(() => {
+    if (justJumpedId == null) return;
+    const node = listNodeMapRef.current.get(String(justJumpedId));
+    if (node && node.scrollIntoView) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [justJumpedId, visibleCount]);
+  const wordTranslationInfo = useMemo(() => {
+    const info = {};
+    effectiveDisplayLangs.forEach((l) => {
+      const langMap = wordTranslationValues[l.code] || {};
+      const entries = filtered.filter((w) => langMap[w.id]);
+      let offset = 0;
+      const parts = [];
+      const offsets = [];
+      entries.forEach((w, idx) => {
+        const val = langMap[w.id];
+        const start = offset;
+        parts.push(val);
+        offset += val.length;
+        offsets.push({ id: w.id, start, end: offset });
+        offset += idx < entries.length - 1 ? 2 : 1;
+      });
+      info[l.code] = { fullText: parts.join(". ") + (entries.length ? "." : ""), offsets };
+    });
+    return info;
+  }, [effectiveDisplayLangs, wordTranslationValues, filtered]);
+  const [activeWordTranslation, setActiveWordTranslation] = useState(null);
+  useEffect(() => {
+    const update = (state) => {
+      if (!state.key || state.status === "idle") {
+        setActiveWordTranslation(null);
+        return;
+      }
+      for (const l of effectiveDisplayLangs) {
+        const info = wordTranslationInfo[l.code];
+        if (!info || !info.fullText) continue;
+        const myKey = `${TTS_LOCALE[l.code] || "en-US"}::${info.fullText}`;
+        if (state.key !== myKey) continue;
+        const offset = speechController.getCharOffset();
+        let found = info.offsets[0] || null;
+        for (const w of info.offsets) {
+          if (offset >= w.start) found = w;
+          else break;
+        }
+        setActiveWordTranslation((prev) => {
+          if (prev && prev.code === l.code && found && prev.id === found.id) return prev;
+          return found ? { code: l.code, id: found.id } : null;
+        });
+        return;
+      }
+      setActiveWordTranslation(null);
+    };
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [effectiveDisplayLangs, wordTranslationInfo]);
+  if (filtered.length === 0) {
+    return /* @__PURE__ */ React.createElement("p", { style: { color: colors.inkSoft, fontSize: 14, textAlign: "center", marginTop: 40 } }, q ? tr("noWordsForSearch", uiLang) : emptyText || tr("noWordsToShow", uiLang));
+  }
+  return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-2" }, visible.map((w) => /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      key: w.id,
+      ref: (el) => {
+        registerRef(w.id)(el);
+        registerListRef(w.id)(el);
+      },
+      className: "flex items-center justify-between p-3 rounded-lg",
+      style: {
+        position: "relative",
+        backgroundColor: "white",
+        border: `1px solid ${justJumpedId === w.id ? highlightColor || READ_MARKER_COLOR : colors.cardBorder}`,
+        boxShadow: justJumpedId === w.id ? `0 0 0 2px ${highlightColor || READ_MARKER_COLOR}` : "none",
+        transition: "border-color 0.4s ease, box-shadow 0.4s ease"
+      }
+    },
+    /* @__PURE__ */ React.createElement("button", { onClick: () => toggleWordFavorite(w.id), "aria-label": tr("addToFavoritesAria", uiLang), style: { marginLeft: 4, flexShrink: 0 } }, /* @__PURE__ */ React.createElement(Star, { size: 20, color: colors.gold, fill: wordFavorites.has(w.id) ? colors.gold : "none" })),
+    /* @__PURE__ */ React.createElement("div", { className: "flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-2", style: { direction: "ltr" } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center flex-wrap gap-2", style: { flex: 1 } }, /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        style: {
+          backgroundColor: activeWordId === w.id ? highlightColor || READ_MARKER_COLOR : "transparent",
+          borderRadius: 5,
+          padding: activeWordId === w.id ? "2px 4px" : "2px 0",
+          WebkitBoxDecorationBreak: "clone",
+          boxDecorationBreak: "clone",
+          transition: "background-color 0.35s ease"
+        }
+      },
+      /* @__PURE__ */ React.createElement(
+        ClickableSentence2,
+        {
+          text: w.en,
+          langCode: "en",
+          nativeLang,
+          aiSettings,
+          color: mainTextColor,
+          fontFamily: fontLatin,
+          fontWeight: 800,
+          fontSize: 19,
+          originExtra: { id: w.id },
+          storyBaseOffset: wordOffsets.find((o) => o.id === w.id)?.start ?? 0,
+          onSpeakOffset: (localEnd) => rememberMainTextResumeOffset(`${TTS_LOCALE.en || "en-US"}::${fullText}`, (wordOffsets.find((o) => o.id === w.id)?.start ?? 0) + (localEnd || 0))
+        }
+      )
+    ), w.level && /* @__PURE__ */ React.createElement(LevelBadge, { level: w.level }), w.isUserSaved && /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        style: {
+          fontFamily: uiLang === "en" ? fontLatin : fontFa,
+          fontSize: 10,
+          fontWeight: 700,
+          color: colors.rose,
+          border: `1px solid ${colors.rose}`,
+          borderRadius: 6,
+          padding: "1px 6px",
+          flexShrink: 0
+        }
+      },
+      tr("personalBadge", uiLang)
+    ), w.pos && /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        style: {
+          fontFamily: uiLang === "en" ? fontLatin : fontFa,
+          fontSize: 10,
+          fontWeight: 700,
+          color: colors.teal,
+          border: `1px solid ${colors.cardBorder}`,
+          borderRadius: 6,
+          padding: "1px 6px",
+          flexShrink: 0
+        }
+      },
+      posLabel(w.pos, uiLang)
+    )), /* @__PURE__ */ React.createElement(
+      SpeakButton,
+      {
+        text: w.en,
+        code: "en",
+        color: colors.teal,
+        edge: "end",
+        fullText,
+        startOffset: wordOffsets.find((o) => o.id === w.id)?.start
+      }
+    )), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-1", style: { marginTop: 4 } }, effectiveDisplayLangs.map((l) => {
+      const info = wordTranslationInfo[l.code];
+      const isTransActive = !!(activeWordTranslation && activeWordTranslation.code === l.code && activeWordTranslation.id === w.id);
+      return /* @__PURE__ */ React.createElement(
+        WordTargetTranslation,
+        {
+          key: l.code,
+          word: w.en,
+          wordId: w.id,
+          pos: w.pos,
+          langCode: l.code,
+          abbr: l.abbr,
+          knownText: l.code === "fa" ? w.fa : "",
+          nativeLang,
+          nativeLabel,
+          aiSettings,
+          ClickableSentence: ClickableSentence2,
+          fullText: info ? info.fullText : "",
+          lineOffsets: info ? info.offsets : [],
+          isActiveLine: isTransActive,
+          autoScrollActive,
+          highlightColor,
+          onResolved: reportWordTranslation
+        }
+      );
+    })), /* @__PURE__ */ React.createElement(WordExamples, { word: w.en, langCode: "en", meaningNative: w.fa, nativeLang, targetLangs: effectiveDisplayLangs, aiSettings }))
+  )), hasMore && /* @__PURE__ */ React.createElement("div", { ref: sentinelRef, style: { height: 1 } }));
+}
+function WordTargetTranslation({ word, wordId, pos, langCode, abbr, knownText, nativeLang, nativeLabel, aiSettings, ClickableSentence: ClickableSentence2, fullText, lineOffsets, isActiveLine, autoScrollActive, highlightColor, onResolved }) {
+  const [text, setText] = useState(knownText || (() => loadWordTranslation(word, langCode)));
+  useEffect(() => {
+    if (knownText) {
+      setText(knownText);
+      return;
+    }
+    const cached = loadWordTranslation(word, langCode);
+    if (cached) {
+      setText(cached);
+      return;
+    }
+    let cancelled = false;
+    const forceVerify = pos === "slang" || pos === "idiom";
+    translateFree(word, langCode, "en", aiSettings, forceVerify).then((t) => {
+      if (cancelled || !t) return;
+      setText(t);
+      saveWordTranslation(word, langCode, t);
+    }).catch(() => {
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [word, langCode, knownText]);
+  useEffect(() => {
+    if (text && onResolved && wordId != null) {
+      onResolved(langCode, wordId, text);
+    }
+  }, [text, langCode, wordId]);
+  const rowRef = useRef(null);
+  useEffect(() => {
+    if (!autoScrollActive || !isActiveLine) return;
+    if (rowRef.current && rowRef.current.scrollIntoView) {
+      rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [autoScrollActive, isActiveLine]);
+  const myOffset = lineOffsets && lineOffsets.find((o) => o.id === wordId);
+  const highlightStyle = {
+    backgroundColor: isActiveLine ? highlightColor || READ_MARKER_COLOR : "transparent",
+    borderRadius: 5,
+    padding: isActiveLine ? "2px 4px" : "2px 0",
+    WebkitBoxDecorationBreak: "clone",
+    boxDecorationBreak: "clone",
+    transition: "background-color 0.35s ease"
+  };
+  return /* @__PURE__ */ React.createElement("div", { ref: rowRef, style: { display: "flex", alignItems: "center", gap: 8, direction: "ltr" } }, /* @__PURE__ */ React.createElement(
+    "span",
+    {
+      style: {
+        fontFamily: fontFa,
+        fontSize: 10,
+        fontWeight: 700,
+        color: colors.gold,
+        border: `1px solid ${colors.goldSoft}`,
+        borderRadius: 6,
+        padding: "1px 5px",
+        flexShrink: 0
+      }
+    },
+    abbr
+  ), text ? /* @__PURE__ */ React.createElement(React.Fragment, null, ClickableSentence2 ? /* @__PURE__ */ React.createElement("p", { style: { flex: 1, fontSize: 14, fontWeight: 700, color: colors.inkSoft, ...highlightStyle } }, /* @__PURE__ */ React.createElement(
+    ClickableSentence2,
+    {
+      text,
+      langCode,
+      nativeLang,
+      nativeLabel,
+      aiSettings,
+      color: colors.inkSoft,
+      fontWeight: 700,
+      fontSize: 14
+    }
+  )) : /* @__PURE__ */ React.createElement("p", { style: { flex: 1, fontSize: 14, fontWeight: 700, color: colors.inkSoft, ...highlightStyle } }, text), /* @__PURE__ */ React.createElement(
+    SpeakButton,
+    {
+      text,
+      code: langCode,
+      color: colors.teal,
+      edge: "end",
+      fullText,
+      startOffset: myOffset ? myOffset.start : void 0
+    }
+  )) : /* @__PURE__ */ React.createElement("p", { style: { flex: 1, fontSize: 12, color: colors.inkSoft } }, "در حال ترجمه..."));
+}
+function WordExamples({ word, langCode, meaningNative, nativeLang, targetLangs, aiSettings }) {
+  const [examples, setExamples] = useState(() => loadWordExamples(word, langCode));
+  const [generating, setGenerating] = useState(false);
+  const [err, setErr] = useState("");
+  const nativeLabel = LANGUAGES.find((l) => l.code === nativeLang)?.label || nativeLang;
+  async function handleGenerate(e) {
+    e.stopPropagation();
+    if (generating) return;
+    setGenerating(true);
+    setErr("");
+    try {
+      const text = await generateWordExample({
+        word,
+        langCode,
+        meaningNative,
+        nativeLabel,
+        existingExamples: examples.map((ex) => ex.text),
+        aiSettings
+      });
+      if (!text) throw new Error("empty");
+      saveWordExample(word, langCode, text);
+      setExamples(loadWordExamples(word, langCode));
+    } catch {
+      setErr("مثال ساخته نشد — دوباره امتحان کن.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+  return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 }, onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: handleGenerate,
+      disabled: generating,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        fontSize: 11,
+        fontWeight: 700,
+        color: colors.gold,
+        background: "transparent",
+        border: `1px solid ${colors.goldSoft}`,
+        borderRadius: 6,
+        padding: "3px 8px",
+        opacity: generating ? 0.6 : 1
+      }
+    },
+    generating ? /* @__PURE__ */ React.createElement(Loader2, { size: 12, className: "spin" }) : /* @__PURE__ */ React.createElement(Sparkles, { size: 12 }),
+    examples.length ? "مثال دیگر" : "مثال (با هوش مصنوعی)"
+  ), err && /* @__PURE__ */ React.createElement("p", { style: { color: colors.rose, fontSize: 11, marginTop: 4 } }, err), examples.map((ex) => /* @__PURE__ */ React.createElement(WordExampleRow, { key: ex.id, example: ex, word, langCode, nativeLang, targetLangs, aiSettings })));
+}
+function WordExampleTranslationLine({ example, word, langCode, targetLang, abbr, aiSettings }) {
+  const [translation, setTranslation] = useState(example.translations?.[targetLang] || "");
+  useEffect(() => {
+    if (example.translations?.[targetLang]) {
+      setTranslation(example.translations[targetLang]);
+      return;
+    }
+    let cancelled = false;
+    translateFree(example.text, targetLang, langCode, aiSettings, true).then((t) => {
+      if (cancelled || !t) return;
+      setTranslation(t);
+      updateWordExampleTranslation(word, langCode, example.id, targetLang, t);
+    }).catch(() => {
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [example.id, targetLang]);
+  if (!translation) {
+    return /* @__PURE__ */ React.createElement("p", { style: { fontSize: 11, color: colors.inkSoft, marginTop: 4 } }, "در حال ترجمه...");
+  }
+  return /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2", style: { marginTop: 4, direction: "ltr" } }, /* @__PURE__ */ React.createElement(
+    "span",
+    {
+      style: {
+        fontFamily: fontFa,
+        fontSize: 10,
+        fontWeight: 700,
+        color: colors.gold,
+        border: `1px solid ${colors.goldSoft}`,
+        borderRadius: 6,
+        padding: "1px 5px",
+        flexShrink: 0
+      }
+    },
+    abbr || targetLang.toUpperCase()
+  ), /* @__PURE__ */ React.createElement("p", { style: { flex: 1, fontSize: 12, fontWeight: 800, color: translationColor } }, translation), /* @__PURE__ */ React.createElement(SpeakButton, { text: translation, code: targetLang, color: translationColor, edge: "end" }));
+}
+function WordExampleRow({ example, word, langCode, nativeLang, targetLangs, aiSettings }) {
+  const [added, setAdded] = useState(false);
+  const exampleTargetLangs = targetLangs && targetLangs.length ? targetLangs.filter((l) => l.code !== langCode) : [{ code: nativeLang, label: "", abbr: nativeLang.toUpperCase() }];
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        marginTop: 6,
+        padding: 8,
+        borderRadius: 8,
+        background: colors.paperDark,
+        border: `1px solid ${colors.cardBorder}`
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2", style: { direction: "ltr" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement(
+      ClickableSentence,
+      {
+        text: example.text,
+        langCode,
+        nativeLang,
+        aiSettings,
+        color: mainTextColor,
+        fontWeight: 800,
+        fontSize: 13
+      }
+    )), /* @__PURE__ */ React.createElement(SpeakButton, { text: example.text, code: langCode, color: colors.teal, edge: "end" })),
+    exampleTargetLangs.map((l) => /* @__PURE__ */ React.createElement(
+      WordExampleTranslationLine,
+      {
+        key: l.code,
+        example,
+        word,
+        langCode,
+        targetLang: l.code,
+        abbr: l.abbr,
+        aiSettings
+      }
+    )),
+    /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => {
+          addTextToStoryPicks(example.text, langCode);
+          setAdded(true);
+        },
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          fontSize: 11,
+          fontWeight: 700,
+          color: added ? colors.gold : colors.teal,
+          background: "transparent",
+          border: `1px solid ${added ? colors.gold : colors.cardBorder}`,
+          borderRadius: 6,
+          padding: "3px 8px",
+          marginTop: 6
+        }
+      },
+      added ? /* @__PURE__ */ React.createElement(Check, { size: 11 }) : /* @__PURE__ */ React.createElement(Plus, { size: 11 }),
+      added ? "اضافه شد به داستان‌ساز" : "افزودن این مثال به داستان‌ساز"
+    )
+  );
+}
+function LevelFilterChips({ levelFilter, setLevelFilter, levelCounts }) {
+  const chips = [
+    { key: "all", label: "همه", count: levelCounts.reduce((a, b) => a + b, 0) },
+    ...[1, 2, 3, 4].map((lvl) => ({ key: lvl, label: `جعبه‌ی ${lvl}`, count: levelCounts[lvl - 1] }))
+  ];
+  return /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap justify-center gap-2" }, chips.map((c) => /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      key: c.key,
+      onClick: () => setLevelFilter(c.key),
+      style: {
+        fontSize: 11,
+        fontWeight: 700,
+        padding: "4px 10px",
+        borderRadius: 20,
+        border: `1px solid ${levelFilter === c.key ? colors.gold : colors.cardBorder}`,
+        backgroundColor: levelFilter === c.key ? colors.gold : "transparent",
+        color: levelFilter === c.key ? "white" : colors.inkSoft
+      }
+    },
+    c.label,
+    " (",
+    c.count,
+    ")"
+  )));
+}
+function ReviewBox({ conversation: conversation2, boxes, setBoxes, nativeLang, targetLangs, index, setIndex, showAnswer, setShowAnswer }) {
+  const [levelFilter, setLevelFilter] = useState("all");
+  const withLevel = conversation2.map((p) => ({ p, lvl: boxes[p.id] ?? 1 }));
+  const dueAll = withLevel.filter((x) => x.lvl < 5);
+  const levelCounts = [1, 2, 3, 4].map((lvl) => dueAll.filter((x) => x.lvl === lvl).length);
+  const filtered = levelFilter === "all" ? dueAll : dueAll.filter((x) => x.lvl === levelFilter);
+  const active = filtered.sort((a, b) => a.lvl - b.lvl).map((x) => x.p);
+  if (active.length === 0) {
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center gap-3 mt-6" }, levelFilter !== "all" && /* @__PURE__ */ React.createElement(LevelFilterChips, { levelFilter, setLevelFilter, levelCounts }), /* @__PURE__ */ React.createElement("p", { style: { textAlign: "center", color: colors.teal, marginTop: 20, fontWeight: 600 } }, levelFilter === "all" ? "همه‌ی عبارات رو بلدی! 🎉" : "چیزی تو این سطح برای مرور نمونده! 🎉"));
+  }
+  const current = active[index % active.length];
+  const currentLevel = boxes[current.id] ?? 1;
+  const handle = (knew) => {
+    setBoxes((prev) => ({
+      ...prev,
+      // همینجا هم همون مشکل بود: prev[current.id] برای اولین مرور
+      // undefined بود و undefined + 1 می‌شد NaN — با ?? 1 درست می‌شه.
+      [current.id]: knew ? Math.min(5, (prev[current.id] ?? 1) + 1) : 1
+    }));
+    setShowAnswer(false);
+    setIndex((i) => i + 1);
+  };
+  return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center gap-4 mt-6" }, /* @__PURE__ */ React.createElement(LevelFilterChips, { levelFilter, setLevelFilter, levelCounts }), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 12, color: colors.inkSoft } }, "باقی‌مانده برای مرور: ", active.length, " · ", "جعبه‌ی ", currentLevel, " از ۵"), /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      className: "w-full max-w-sm rounded-xl p-8 text-center",
+      style: { backgroundColor: "white", border: `2px solid ${colors.gold}`, minHeight: 140 }
+    },
+    /* @__PURE__ */ React.createElement("div", { onClick: () => setShowAnswer((s) => !s), style: { cursor: "pointer" } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-center gap-2" }, /* @__PURE__ */ React.createElement("p", { style: { fontWeight: 800, fontSize: 18, color: mainTextColor } }, current.t[nativeLang]), /* @__PURE__ */ React.createElement(SpeakButton, { text: current.t[nativeLang], code: nativeLang }), current.level && /* @__PURE__ */ React.createElement(LevelBadge, { level: current.level })), !showAnswer && /* @__PURE__ */ React.createElement("p", { style: { color: colors.cardBorder, fontSize: 12, marginTop: 14 } }, "(برای دیدن ترجمه لمس کن)")),
+    showAnswer && /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-2", style: { marginTop: 14 } }, targetLangs.map((l) => /* @__PURE__ */ React.createElement("div", { key: l.code, style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, direction: "ltr" } }, /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        style: {
+          fontFamily: fontFa,
+          fontSize: 10,
+          fontWeight: 700,
+          color: colors.gold,
+          border: `1px solid ${colors.goldSoft}`,
+          borderRadius: 6,
+          padding: "1px 5px",
+          flexShrink: 0
+        }
+      },
+      l.abbr
+    ), /* @__PURE__ */ React.createElement("p", { style: { fontFamily: fontLatin, color: translationColor, fontWeight: 800, fontSize: 16 } }, current.t[l.code] ?? "—"), current.t[l.code] && /* @__PURE__ */ React.createElement(SpeakButton, { text: current.t[l.code], code: l.code, color: translationColor, edge: "end" }))))
+  ), showAnswer && /* @__PURE__ */ React.createElement("div", { className: "flex gap-3" }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => handle(false),
+      className: "flex items-center gap-1 px-4 py-2 rounded-full",
+      style: { backgroundColor: colors.rose, color: "white", fontFamily: fontFa }
+    },
+    /* @__PURE__ */ React.createElement(X, { size: 16 }),
+    " بلد نبودم"
+  ), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => handle(true),
+      className: "flex items-center gap-1 px-4 py-2 rounded-full",
+      style: { backgroundColor: colors.teal, color: "white", fontFamily: fontFa }
+    },
+    /* @__PURE__ */ React.createElement(Check, { size: 16 }),
+    " بلد بودم"
+  )));
+}
+const GOOGLE_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com";
+const USERS_KEY = "phrasebook-users-v1";
+const SESSION_KEY = "phrasebook-session-v1";
+function loadUsers() {
+  try {
+    const raw = window.localStorage.getItem(USERS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+function saveUsers(users) {
+  try {
+    window.localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  } catch {
+  }
+}
+function persistSession(user) {
+  try {
+    window.localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+  } catch {
+  }
+}
+function readSession() {
+  try {
+    const raw = window.localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+function clearSession() {
+  try {
+    window.localStorage.removeItem(SESSION_KEY);
+  } catch {
+  }
+}
+function simpleHash(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = Math.imul(31, h) + str.charCodeAt(i) | 0;
+  return String(h);
+}
+function AuthField({ icon, placeholder, value, onChange, type = "text" }) {
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        border: `1px solid ${colors.cardBorder}`,
+        borderRadius: 12,
+        padding: "10px 12px",
+        background: "#fff"
+      }
+    },
+    /* @__PURE__ */ React.createElement("span", { style: { color: colors.inkSoft } }, icon),
+    /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type,
+        value,
+        onChange: (e) => onChange(e.target.value),
+        placeholder,
+        dir: "rtl",
+        style: {
+          border: "none",
+          outline: "none",
+          flex: 1,
+          fontFamily: fontFa,
+          fontSize: 14,
+          background: "transparent",
+          color: colors.ink
+        }
+      }
+    )
+  );
+}
+function LoginScreen({ onAuthenticated, uiLang = "fa" }) {
+  const [mode, setMode] = useState("login");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const dir = APP_LANGUAGES[uiLang]?.dir || "rtl";
+  const loginFont = uiLang === "en" ? fontLatin : fontFa;
+  async function handleGoogleSignIn() {
+    setError("");
+    setGoogleBusy(true);
+    try {
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        // Always redirect to a CLEAN url (no leftover ?error=/#access_token=
+        // from a previous login attempt). Reusing window.location.href as-is
+        // carries old auth fragments into the new OAuth request and breaks
+        // Supabase's state check ("bad_oauth_state") — this is what was
+        // happening.
+        options: { redirectTo: window.location.origin + window.location.pathname }
+      });
+      if (oauthError) throw oauthError;
+    } catch (e) {
+      setError(tr("googleSignInFailed", uiLang) + (e?.message || tr("tryAgain", uiLang)));
+      setGoogleBusy(false);
+    }
+  }
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    setNotice("");
+    if (!email.trim() || !password.trim() || mode === "signup" && !name.trim()) {
+      setError(tr("fillAllFields", uiLang));
+      return;
+    }
+    setBusy(true);
+    try {
+      if (mode === "signup") {
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: { data: { name: name.trim() } }
+        });
+        if (signUpError) throw signUpError;
+        if (data.session) {
+          onAuthenticated(supabaseUserToSession(data.user));
+        } else {
+          setNotice(tr("verifyEmailSent", uiLang));
+          setMode("login");
+        }
+      } else {
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password
+        });
+        if (signInError) throw signInError;
+        onAuthenticated(supabaseUserToSession(data.user));
+      }
+    } catch (e2) {
+      const msg = e2?.message || "";
+      if (/already registered|already exists/i.test(msg)) setError(tr("emailAlreadyRegistered", uiLang));
+      else if (/invalid login credentials/i.test(msg)) setError(tr("invalidCredentials", uiLang));
+      else if (/email not confirmed/i.test(msg)) setError(tr("emailNotConfirmed", uiLang));
+      else setError(msg || tr("genericError", uiLang));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      dir,
+      lang: uiLang,
+      style: {
+        minHeight: "100vh",
+        background: colors.paper,
+        fontFamily: loginFont,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20
+      }
+    },
+    /* @__PURE__ */ React.createElement("style", null, `@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap');`),
+    /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        style: {
+          width: "100%",
+          maxWidth: 380,
+          background: colors.paperDark,
+          border: `1px solid ${colors.cardBorder}`,
+          borderRadius: 18,
+          padding: 32,
+          boxShadow: "0 10px 30px rgba(28,37,65,0.12)"
+        }
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginBottom: 26 } }, /* @__PURE__ */ React.createElement(
+        "div",
+        {
+          style: {
+            width: 54,
+            height: 54,
+            borderRadius: "50%",
+            background: colors.gold,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 14px",
+            color: colors.paper
+          }
+        },
+        mode === "signup" ? /* @__PURE__ */ React.createElement(UserPlus, { size: 26 }) : /* @__PURE__ */ React.createElement(LogIn, { size: 26 })
+      ), /* @__PURE__ */ React.createElement("h1", { style: { margin: 0, fontSize: 20, fontWeight: 800, color: colors.ink } }, mode === "signup" ? tr("signupTitle", uiLang) : tr("loginTitle", uiLang)), /* @__PURE__ */ React.createElement("p", { style: { margin: "6px 0 0", fontSize: 13, color: colors.inkSoft } }, tr("loginSubtitle", uiLang))),
+      /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 16 } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          onClick: handleGoogleSignIn,
+          disabled: googleBusy,
+          style: {
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            padding: "11px 16px",
+            borderRadius: 999,
+            border: `1px solid ${colors.cardBorder}`,
+            background: "#fff",
+            color: colors.ink,
+            fontFamily: loginFont,
+            fontWeight: 600,
+            fontSize: 14,
+            cursor: googleBusy ? "default" : "pointer"
+          }
+        },
+        googleBusy ? /* @__PURE__ */ React.createElement(Loader2, { size: 18, className: "spin" }) : /* @__PURE__ */ React.createElement("svg", { width: "18", height: "18", viewBox: "0 0 48 48" }, /* @__PURE__ */ React.createElement("path", { fill: "#FFC107", d: "M43.6 20.5H42V20H24v8h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.2-.1-2.4-.4-3.5z" }), /* @__PURE__ */ React.createElement("path", { fill: "#FF3D00", d: "M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 15.6 3 8.4 8 6.3 14.7z" }), /* @__PURE__ */ React.createElement("path", { fill: "#4CAF50", d: "M24 45c5.4 0 10.3-2.1 14-5.5l-6.5-5.4C29.5 35.9 26.9 37 24 37c-5.3 0-9.7-3.4-11.3-8.1l-6.6 5.1C8.3 40 15.5 45 24 45z" }), /* @__PURE__ */ React.createElement("path", { fill: "#1976D2", d: "M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.3 5.6l6.5 5.4C41.4 35.9 44 30.5 44 24c0-1.2-.1-2.4-.4-3.5z" })),
+        tr("continueWithGoogle", uiLang)
+      )),
+      /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2", style: { margin: "18px 0" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: colors.cardBorder } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: colors.inkSoft } }, tr("orWithEmail", uiLang)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, height: 1, background: colors.cardBorder } })),
+      /* @__PURE__ */ React.createElement("form", { onSubmit: handleSubmit, className: "flex flex-col gap-3" }, mode === "signup" && /* @__PURE__ */ React.createElement(AuthField, { icon: /* @__PURE__ */ React.createElement(User, { size: 16 }), placeholder: tr("namePlaceholder", uiLang), value: name, onChange: setName }), /* @__PURE__ */ React.createElement(AuthField, { icon: /* @__PURE__ */ React.createElement(Mail, { size: 16 }), placeholder: tr("emailPlaceholder", uiLang), value: email, onChange: setEmail, type: "email" }), /* @__PURE__ */ React.createElement(
+        AuthField,
+        {
+          icon: /* @__PURE__ */ React.createElement(Lock, { size: 16 }),
+          placeholder: tr("passwordPlaceholder", uiLang),
+          value: password,
+          onChange: setPassword,
+          type: "password"
+        }
+      ), error && /* @__PURE__ */ React.createElement("div", { style: { color: colors.rose, fontSize: 13, textAlign: "center" } }, error), notice && /* @__PURE__ */ React.createElement("div", { style: { color: colors.teal, fontSize: 13, textAlign: "center" } }, notice), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "submit",
+          disabled: busy,
+          style: {
+            marginTop: 4,
+            padding: "12px 16px",
+            borderRadius: 999,
+            border: "none",
+            background: colors.ink,
+            color: colors.paper,
+            fontFamily: loginFont,
+            fontWeight: 700,
+            fontSize: 14,
+            cursor: busy ? "default" : "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8
+          }
+        },
+        busy && /* @__PURE__ */ React.createElement(Loader2, { size: 16, className: "spin" }),
+        mode === "signup" ? tr("signupSubmit", uiLang) : tr("loginSubmit", uiLang)
+      )),
+      /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginTop: 18, fontSize: 13, color: colors.inkSoft } }, mode === "signup" ? tr("haveAccount", uiLang) : tr("noAccount", uiLang), " ", /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => {
+            setMode(mode === "signup" ? "login" : "signup");
+            setError("");
+            setNotice("");
+          },
+          style: {
+            background: "none",
+            border: "none",
+            color: colors.teal,
+            fontWeight: 700,
+            cursor: "pointer",
+            fontFamily: loginFont,
+            fontSize: 13
+          }
+        },
+        mode === "signup" ? tr("goToLogin", uiLang) : tr("goToSignup", uiLang)
+      ))
+    )
+  );
+}
+function App() {
+  const [user, setUser] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [appPrefs, setAppPrefs] = useState(loadAppPrefs);
+  useEffect(() => saveAppPrefs(appPrefs), [appPrefs]);
+  useEffect(() => {
+    offlineDictionary.hydrateFromCache();
+  }, []);
+  useEffect(() => {
+    let active = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      setUser(supabaseUserToSession(data?.session?.user || null));
+      setCheckingSession(false);
+      if (window.location.hash.includes("access_token") || window.location.search.includes("code=") || window.location.search.includes("error")) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(supabaseUserToSession(session?.user || null));
+      setCheckingSession(false);
+      if (window.location.hash.includes("access_token") || window.location.search.includes("code=")) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    });
+    return () => {
+      active = false;
+      sub?.subscription?.unsubscribe();
+    };
+  }, []);
+  const theme = APP_THEMES[appPrefs.theme].values;
+  const font = APP_FONTS[appPrefs.font];
+  const fontSize = APP_FONT_SIZES[appPrefs.fontSize];
+  useEffect(() => {
+    const el = document.documentElement.style;
+    el.setProperty("--c-paper", theme.paper);
+    el.setProperty("--c-paperDark", theme.paperDark);
+    el.setProperty("--c-ink", theme.ink);
+    el.setProperty("--c-inkSoft", theme.inkSoft);
+    el.setProperty("--c-gold", theme.gold);
+    el.setProperty("--c-goldSoft", theme.goldSoft);
+    el.setProperty("--c-teal", theme.teal);
+    el.setProperty("--c-rose", theme.rose);
+    el.setProperty("--c-cardBorder", theme.cardBorder);
+    el.setProperty("--font-fa", font.fa);
+    el.setProperty("--font-latin", font.latin);
+  }, [theme, font]);
+  const rootStyle = {
+    "--c-paper": theme.paper,
+    "--c-paperDark": theme.paperDark,
+    "--c-ink": theme.ink,
+    "--c-inkSoft": theme.inkSoft,
+    "--c-gold": theme.gold,
+    "--c-goldSoft": theme.goldSoft,
+    "--c-teal": theme.teal,
+    "--c-rose": theme.rose,
+    "--c-cardBorder": theme.cardBorder,
+    "--font-fa": font.fa,
+    "--font-latin": font.latin,
+    zoom: fontSize.zoom,
+    minHeight: "100vh"
+  };
+  if (checkingSession) {
+    return /* @__PURE__ */ React.createElement("div", { style: { ...rootStyle, display: "flex", alignItems: "center", justifyContent: "center", background: colors.paper } }, /* @__PURE__ */ React.createElement(Loader2, { size: 28, className: "spin", color: colors.gold }));
+  }
+  return /* @__PURE__ */ React.createElement("div", { style: rootStyle }, !user ? /* @__PURE__ */ React.createElement(LoginScreen, { onAuthenticated: setUser, uiLang: appPrefs.uiLang }) : /* @__PURE__ */ React.createElement(
+    PhrasebookMain,
+    {
+      key: user.email,
+      user,
+      appPrefs,
+      setAppPrefs,
+      onLogout: async () => {
+        try {
+          await supabase.auth.signOut();
+        } catch {
+        }
+        setUser(null);
+      }
+    }
+  ));
+}
+import ReactDOM from "react-dom/client";
+const rootEl = document.getElementById("root");
+ReactDOM.createRoot(rootEl).render(/* @__PURE__ */ React.createElement(App, null));
+export {
+  conversation,
+  App as default
+};

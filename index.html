@@ -68,30 +68,7 @@
   <!-- Pre-bundled app: everything (app.jsx + all data files + DailyConversationsTab)
        compiled ahead of time with esbuild, so no in-browser Babel/JSX transform
        and no relative-import resolution needed at runtime. -->
-  <!-- نکته: اسمِ فایل باید دقیقاً با خروجیِ دستورِ esbuild یکی باشه
-       (--outfile=app_bundle_min.js → یعنی با آندرلاین، نه نقطه). قبلاً اینجا
-       "app.bundle.min.js" (با نقطه) نوشته شده بود که با فایلِ واقعی مچ نمی‌شد
-       → ۴۰۴ خاموش → صفحه برای همیشه رو «در حال بارگذاری...» می‌موند، چون
-       window.onerror شکستِ بارگذاریِ خودِ اسکریپت رو نمی‌گیره (فقط خطاهای
-       اجرا رو می‌گیره). onerror زیر مستقیماً روی خودِ تگ اضافه شده تا این‌جور
-       مشکلات دیگه خاموش نمونن. -->
-  <script
-    type="module"
-    src="app_bundle_min.js"
-    onerror="showErr('باندل بارگذاری نشد (احتمالاً اسمِ فایل درست نیست یا فایل روی سرور موجود نیست): app_bundle_min.js')"
-  ></script>
-
-  <!-- واچ‌داگ: اگه ۸ ثانیه گذشت و بازم اسپلش سرِ جاشه (نه خطا نشون داده شده،
-       نه اپ بالا اومده)، یعنی یه جای دیگه گیر کرده — پیام روشن‌تری به‌جای
-       «در حال بارگذاری...» ابدی نشون می‌ده. -->
-  <script>
-    setTimeout(function () {
-      var el = document.getElementById("splash");
-      if (el && document.body.contains(el)) {
-        showErr("بارگذاریِ اپ بیش از حدِ معمول طول کشید. ممکنه فایلِ باندل (app_bundle_min.js) پیدا نشده باشه، یا یکی از importmap/فونت‌ها/سرویس‌ورکر گیر کرده باشه. کنسولِ مرورگر رو هم چک کن.");
-      }
-    }, 8000);
-  </script>
+  <script type="module" src="app.bundle.min.js"></script>
 
   <script>
     if ("serviceWorker" in navigator) {
