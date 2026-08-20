@@ -6783,6 +6783,12 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [showAddCollection, setShowAddCollection] = useState(false);
   const [newCollectionTitle, setNewCollectionTitle] = useState("");
   const [newCollectionText, setNewCollectionText] = useState("");
+  // آپلودِ PDF برای «منبعِ لغت» — استخراجِ متن کاملاً تو خودِ مرورگره
+  // (با pdf.js)، هیچ فایلی به هیچ سروری فرستاده نمی‌شه. pdfBusy یعنی «داره
+  // پردازش می‌کنه»، pdfError پیامِ خطا (حجمِ زیاد/فایلِ خراب/و غیره).
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState("");
+  const pdfInputRef = useRef(null);
   const [newWordTerm, setNewWordTerm] = useState("");
   const [newWordMeaning, setNewWordMeaning] = useState("");
   const [addingWord, setAddingWord] = useState(false);
@@ -7155,6 +7161,74 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     setNewCollectionTitle("");
     setNewCollectionText("");
     setShowAddCollection(false);
+  };
+
+  // آپلودِ PDF برای «منبعِ لغت» — استخراجِ متن با pdf.js (لود می‌شه از CDN،
+  // فقط وقتی واقعاً لازم بشه، نه موقعِ بازشدنِ اپ) کاملاً سمتِ مرورگرِ
+  // خودِ کاربره؛ هیچ فایلی جایی آپلود نمی‌شه، و نتیجه‌ش هم مثلِ بقیه‌ی
+  // منبع‌های لغت فقط تو localStorage (روی همین گوشی) ذخیره می‌شه، نه تو
+  // Supabase — پس نیازی به ارتقاءِ پلن نداره.
+  const PDF_MAX_BYTES = 8 * 1024 * 1024; // ۸ مگابایت — سقفِ حجمِ فایل، برای اینکه پردازش تو مرورگرِ موبایل کند/سنگین نشه
+  const PDF_MAX_PAGES = 80; // بعد از این تعداد صفحه، بقیه رو نادیده می‌گیریم — کافیه چون این بخش برای «فهرستِ لغت» طراحی شده نه کتابِ کامل
+  const PDF_MAX_CHARS = 20000; // سقفِ کاراکتر، برای اینکه حجمِ localStorage (که مشترکِ همه‌چیزِ اپه) پر نشه
+
+  const handlePdfUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = ""; // تا انتخابِ دوباره‌ی همون فایل هم onChange رو صدا بزنه
+    if (!file) return;
+    setPdfError("");
+    if (file.size > PDF_MAX_BYTES) {
+      setPdfError(`حجمِ فایل بیشتر از ${Math.round(PDF_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه — یه PDF کوچیک‌تر امتحان کن`);
+      return;
+    }
+    setPdfBusy(true);
+    try {
+      // pdf.js فقط همین‌جا و فقط یه‌بار لود می‌شه (نه تو بارگذاریِ اولیه‌ی
+      // اپ) — چون کتابخونه‌ی نسبتاً سنگینیه و اکثرِ کاربرا اصلاً ازش
+      // استفاده نمی‌کنن.
+      const pdfjsLib = await import("pdfjs-dist");
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
+      const buf = await file.arrayBuffer();
+      const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+      const pageCount = Math.min(doc.numPages, PDF_MAX_PAGES);
+      let lines = [];
+      for (let i = 1; i <= pageCount; i++) {
+        const page = await doc.getPage(i);
+        const content = await page.getTextContent();
+        const pageText = content.items.map((it) => it.str).join(" ");
+        // هر PDF متنِ خام رو معمولاً به‌صورتِ یه رشته‌ی پیوسته می‌ده، نه
+        // خط‌به‌خط — برای اینکه با پارسرِ فعلی (که هر خط رو یه لغت فرض
+        // می‌کنه) جور دربیاد، رویِ نقطه/کاما/newline خودِ PDF می‌شکونیمش.
+        pageText
+          .split(/\n|(?<=[.،,؛])\s+/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .forEach((s) => lines.push(s));
+        if (lines.join("\n").length > PDF_MAX_CHARS) break;
+      }
+      let text = lines.join("\n");
+      let truncated = doc.numPages > pageCount;
+      if (text.length > PDF_MAX_CHARS) {
+        text = text.slice(0, PDF_MAX_CHARS);
+        truncated = true;
+      }
+      if (!text.trim()) {
+        setPdfError("متنی از این PDF استخراج نشد — شاید این فایل اسکن/عکسه، نه متنِ واقعی");
+        return;
+      }
+      setNewCollectionText(text);
+      if (!newCollectionTitle.trim()) {
+        setNewCollectionTitle(file.name.replace(/\.pdf$/i, ""));
+      }
+      setShowAddCollection(true);
+      if (truncated) {
+        setPdfError("توجه: چون فایل بزرگ بود، فقط بخشی از متنش خونده شد — قبل از ذخیره می‌تونی ویرایشش کنی");
+      }
+    } catch (err) {
+      setPdfError("خوندنِ این PDF مشکل داشت — فایل ممکنه خراب یا رمزگذاری‌شده باشه");
+    } finally {
+      setPdfBusy(false);
+    }
   };
 
   // Adds one word to the currently open collection. If the user doesn't
@@ -8046,13 +8120,34 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         <div style={{ marginBottom: 10, border: `1px dashed ${colors.cardBorder}`, borderRadius: 12, padding: 10 }}>
           <div className="flex items-center justify-between mb-2">
             <p style={{ fontSize: 12, color: colors.inkSoft }}>منبع لغت (مثل کتاب ۵۰۴ واژه) — {storyLangLabel}</p>
-            <button
-              onClick={() => setShowAddCollection((v) => !v)}
-              style={{ fontSize: 12, color: colors.teal, textDecoration: "underline" }}
-            >
-              {showAddCollection ? "بستن" : "+ منبع جدید"}
-            </button>
+            <div className="flex items-center gap-2">
+              <input
+                ref={pdfInputRef}
+                type="file"
+                accept="application/pdf"
+                onChange={handlePdfUpload}
+                style={{ display: "none" }}
+              />
+              <button
+                onClick={() => pdfInputRef.current?.click()}
+                disabled={pdfBusy}
+                className="flex items-center gap-1"
+                style={{ fontSize: 12, color: colors.teal, textDecoration: "underline", opacity: pdfBusy ? 0.6 : 1 }}
+              >
+                {pdfBusy ? <Loader2 size={12} className="spin" /> : null}
+                {pdfBusy ? "در حال خوندن..." : "📄 آپلود PDF"}
+              </button>
+              <button
+                onClick={() => setShowAddCollection((v) => !v)}
+                style={{ fontSize: 12, color: colors.teal, textDecoration: "underline" }}
+              >
+                {showAddCollection ? "بستن" : "+ منبع جدید"}
+              </button>
+            </div>
           </div>
+          {pdfError && (
+            <p style={{ fontSize: 11, color: colors.rose, marginBottom: 8 }}>{pdfError}</p>
+          )}
 
           {showAddCollection && (
             <div className="flex flex-col gap-2 mb-2">
