@@ -1785,8 +1785,15 @@ const speechController = (() => {
   // sync/ادامه‌دادن از همون نقطه هنوز باید دقیقاً با متنِ اصلی یکی باشن).
   function sanitizeForTTS(s) {
     return String(s || "")
-      .replace(/[\u2066-\u2069\u200B-\u200F\u061C]/g, "") // isolate marks/zero-width/bidi marks
-      .replace(/[«»„‟""''`´]/g, "") // quotation marks across scripts
+      .replace(/[\u2066-\u2069\u200B-\u200F\u061C\uFEFF]/g, "") // isolate marks/zero-width/bidi/BOM
+      // علامت‌های نقل‌قول رو در هر شکلی حذف می‌کنیم — چه گیومه‌ی فارسی/تایپوگرافیک
+      // («» „ ‟ " " ' ')، چه گیومه‌ی ساده‌ی انگلیسیِ روی کیبورد (" و ') که قبلاً
+      // حذف نمی‌شدن و همون چیزی بودن که باعثِ خونده‌شدنِ «گیومه» توسطِ موتورِ
+      // TTS می‌شدن — صرف‌نظر از اینکه متن به چه زبونی باشه.
+      .replace(/[«»‹›„‟""'''`´"']/g, "")
+      // نشونه‌های باقی‌مونده‌ی مارک‌داون (اگه یه‌جایی قبل از رسیدن به اینجا
+      // پاک نشده باشن) — بعضی موتورهای TTS این علامت‌ها رو هم لفظی می‌خونن.
+      .replace(/[*_~]/g, "")
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -12457,8 +12464,16 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
     };
 
     const handleContextMenu = (e) => {
-      // منوی راست‌کلیک/لانگ‌پرسِ پیش‌فرض هیچ‌جای برنامه لازم نیست — همه‌جا
-      // به‌جاش دکمه‌ی «افزودن به داستان» خودمون داریم.
+      // منوی راست‌کلیک/لانگ‌پرسِ پیش‌فرض روی متنِ خواندنیِ داستان لازم
+      // نیست (چون به‌جاش دکمه‌ی «افزودن به داستان» خودمون داریم) — ولی
+      // این preventDefault قبلاً بدونِ قیدوشرط رو کل document بود، یعنی
+      // داخلِ خودِ کادرهای ورودی (input/textarea) هم منوی Paste/کپی/
+      // انتخاب‌همه‌ی بومیِ گوشی رو غیرفعال می‌کرد — برای همین کپی‌پیست تو
+      // کادرهایی مثل «افزودن لغت» کار نمی‌کرد. الان فقط وقتی جلوش رو
+      // می‌گیریم که هدف یه کادرِ متنیِ قابل‌ویرایش نباشه.
+      const el = e.target;
+      const isEditable = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+      if (isEditable) return;
       e.preventDefault();
     };
 
@@ -13646,7 +13661,13 @@ function WordExampleRow({ example, word, langCode, nativeLang, targetLangs, aiSe
 // Leitner review box
 // ---------------------------------------------------------------------------
 function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, index, setIndex, showAnswer, setShowAnswer }) {
-  const active = conversation .filter((p) => boxes[p.id] < 5);
+  // نکته‌ی مهمِ رفعِ باگ: boxes[p.id] برای عبارتی که هنوز اصلاً مرور نشده
+  // undefined هست، و «undefined < 5» توی جاوااسکریپت به‌جای true، false
+  // برمی‌گرده (چون undefined به NaN تبدیل می‌شه و هر مقایسه‌ای با NaN
+  // false هست) — یعنی عبارت‌های مرورنشده به‌جای «باید مرور بشن»، اشتباهاً
+  // «قبلاً بلدشون بودی» حساب می‌شدن و جعبه همیشه خالی/تمام‌شده نشون
+  // می‌داد. با ?? 1 (یعنی جعبه‌ی اول = هنوز مرورنشده) این مشکل حل می‌شه.
+  const active = conversation .filter((p) => (boxes[p.id] ?? 1) < 5);
   if (active.length === 0) {
     return (
       <p style={{ textAlign: "center", color: colors.teal, marginTop: 40, fontWeight: 600 }}>
@@ -13659,7 +13680,9 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
   const handle = (knew) => {
     setBoxes((prev) => ({
       ...prev,
-      [current.id]: knew ? Math.min(5, prev[current.id] + 1) : 1,
+      // همینجا هم همون مشکل بود: prev[current.id] برای اولین مرور
+      // undefined بود و undefined + 1 می‌شد NaN — با ?? 1 درست می‌شه.
+      [current.id]: knew ? Math.min(5, (prev[current.id] ?? 1) + 1) : 1,
     }));
     setShowAnswer(false);
     setIndex((i) => i + 1);
