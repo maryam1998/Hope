@@ -1428,10 +1428,6 @@ const speechController = (() => {
   // شبیهِ «این زبون اصلاً پشتیبانی نمی‌شه» به‌نظر می‌رسه)، واقعاً یه خطا به
   // کاربر نشون بده.
   let ttsError = null;
-  // اگه الان مدلِ صوتیِ آفلاینِ Piper (برای فارسی) داره دانلود می‌شه، این
-  // یه عددِ ۰..۱ه (درصدِ دانلود)؛ در غیرِ این‌صورت null. UI می‌تونه ازش
-  // برای نشون‌دادنِ نوارِ پیشرفت به‌جای پیغامِ خطای گنگ استفاده کنه.
-  let piperProgress = null;
   // --- تکرار سراسری ---------------------------------------------------
   let globalRepeatSetting = (() => {
     const saved = localStorage.getItem("phrasebook-tts-repeat");
@@ -1729,54 +1725,6 @@ const speechController = (() => {
     });
   }
 
-  // -------------------------------------------------------------------
-  // Piper TTS (آفلاین، اجرا با WebAssembly مستقیم توی خودِ مرورگر) — برخلافِ
-  // Edge/Google-Translate/StreamElements که هر سه به سرورهای خارجی وابسته‌ن
-  // (و speech.platform.bing.com دقیقاً همون دامنه‌ایه که در ایران فیلتره)،
-  // Piper یه مدلِ صوتیِ عصبیِ کوچیک (fa_IR-gyro-medium، ~۶۰ مگابایت) رو
-  // فقط دفعه‌ی اول از هاگینگ‌فیس دانلود می‌کنه و توی حافظه‌ی محلیِ خودِ
-  // مرورگر (OPFS) کش می‌کنه؛ از اون به بعد دیگه هیچ اتصالِ اینترنتی لازم
-  // نداره و هیچ تأخیر/فیلترینگی هم نداره. کتابخانه از esm.sh به‌صورتِ
-  // importِ داینامیک لود می‌شه (نه از importmap) تا نیازی به تغییرِ
-  // تنظیماتِ esbuild نباشه — چون specifierِ importِ داینامیک اینجا یه
-  // متغیره نه یه رشته‌ی لفظی، esbuild موقعِ باندل نمی‌تونه/نمی‌ره سراغِ
-  // resolve کردنش و بدونِ تغییر به‌صورتِ importِ واقعیِ زمانِ‌اجرا باقی
-  // می‌مونه.
-  // -------------------------------------------------------------------
-  const PIPER_CDN_URL = "https://esm.sh/@mintplex-labs/piper-tts-web@1.0.0";
-  const PIPER_VOICE_BY_LANG = { fa: "fa_IR-gyro-medium" };
-  let piperModulePromise = null;
-  function loadPiperModule() {
-    if (!piperModulePromise) {
-      const url = PIPER_CDN_URL; // عمداً غیرِ لفظی — نگاهِ بالا رو ببین
-      piperModulePromise = import(url).catch((e) => {
-        piperModulePromise = null; // اگه لودش شکست خورد، دفعه‌ی بعد دوباره امتحان کنه
-        throw e;
-      });
-    }
-    return piperModulePromise;
-  }
-
-  function piperOpfsSupported() {
-    return !!(window.indexedDB && navigator.storage && typeof navigator.storage.getDirectory === "function");
-  }
-
-  // یه تکه‌متن رو با Piper می‌خونه و یه Blob URL از wavِ نتیجه برمی‌گردونه.
-  // onProgress (اختیاری) موقعِ دانلودِ اولیه‌ی مدل با ۰..۱ صدا زده می‌شه.
-  async function fetchPiperTtsAudio(chunkText, voiceId, onProgress) {
-    const sanitized = sanitizeForTTS(chunkText);
-    if (!sanitized) throw new Error("piper-empty");
-    if (!piperOpfsSupported()) throw new Error("piper-unsupported");
-    const tts = await loadPiperModule();
-    const wav = await tts.predict({ text: sanitized, voiceId }, (progress) => {
-      if (progress && progress.total) {
-        const frac = Math.min(1, progress.loaded / progress.total);
-        if (onProgress) onProgress(frac);
-      }
-    });
-    return URL.createObjectURL(wav);
-  }
-
   // فهرستِ سرویس‌های آنلاینِ جایگزین برای یه تکه‌متن، به‌ترتیبِ اولویت:
   // اول Edge/Azure (پوششِ کاملِ همه‌ی زبون‌ها)، بعد Google-Translate-TTS و
   // StreamElements به‌عنوانِ پشتیبان اگه به هر دلیلی وب‌سوکتِ Edge دردسترس
@@ -1787,15 +1735,6 @@ const speechController = (() => {
     const googleTranslate = { kind: "url", url: `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}` };
     const edge = { kind: "edge", text: chunkText, voice };
     const streamElements = { kind: "url", url: `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}` };
-    const piperVoiceId = PIPER_VOICE_BY_LANG[langCode];
-    const piper = piperVoiceId ? { kind: "piper", text: chunkText, voiceId: piperVoiceId } : null;
-    // برای فارسی، Piperِ آفلاین رو همیشه اول امتحان می‌کنیم: دفعه‌ی اول یه
-    // دانلودِ یه‌بارمصرفِ مدل داره، ولی از دومین بار به بعد نه فقط سریع‌تره،
-    // بلکه اصلاً به دامنه‌های فیلترشده وابسته نیست. اگه Piper به هر دلیلی
-    // (مرورگرِ قدیمی بدونِ پشتیبانیِ OPFS، یا اولین‌بار بدونِ اینترنت) شکست
-    // خورد، همون زنجیره‌ی قبلیِ Edge → StreamElements به‌عنوانِ پشتیبان
-    // می‌مونه.
-    if (langCode === "fa" && piper) return [piper, edge, streamElements];
     // Google Translate TTS رو اول امتحان می‌کنیم، نه Edge/Azure — چون دامنه‌ی
     // خودِ Microsoft/Bing (speech.platform.bing.com) در بعضی کشورها (مثلاً
     // ایران) فیلتره، درحالی‌که translate.google.com معمولاً در دسترسه.
@@ -1844,53 +1783,6 @@ const speechController = (() => {
       if (status !== "playing") return;
       playOnlineChunkUrls(providers, providerIndex + 1, idx);
     };
-
-    if (provider.kind === "piper") {
-      piperProgress = null;
-      fetchPiperTtsAudio(provider.text, provider.voiceId, (frac) => {
-        piperProgress = frac;
-        notify();
-      })
-        .then((blobUrl) => {
-          piperProgress = null;
-          if (status !== "playing") {
-            try {
-              URL.revokeObjectURL(blobUrl);
-            } catch (e) {}
-            return;
-          }
-          const audio = new Audio(blobUrl);
-          audio.playbackRate = Number(rate) || 1;
-          audio.onplaying = () => {
-            onlineAnyAudioPlayed = true;
-          };
-          const cleanup = () => {
-            try {
-              URL.revokeObjectURL(blobUrl);
-            } catch (e) {}
-          };
-          audio.onended = () => {
-            cleanup();
-            if (status !== "playing") return;
-            playOnlineChunk(idx + 1);
-          };
-          audio.onerror = () => {
-            cleanup();
-            goNext();
-          };
-          onlineAudio = audio;
-          audio.play().catch(() => {
-            cleanup();
-            goNext();
-          });
-        })
-        .catch(() => {
-          piperProgress = null;
-          notify();
-          goNext();
-        });
-      return;
-    }
 
     if (provider.kind === "edge") {
       fetchEdgeTtsAudio(provider.text, provider.voice, rate)
@@ -1981,7 +1873,6 @@ const speechController = (() => {
     stopOnlineAudio();
     mode = "online";
     onlineAnyAudioPlayed = false;
-    piperProgress = null;
     fullText = text;
     chunks = splitSentences(text);
     onlineChunks = splitForOnlineTts(text);
@@ -2002,7 +1893,7 @@ const speechController = (() => {
       lastOffsetByKey.set(key, chunks[chunkIndex].start);
     }
     listeners.forEach((cb) =>
-      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, ttsError, piperProgress })
+      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, ttsError })
     );
   }
 
@@ -2290,23 +2181,6 @@ const speechController = (() => {
     subscribe(cb) {
       listeners.add(cb);
       return () => listeners.delete(cb);
-    },
-    // برای کارتِ دانلودِ صدای آفلاین توی تنظیمات — دسترسیِ مستقیم به همون
-    // ماژول/کشِ Piperِ بالا، تا هم دانلودِ دستی از تنظیمات و هم دانلودِ
-    // خودکارِ حینِ پخش، یه ماژولِ لودشده رو به‌اشتراک بذارن.
-    async piperListStored() {
-      const tts = await loadPiperModule();
-      return tts.stored();
-    },
-    async piperDownloadVoice(voiceId, onProgress) {
-      const tts = await loadPiperModule();
-      return tts.download(voiceId, (p) => {
-        if (p && p.total && onProgress) onProgress(p.loaded / p.total);
-      });
-    },
-    async piperRemoveVoice(voiceId) {
-      const tts = await loadPiperModule();
-      return tts.remove(voiceId);
     },
     getState() {
       return { key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining };
@@ -5106,14 +4980,6 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
           >
             <BookOpen size={14} /> {tr("offlineDownload", uiLang)}
           </button>
-
-          {/* دانلودِ دستیِ مدلِ صوتیِ آفلاینِ فارسی (Piper) — به‌جای اینکه
-              کاربر غافل‌گیرانه وسطِ اولین پخشِ صدای فارسی منتظرِ دانلود
-              بمونه، اینجا از قبل و آگاهانه (مثلاً فقط رویِ وای‌فای)
-              می‌تونه دانلودش کنه. */}
-          <div style={{ marginTop: 10 }}>
-            <PiperVoiceCard voiceId="fa_IR-gyro-medium" label="فارسی" />
-          </div>
         </div>
       )}
 
@@ -5182,17 +5048,8 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
   // سرویسی پخش نشد — به‌جای پاپ‌آپِ alert (که کاربر رو مجبور به بستنِ
   // دستی می‌کرد)، پایین‌تر همین‌جا، درست زیرِ همین دکمه/جمله، یه پیغامِ
   // کوچیکِ درجا نشون داده می‌شه (پایین‌تر، errorMsg).
-  // اگه همین‌الان داره مدلِ صوتیِ آفلاینِ فارسی (Piper) دانلود می‌شه، به‌جای
-  // پیغامِ خطا، درصدِ پیشرفتِ دانلود رو نشون می‌دیم — این فقط یه‌بار (اولین
-  // پخشِ فارسی) اتفاق می‌افته، بعدش مدل کش شده و دیگه نیازی نیست.
-  const piperMsg =
-    state.key === myKey && state.piperProgress != null
-      ? `در حال آماده‌سازی صدای فارسی (آفلاین)… ${Math.round(state.piperProgress * 100)}٪`
-      : null;
   const errorMsg =
-    piperMsg ||
-    localMsg ||
-    (state.ttsError && state.ttsError === myKey ? "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن" : null);
+    localMsg || (state.ttsError && state.ttsError === myKey ? "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن" : null);
 
   const isActive = state.key === myKey && state.status !== "idle";
   const isPlaying = isActive && state.status === "playing";
@@ -5524,14 +5381,8 @@ function MainPlayButton({ startText, startCode, resolveStartOffset, color, size 
   const btnSize = size || 30;
 
   const myKey = startText ? `${TTS_LOCALE[startCode] || "en-US"}::${startText}` : null;
-  const piperMsg =
-    state.key === myKey && state.piperProgress != null
-      ? `در حال آماده‌سازی صدای فارسی (آفلاین)… ${Math.round(state.piperProgress * 100)}٪`
-      : null;
   const errorMsg =
-    piperMsg ||
-    localMsg ||
-    (state.ttsError && myKey && state.ttsError === myKey ? "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن" : null);
+    localMsg || (state.ttsError && myKey && state.ttsError === myKey ? "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن" : null);
 
   const handleClick = () => {
     if (isActive) {
@@ -6873,133 +6724,6 @@ const CONTENT_TYPES = [
 // covers any word or phrase in any of the app's languages, not just a
 // pre-built database.
 // ---------------------------------------------------------------------------
-// کارت دانلود/وضعیتِ مدلِ صوتیِ آفلاینِ Piper برای یه زبونِ مشخص — دانلودِ
-// یه‌بار (~۶۰ مگابایت برای فارسی)، بعدش خواندنِ صوتی برای اون زبون دیگه
-// هیچ اتصالِ اینترنتی/سرویسِ خارجی لازم نداره (نه Edge، نه StreamElements).
-function PiperVoiceCard({ voiceId, label }) {
-  const [status, setStatus] = useState("checking"); // checking | idle | downloading | ready | error | unsupported
-  const [progress, setProgress] = useState(0);
-  const [errMsg, setErrMsg] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!(window.indexedDB && navigator.storage && typeof navigator.storage.getDirectory === "function")) {
-      setStatus("unsupported");
-      return;
-    }
-    speechController
-      .piperListStored()
-      .then((stored) => {
-        if (cancelled) return;
-        setStatus(stored && stored.includes(voiceId) ? "ready" : "idle");
-      })
-      .catch(() => {
-        if (!cancelled) setStatus("idle"); // ماژول هنوز لود نشده — بازم اجازه‌ی دانلود بده
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [voiceId]);
-
-  const handleDownload = async () => {
-    setStatus("downloading");
-    setProgress(0);
-    setErrMsg("");
-    try {
-      await speechController.piperDownloadVoice(voiceId, (frac) => setProgress(Math.round(frac * 100)));
-      setStatus("ready");
-    } catch (e) {
-      setStatus("error");
-      setErrMsg(e?.message || "دانلود ناموفق بود");
-    }
-  };
-
-  const handleRemove = async () => {
-    try {
-      await speechController.piperRemoveVoice(voiceId);
-      setStatus("idle");
-      setProgress(0);
-    } catch (e) {}
-  };
-
-  if (status === "unsupported") {
-    return (
-      <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: 12, backgroundColor: "white" }}>
-        <span style={{ fontSize: 13, fontWeight: 600 }}>صدای آفلاینِ {label}</span>
-        <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 6 }}>
-          این مرورگر از ذخیره‌سازیِ لازم برای صدای آفلاین پشتیبانی نمی‌کنه.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: 12, backgroundColor: "white" }}>
-      <div className="flex items-center justify-between">
-        <span style={{ fontSize: 13, fontWeight: 600 }}>صدای آفلاینِ {label}</span>
-        {status === "ready" && (
-          <span style={{ display: "flex", alignItems: "center", gap: 4, color: colors.teal, fontSize: 11, fontWeight: 600 }}>
-            <Check size={13} /> آماده
-          </span>
-        )}
-      </div>
-
-      {status === "idle" && (
-        <button
-          onClick={handleDownload}
-          style={{
-            marginTop: 8,
-            fontSize: 12,
-            padding: "6px 12px",
-            borderRadius: 8,
-            border: "none",
-            backgroundColor: colors.gold,
-            color: "white",
-            cursor: "pointer",
-          }}
-        >
-          دانلود برای استفاده‌ی آفلاین (~۶۰ مگابایت)
-        </button>
-      )}
-
-      {status === "downloading" && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 4 }}>در حال دانلود… {progress}٪</div>
-          <div style={{ height: 6, backgroundColor: colors.cardBorder, borderRadius: 4, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${progress}%`, backgroundColor: colors.gold, transition: "width .15s linear" }} />
-          </div>
-        </div>
-      )}
-
-      {status === "ready" && (
-        <div style={{ marginTop: 6, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <p style={{ fontSize: 11, color: colors.inkSoft }}>
-            از این به بعد، خواندنِ صوتیِ {label} حتی بدون اینترنت هم کار می‌کنه.
-          </p>
-          <button
-            onClick={handleRemove}
-            style={{ fontSize: 11, color: colors.rose, textDecoration: "underline", background: "none", border: "none", cursor: "pointer", flexShrink: 0 }}
-          >
-            حذف
-          </button>
-        </div>
-      )}
-
-      {status === "error" && (
-        <div style={{ marginTop: 8 }}>
-          <p style={{ fontSize: 11, color: colors.rose }}>{errMsg}</p>
-          <button
-            onClick={handleDownload}
-            style={{ marginTop: 4, fontSize: 12, color: colors.gold, textDecoration: "underline", background: "none", border: "none", cursor: "pointer" }}
-          >
-            دوباره امتحان کن
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // کارت دانلود/وضعیت دیکشنری آفلاین برای یه زبون مشخص — دانلود یه‌بار،
 // بعدش جستجو کاملاً بدون اینترنت کار می‌کنه.
 function OfflineDictionaryCard({ code, label }) {
