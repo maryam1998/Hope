@@ -1761,6 +1761,7 @@ const speechController = (() => {
       const url = PIPER_CDN_URL; // عمداً غیرِ لفظی — نگاهِ بالا رو ببین
       piperModulePromise = import(url).catch((e) => {
         piperModulePromise = null; // اگه لودش شکست خورد، دفعه‌ی بعد دوباره امتحان کنه
+        console.error("[Piper] لودِ ماژول شکست خورد:", url, e);
         throw e;
       });
     }
@@ -1776,15 +1777,29 @@ const speechController = (() => {
   async function fetchPiperTtsAudio(chunkText, voiceId, onProgress) {
     const sanitized = sanitizeForTTS(chunkText);
     if (!sanitized) throw new Error("piper-empty");
-    if (!piperOpfsSupported()) throw new Error("piper-unsupported");
-    const tts = await loadPiperModule();
-    const wav = await tts.predict({ text: sanitized, voiceId }, (progress) => {
-      if (progress && progress.total) {
-        const frac = Math.min(1, progress.loaded / progress.total);
-        if (onProgress) onProgress(frac);
-      }
-    });
-    return URL.createObjectURL(wav);
+    if (!piperOpfsSupported()) {
+      console.warn("[Piper] OPFS/IndexedDB توی این مرورگر پشتیبانی نمی‌شه، رد شدن.");
+      throw new Error("piper-unsupported");
+    }
+    let tts;
+    try {
+      tts = await loadPiperModule();
+    } catch (e) {
+      // خودِ loadPiperModule قبلاً لاگ کرده؛ فقط دوباره throw می‌کنیم.
+      throw e;
+    }
+    try {
+      const wav = await tts.predict({ text: sanitized, voiceId }, (progress) => {
+        if (progress && progress.total) {
+          const frac = Math.min(1, progress.loaded / progress.total);
+          if (onProgress) onProgress(frac);
+        }
+      });
+      return URL.createObjectURL(wav);
+    } catch (e) {
+      console.error("[Piper] predict() شکست خورد:", voiceId, e);
+      throw e;
+    }
   }
 
   // فهرستِ سرویس‌های آنلاینِ جایگزین برای یه تکه‌متن، به‌ترتیبِ اولویت:
