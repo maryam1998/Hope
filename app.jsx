@@ -2167,14 +2167,14 @@ const speechController = (() => {
         const hasSynthesis = "speechSynthesis" in window;
 
         let newLocale = TTS_LOCALE[code] || "en-US";
-        if (hasSynthesis && code === "fa") {
-          const voices = window.speechSynthesis.getVoices();
-          const hasPersianVoice = voices.some(v => v.lang.startsWith("fa"));
-          if (!hasPersianVoice) {
-            const arabicVoice = voices.find(v => v.lang.startsWith("ar"));
-            if (arabicVoice) newLocale = "ar-SA";
-          }
-        }
+        // فارسی و عربی: طبقِ تصمیمِ صریحِ کاربر، این دو زبون همیشه از سرویسِ
+        // آنلاینِ رایگان (Edge/Azure ...) خونده می‌شن، نه از TTS خودِ گوشی —
+        // چون کیفیت/وجودِ صدای محلی برای این دو زبون رو نمی‌شه مطمئن بود.
+        // همه‌ی زبون‌های دیگه برعکس: فقط و فقط از TTS خودِ گوشی (بدونِ
+        // نیاز به اینترنت) — حتی اگه گوشی صدایی براشون نصب نداشته باشه،
+        // دیگه به‌صورتِ خودکار سراغِ سرویسِ آنلاین نمی‌ریم.
+        const ONLINE_ONLY_LANGS = new Set(["fa", "ar"]);
+        const forceOnlineForLang = ONLINE_ONLY_LANGS.has(code);
 
         const newKey = `${newLocale}::${text}`;
 
@@ -2265,7 +2265,7 @@ const speechController = (() => {
         // در غیرِ این‌صورت (چه صدایی نبود، چه فهرست هنوز خالی بود) مسیرِ
         // آنلاینِ جایگزین — که حالا خودش هم دیگه بی‌صدا شکست نمی‌خوره
         // (بالاتر، ttsError) — انتخاب می‌شه.
-        if (hasSynthesis && hasVoice) {
+        if (!forceOnlineForLang && hasSynthesis && hasVoice) {
           mode = "local";
           stopOnlineAudio();
           fullText = text;
@@ -2281,7 +2281,18 @@ const speechController = (() => {
           return "ok";
         }
 
-        // مسیر جایگزین (آنلاین رایگان)
+        // اگه زبون جزوِ فارسی/عربی نبود و گوشی هم صدایی براش نداشت، دیگه
+        // خودکار سراغِ اینترنت نمی‌ریم (طبقِ خواستِ کاربر: «فقط TTS گوشی،
+        // بدونِ نیاز به اینترنت» برای همه‌ی زبون‌ها غیر از فارسی/عربی) —
+        // به‌جاش یه خطای روشن نشون می‌دیم که کاربر صدای اون زبون رو از
+        // تنظیماتِ گوشی نصب کنه.
+        if (!forceOnlineForLang) {
+          status = "idle";
+          notify();
+          return "no-local-voice";
+        }
+
+        // مسیر آنلاینِ رایگان — فقط برای فارسی/عربی
         cancelSpeech();
         const onlineLang = code === "zh" ? "zh-CN" : code;
         speakOnline(text, onlineLang, effectiveStartOffset, forceSingle, forceLoop);
@@ -5059,6 +5070,9 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
     } else if (result === "online-fallback") {
       const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
       setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — فعلاً از اینترنت پخش می‌شه`);
+    } else if (result === "no-local-voice") {
+      const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
+      setLocalMsg(`صدای ${langLabel} روی گوشیت نصب نیست — از تنظیماتِ گوشی نصبش کن`);
     }
   };
 
@@ -5339,6 +5353,9 @@ function MainPlayButton({ startText, startCode, resolveStartOffset, color, size 
       setLocalMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
     } else if (result === "error") {
       setLocalMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
+    } else if (result === "no-local-voice") {
+      const langLabel = LANGUAGES.find((l) => l.code === startCode)?.label || startCode;
+      setLocalMsg(`صدای ${langLabel} روی گوشیت نصب نیست — از تنظیماتِ گوشی نصبش کن`);
     }
   };
 
@@ -13572,6 +13589,8 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
               setPopupSpeakMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
             } else if (result === "error") {
               setPopupSpeakMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
+            } else if (result === "no-local-voice") {
+              setPopupSpeakMsg("صدای این زبان روی گوشیت نصب نیست");
             }
           }}
           aria-label="خواندنِ بخشِ انتخاب‌شده"
