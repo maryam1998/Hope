@@ -1743,27 +1743,54 @@ const speechController = (() => {
   // resolve کردنش و بدونِ تغییر به‌صورتِ importِ واقعیِ زمانِ‌اجرا باقی
   // می‌مونه.
   // -------------------------------------------------------------------
-  // نکته‌ی مهم: قبلاً از esm.sh لود می‌شد، ولی esm.sh فایلِ جاوااسکریپتِ
-  // کتابخونه رو بازنویسی/باندل می‌کنه و فایل‌های کناریِ خودِ onnxruntime-web
-  // (یعنی همون ort-wasm-simd-threaded.jsep.mjs/.wasm که موتورِ Piper برای
-  // اجرا بهشون نیاز داره) رو با آدرسِ درست سرو نمی‌کنه — نتیجه‌ش همون خطای
-  // 404ِ ort-wasm-simd-threaded.jsep.mjs توی کنسوله که باعث می‌شه Piper از
-  // همون قدمِ اول شکست بخوره و بره سراغِ Edge (که بلاکه) و بعد گوگل/استریم
-  // المنتس (که برای فارسی صدایی ندارن یا 401 می‌دن). jsDelivr برخلافِ
-  // esm.sh، دقیقاً همون فایل‌هایی که توی پکیجِ npm منتشر شدن رو با همون
-  // ساختارِ پوشه‌ای سرو می‌کنه، پس مسیرهای نسبی‌ای که خودِ onnxruntime-web
-  // برای پیدا کردنِ wasm/mjs استفاده می‌کنه درست کار می‌کنن.
-  const PIPER_CDN_URL = "https://cdn.jsdelivr.net/npm/@mintplex-labs/piper-tts-web@1.0.4/dist/piper-tts-web.js";
+  // نکته‌ی مهم (کشفِ نهایی): طبق package.json خودِ کتابخونه، onnxruntime-web
+  // یه peerDependencyه (نه چیزی که داخلِ فایلِ dist باندل شده باشه). یعنی
+  // اگه مستقیم از jsDelivr/خامِ فایلِ dist رو import کنیم، مرورگر با خطای
+  // «Failed to resolve module specifier 'onnxruntime-web'» شکست می‌خوره —
+  // چون importِ بدونِ‌آدرس (bare specifier) رو فقط یه باندلر می‌تونه حل کنه.
+  // esm.sh دقیقاً همین کار رو خودکار انجام می‌ده (به همین خاطر نسخه‌ی اولِ
+  // کد ازش استفاده می‌کرد). مشکلِ قبلیِ esm.sh (404 برایِ فایلِ wasmِ
+  // نسخه‌ی چندنخی/jsep) رو هم پایین‌تر با تنظیمِ صریحِ wasmPaths (به jSDelivr
+  // که این فایل‌ها رو قطعاً درست سرو می‌کنه) و خاموش‌کردنِ چندنخی حل می‌کنیم؛
+  // چون GitHub Pages هدرهایِ COOP/COEP لازم برایِ SharedArrayBuffer رو
+  // ست نمی‌کنه، نسخه‌ی چندنخی (threaded) اصلاً اونجا قابلِ‌اجرا نیست.
+  const PIPER_ORT_VERSION = "1.18.0"; // باید با peerDependency خودِ piper-tts-web (^1.18.0) سازگار باشه
+  const PIPER_CDN_URL = `https://esm.sh/@mintplex-labs/piper-tts-web@1.0.0?deps=onnxruntime-web@${PIPER_ORT_VERSION}`;
+  const PIPER_ORT_URL = `https://esm.sh/onnxruntime-web@${PIPER_ORT_VERSION}`;
+  let piperOrtConfigPromise = null;
+  // قبل از اینکه خودِ Piper بره سراغِ onnxruntime-web، یه بار از همون آدرسِ
+  // دقیقاً یکسان (همون نسخه‌ی پین‌شده) importش می‌کنیم و مسیرِ wasm/تنظیماتِ
+  // نخ رو ست می‌کنیم. چون esm.sh ماژول‌ها رو بر اساسِ URL دقیق کش/دیدوپ
+  // می‌کنه، این importِ ما و importِ داخلیِ Piper به یه instanceِ مشترک
+  // می‌رسن، پس تنظیماتِ ما رویِ اجرایِ Piper هم اثر می‌کنه.
+  function configurePiperOrt() {
+    if (!piperOrtConfigPromise) {
+      piperOrtConfigPromise = import(PIPER_ORT_URL)
+        .then((ort) => {
+          ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${PIPER_ORT_VERSION}/dist/`;
+          ort.env.wasm.numThreads = 1;
+          ort.env.wasm.proxy = false;
+        })
+        .catch((e) => {
+          console.error("[Piper] پیکربندیِ onnxruntime-web شکست خورد:", e);
+          piperOrtConfigPromise = null;
+          throw e;
+        });
+    }
+    return piperOrtConfigPromise;
+  }
   const PIPER_VOICE_BY_LANG = { fa: "fa_IR-gyro-medium" };
   let piperModulePromise = null;
   function loadPiperModule() {
     if (!piperModulePromise) {
       const url = PIPER_CDN_URL; // عمداً غیرِ لفظی — نگاهِ بالا رو ببین
-      piperModulePromise = import(url).catch((e) => {
-        piperModulePromise = null; // اگه لودش شکست خورد، دفعه‌ی بعد دوباره امتحان کنه
-        console.error("[Piper] لودِ ماژول شکست خورد:", url, e);
-        throw e;
-      });
+      piperModulePromise = configurePiperOrt()
+        .then(() => import(url))
+        .catch((e) => {
+          piperModulePromise = null; // اگه لودش شکست خورد، دفعه‌ی بعد دوباره امتحان کنه
+          console.error("[Piper] لودِ ماژول شکست خورد:", url, e);
+          throw e;
+        });
     }
     return piperModulePromise;
   }
