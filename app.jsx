@@ -1630,7 +1630,7 @@ const speechController = (() => {
             "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1" +
             `?TrustedClientToken=${EDGE_TTS_TRUSTED_TOKEN}` +
             `&Sec-MS-GEC=${gec}` +
-            `&Sec-MS-GEC-Version=1-131.0.2903.99` +
+            `&Sec-MS-GEC-Version=1-143.0.3650.75` +
             `&ConnectionId=${connId}`;
           let ws;
           try {
@@ -1746,7 +1746,7 @@ const speechController = (() => {
     // Google‌ه، نه چیزی که با فیلترینگ ربط داشته باشه) — یعنی برای فارسی
     // همیشه شکست می‌خوره و فقط یه تأخیرِ بی‌فایده قبلِ رسیدن به Edge اضافه
     // می‌کنه. برای همین، فقط برای فارسی، Edge رو مستقیم اول امتحان می‌کنیم.
-    if (langCode === "fa") return [edge, streamElements];
+    if (langCode === "fa" || langCode === "ar") return [edge, streamElements];
     return [googleTranslate, edge, streamElements];
   }
 
