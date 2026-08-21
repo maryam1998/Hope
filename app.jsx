@@ -208,9 +208,24 @@ async function getCachedTranslationMap(targetLang, sourceLang = "en") {
 // ============================================================
 
 // ۱) Google Translate — همون endpoint قدیمی و رایگان
+// درخواست‌های شبکه با یه timeout کوتاه — اگه یه سرویس (مثلاً به‌خاطر
+// فیلترینگ/بلاک‌بودن توی شبکه‌ی کاربر) فوراً جواب رد نکنه، به‌جای معطل
+// موندنِ چندده‌ثانیه‌ای، سریع شکست می‌خوریم و می‌ریم سراغ سرویس بعدی —
+// این دقیقاً همون چیزیه که با اضافه‌شدنِ continue برای رد کردنِ نتایج
+// مشکوک (که حالا ممکنه به سرویس‌های بیشتری سر بزنه) لازم شده.
+async function fetchWithTimeout(url, options = {}, timeoutMs = 4000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function translateViaGoogle(text, targetLang, sourceLang = "auto") {
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
   if (!response.ok) throw new Error("google-http-" + response.status);
   const data = await response.json();
   if (data && data[0] && data[0].length) {
@@ -224,7 +239,7 @@ async function translateViaMyMemory(text, targetLang, sourceLang = "auto") {
   // MyMemory زبان مبدا "auto" را نمی‌شناسد؛ اگر مشخص نبود انگلیسی را حدس می‌زنیم
   const sl = sourceLang && sourceLang !== "auto" ? sourceLang : "en";
   const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sl}|${targetLang}`;
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
   if (!response.ok) throw new Error("mymemory-http-" + response.status);
   const data = await response.json();
   const translated = data?.responseData?.translatedText;
@@ -241,7 +256,7 @@ async function translateViaMyMemory(text, targetLang, sourceLang = "auto") {
 // ۳) Lingva Translate — یک پروکسی متن‌باز و رایگان جلوی Google Translate
 async function translateViaLingva(text, targetLang, sourceLang = "auto") {
   const url = `https://lingva.ml/api/v1/${sourceLang}/${targetLang}/${encodeURIComponent(text)}`;
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
   if (!response.ok) throw new Error("lingva-http-" + response.status);
   const data = await response.json();
   if (!data?.translation) throw new Error("lingva-empty-response");
@@ -250,7 +265,7 @@ async function translateViaLingva(text, targetLang, sourceLang = "auto") {
 
 // ۴) LibreTranslate — سرویس متن‌باز رایگان (نمونه‌ی عمومی)
 async function translateViaLibre(text, targetLang, sourceLang = "auto") {
-  const response = await fetch("https://libretranslate.de/translate", {
+  const response = await fetchWithTimeout("https://libretranslate.de/translate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ q: text, source: sourceLang || "auto", target: targetLang, format: "text" }),
@@ -1418,7 +1433,7 @@ const speechController = (() => {
     const saved = localStorage.getItem("phrasebook-tts-repeat");
     if (saved === "inf") return "inf";
     const n = Number(saved);
-    return n === 3 || n === 6 ? n : 0;
+    return n === 2 || n === 3 ? n : 0;
   })();
   let remaining = 0;
   let singleShot = false;
@@ -1843,7 +1858,7 @@ const speechController = (() => {
     onlineLangForTts = langCodeForTts;
     singleShot = !!forceSingle;
     loopWholeText = !!forceLoop;
-    remaining = singleShot ? 0 : forceLoop ? Infinity : globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
+    remaining = singleShot ? 0 : forceLoop ? Infinity : globalRepeatSetting === "inf" ? Infinity : Math.max(0, (Number(globalRepeatSetting) || 0) - 1);
     let startChunk = 0;
     if (Number.isInteger(startCharOffset) && startCharOffset > 0 && text.length && onlineChunks.length) {
       const frac = Math.min(Math.max(startCharOffset / text.length, 0), 1);
@@ -2064,12 +2079,17 @@ const speechController = (() => {
       // خاموشش کنه.
       if (!singleShot) {
         const isMultiChunk = chunks.length > 1;
+        // تنظیمِ تکرار یعنی «کلاً N بار خونده بشه»، نه «N بار اضافه بر
+        // خوندنِ اولش». چون همینِ خط داره برای اولین‌بار تمومِ خوندنش رو
+        // اعلام می‌کنه (یعنی همون ۱ بار اول قبلاً اتفاق افتاده)، فقط N-1
+        // بارِ اضافه لازمه تا جمعاً به N برسه — قبلاً این -1 نبود و برای
+        // مثلاً تنظیمِ ۳، در واقع ۴ بار خونده می‌شد.
         const repeatTarget =
           globalRepeatSetting === "inf"
             ? isMultiChunk
               ? CHUNK_REPEAT_INFINITE_CAP
               : Infinity
-            : Number(globalRepeatSetting) || 0;
+            : Math.max(0, (Number(globalRepeatSetting) || 0) - 1);
         if (chunkRepeatsDone < repeatTarget) {
           chunkRepeatsDone += 1;
           gapTimer = setTimeout(() => {
@@ -2122,14 +2142,14 @@ const speechController = (() => {
       return globalRepeatSetting;
     },
     cycleGlobalRepeat() {
-      const order = [0, 3, 6, "inf"];
+      const order = [0, 2, 3, "inf"];
       const idx = order.indexOf(globalRepeatSetting);
       globalRepeatSetting = order[(idx + 1) % order.length];
       try {
         localStorage.setItem("phrasebook-tts-repeat", String(globalRepeatSetting));
       } catch (e) {}
       if (status === "playing" || status === "paused") {
-        remaining = globalRepeatSetting === "inf" ? Infinity : Number(globalRepeatSetting) || 0;
+        remaining = globalRepeatSetting === "inf" ? Infinity : Math.max(0, (Number(globalRepeatSetting) || 0) - 1);
       }
       notify();
     },
@@ -6442,13 +6462,13 @@ function LevelBadge({ level }) {
   );
 }
 
-function LevelFilterRow({ levelFilter, setLevelFilter }) {
+function LevelFilterRow({ levelFilter, setLevelFilter, uiLang }) {
   return (
     <div className="flex gap-2 overflow-x-auto pb-1">
       <button
         onClick={() => setLevelFilter("all")}
         style={{
-          fontFamily: fontFa,
+          fontFamily: uiLang === "en" ? fontLatin : fontFa,
           fontSize: 12,
           fontWeight: 600,
           padding: "4px 12px",
@@ -6459,7 +6479,7 @@ function LevelFilterRow({ levelFilter, setLevelFilter }) {
           flexShrink: 0,
         }}
       >
-        همه سطح‌ها
+        {uiLang === "en" ? "All levels" : "همه سطح‌ها"}
       </button>
       {LEVELS.map((lvl) => (
         <button
@@ -7044,7 +7064,7 @@ function enforceSentenceSplit(paragraphs) {
   });
 }
 
-function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, autoScrollActive, calendarSystem, highlightColor, uid }) {
+function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, autoScrollActive, calendarSystem, highlightColor, uid, uiLang }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
   // languages) — no separate picker duplicated here.
@@ -8571,7 +8591,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               🆕 جدیدترین
             </button>
           </div>
-          <LevelFilterRow levelFilter={communityLevelFilter} setLevelFilter={setCommunityLevelFilter} />
+          <LevelFilterRow levelFilter={communityLevelFilter} setLevelFilter={setCommunityLevelFilter} uiLang={uiLang} />
 
           {communityLoading && <p style={{ fontSize: 13, color: colors.inkSoft }}>در حال بارگذاری...</p>}
           {!communityLoading && communityList.length === 0 && (
@@ -8612,7 +8632,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           {/* سطح‌ها همیشه توی ردیفِ خودشون، تمام‌عرض و بدون تنگ‌شدن نشون
               داده می‌شن؛ مرتب‌سازی یه ردیفِ جدا زیرشه — قبلاً کنارِ هم
               بودن و دکمه‌ی مرتب‌سازی جای سطح‌ها رو تنگ می‌کرد. */}
-          <LevelFilterRow levelFilter={savedStoriesLevelFilter} setLevelFilter={setSavedStoriesLevelFilter} />
+          <LevelFilterRow levelFilter={savedStoriesLevelFilter} setLevelFilter={setSavedStoriesLevelFilter} uiLang={uiLang} />
           {savedStories.length > 1 && (
             <div className="flex justify-start">
               <SavedStoriesSortMenu sortKey={savedStoriesSort} setSortKey={setSavedStoriesSort} />
@@ -12204,7 +12224,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       {/* Level filter — applies to conversation , words, favorites, and vocabulary */}
       {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "slang") && (
         <div className="px-4 pt-3">
-          <LevelFilterRow levelFilter={levelFilter} setLevelFilter={setLevelFilter} />
+          <LevelFilterRow levelFilter={levelFilter} setLevelFilter={setLevelFilter} uiLang={appPrefs.uiLang} />
         </div>
       )}
 
@@ -12510,6 +12530,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             calendarSystem={appPrefs.calendarSystem || "jalali"}
             highlightColor={appPrefs.highlightColor}
             uid={user?.uid}
+            uiLang={appPrefs.uiLang}
           />
         </div>
       </main>
