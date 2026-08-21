@@ -1630,7 +1630,7 @@ const speechController = (() => {
             "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1" +
             `?TrustedClientToken=${EDGE_TTS_TRUSTED_TOKEN}` +
             `&Sec-MS-GEC=${gec}` +
-            `&Sec-MS-GEC-Version=1-143.0.3650.75` +
+            `&Sec-MS-GEC-Version=1-131.0.2903.99` +
             `&ConnectionId=${connId}`;
           let ws;
           try {
@@ -1735,19 +1735,21 @@ const speechController = (() => {
     const googleTranslate = { kind: "url", url: `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}` };
     const edge = { kind: "edge", text: chunkText, voice };
     const streamElements = { kind: "url", url: `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}` };
-    // Google Translate TTS رو اول امتحان می‌کنیم، نه Edge/Azure — چون دامنه‌ی
-    // خودِ Microsoft/Bing (speech.platform.bing.com) در بعضی کشورها (مثلاً
-    // ایران) فیلتره، درحالی‌که translate.google.com معمولاً در دسترسه.
-    // Edge به‌عنوانِ پشتیبانِ دوم می‌مونه (کیفیتش بالاتره، برای کاربرهایی
-    // که فیلتر نیستن)، و StreamElements آخرین گزینه.
+    // به‌روزرسانیِ مهم (که علتِ واقعیِ «چرا نمی‌خونه» رو توضیح می‌ده): از یه
+    // جایی به بعد، مایکروسافت اتصالِ وب‌سوکتِ Edge TTS رو طوری سخت‌گیرانه‌تر
+    // کرده که یه هدرِ خاص (Sec-WebSocket-Version) لازم داره که هیچ جاوااسکریپتِ
+    // مرورگری (Chrome، همون چیزی که این اپ توش اجرا می‌شه — چه در وب، چه
+    // به‌صورت APK/WebView) اصلاً اجازه‌ی تنظیمش رو نداره؛ فقط خودِ مرورگرِ
+    // دسکتاپِ Edge می‌تونه بهش وصل بشه. این ربطی به فیلترینگ/ایران نداره —
+    // یه محدودیتِ تازه‌ی خودِ مایکروسافته که عملاً همه‌ی کلاینت‌های مرورگریِ
+    // غیرِ Edge رو می‌گیره. برای همین Edge رو آخرین اولویت گذاشتیم (شاید یه
+    // روزی دوباره باز بشه، ضرری نداره امتحانش کنیم، ولی نباید روش حساب کرد).
     //
-    // استثنا: فارسی. برخلافِ عربی، سرویسِ صداخوانیِ Google Translate اصلاً
-    // صدایی برای فارسی نداره (این یه محدودیتِ قدیمی و شناخته‌شده‌ی خودِ
-    // Google‌ه، نه چیزی که با فیلترینگ ربط داشته باشه) — یعنی برای فارسی
-    // همیشه شکست می‌خوره و فقط یه تأخیرِ بی‌فایده قبلِ رسیدن به Edge اضافه
-    // می‌کنه. برای همین، فقط برای فارسی، Edge رو مستقیم اول امتحان می‌کنیم.
-    if (langCode === "fa" || langCode === "ar") return [edge, streamElements];
-    return [googleTranslate, edge, streamElements];
+    // برای عربی: Google Translate TTS کار می‌کنه، پس همون اول امتحان می‌شه.
+    // برای فارسی: Google اصلاً صدایی برای فارسی نداره (قبلاً توضیح داده شد)،
+    // پس تنها گزینه‌ی واقعاً کاربردیِ باقی‌مونده همین لحظه StreamElementsه.
+    if (langCode === "fa") return [streamElements, edge];
+    return [googleTranslate, streamElements, edge];
   }
 
   function stopOnlineAudio() {
@@ -2312,8 +2314,10 @@ const speechController = (() => {
 
         // درخواستِ کاربر: برایِ فارسی و عربی همیشه از سرویسِ آنلاین
         // استفاده بشه (چون کیفیتِ صدای محلیِ گوشی برای این دو زبون معمولاً
-        // بد/ناقصه)؛ برایِ بقیه‌ی زبون‌ها همیشه از موتورِ محلیِ خودِ گوشی
-        // (speechSynthesis) استفاده بشه تا بدونِ نیاز به اینترنت کار کنه.
+        // بد/ناقصه)؛ برایِ تمامِ بقیه‌ی زبون‌ها، بدونِ هیچ استثنایی، فقط از
+        // موتورِ محلیِ خودِ گوشی (speechSynthesis) استفاده می‌شه — حتی اگه
+        // گوشی صدای نصب‌شده برای اون زبون نداشته باشه، دیگه سراغِ اینترنت
+        // نمی‌ریم (پایین‌تر، شاخه‌ی "no-voice").
         const forceOnlineForLang = code === "fa" || code === "ar";
 
         // نکته: قبلاً اینجا «voices.length === 0» هم مسیرِ محلی رو مجاز
@@ -2323,10 +2327,10 @@ const speechController = (() => {
         // کد فرض می‌کرد «حتماً یه صدایی هست» و مسیرِ محلی رو امتحان
         // می‌کرد — با هیچ صدایی برای رندر، که یعنی سکوتِ کامل و بدونِ
         // هیچ خطایی (چون utter.onerror همیشه هم شلیک نمی‌شه). حالا فقط
-        // وقتی واقعاً یه صدای منطبق پیدا شده باشه می‌ریم سراغِ محلی؛
-        // در غیرِ این‌صورت (چه صدایی نبود، چه فهرست هنوز خالی بود، چه
-        // فارسی/عربی بود) مسیرِ آنلاینِ جایگزین — که حالا خودش هم دیگه
-        // بی‌صدا شکست نمی‌خوره (بالاتر، ttsError) — انتخاب می‌شه.
+        // وقتی واقعاً یه صدای منطبق پیدا شده باشه می‌ریم سراغِ محلی؛ در
+        // غیرِ این‌صورت، اگه زبون فارسی/عربی باشه می‌ره سراغِ آنلاین، وگرنه
+        // (طبقِ درخواستِ کاربر) هیچ‌وقت اینترنت مصرف نمی‌شه — فقط خطای
+        // «صدا نصب نیست» برمی‌گرده.
         if (hasSynthesis && hasVoice && !forceOnlineForLang) {
           mode = "local";
           stopOnlineAudio();
@@ -2343,7 +2347,20 @@ const speechController = (() => {
           return "ok";
         }
 
-        // مسیر جایگزین (آنلاین رایگان)
+        // درخواستِ کاربر: برای همه‌ی زبان‌ها به‌جز فارسی/عربی، هیچ‌وقت از
+        // اینترنت استفاده نشه — حتی اگه گوشی صدای محلی برای این زبون نصب
+        // نداشته باشه. پس اینجا دیگه به مسیرِ آنلاین نمی‌ریم؛ فقط خطای
+        // «صدا نصب نیست» برمی‌گردونیم تا رابط کاربری راهنمای نصب رو نشون
+        // بده (به‌جای پخشِ بی‌صدا از اینترنت).
+        if (!forceOnlineForLang) {
+          status = "idle";
+          notify();
+          return hasSynthesis ? "no-voice" : "unsupported";
+        }
+
+        // فقط فارسی/عربی به این‌جا می‌رسن — طبق درخواستِ کاربر همیشه از
+        // سرویسِ آنلاینِ رایگان استفاده می‌شه (چون کیفیتِ صدای محلیِ گوشی
+        // برای این دو زبون معمولاً بد/ناقصه).
         cancelSpeech();
         const onlineLang = code === "zh" ? "zh-CN" : code;
         speakOnline(text, onlineLang, effectiveStartOffset, forceSingle, forceLoop);
@@ -5103,6 +5120,9 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
       if (fullTextResult === "online-fallback") {
         const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
         setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — فعلاً از اینترنت پخش می‌شه`);
+      } else if (fullTextResult === "no-voice") {
+        const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
+        setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — از تنظیمات، بسته‌ی زبانش رو نصب کن`);
       }
       if (onPlayed) onPlayed();
       return;
@@ -5110,10 +5130,10 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
 
     const result = speechController.toggle(text, code, effectiveStartOffset, forceRepeat ? { loop: true } : undefined);
     if (onPlayed) onPlayed();
-    // "no-voice" دیگه پیش نمی‌آد چون خودکار می‌ره سراغ سرویس آنلاین رایگان
-    // (result === "online-fallback")؛ فقط وقتی هیچ راهی — نه گوشی نه آنلاین —
-    // ممکن نبود، خطا نشون می‌دیم. به‌جای alert، همین‌جا زیرِ دکمه نشون
-    // داده می‌شه (بالاتر، errorMsg).
+    // "online-fallback" فقط برای فارسی/عربی پیش می‌آد (همیشه آنلاین‌ان).
+    // برای بقیه‌ی زبون‌ها، طبقِ درخواستِ کاربر، دیگه هیچ‌وقت سراغِ اینترنت
+    // نمی‌ریم — اگه گوشی صدای محلی نداشته باشه نتیجه "no-voice" برمی‌گرده.
+    // به‌جای alert، همین‌جا زیرِ دکمه نشون داده می‌شه (بالاتر، errorMsg).
     if (result === "unsupported") {
       setLocalMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
     } else if (result === "error") {
@@ -5121,6 +5141,9 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
     } else if (result === "online-fallback") {
       const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
       setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — فعلاً از اینترنت پخش می‌شه`);
+    } else if (result === "no-voice") {
+      const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
+      setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — از تنظیمات، بسته‌ی زبانش رو نصب کن`);
     }
   };
 
@@ -5401,6 +5424,9 @@ function MainPlayButton({ startText, startCode, resolveStartOffset, color, size 
       setLocalMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
     } else if (result === "error") {
       setLocalMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
+    } else if (result === "no-voice") {
+      const langLabel = LANGUAGES.find((l) => l.code === startCode)?.label || startCode;
+      setLocalMsg(`صدای ${langLabel} روی گوشیت نصب نیست — از تنظیمات، بسته‌ی زبانش رو نصب کن`);
     }
   };
 
@@ -13695,6 +13721,9 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
               setPopupSpeakMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
             } else if (result === "error") {
               setPopupSpeakMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
+            } else if (result === "no-voice") {
+              const langLabel = LANGUAGES.find((l) => l.code === popup.langCode)?.label || popup.langCode;
+              setPopupSpeakMsg(`صدای ${langLabel} روی گوشیت نصب نیست — از تنظیمات، بسته‌ی زبانش رو نصب کن`);
             }
           }}
           aria-label="خواندنِ بخشِ انتخاب‌شده"
