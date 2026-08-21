@@ -2291,6 +2291,23 @@ const speechController = (() => {
       listeners.add(cb);
       return () => listeners.delete(cb);
     },
+    // برای کارتِ دانلودِ صدای آفلاین توی تنظیمات — دسترسیِ مستقیم به همون
+    // ماژول/کشِ Piperِ بالا، تا هم دانلودِ دستی از تنظیمات و هم دانلودِ
+    // خودکارِ حینِ پخش، یه ماژولِ لودشده رو به‌اشتراک بذارن.
+    async piperListStored() {
+      const tts = await loadPiperModule();
+      return tts.stored();
+    },
+    async piperDownloadVoice(voiceId, onProgress) {
+      const tts = await loadPiperModule();
+      return tts.download(voiceId, (p) => {
+        if (p && p.total && onProgress) onProgress(p.loaded / p.total);
+      });
+    },
+    async piperRemoveVoice(voiceId) {
+      const tts = await loadPiperModule();
+      return tts.remove(voiceId);
+    },
     getState() {
       return { key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining };
     },
@@ -5089,6 +5106,14 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
           >
             <BookOpen size={14} /> {tr("offlineDownload", uiLang)}
           </button>
+
+          {/* دانلودِ دستیِ مدلِ صوتیِ آفلاینِ فارسی (Piper) — به‌جای اینکه
+              کاربر غافل‌گیرانه وسطِ اولین پخشِ صدای فارسی منتظرِ دانلود
+              بمونه، اینجا از قبل و آگاهانه (مثلاً فقط رویِ وای‌فای)
+              می‌تونه دانلودش کنه. */}
+          <div style={{ marginTop: 10 }}>
+            <PiperVoiceCard voiceId="fa_IR-gyro-medium" label="فارسی" />
+          </div>
         </div>
       )}
 
@@ -6848,6 +6873,133 @@ const CONTENT_TYPES = [
 // covers any word or phrase in any of the app's languages, not just a
 // pre-built database.
 // ---------------------------------------------------------------------------
+// کارت دانلود/وضعیتِ مدلِ صوتیِ آفلاینِ Piper برای یه زبونِ مشخص — دانلودِ
+// یه‌بار (~۶۰ مگابایت برای فارسی)، بعدش خواندنِ صوتی برای اون زبون دیگه
+// هیچ اتصالِ اینترنتی/سرویسِ خارجی لازم نداره (نه Edge، نه StreamElements).
+function PiperVoiceCard({ voiceId, label }) {
+  const [status, setStatus] = useState("checking"); // checking | idle | downloading | ready | error | unsupported
+  const [progress, setProgress] = useState(0);
+  const [errMsg, setErrMsg] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!(window.indexedDB && navigator.storage && typeof navigator.storage.getDirectory === "function")) {
+      setStatus("unsupported");
+      return;
+    }
+    speechController
+      .piperListStored()
+      .then((stored) => {
+        if (cancelled) return;
+        setStatus(stored && stored.includes(voiceId) ? "ready" : "idle");
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("idle"); // ماژول هنوز لود نشده — بازم اجازه‌ی دانلود بده
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [voiceId]);
+
+  const handleDownload = async () => {
+    setStatus("downloading");
+    setProgress(0);
+    setErrMsg("");
+    try {
+      await speechController.piperDownloadVoice(voiceId, (frac) => setProgress(Math.round(frac * 100)));
+      setStatus("ready");
+    } catch (e) {
+      setStatus("error");
+      setErrMsg(e?.message || "دانلود ناموفق بود");
+    }
+  };
+
+  const handleRemove = async () => {
+    try {
+      await speechController.piperRemoveVoice(voiceId);
+      setStatus("idle");
+      setProgress(0);
+    } catch (e) {}
+  };
+
+  if (status === "unsupported") {
+    return (
+      <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: 12, backgroundColor: "white" }}>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>صدای آفلاینِ {label}</span>
+        <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 6 }}>
+          این مرورگر از ذخیره‌سازیِ لازم برای صدای آفلاین پشتیبانی نمی‌کنه.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: 12, backgroundColor: "white" }}>
+      <div className="flex items-center justify-between">
+        <span style={{ fontSize: 13, fontWeight: 600 }}>صدای آفلاینِ {label}</span>
+        {status === "ready" && (
+          <span style={{ display: "flex", alignItems: "center", gap: 4, color: colors.teal, fontSize: 11, fontWeight: 600 }}>
+            <Check size={13} /> آماده
+          </span>
+        )}
+      </div>
+
+      {status === "idle" && (
+        <button
+          onClick={handleDownload}
+          style={{
+            marginTop: 8,
+            fontSize: 12,
+            padding: "6px 12px",
+            borderRadius: 8,
+            border: "none",
+            backgroundColor: colors.gold,
+            color: "white",
+            cursor: "pointer",
+          }}
+        >
+          دانلود برای استفاده‌ی آفلاین (~۶۰ مگابایت)
+        </button>
+      )}
+
+      {status === "downloading" && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 4 }}>در حال دانلود… {progress}٪</div>
+          <div style={{ height: 6, backgroundColor: colors.cardBorder, borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${progress}%`, backgroundColor: colors.gold, transition: "width .15s linear" }} />
+          </div>
+        </div>
+      )}
+
+      {status === "ready" && (
+        <div style={{ marginTop: 6, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <p style={{ fontSize: 11, color: colors.inkSoft }}>
+            از این به بعد، خواندنِ صوتیِ {label} حتی بدون اینترنت هم کار می‌کنه.
+          </p>
+          <button
+            onClick={handleRemove}
+            style={{ fontSize: 11, color: colors.rose, textDecoration: "underline", background: "none", border: "none", cursor: "pointer", flexShrink: 0 }}
+          >
+            حذف
+          </button>
+        </div>
+      )}
+
+      {status === "error" && (
+        <div style={{ marginTop: 8 }}>
+          <p style={{ fontSize: 11, color: colors.rose }}>{errMsg}</p>
+          <button
+            onClick={handleDownload}
+            style={{ marginTop: 4, fontSize: 12, color: colors.gold, textDecoration: "underline", background: "none", border: "none", cursor: "pointer" }}
+          >
+            دوباره امتحان کن
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // کارت دانلود/وضعیت دیکشنری آفلاین برای یه زبون مشخص — دانلود یه‌بار،
 // بعدش جستجو کاملاً بدون اینترنت کار می‌کنه.
 function OfflineDictionaryCard({ code, label }) {
