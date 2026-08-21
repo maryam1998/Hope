@@ -1743,7 +1743,17 @@ const speechController = (() => {
   // resolve کردنش و بدونِ تغییر به‌صورتِ importِ واقعیِ زمانِ‌اجرا باقی
   // می‌مونه.
   // -------------------------------------------------------------------
-  const PIPER_CDN_URL = "https://esm.sh/@mintplex-labs/piper-tts-web@1.0.0";
+  // نکته‌ی مهم: قبلاً از esm.sh لود می‌شد، ولی esm.sh فایلِ جاوااسکریپتِ
+  // کتابخونه رو بازنویسی/باندل می‌کنه و فایل‌های کناریِ خودِ onnxruntime-web
+  // (یعنی همون ort-wasm-simd-threaded.jsep.mjs/.wasm که موتورِ Piper برای
+  // اجرا بهشون نیاز داره) رو با آدرسِ درست سرو نمی‌کنه — نتیجه‌ش همون خطای
+  // 404ِ ort-wasm-simd-threaded.jsep.mjs توی کنسوله که باعث می‌شه Piper از
+  // همون قدمِ اول شکست بخوره و بره سراغِ Edge (که بلاکه) و بعد گوگل/استریم
+  // المنتس (که برای فارسی صدایی ندارن یا 401 می‌دن). jsDelivr برخلافِ
+  // esm.sh، دقیقاً همون فایل‌هایی که توی پکیجِ npm منتشر شدن رو با همون
+  // ساختارِ پوشه‌ای سرو می‌کنه، پس مسیرهای نسبی‌ای که خودِ onnxruntime-web
+  // برای پیدا کردنِ wasm/mjs استفاده می‌کنه درست کار می‌کنن.
+  const PIPER_CDN_URL = "https://cdn.jsdelivr.net/npm/@mintplex-labs/piper-tts-web@1.0.4/dist/piper-tts-web.js";
   const PIPER_VOICE_BY_LANG = { fa: "fa_IR-gyro-medium" };
   let piperModulePromise = null;
   function loadPiperModule() {
