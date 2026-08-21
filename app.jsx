@@ -1743,54 +1743,16 @@ const speechController = (() => {
   // resolve کردنش و بدونِ تغییر به‌صورتِ importِ واقعیِ زمانِ‌اجرا باقی
   // می‌مونه.
   // -------------------------------------------------------------------
-  // نکته‌ی مهم (کشفِ نهایی): طبق package.json خودِ کتابخونه، onnxruntime-web
-  // یه peerDependencyه (نه چیزی که داخلِ فایلِ dist باندل شده باشه). یعنی
-  // اگه مستقیم از jsDelivr/خامِ فایلِ dist رو import کنیم، مرورگر با خطای
-  // «Failed to resolve module specifier 'onnxruntime-web'» شکست می‌خوره —
-  // چون importِ بدونِ‌آدرس (bare specifier) رو فقط یه باندلر می‌تونه حل کنه.
-  // esm.sh دقیقاً همین کار رو خودکار انجام می‌ده (به همین خاطر نسخه‌ی اولِ
-  // کد ازش استفاده می‌کرد). مشکلِ قبلیِ esm.sh (404 برایِ فایلِ wasmِ
-  // نسخه‌ی چندنخی/jsep) رو هم پایین‌تر با تنظیمِ صریحِ wasmPaths (به jSDelivr
-  // که این فایل‌ها رو قطعاً درست سرو می‌کنه) و خاموش‌کردنِ چندنخی حل می‌کنیم؛
-  // چون GitHub Pages هدرهایِ COOP/COEP لازم برایِ SharedArrayBuffer رو
-  // ست نمی‌کنه، نسخه‌ی چندنخی (threaded) اصلاً اونجا قابلِ‌اجرا نیست.
-  const PIPER_ORT_VERSION = "1.18.0"; // باید با peerDependency خودِ piper-tts-web (^1.18.0) سازگار باشه
-  const PIPER_CDN_URL = `https://esm.sh/@mintplex-labs/piper-tts-web@1.0.0?deps=onnxruntime-web@${PIPER_ORT_VERSION}`;
-  const PIPER_ORT_URL = `https://esm.sh/onnxruntime-web@${PIPER_ORT_VERSION}`;
-  let piperOrtConfigPromise = null;
-  // قبل از اینکه خودِ Piper بره سراغِ onnxruntime-web، یه بار از همون آدرسِ
-  // دقیقاً یکسان (همون نسخه‌ی پین‌شده) importش می‌کنیم و مسیرِ wasm/تنظیماتِ
-  // نخ رو ست می‌کنیم. چون esm.sh ماژول‌ها رو بر اساسِ URL دقیق کش/دیدوپ
-  // می‌کنه، این importِ ما و importِ داخلیِ Piper به یه instanceِ مشترک
-  // می‌رسن، پس تنظیماتِ ما رویِ اجرایِ Piper هم اثر می‌کنه.
-  function configurePiperOrt() {
-    if (!piperOrtConfigPromise) {
-      piperOrtConfigPromise = import(PIPER_ORT_URL)
-        .then((ort) => {
-          ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${PIPER_ORT_VERSION}/dist/`;
-          ort.env.wasm.numThreads = 1;
-          ort.env.wasm.proxy = false;
-        })
-        .catch((e) => {
-          console.error("[Piper] پیکربندیِ onnxruntime-web شکست خورد:", e);
-          piperOrtConfigPromise = null;
-          throw e;
-        });
-    }
-    return piperOrtConfigPromise;
-  }
+  const PIPER_CDN_URL = "https://esm.sh/@mintplex-labs/piper-tts-web@1.0.0";
   const PIPER_VOICE_BY_LANG = { fa: "fa_IR-gyro-medium" };
   let piperModulePromise = null;
   function loadPiperModule() {
     if (!piperModulePromise) {
       const url = PIPER_CDN_URL; // عمداً غیرِ لفظی — نگاهِ بالا رو ببین
-      piperModulePromise = configurePiperOrt()
-        .then(() => import(url))
-        .catch((e) => {
-          piperModulePromise = null; // اگه لودش شکست خورد، دفعه‌ی بعد دوباره امتحان کنه
-          console.error("[Piper] لودِ ماژول شکست خورد:", url, e);
-          throw e;
-        });
+      piperModulePromise = import(url).catch((e) => {
+        piperModulePromise = null; // اگه لودش شکست خورد، دفعه‌ی بعد دوباره امتحان کنه
+        throw e;
+      });
     }
     return piperModulePromise;
   }
@@ -1804,29 +1766,15 @@ const speechController = (() => {
   async function fetchPiperTtsAudio(chunkText, voiceId, onProgress) {
     const sanitized = sanitizeForTTS(chunkText);
     if (!sanitized) throw new Error("piper-empty");
-    if (!piperOpfsSupported()) {
-      console.warn("[Piper] OPFS/IndexedDB توی این مرورگر پشتیبانی نمی‌شه، رد شدن.");
-      throw new Error("piper-unsupported");
-    }
-    let tts;
-    try {
-      tts = await loadPiperModule();
-    } catch (e) {
-      // خودِ loadPiperModule قبلاً لاگ کرده؛ فقط دوباره throw می‌کنیم.
-      throw e;
-    }
-    try {
-      const wav = await tts.predict({ text: sanitized, voiceId }, (progress) => {
-        if (progress && progress.total) {
-          const frac = Math.min(1, progress.loaded / progress.total);
-          if (onProgress) onProgress(frac);
-        }
-      });
-      return URL.createObjectURL(wav);
-    } catch (e) {
-      console.error("[Piper] predict() شکست خورد:", voiceId, e);
-      throw e;
-    }
+    if (!piperOpfsSupported()) throw new Error("piper-unsupported");
+    const tts = await loadPiperModule();
+    const wav = await tts.predict({ text: sanitized, voiceId }, (progress) => {
+      if (progress && progress.total) {
+        const frac = Math.min(1, progress.loaded / progress.total);
+        if (onProgress) onProgress(frac);
+      }
+    });
+    return URL.createObjectURL(wav);
   }
 
   // فهرستِ سرویس‌های آنلاینِ جایگزین برای یه تکه‌متن، به‌ترتیبِ اولویت:
@@ -1838,27 +1786,29 @@ const speechController = (() => {
     const q = encodeURIComponent(sanitizeForTTS(chunkText));
     const googleTranslate = { kind: "url", url: `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}` };
     const edge = { kind: "edge", text: chunkText, voice };
+    const streamElements = { kind: "url", url: `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}` };
     const piperVoiceId = PIPER_VOICE_BY_LANG[langCode];
     const piper = piperVoiceId ? { kind: "piper", text: chunkText, voiceId: piperVoiceId } : null;
-    // نکته: StreamElements از زنجیره حذف شد — الان بدونِ کلیدِ JWTِ اکانتِ
-    // StreamElements همیشه ۴۰۱ می‌ده (سیاستِ خودشون عوض شده)، و حتی با کلید
-    // هم اصلاً صدایِ فارسی نداره (بر پایه‌ی Amazon Polly که fa رو پشتیبانی
-    // نمی‌کنه). نگه‌داشتنش تو زنجیره فقط یه تأخیرِ بی‌فایده قبلِ شکستِ نهایی
-    // اضافه می‌کرد. تست شد که Edge در ایران فیلتر نیست و برایِ فارسی خوب کار
-    // می‌کنه، پس همون به‌عنوانِ آخرین مرحله کافیه.
-    if (langCode === "fa" && piper) return [piper, edge];
+    // برای فارسی، Piperِ آفلاین رو همیشه اول امتحان می‌کنیم: دفعه‌ی اول یه
+    // دانلودِ یه‌بارمصرفِ مدل داره، ولی از دومین بار به بعد نه فقط سریع‌تره،
+    // بلکه اصلاً به دامنه‌های فیلترشده وابسته نیست. اگه Piper به هر دلیلی
+    // (مرورگرِ قدیمی بدونِ پشتیبانیِ OPFS، یا اولین‌بار بدونِ اینترنت) شکست
+    // خورد، همون زنجیره‌ی قبلیِ Edge → StreamElements به‌عنوانِ پشتیبان
+    // می‌مونه.
+    if (langCode === "fa" && piper) return [piper, edge, streamElements];
     // Google Translate TTS رو اول امتحان می‌کنیم، نه Edge/Azure — چون دامنه‌ی
     // خودِ Microsoft/Bing (speech.platform.bing.com) در بعضی کشورها (مثلاً
     // ایران) فیلتره، درحالی‌که translate.google.com معمولاً در دسترسه.
-    // Edge به‌عنوانِ پشتیبانِ دوم و آخرین مرحله می‌مونه (کیفیتش بالاتره).
+    // Edge به‌عنوانِ پشتیبانِ دوم می‌مونه (کیفیتش بالاتره، برای کاربرهایی
+    // که فیلتر نیستن)، و StreamElements آخرین گزینه.
     //
     // استثنا: فارسی. برخلافِ عربی، سرویسِ صداخوانیِ Google Translate اصلاً
     // صدایی برای فارسی نداره (این یه محدودیتِ قدیمی و شناخته‌شده‌ی خودِ
     // Google‌ه، نه چیزی که با فیلترینگ ربط داشته باشه) — یعنی برای فارسی
     // همیشه شکست می‌خوره و فقط یه تأخیرِ بی‌فایده قبلِ رسیدن به Edge اضافه
     // می‌کنه. برای همین، فقط برای فارسی، Edge رو مستقیم اول امتحان می‌کنیم.
-    if (langCode === "fa") return [edge];
-    return [googleTranslate, edge];
+    if (langCode === "fa") return [edge, streamElements];
+    return [googleTranslate, edge, streamElements];
   }
 
   function stopOnlineAudio() {
