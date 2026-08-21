@@ -1428,6 +1428,10 @@ const speechController = (() => {
   // شبیهِ «این زبون اصلاً پشتیبانی نمی‌شه» به‌نظر می‌رسه)، واقعاً یه خطا به
   // کاربر نشون بده.
   let ttsError = null;
+  // اگه الان مدلِ صوتیِ آفلاینِ Piper (برای فارسی) داره دانلود می‌شه، این
+  // یه عددِ ۰..۱ه (درصدِ دانلود)؛ در غیرِ این‌صورت null. UI می‌تونه ازش
+  // برای نشون‌دادنِ نوارِ پیشرفت به‌جای پیغامِ خطای گنگ استفاده کنه.
+  let piperProgress = null;
   // --- تکرار سراسری ---------------------------------------------------
   let globalRepeatSetting = (() => {
     const saved = localStorage.getItem("phrasebook-tts-repeat");
@@ -1725,6 +1729,54 @@ const speechController = (() => {
     });
   }
 
+  // -------------------------------------------------------------------
+  // Piper TTS (آفلاین، اجرا با WebAssembly مستقیم توی خودِ مرورگر) — برخلافِ
+  // Edge/Google-Translate/StreamElements که هر سه به سرورهای خارجی وابسته‌ن
+  // (و speech.platform.bing.com دقیقاً همون دامنه‌ایه که در ایران فیلتره)،
+  // Piper یه مدلِ صوتیِ عصبیِ کوچیک (fa_IR-gyro-medium، ~۶۰ مگابایت) رو
+  // فقط دفعه‌ی اول از هاگینگ‌فیس دانلود می‌کنه و توی حافظه‌ی محلیِ خودِ
+  // مرورگر (OPFS) کش می‌کنه؛ از اون به بعد دیگه هیچ اتصالِ اینترنتی لازم
+  // نداره و هیچ تأخیر/فیلترینگی هم نداره. کتابخانه از esm.sh به‌صورتِ
+  // importِ داینامیک لود می‌شه (نه از importmap) تا نیازی به تغییرِ
+  // تنظیماتِ esbuild نباشه — چون specifierِ importِ داینامیک اینجا یه
+  // متغیره نه یه رشته‌ی لفظی، esbuild موقعِ باندل نمی‌تونه/نمی‌ره سراغِ
+  // resolve کردنش و بدونِ تغییر به‌صورتِ importِ واقعیِ زمانِ‌اجرا باقی
+  // می‌مونه.
+  // -------------------------------------------------------------------
+  const PIPER_CDN_URL = "https://esm.sh/@mintplex-labs/piper-tts-web@1.0.0";
+  const PIPER_VOICE_BY_LANG = { fa: "fa_IR-gyro-medium" };
+  let piperModulePromise = null;
+  function loadPiperModule() {
+    if (!piperModulePromise) {
+      const url = PIPER_CDN_URL; // عمداً غیرِ لفظی — نگاهِ بالا رو ببین
+      piperModulePromise = import(url).catch((e) => {
+        piperModulePromise = null; // اگه لودش شکست خورد، دفعه‌ی بعد دوباره امتحان کنه
+        throw e;
+      });
+    }
+    return piperModulePromise;
+  }
+
+  function piperOpfsSupported() {
+    return !!(window.indexedDB && navigator.storage && typeof navigator.storage.getDirectory === "function");
+  }
+
+  // یه تکه‌متن رو با Piper می‌خونه و یه Blob URL از wavِ نتیجه برمی‌گردونه.
+  // onProgress (اختیاری) موقعِ دانلودِ اولیه‌ی مدل با ۰..۱ صدا زده می‌شه.
+  async function fetchPiperTtsAudio(chunkText, voiceId, onProgress) {
+    const sanitized = sanitizeForTTS(chunkText);
+    if (!sanitized) throw new Error("piper-empty");
+    if (!piperOpfsSupported()) throw new Error("piper-unsupported");
+    const tts = await loadPiperModule();
+    const wav = await tts.predict({ text: sanitized, voiceId }, (progress) => {
+      if (progress && progress.total) {
+        const frac = Math.min(1, progress.loaded / progress.total);
+        if (onProgress) onProgress(frac);
+      }
+    });
+    return URL.createObjectURL(wav);
+  }
+
   // فهرستِ سرویس‌های آنلاینِ جایگزین برای یه تکه‌متن، به‌ترتیبِ اولویت:
   // اول Edge/Azure (پوششِ کاملِ همه‌ی زبون‌ها)، بعد Google-Translate-TTS و
   // StreamElements به‌عنوانِ پشتیبان اگه به هر دلیلی وب‌سوکتِ Edge دردسترس
@@ -1735,6 +1787,15 @@ const speechController = (() => {
     const googleTranslate = { kind: "url", url: `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}` };
     const edge = { kind: "edge", text: chunkText, voice };
     const streamElements = { kind: "url", url: `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}` };
+    const piperVoiceId = PIPER_VOICE_BY_LANG[langCode];
+    const piper = piperVoiceId ? { kind: "piper", text: chunkText, voiceId: piperVoiceId } : null;
+    // برای فارسی، Piperِ آفلاین رو همیشه اول امتحان می‌کنیم: دفعه‌ی اول یه
+    // دانلودِ یه‌بارمصرفِ مدل داره، ولی از دومین بار به بعد نه فقط سریع‌تره،
+    // بلکه اصلاً به دامنه‌های فیلترشده وابسته نیست. اگه Piper به هر دلیلی
+    // (مرورگرِ قدیمی بدونِ پشتیبانیِ OPFS، یا اولین‌بار بدونِ اینترنت) شکست
+    // خورد، همون زنجیره‌ی قبلیِ Edge → StreamElements به‌عنوانِ پشتیبان
+    // می‌مونه.
+    if (langCode === "fa" && piper) return [piper, edge, streamElements];
     // Google Translate TTS رو اول امتحان می‌کنیم، نه Edge/Azure — چون دامنه‌ی
     // خودِ Microsoft/Bing (speech.platform.bing.com) در بعضی کشورها (مثلاً
     // ایران) فیلتره، درحالی‌که translate.google.com معمولاً در دسترسه.
@@ -1783,6 +1844,53 @@ const speechController = (() => {
       if (status !== "playing") return;
       playOnlineChunkUrls(providers, providerIndex + 1, idx);
     };
+
+    if (provider.kind === "piper") {
+      piperProgress = null;
+      fetchPiperTtsAudio(provider.text, provider.voiceId, (frac) => {
+        piperProgress = frac;
+        notify();
+      })
+        .then((blobUrl) => {
+          piperProgress = null;
+          if (status !== "playing") {
+            try {
+              URL.revokeObjectURL(blobUrl);
+            } catch (e) {}
+            return;
+          }
+          const audio = new Audio(blobUrl);
+          audio.playbackRate = Number(rate) || 1;
+          audio.onplaying = () => {
+            onlineAnyAudioPlayed = true;
+          };
+          const cleanup = () => {
+            try {
+              URL.revokeObjectURL(blobUrl);
+            } catch (e) {}
+          };
+          audio.onended = () => {
+            cleanup();
+            if (status !== "playing") return;
+            playOnlineChunk(idx + 1);
+          };
+          audio.onerror = () => {
+            cleanup();
+            goNext();
+          };
+          onlineAudio = audio;
+          audio.play().catch(() => {
+            cleanup();
+            goNext();
+          });
+        })
+        .catch(() => {
+          piperProgress = null;
+          notify();
+          goNext();
+        });
+      return;
+    }
 
     if (provider.kind === "edge") {
       fetchEdgeTtsAudio(provider.text, provider.voice, rate)
@@ -1873,6 +1981,7 @@ const speechController = (() => {
     stopOnlineAudio();
     mode = "online";
     onlineAnyAudioPlayed = false;
+    piperProgress = null;
     fullText = text;
     chunks = splitSentences(text);
     onlineChunks = splitForOnlineTts(text);
@@ -1893,7 +2002,7 @@ const speechController = (() => {
       lastOffsetByKey.set(key, chunks[chunkIndex].start);
     }
     listeners.forEach((cb) =>
-      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, ttsError })
+      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, ttsError, piperProgress })
     );
   }
 
@@ -5048,8 +5157,17 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
   // سرویسی پخش نشد — به‌جای پاپ‌آپِ alert (که کاربر رو مجبور به بستنِ
   // دستی می‌کرد)، پایین‌تر همین‌جا، درست زیرِ همین دکمه/جمله، یه پیغامِ
   // کوچیکِ درجا نشون داده می‌شه (پایین‌تر، errorMsg).
+  // اگه همین‌الان داره مدلِ صوتیِ آفلاینِ فارسی (Piper) دانلود می‌شه، به‌جای
+  // پیغامِ خطا، درصدِ پیشرفتِ دانلود رو نشون می‌دیم — این فقط یه‌بار (اولین
+  // پخشِ فارسی) اتفاق می‌افته، بعدش مدل کش شده و دیگه نیازی نیست.
+  const piperMsg =
+    state.key === myKey && state.piperProgress != null
+      ? `در حال آماده‌سازی صدای فارسی (آفلاین)… ${Math.round(state.piperProgress * 100)}٪`
+      : null;
   const errorMsg =
-    localMsg || (state.ttsError && state.ttsError === myKey ? "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن" : null);
+    piperMsg ||
+    localMsg ||
+    (state.ttsError && state.ttsError === myKey ? "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن" : null);
 
   const isActive = state.key === myKey && state.status !== "idle";
   const isPlaying = isActive && state.status === "playing";
@@ -5381,8 +5499,14 @@ function MainPlayButton({ startText, startCode, resolveStartOffset, color, size 
   const btnSize = size || 30;
 
   const myKey = startText ? `${TTS_LOCALE[startCode] || "en-US"}::${startText}` : null;
+  const piperMsg =
+    state.key === myKey && state.piperProgress != null
+      ? `در حال آماده‌سازی صدای فارسی (آفلاین)… ${Math.round(state.piperProgress * 100)}٪`
+      : null;
   const errorMsg =
-    localMsg || (state.ttsError && myKey && state.ttsError === myKey ? "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن" : null);
+    piperMsg ||
+    localMsg ||
+    (state.ttsError && myKey && state.ttsError === myKey ? "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن" : null);
 
   const handleClick = () => {
     if (isActive) {
