@@ -1460,10 +1460,21 @@ const speechController = (() => {
   // (مثلاً یه کلمه/عبارتِ تنها) هیچ جمله‌ی بعدی‌ای برای رسیدن بهش نیست، پس
   // همون‌جا واقعاً بی‌نهایت (تا کاربر خودش خاموشش کنه) می‌مونه.
   const CHUNK_REPEAT_INFINITE_CAP = 40;
-  // وقتی خودمون عمداً speechSynthesis.cancel() صدا می‌زنیم (برای مکث یا
-  // شروع پخش جدید)، مرورگر یه onerror با error="interrupted" شلیک می‌کنه که
-  // خطای واقعی نیست. این فلگ همون قطع‌شدن‌های عمدی رو از خطای واقعی جدا می‌کنه.
-  let expectingCancel = false;
+  // شمارنده‌ی نسل: هر بار cancelSpeech() صدا زده می‌شه (چه برای مکث، چه
+  // برای شروعِ پخشِ جدید/پرش به جمله‌ی دیگه)، یکی بهش اضافه می‌شه. بعضی
+  // موتورهای TTS (خصوصاً گوشی/آفلاین) بعدِ cancel() به‌جای onerror، خودِ
+  // onend رو هم برای اتِرنسِ *لغوشده* شلیک می‌کنن — و چون اون onend همچنان
+  // idx و chunks[idx] قدیمی رو تو کلوژرش داره، ولی chunkIndex سراسری الان
+  // جمله‌ی *جدیدی*یه که کاربر همین‌الان روش کلیک کرده (مثلاً از
+  // seekToChunk)، این «onend دیرکردنی» به‌اشتباه chunkIndex+1 (یعنی یکی
+  // بعدِ جمله‌ی تازه‌سیک‌شده) رو هم پشتِ‌سرِ هم صدا می‌زنه — نتیجه‌اش دقیقاً
+  // همون باگیه که کاربر گزارش کرد: «رو یه جمله می‌زنم نمی‌خونتش» یا «دوتا
+  // جمله رو با هم، بدون اسکرول/هایلایتِ درستِ جمله‌ی بعدی می‌خونه». با این
+  // توکن، هر onend/onerror فقط وقتی واقعاً پردازش می‌شه که از وقتی اتِرنسش
+  // ساخته شده، هیچ cancelSpeech()ِ تازه‌تری صدا زده نشده باشه؛ هر اتِرنسِ
+  // لغوشده (چه برای مکث، چه برای پرش) بی‌صدا نادیده گرفته می‌شه — دیگه لازم
+  // نیست حدس بزنیم موتور برای cancel، onerror شلیک می‌کنه یا onend.
+  let playToken = 0;
   // ---------------------------------------------------------------------
   // «نقطه‌ی ادامه»ی سراسری و خودکار برای هر متن — کلیدش همون کلیدِ
   // speechController (`${locale}::${text}`) است. هر بار که وضعیتِ فعلی
@@ -1520,7 +1531,10 @@ const speechController = (() => {
   }
 
   function cancelSpeech() {
-    expectingCancel = true;
+    // هر لغوِ عمدی (چه برای مکث، چه برای پرش/شروعِ پخشِ جدید) یه نسلِ تازه
+    // می‌سازه — تا onend/onerrorِ اتِرنسِ همین‌الان‌لغوشده، هر جوری هم که
+    // مرورگر شلیکش کنه، خودش رو کهنه تشخیص بده و کاری نکنه.
+    playToken++;
     clearGapTimer();
     try {
       window.speechSynthesis.cancel();
@@ -1726,6 +1740,13 @@ const speechController = (() => {
     // ایران) فیلتره، درحالی‌که translate.google.com معمولاً در دسترسه.
     // Edge به‌عنوانِ پشتیبانِ دوم می‌مونه (کیفیتش بالاتره، برای کاربرهایی
     // که فیلتر نیستن)، و StreamElements آخرین گزینه.
+    //
+    // استثنا: فارسی. برخلافِ عربی، سرویسِ صداخوانیِ Google Translate اصلاً
+    // صدایی برای فارسی نداره (این یه محدودیتِ قدیمی و شناخته‌شده‌ی خودِ
+    // Google‌ه، نه چیزی که با فیلترینگ ربط داشته باشه) — یعنی برای فارسی
+    // همیشه شکست می‌خوره و فقط یه تأخیرِ بی‌فایده قبلِ رسیدن به Edge اضافه
+    // می‌کنه. برای همین، فقط برای فارسی، Edge رو مستقیم اول امتحان می‌کنیم.
+    if (langCode === "fa") return [edge, streamElements];
     return [googleTranslate, edge, streamElements];
   }
 
@@ -1885,17 +1906,38 @@ const speechController = (() => {
   // ویرگول رو حالا موتور خودش به‌طورِ طبیعی توی همون یک‌ utterance می‌سازه).
   const MAX_WORDS_PER_CHUNK = 40;
 
+  // اختصارهای رایجِ لاتین که نقطه‌ی بعدشون پایانِ جمله نیست («Dr. Smith»،
+  // «e.g. this» ...) — اگه این نقطه‌ها مرزِ جمله حساب بشن، هم متن بی‌جا از
+  // وسط بریده می‌شه، هم موتورِ TTS اختصار رو تک‌وتنها (بدونِ ادامه‌ی جمله)
+  // می‌بینه و به‌جای خوندنِ کلمه‌ی کامل، حرف‌به‌حرف می‌خوندش — همینه که
+  // کاربر گزارش کرد «DR» رو اشتباه تلفظ می‌کنه.
+  const SENTENCE_ABBREVIATIONS =
+    "dr|mr|mrs|ms|prof|sr|jr|st|gen|rev|capt|col|lt|sgt|no|vs|approx|dept|univ|etc";
+
+  // یه نسخه‌ی کمکیِ هم‌طول از متن می‌سازه که توش نقطه‌های «غیرِ پایانِ‌جمله‌ای»
+  // (اعشار مثلِ 3.2، یا اختصارهای بالا) با یه کاراکترِ بی‌معنی جایگزین شدن —
+  // فقط برای اینکه رجکسِ تشخیصِ مرزِ جمله روشون سکته نکنه. چون جایگزینی
+  // همیشه یک‌به‌یکِ کاراکتر به کاراکتره، طولِ رشته عوض نمی‌شه و ایندکس‌های
+  // start/end دقیقاً هنوز به متنِ اصلی (t) اشاره می‌کنن.
+  function protectNonBoundaryPeriods(t) {
+    let out = t.replace(/(\d)\.(\d)/g, (_full, d1, d2) => `${d1}\u2024${d2}`);
+    const abbrRe = new RegExp(`\\b(${SENTENCE_ABBREVIATIONS})\\.`, "gi");
+    out = out.replace(abbrRe, (_full, word) => `${word}\u2024`);
+    return out;
+  }
+
   // متن رو اول به جمله تقسیم می‌کنه (روی .!?؟ و غیره)، بعد فقط اگه یه
   // «جمله» به‌طرز غیرعادی بلند بود (یعنی احتمالاً اصلاً جمله نیست، یه بلوکِ
   // متنِ بدونِ نقطه‌ست) به تکه‌های چندکلمه‌ای می‌شکنه.
   function splitSentences(text) {
     const t = text || "";
     if (!t) return [];
+    const guard = protectNonBoundaryPeriods(t);
     const re = /[^.!?؟。！]+[.!?؟。！]*/g;
     const sentences = [];
     let m;
-    while ((m = re.exec(t))) {
-      const raw = m[0];
+    while ((m = re.exec(guard))) {
+      const raw = t.slice(m.index, m.index + m[0].length); // از متنِ اصلی، نه guard
       const trimmed = raw.trim();
       if (!trimmed) continue;
       const start = m.index + raw.indexOf(trimmed[0]);
@@ -1941,7 +1983,17 @@ const speechController = (() => {
   // به chunks[i].text یا آفست‌های start/end دست نمی‌زنه (اونا برای
   // sync/ادامه‌دادن از همون نقطه هنوز باید دقیقاً با متنِ اصلی یکی باشن).
   function sanitizeForTTS(s) {
-    return String(s || "")
+    let text = String(s || "");
+
+    // «Dr.» (یا «DR» بدونِ نقطه) وقتی تک‌وتنها به موتورِ گفتار داده بشه،
+    // خیلی از موتورها به‌جایِ «Doctor»/«دکتر» حرف‌به‌حرف («D. R.») می‌خوننش.
+    // اینجا، قبل از رسیدن به موتور، به شکلِ کاملِ قابلِ‌تلفظ تبدیلش می‌کنیم —
+    // بسته به زبونی که الان داره باهاش خونده می‌شه.
+    const langPrefix = (locale || "en-US").split("-")[0];
+    const drSpoken = langPrefix === "fa" || langPrefix === "ar" ? "دکتر" : "Doctor";
+    text = text.replace(/\bdr\.?(?=\s|$)/gi, drSpoken);
+
+    return text
       .replace(/[\u2066-\u2069\u200B-\u200F\u061C\uFEFF]/g, "") // isolate marks/zero-width/bidi/BOM
       // علامت‌های نقل‌قول رو در هر شکلی حذف می‌کنیم — چه گیومه‌ی فارسی/تایپوگرافیک
       // («» „ ‟ " " ' ')، چه گیومه‌ی ساده‌ی انگلیسیِ روی کیبورد (" و ') که قبلاً
@@ -2049,6 +2101,12 @@ const speechController = (() => {
     status = "playing";
     notify();
 
+    // این عدد رو همین‌جا (بعد از هر cancelSpeech()ی که بالاتر ممکنه صدا زده
+    // شده باشه) می‌خونیم — یعنی نسلِ *همین* اتِرنسِ تازه. هر cancelSpeech()ِ
+    // بعدی (چه برای مکث، چه برای پرشِ بعدی) این عدد رو جلو می‌بره و همین
+    // اتِرنس رو کهنه می‌کنه.
+    const myToken = playToken;
+
     const utter = new SpeechSynthesisUtterance(sanitizeForTTS(chunks[idx].text));
     utter.lang = locale;
     utter.rate = engineRate(rate);
@@ -2057,6 +2115,7 @@ const speechController = (() => {
     if (bestVoice) utter.voice = bestVoice;
 
     utter.onend = () => {
+      if (myToken !== playToken) return; // اتِرنسِ کهنه/لغوشده — نادیده بگیر
       if (status !== "playing") return;
       // فقط سرِ پایانِ یه جمله‌ی واقعی مکثِ دستی می‌ذاریم؛ تکه‌های حاصل از
       // شکستنِ اضطراریِ وسطِ متنِ خیلی‌بلند (boundary: "none") بدونِ مکثِ
@@ -2106,10 +2165,7 @@ const speechController = (() => {
       }, gap);
     };
     utter.onerror = (e) => {
-      if (expectingCancel) {
-        expectingCancel = false;
-        return;
-      }
+      if (myToken !== playToken) return; // اتِرنسِ کهنه/لغوشده (پاز یا پرش) — نادیده بگیر
       status = "idle";
       notify();
     };
@@ -2254,6 +2310,12 @@ const speechController = (() => {
           if (Number.isInteger(saved) && saved > 0) effectiveStartOffset = saved;
         }
 
+        // درخواستِ کاربر: برایِ فارسی و عربی همیشه از سرویسِ آنلاین
+        // استفاده بشه (چون کیفیتِ صدای محلیِ گوشی برای این دو زبون معمولاً
+        // بد/ناقصه)؛ برایِ بقیه‌ی زبون‌ها همیشه از موتورِ محلیِ خودِ گوشی
+        // (speechSynthesis) استفاده بشه تا بدونِ نیاز به اینترنت کار کنه.
+        const forceOnlineForLang = code === "fa" || code === "ar";
+
         // نکته: قبلاً اینجا «voices.length === 0» هم مسیرِ محلی رو مجاز
         // می‌کرد — یعنی اگه فهرستِ صداهای گوشی هنوز اصلاً لود نشده بود
         // (یه رفتارِ شناخته‌شده و رایج در Chrome/Android که getVoices()
@@ -2262,10 +2324,10 @@ const speechController = (() => {
         // می‌کرد — با هیچ صدایی برای رندر، که یعنی سکوتِ کامل و بدونِ
         // هیچ خطایی (چون utter.onerror همیشه هم شلیک نمی‌شه). حالا فقط
         // وقتی واقعاً یه صدای منطبق پیدا شده باشه می‌ریم سراغِ محلی؛
-        // در غیرِ این‌صورت (چه صدایی نبود، چه فهرست هنوز خالی بود) مسیرِ
-        // آنلاینِ جایگزین — که حالا خودش هم دیگه بی‌صدا شکست نمی‌خوره
-        // (بالاتر، ttsError) — انتخاب می‌شه.
-        if (hasSynthesis && hasVoice) {
+        // در غیرِ این‌صورت (چه صدایی نبود، چه فهرست هنوز خالی بود، چه
+        // فارسی/عربی بود) مسیرِ آنلاینِ جایگزین — که حالا خودش هم دیگه
+        // بی‌صدا شکست نمی‌خوره (بالاتر، ttsError) — انتخاب می‌شه.
+        if (hasSynthesis && hasVoice && !forceOnlineForLang) {
           mode = "local";
           stopOnlineAudio();
           fullText = text;
@@ -5916,7 +5978,14 @@ function SpeedControl({ color }) {
 // a small popover with its part of speech + Persian meaning, looked up first
 // from the local VOCAB list, then (if not found) from the AI backend.
 // ---------------------------------------------------------------------------
-function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabelProp, aiSettings, color, fontFamily, fontWeight, fontSize, alignSourceText, alignSourceLang, storyBaseOffset, onSpeakOffset, originExtra }) {
+// این کامپوننت جاهای زیادی از اپ استفاده می‌شه (از جمله برای هر پیامِ چتِ
+// «تمرین جمله‌سازی») و کارِ نسبتاً سنگینی می‌کنه (توکن‌کردنِ متن، چند
+// useEffect که به localStorage/eventهای سراسری گوش می‌دن). با React.memo،
+// وقتی propsهاش واقعاً عوض نشده (مثلاً یه پیامِ قدیمیِ چت که ربطی به تایپِ
+// فعلیِ کاربر نداره)، دوباره رندر نمی‌شه — این دقیقاً همون چیزیه که رویِ
+// گوشی‌های ضعیف (رمِ کم) باعثِ لگ‌کردنِ تایپ می‌شد: هر حرف، کلِ پیام‌های
+// قبلی رو هم از نو محاسبه می‌کرد.
+const ClickableSentence = React.memo(function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabelProp, aiSettings, color, fontFamily, fontWeight, fontSize, alignSourceText, alignSourceLang, storyBaseOffset, onSpeakOffset, originExtra }) {
   const [openKey, setOpenKey] = useState(null); // `${startTokenIdx}-${endTokenIdx}` of the word/expression with popover open
   const [info, setInfo] = useState(null); // { pos, meaning } | "loading" | "error"
   const [anchorRect, setAnchorRect] = useState(null); // clicked word's screen position
@@ -6441,7 +6510,7 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
       })}
     </span>
   );
-}
+});
 
 function LevelBadge({ level }) {
   return (
@@ -8642,18 +8711,16 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             <p style={{ fontSize: 13, color: colors.inkSoft }}>هنوز داستانی ذخیره نکردی.</p>
           )}
           {savedStories.length > 0 && (() => {
-            // هر داستان از قبل با سطحِ خودش (storyLevel) ذخیره شده؛ اینجا فقط
-            // بر همون اساس فیلتر/دسته‌بندی می‌کنیم — وقتی فیلترِ خاصی
-            // (مثلاً B1) انتخاب شده فقط داستان‌های همون سطح نشون داده می‌شن،
-            // وقتی «همه سطح‌ها»ست، داستان‌ها زیرِ عنوانِ سطحِ خودشون (به ترتیبِ
-            // A1→C2) دسته‌بندی می‌شن تا پیداکردن‌شون راحت‌تر باشه.
+            // هر داستان از قبل با سطحِ خودش (storyLevel) ذخیره شده. وقتی فیلترِ
+            // خاصی (مثلاً B1) انتخاب شده فقط داستان‌های همون سطح نشون داده
+            // می‌شن. وقتی «همه سطح‌ها»ست، دیگه زیرِ عنوانِ سطح دسته‌بندی نمی‌شن —
+            // همه با هم قاطی، فقط بر اساسِ مرتب‌سازیِ انتخاب‌شده (مثلاً
+            // جدیدترین تاریخ) به ترتیب نشون داده می‌شن؛ سطح هر داستان خودش
+            // روی کارتش (خط بالای هر داستان) دیده می‌شه.
             const groups = (
               savedStoriesLevelFilter !== "all"
                 ? [[savedStoriesLevelFilter, savedStories.filter((s) => s.storyLevel === savedStoriesLevelFilter)]]
-                : [
-                    ...LEVELS.map((lv) => [lv, savedStories.filter((s) => s.storyLevel === lv)]),
-                    ["نامشخص", savedStories.filter((s) => !LEVELS.includes(s.storyLevel))],
-                  ].filter(([, list]) => list.length > 0)
+                : [["all", savedStories]]
             ).map(([lv, list]) => [lv, sortSavedStories(list, savedStoriesSort)]);
             if (!groups.length) {
               return (
@@ -8664,7 +8731,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             }
             return groups.map(([lv, list]) => (
               <div key={lv} className="flex flex-col gap-2">
-                {savedStoriesLevelFilter === "all" && (
+                {savedStoriesLevelFilter !== "all" && (
                   <p style={{ fontSize: 12, fontWeight: 700, color: colors.teal, margin: "4px 0 0" }}>
                     سطح {lv} ({list.length})
                   </p>
@@ -10357,6 +10424,29 @@ function GrammarPanel({
 
   const practiceCurrentHeight = practiceDragHeight != null ? practiceDragHeight : practiceSnapHeight(practiceSheet);
 
+  // باگ: کاربر باکسِ جمع‌شده (peek، ارتفاعِ کم) رو با دستگیره‌ی جابجایی
+  // می‌کشه بالا؛ بعد با تپ‌کردن رویِ هدر، باکس باز می‌شه (open، ارتفاعِ
+  // زیاد) — ولی offsetِ جابجاییِ ذخیره‌شده هنوز مالِ همون ارتفاعِ کمِ
+  // قبلیه، پس با ارتفاعِ جدیدِ بزرگ، کلِ باکس (و خودِ دستگیره‌ای که باید
+  // برای برگردوندنش بکشیم) از بالای صفحه بیرون می‌زنه و غیرقابل‌دسترس
+  // می‌مونه. برای همین، هر بار که ارتفاعِ باکس یا صفحه عوض می‌شه،
+  // offsetِ ذخیره‌شده رو دوباره به محدوده‌ی مجازِ همون ارتفاعِ جدید
+  // clamp می‌کنیم تا دستگیره همیشه رویِ صفحه و در دسترس بمونه.
+  useEffect(() => {
+    setPracticeMoveOffset((prev) => {
+      if (prev.x === 0 && prev.y === 0) return prev;
+      const vw = typeof window === "undefined" ? 400 : window.innerWidth;
+      const minY = -(Math.max(0, practiceViewportH - practiceCurrentHeight));
+      const maxY = 0;
+      const maxX = Math.max(0, vw - 60);
+      const minX = -maxX;
+      const nextX = Math.min(maxX, Math.max(minX, prev.x));
+      const nextY = Math.min(maxY, Math.max(minY, prev.y));
+      if (nextX === prev.x && nextY === prev.y) return prev;
+      return { x: nextX, y: nextY };
+    });
+  }, [practiceCurrentHeight, practiceViewportH]);
+
   const handlePracticeMoveStart = useCallback(
     (e) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -10408,6 +10498,29 @@ function GrammarPanel({
     },
     [practiceMoveDragOffset]
   );
+
+  // باگ دیگه: روی بعضی گوشی‌ها/مرورگرهای قدیمی، setPointerCapture یا
+  // رویدادِ pointerup گاهی درست شلیک نمی‌شه (مثلاً وقتی انگشت از رویِ
+  // دستگیره‌ی کوچیک بیرون می‌ره) و کشیدن نیمه‌کاره می‌مونه — یعنی
+  // practiceMoveDragInfoRef هیچ‌وقت پاک نمی‌شه و باکس عملاً «قفل»
+  // می‌مونه (چون بعدش گوش‌دادن به حرکتِ انگشت فقط رویِ خودِ دستگیره‌ست، نه
+  // کلِ صفحه). این افکتِ یدکی، با گوش‌دادن به pointerup/pointercancel رویِ
+  // کلِ window، تضمین می‌کنه که هر کشیدنِ نیمه‌کاره‌ای، حتی اگه رویدادش رویِ
+  // خودِ دستگیره از دست بره، در نهایت جمع/رها بشه.
+  useEffect(() => {
+    const finishStuckDrag = () => {
+      if (!practiceMoveDragInfoRef.current) return;
+      practiceMoveDragInfoRef.current = null;
+      setPracticeMoveOffset((prev) => practiceMoveDragOffset || prev);
+      setPracticeMoveDragOffset(null);
+    };
+    window.addEventListener("pointerup", finishStuckDrag);
+    window.addEventListener("pointercancel", finishStuckDrag);
+    return () => {
+      window.removeEventListener("pointerup", finishStuckDrag);
+      window.removeEventListener("pointercancel", finishStuckDrag);
+    };
+  }, [practiceMoveDragOffset]);
 
   const resetPracticePosition = useCallback(() => {
     // اگه به هر دلیلی (مثلاً از‌دست‌رفتنِ رویدادِ pointerup روی موبایل)
@@ -11716,7 +11829,17 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // می‌مونه، لازم نیست هر تب state جدا داشته باشه.
   const [wordListPlayerText, setWordListPlayerText] = useState({ text: "", code: "" });
   const [grammarJump, setGrammarJump] = useState(null); // { word, sentence, langCode, token } — set from the word popover
-  const aiSettings = { backendUrl, setBackendUrl };
+  // نکته‌ی مهمِ کارایی: قبلاً این یه object literalِ تازه در *هر* رندر بود
+  // («const aiSettings = { ... }») — چون تقریباً همه‌جای اپ (از جمله
+  // MiniMarkdown/ClickableSentence که با React.memo قرار بود از رندرِ
+  // اضافه فرار کنن) این prop رو می‌گیرن، هر بار که یه استیتِ کوچیک عوض
+  // می‌شد (مثلاً هر حرفی که تو کادرِ تمرینِ جمله‌سازی تایپ می‌شد) یه
+  // referenceِ جدید براش ساخته می‌شد و memo رو بی‌اثر می‌کرد — یعنی کلِ
+  // پیام‌های قبلیِ چت (هرکدوم با ClickableSentence/MiniMarkdown سنگین)
+  // با هر ضربه‌ی کیبورد از نو رندر می‌شدن. با useMemo، همون referenceِ
+  // قبلی حفظ می‌شه مگه این‌که خودِ backendUrl واقعاً عوض بشه، پس
+  // React.memo پایین‌دست‌ها بالاخره کار می‌کنه و تایپ‌کردن روان می‌شه.
+  const aiSettings = useMemo(() => ({ backendUrl, setBackendUrl }), [backendUrl]);
   const userStorageKey = `${STORAGE_KEY}:${user?.email || "guest"}`;
 
   // Lets the word-tap popover (ClickableSentence, rendered in several
