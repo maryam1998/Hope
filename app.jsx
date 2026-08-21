@@ -1838,29 +1838,27 @@ const speechController = (() => {
     const q = encodeURIComponent(sanitizeForTTS(chunkText));
     const googleTranslate = { kind: "url", url: `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}` };
     const edge = { kind: "edge", text: chunkText, voice };
-    const streamElements = { kind: "url", url: `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}` };
     const piperVoiceId = PIPER_VOICE_BY_LANG[langCode];
     const piper = piperVoiceId ? { kind: "piper", text: chunkText, voiceId: piperVoiceId } : null;
-    // برای فارسی، Piperِ آفلاین رو همیشه اول امتحان می‌کنیم: دفعه‌ی اول یه
-    // دانلودِ یه‌بارمصرفِ مدل داره، ولی از دومین بار به بعد نه فقط سریع‌تره،
-    // بلکه اصلاً به دامنه‌های فیلترشده وابسته نیست. اگه Piper به هر دلیلی
-    // (مرورگرِ قدیمی بدونِ پشتیبانیِ OPFS، یا اولین‌بار بدونِ اینترنت) شکست
-    // خورد، همون زنجیره‌ی قبلیِ Edge → StreamElements به‌عنوانِ پشتیبان
-    // می‌مونه.
-    if (langCode === "fa" && piper) return [piper, edge, streamElements];
+    // نکته: StreamElements از زنجیره حذف شد — الان بدونِ کلیدِ JWTِ اکانتِ
+    // StreamElements همیشه ۴۰۱ می‌ده (سیاستِ خودشون عوض شده)، و حتی با کلید
+    // هم اصلاً صدایِ فارسی نداره (بر پایه‌ی Amazon Polly که fa رو پشتیبانی
+    // نمی‌کنه). نگه‌داشتنش تو زنجیره فقط یه تأخیرِ بی‌فایده قبلِ شکستِ نهایی
+    // اضافه می‌کرد. تست شد که Edge در ایران فیلتر نیست و برایِ فارسی خوب کار
+    // می‌کنه، پس همون به‌عنوانِ آخرین مرحله کافیه.
+    if (langCode === "fa" && piper) return [piper, edge];
     // Google Translate TTS رو اول امتحان می‌کنیم، نه Edge/Azure — چون دامنه‌ی
     // خودِ Microsoft/Bing (speech.platform.bing.com) در بعضی کشورها (مثلاً
     // ایران) فیلتره، درحالی‌که translate.google.com معمولاً در دسترسه.
-    // Edge به‌عنوانِ پشتیبانِ دوم می‌مونه (کیفیتش بالاتره، برای کاربرهایی
-    // که فیلتر نیستن)، و StreamElements آخرین گزینه.
+    // Edge به‌عنوانِ پشتیبانِ دوم و آخرین مرحله می‌مونه (کیفیتش بالاتره).
     //
     // استثنا: فارسی. برخلافِ عربی، سرویسِ صداخوانیِ Google Translate اصلاً
     // صدایی برای فارسی نداره (این یه محدودیتِ قدیمی و شناخته‌شده‌ی خودِ
     // Google‌ه، نه چیزی که با فیلترینگ ربط داشته باشه) — یعنی برای فارسی
     // همیشه شکست می‌خوره و فقط یه تأخیرِ بی‌فایده قبلِ رسیدن به Edge اضافه
     // می‌کنه. برای همین، فقط برای فارسی، Edge رو مستقیم اول امتحان می‌کنیم.
-    if (langCode === "fa") return [edge, streamElements];
-    return [googleTranslate, edge, streamElements];
+    if (langCode === "fa") return [edge];
+    return [googleTranslate, edge];
   }
 
   function stopOnlineAudio() {
