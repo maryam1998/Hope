@@ -25,6 +25,20 @@ export default {
       return json({ ok: true, providers: getProviderChain(env) });
     }
 
+    if (url.pathname === "/api/tts" && request.method === "GET") {
+      const text = (url.searchParams.get("text") || "").trim();
+      const voice = url.searchParams.get("voice") || "en-US-AriaNeural";
+      if (!text) return json({ error: "text is required" }, 400);
+      try {
+        const audioBytes = await fetchEdgeTtsAudio(text, voice);
+        return new Response(audioBytes, {
+          headers: { "Content-Type": "audio/mpeg", "Cache-Control": "public, max-age=86400", ...CORS_HEADERS },
+        });
+      } catch (e) {
+        return json({ error: e.message || "edge-tts failed" }, 502);
+      }
+    }
+
     if (url.pathname === "/api/generate" && request.method === "POST") {
       let body;
       try {
@@ -59,6 +73,149 @@ function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+  });
+}
+
+// --- Edge/Azure Neural TTS proxy ---------------------------------------------
+// این وب‌سوکت قبلاً مستقیم از خودِ صفحه (مرورگرِ کاربر) به مایکروسافت وصل
+// می‌شد و همیشه "failed" می‌شد — چون سرورِ مایکروسافت درخواست‌هایی که
+// Originشون یه دامنه‌ی معمولیه (نه خودِ اپلیکیشنِ Edge) رو رد می‌کنه. اینجا
+// (سمتِ Worker، بدونِ Origin مرورگری) همون پروتکل رو صدا می‌زنیم و فقط
+// بایت‌های mp3ِ نهایی رو برمی‌گردونیم.
+const EDGE_TTS_TRUSTED_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+
+function edgeTtsUuid() {
+  return crypto.randomUUID().replace(/-/g, "");
+}
+
+function edgeTtsEscapeXml(s) {
+  return (s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+async function edgeTtsSecMsGec() {
+  const WIN_EPOCH = 11644473600;
+  let ticks = Math.floor(Date.now() / 1000) + WIN_EPOCH;
+  ticks -= ticks % 300;
+  const ticksStr = String(Math.round(ticks * 1e7));
+  const strToHash = ticksStr + EDGE_TTS_TRUSTED_TOKEN;
+  const enc = new TextEncoder().encode(strToHash);
+  const hashBuf = await crypto.subtle.digest("SHA-256", enc);
+  return Array.from(new Uint8Array(hashBuf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+}
+
+// یه متن رو با موتورِ Edge/Azure می‌خونه و بایت‌های mp3ِ نتیجه رو برمی‌گردونه.
+// حداکثرِ طول رو اینجا هم محدود می‌کنیم (همون splitForOnlineTts سمتِ کلاینت
+// تکه‌تکه‌ش می‌کنه، ولی برای احتیاط اینجا هم یه سقف می‌ذاریم).
+async function fetchEdgeTtsAudio(text, voice) {
+  const sanitized = String(text).slice(0, 600);
+  const gec = await edgeTtsSecMsGec();
+  const connId = edgeTtsUuid();
+  const wsUrl =
+    "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1" +
+    `?TrustedClientToken=${EDGE_TTS_TRUSTED_TOKEN}` +
+    `&Sec-MS-GEC=${gec}` +
+    `&Sec-MS-GEC-Version=1-131.0.2903.99` +
+    `&ConnectionId=${connId}`;
+
+  const resp = await fetch(wsUrl, { headers: { Upgrade: "websocket" } });
+  const ws = resp.webSocket;
+  if (!ws) throw new Error("edge-tts: upstream didn't upgrade to websocket");
+  ws.accept();
+
+  return new Promise((resolve, reject) => {
+    const audioParts = [];
+    let settled = false;
+
+    const finishOk = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      try {
+        ws.close();
+      } catch (e) {}
+      if (!audioParts.length) {
+        reject(new Error("edge-tts: no audio returned"));
+        return;
+      }
+      let total = 0;
+      for (const p of audioParts) total += p.length;
+      const merged = new Uint8Array(total);
+      let offset = 0;
+      for (const p of audioParts) {
+        merged.set(p, offset);
+        offset += p.length;
+      }
+      resolve(merged);
+    };
+    const finishFail = (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      try {
+        ws.close();
+      } catch (e) {}
+      reject(err || new Error("edge-tts: failed"));
+    };
+    const timeoutId = setTimeout(() => finishFail(new Error("edge-tts: timeout")), 15000);
+
+    ws.addEventListener("message", (evt) => {
+      if (typeof evt.data === "string") {
+        if (evt.data.indexOf("Path:turn.end") !== -1) finishOk();
+        return;
+      }
+      try {
+        const buf = new Uint8Array(evt.data);
+        if (buf.length < 2) return;
+        const headerLen = (buf[0] << 8) | buf[1];
+        const headerStr = new TextDecoder("utf-8").decode(buf.slice(2, 2 + headerLen));
+        if (headerStr.indexOf("Path:audio") !== -1) {
+          const audioData = buf.slice(2 + headerLen);
+          if (audioData.length) audioParts.push(audioData);
+        }
+      } catch (e) {}
+    });
+    ws.addEventListener("close", () => finishOk());
+    ws.addEventListener("error", () => finishFail(new Error("edge-tts: websocket error")));
+
+    try {
+      const now = new Date().toISOString();
+      ws.send(
+        `X-Timestamp:${now}\r\n` +
+          "Content-Type:application/json; charset=utf-8\r\n" +
+          "Path:speech.config\r\n\r\n" +
+          JSON.stringify({
+            context: {
+              synthesis: {
+                audio: {
+                  metadataoptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: false },
+                  outputFormat: "audio-24khz-48kbitrate-mono-mp3",
+                },
+              },
+            },
+          })
+      );
+      const ssml =
+        `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>` +
+        `<voice name='${voice}'><prosody rate='+0%'>${edgeTtsEscapeXml(sanitized)}</prosody></voice>` +
+        `</speak>`;
+      ws.send(
+        `X-RequestId:${edgeTtsUuid()}\r\n` +
+          "Content-Type:application/ssml+xml\r\n" +
+          `X-Timestamp:${now}\r\n` +
+          "Path:ssml\r\n\r\n" +
+          ssml
+      );
+    } catch (e) {
+      finishFail(e);
+    }
   });
 }
 
@@ -146,29 +303,18 @@ async function callHuggingFace(prompt, maxTokens, env) {
 // --- Groq (OpenAI-compatible) ------------------------------------------------
 // llama-3.3-70b-versatile and llama-3.1-8b-instant were both deprecated by
 // Groq — openai/gpt-oss-120b is their current recommended general-purpose
-// replacement (openai/gpt-oss-20b if you want the smaller/faster one).
-//
-// GROQ_MODEL می‌تونه چند مدل، جدا شده با کاما، داشته باشه (مثلاً
-// "openai/gpt-oss-120b,openai/gpt-oss-20b,llama-3.3-70b-versatile") — هر
-// درخواست، مدل‌ها رو دقیقاً به همین ترتیب امتحان می‌کنه؛ اگه یکی خطا داد
-// (مثلاً rate limit یا هر خطای دیگه‌ای)، بلافاصله سراغ مدلِ بعدیِ همین
-// لیست می‌ره، نه اینکه مستقیم بره سراغِ provider بعدی (openrouter/mistral و
-// غیره) توی زنجیره‌ی اصلی. فقط وقتی همه‌ی مدل‌های این لیست هم شکست
-// بخورن، به provider بعدیِ زنجیره‌ی اصلی می‌رسیم.
-function groqModelList(env) {
-  const raw = env.GROQ_MODEL || "openai/gpt-oss-120b";
-  return raw
-    .split(",")
-    .map((m) => m.trim())
-    .filter(Boolean);
-}
-
-async function callGroqModel(model, prompt, maxTokens, key) {
+// replacement (openai/gpt-oss-20b if you want the smaller/faster one). If
+// GROQ_MODEL is set in the dashboard to an old name (e.g. the very old
+// mixtral-8x7b-32768 default), update it there — this fallback only kicks
+// in when GROQ_MODEL isn't set at all.
+async function callGroq(prompt, maxTokens, env) {
+  const key = env.GROQ_API_KEY;
+  if (!key) throw new Error("GROQ_API_KEY not set");
   const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model,
+      model: env.GROQ_MODEL || "openai/gpt-oss-120b",
       messages: [{ role: "user", content: prompt }],
       max_tokens: maxTokens,
     }),
@@ -178,21 +324,6 @@ async function callGroqModel(model, prompt, maxTokens, key) {
   const text = data.choices?.[0]?.message?.content || "";
   if (!text) throw new Error("Groq returned empty response");
   return text;
-}
-
-async function callGroq(prompt, maxTokens, env) {
-  const key = env.GROQ_API_KEY;
-  if (!key) throw new Error("GROQ_API_KEY not set");
-  const models = groqModelList(env);
-  const errors = [];
-  for (const model of models) {
-    try {
-      return await callGroqModel(model, prompt, maxTokens, key);
-    } catch (e) {
-      errors.push(`${model}: ${e.message}`);
-    }
-  }
-  throw new Error(errors.join(" | ") || "Groq: no models configured");
 }
 
 // --- Gemini -------------------------------------------------------------------
