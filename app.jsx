@@ -591,6 +591,48 @@ async function verifyTranslationWithAI(sourceText, targetLang, draft, aiSettings
 // پیش میاد. برای همچین مواردی، جایی که کیفیت خیلی مهمه (مثل جمله‌های خودِ
 // داستان) این پرچم true پاس داده می‌شه؛ برای موارد پرتکرار/کم‌اهمیت‌تر (تک‌لغت‌ها)
 // همون کنترل‌کیفیتِ رایگان کافیه تا مصرفِ توکن بی‌جهت زیاد نشه.
+//
+// ⛔️ رفعِ باگِ «در حال ترجمه...» که هیچ‌وقت تموم نمی‌شد: قبلاً هیچ سقفِ
+// زمانیِ کلی روی کل زنجیره (۴ سرویسِ رایگان + fallback به بک‌اندِ AI) نبود؛
+// اگه شبکه‌ی کاربر همه‌ی این‌ها رو (یا لااقل بک‌اند رو، که fetch()ـش هم اصلاً
+// timeout نداشت) بی‌صدا بلاک می‌کرد، Promise تا ابد آویزون می‌موند. حالا یه
+// سقفِ کلیِ TRANSLATE_HARD_TIMEOUT_MS با Promise.race تضمین می‌کنه که کاربر
+// حداکثر همین‌قدر منتظر بمونه؛ اگه تا اون‌موقع هیچ سرویسی جواب نداده باشه،
+// موقتاً متنِ اصلی نشون داده می‌شه (نه هیچی) و کارِ شبکه‌ای در پس‌زمینه
+// همچنان ادامه پیدا می‌کنه تا دفعه‌ی بعد از کش بیاد.
+//
+// 🚦 صفِ سراسریِ هم‌زمانی: همه‌ی محل‌های اپ (پاپ‌آپِ کلمه، مرورِ Leitner،
+// جمله‌های داستان، و ...) هرکدوم جدا translateFree صدا می‌زدن — اگه چندتاشون
+// هم‌زمان اجرا بشن (مثلاً بازکردنِ یه داستانِ بلند + مرورِ لغات هم‌زمان)،
+// می‌تونست ده‌ها درخواستِ هم‌زمان به سرویس‌های رایگان/بک‌اندِ AI بفرسته —
+// دقیقاً همون چیزی که با زیادشدنِ کاربرها بدتر می‌شه (سهمیه‌ی Groq/بک‌اند
+// بینِ همه مشترکه). حالا فقط GLOBAL_TRANSLATE_CONCURRENCY تا درخواستِ
+// واقعیِ شبکه‌ای، در کلِ اپ (نه فقط داخلِ یه افکت)، هم‌زمان اجرا می‌شه؛
+// بقیه صف می‌کِشن.
+const GLOBAL_TRANSLATE_CONCURRENCY = 3;
+const TRANSLATE_HARD_TIMEOUT_MS = 15000;
+let _translateActiveCount = 0;
+const _translateQueue = [];
+function _runNextTranslateJob() {
+  if (_translateActiveCount >= GLOBAL_TRANSLATE_CONCURRENCY) return;
+  const job = _translateQueue.shift();
+  if (!job) return;
+  _translateActiveCount++;
+  job
+    .fn()
+    .then(job.resolve, job.reject)
+    .finally(() => {
+      _translateActiveCount--;
+      _runNextTranslateJob();
+    });
+}
+function queueTranslateJob(fn) {
+  return new Promise((resolve, reject) => {
+    _translateQueue.push({ fn, resolve, reject });
+    _runNextTranslateJob();
+  });
+}
+
 async function translateFree(text, targetLang, sourceLang = "auto", aiSettings = null, forceVerify = false) {
   if (!text || !targetLang) return text;
   // اگه زبان مبدا و مقصد یکی باشن، ترجمه بی‌معنیه (و بعضی سرویس‌ها به‌جای
@@ -604,6 +646,19 @@ async function translateFree(text, targetLang, sourceLang = "auto", aiSettings =
   const cached = await getCachedTranslation(text, targetLang, sourceLang);
   if (cached) return cached;
 
+  // کش نبود — کارِ واقعیِ شبکه‌ای وارد صفِ سراسری می‌شه (نه بلافاصله اجرا)
+  // تا سقفِ هم‌زمانی رعایت بشه؛ و کلِ این کار زیرِ یه سقفِ زمانیِ سخت قرار
+  // می‌گیره تا رابط کاربری هیچ‌وقت بی‌نهایت منتظر نمونه.
+  const networkPromise = queueTranslateJob(() =>
+    translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify)
+  );
+  const timeoutPromise = new Promise((resolve) => {
+    setTimeout(() => resolve(text), TRANSLATE_HARD_TIMEOUT_MS);
+  });
+  return Promise.race([networkPromise, timeoutPromise]);
+}
+
+async function translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify) {
   const providers = [translateViaGoogle, translateViaMyMemory, translateViaLingva, translateViaLibre];
   for (const provider of providers) {
     try {
@@ -2730,11 +2785,24 @@ async function callAI({ prompt, maxTokens, retries = 2, aiSettings }) {
 
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await fetch(`${base}/api/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-      });
+      // ⛔️ قبلاً این fetch هیچ timeoutـی نداشت — اگه سرور بی‌صدا (نه با خطای
+      // فوری، بلکه سکوتِ کامل) بلاک/غیرقابل‌دسترس بود، این Promise تا ابد
+      // آویزون می‌موند و کل زنجیره‌ی ترجمه (که به‌عنوان آخرین fallback به
+      // اینجا می‌رسه) رو برای همیشه معطل می‌کرد. حالا مثلِ fetchWithTimeout
+      // بالا، با AbortController یه سقفِ ۱۰ثانیه‌ای داره.
+      const aiController = new AbortController();
+      const aiTimer = setTimeout(() => aiController.abort(), 10000);
+      let res;
+      try {
+        res = await fetch(`${base}/api/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          signal: aiController.signal,
+        });
+      } finally {
+        clearTimeout(aiTimer);
+      }
       if (!res.ok) {
         let detail = `HTTP ${res.status}`;
         // ۴۲۹ (Too Many Requests) فنی جزو «خطاهای کلاینت»ه، ولی برخلاف ۴۰۰/۴۰۱
@@ -4809,7 +4877,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
     setAsrModelBusy(true);
     setAsrModelProgress("در حال آماده‌سازی...");
     try {
-      const { pipeline, env } = await import("@xenova/transformers");
+      const { pipeline, env } = await import("https://esm.sh/@xenova/transformers@2.17.2");
       env.allowLocalModels = false;
       await pipeline("automatic-speech-recognition", "Xenova/whisper-base", {
         progress_callback: (p) => {
@@ -8842,7 +8910,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setAudioReadProgress("در حال آماده‌سازیِ سیستمِ تشخیصِ گفتار (بارِ اول ممکنه کمی طول بکشه)...");
       let transcriber;
       try {
-        const { pipeline, env } = await import("@xenova/transformers");
+        const { pipeline, env } = await import("https://esm.sh/@xenova/transformers@2.17.2");
         env.allowLocalModels = false;
         transcriber = await pipeline("automatic-speech-recognition", AUDIO_WHISPER_MODEL, {
           progress_callback: (p) => {
