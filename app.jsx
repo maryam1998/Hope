@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, Square, ListChecks } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -7629,19 +7629,14 @@ function enforceSentenceSplit(paragraphs) {
 // نشون می‌ده (هیچ محدودیتی رو فرمتِ فایل نیست). هیچ هایلایت/خوانشِ
 // خودکاری وجود نداره — خطِ فعال فقط با دکمه‌های «◀ جمله‌ی قبل / جمله‌ی
 // بعد ▶» پایینِ پلیر عوض می‌شه، کاملاً دستی و مستقل از پخشِ صدا.
-function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode }) {
+// این نوار حالا فقط آپلود/حذفِ فایلِ صوتی رو نشون می‌ده — سوییچِ TTS⇄صوتِ
+// من و کنترل‌های پخش (پخش/توقف، جمله‌ی قبل/بعد، نوارِ زمان) دیگه اینجا
+// نیستن؛ اون‌ها به نوارِ سراسریِ پایینِ صفحه (پلیرِ اصلی) منتقل شدن —
+// PlayerBarStorySwitch و UserAudioMainPlayButton/UserAudioChunkNavButton/
+// UserAudioProgressTrack همون‌جا رندر می‌شن.
+function StoryUserAudioBar({ userAudio }) {
   const fileInputRef = useRef(null);
-  const {
-    hasAudio, isPlaying, currentTime, duration,
-    uploadFile, play, pause, seek, nextLine, prevLine, removeAudio,
-  } = userAudio;
-
-  function fmtTime(sec) {
-    const s = Math.max(0, Math.round(sec || 0));
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return toFaDigits(`${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`);
-  }
+  const { hasAudio, uploadFile, removeAudio } = userAudio;
 
   const boxStyle = {
     border: `1px solid ${colors.cardBorder}`,
@@ -7654,30 +7649,9 @@ function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode }) {
   return (
     <div style={boxStyle}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-1" style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 20, padding: 2 }}>
-          <button
-            onClick={() => setPlaybackMode("tts")}
-            style={{
-              padding: "4px 12px", borderRadius: 18, fontSize: 12, border: "none",
-              backgroundColor: playbackMode === "tts" ? colors.teal : "transparent",
-              color: playbackMode === "tts" ? "white" : colors.ink,
-            }}
-          >
-            TTS
-          </button>
-          <button
-            onClick={() => hasAudio && setPlaybackMode("user")}
-            disabled={!hasAudio}
-            style={{
-              padding: "4px 12px", borderRadius: 18, fontSize: 12, border: "none",
-              backgroundColor: playbackMode === "user" ? colors.teal : "transparent",
-              color: playbackMode === "user" ? "white" : (hasAudio ? colors.ink : colors.cardBorder),
-              cursor: hasAudio ? "pointer" : "default",
-            }}
-          >
-            صوت من
-          </button>
-        </div>
+        <span style={{ fontSize: 12, color: colors.inkSoft }}>
+          {hasAudio ? "صوتِ من (آپلودی) وصل شده" : "صوتِ خودت رو برای این داستان آپلود کن"}
+        </span>
 
         {!hasAudio ? (
           <>
@@ -7707,48 +7681,112 @@ function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode }) {
           </button>
         )}
       </div>
-
-      {hasAudio && playbackMode === "user" && (
-        <div className="flex items-center gap-2" style={{ marginTop: 10 }}>
-          <button
-            onClick={prevLine}
-            title="جمله‌ی قبل"
-            style={{ background: "none", border: "none", cursor: "pointer", color: colors.ink, padding: 4, display: "flex", flexShrink: 0 }}
-          >
-            <SkipBack size={18} />
-          </button>
-          <button
-            onClick={isPlaying ? pause : play}
-            style={{ padding: 6, borderRadius: 999, border: "none", background: colors.teal, color: "white", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
-          >
-            {isPlaying ? <Pause size={16} /> : <PlayCircle size={18} />}
-          </button>
-          <button
-            onClick={nextLine}
-            title="جمله‌ی بعد"
-            style={{ background: "none", border: "none", cursor: "pointer", color: colors.ink, padding: 4, display: "flex", flexShrink: 0 }}
-          >
-            <SkipForward size={18} />
-          </button>
-          <input
-            type="range"
-            min={0}
-            max={duration || 0}
-            step={0.1}
-            value={currentTime}
-            onChange={(e) => seek(Number(e.target.value))}
-            style={{ flex: 1 }}
-          />
-          <span style={{ fontSize: 11, color: colors.inkSoft, flexShrink: 0 }}>
-            {fmtTime(currentTime)} / {fmtTime(duration)}
-          </span>
-        </div>
-      )}
     </div>
   );
 }
 
-function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, autoScrollActive, calendarSystem, highlightColor, uid, uiLang }) {
+// نسخه‌ی «صوتِ کاربر» از دکمه‌ی مرکزیِ پخشِ نوارِ سراسریِ پایینِ صفحه —
+// دقیقاً هم‌شکلِ MainPlayButton، فقط به‌جای speechController (تی‌تی‌اس)،
+// play/pause خودِ userAudio (فایلِ آپلودی) رو صدا می‌زنه. فقط وقتی
+// tab==="story" و کاربر سوییچ رو رویِ «صوت من» گذاشته رندر می‌شه.
+function UserAudioMainPlayButton({ ua, color }) {
+  const { isPlaying, hasAudio, play, pause } = ua || {};
+  return (
+    <button
+      onClick={() => { if (!hasAudio) return; isPlaying ? pause() : play(); }}
+      disabled={!hasAudio}
+      aria-label={isPlaying ? "توقف" : "پخش"}
+      style={{
+        width: 44, height: 44, borderRadius: 999, border: "none",
+        background: color, color: "white", display: "flex", alignItems: "center",
+        justifyContent: "center", flexShrink: 0, opacity: hasAudio ? 1 : 0.5,
+      }}
+    >
+      {isPlaying ? <Pause size={22} /> : <PlayCircle size={24} />}
+    </button>
+  );
+}
+
+// نسخه‌ی «صوتِ کاربر» از دکمه‌ی جمله‌ی قبل/بعد — کاملاً دستی (manualIndex)،
+// هیچ ربطی به زمانِ صدا نداره؛ همونی که قبلاً فقط توی StoryUserAudioBar بود.
+function UserAudioChunkNavButton({ direction, ua, color }) {
+  const { nextLine, prevLine, hasAudio } = ua || {};
+  return (
+    <button
+      onClick={() => { if (!hasAudio) return; direction === "prev" ? prevLine() : nextLine(); }}
+      title={direction === "prev" ? "جمله‌ی قبل" : "جمله‌ی بعد"}
+      disabled={!hasAudio}
+      style={{ background: "none", border: "none", cursor: hasAudio ? "pointer" : "default", color, padding: 6, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: hasAudio ? 1 : 0.5 }}
+    >
+      {direction === "prev" ? <SkipBack size={20} /> : <SkipForward size={20} />}
+    </button>
+  );
+}
+
+// نسخه‌ی «صوتِ کاربر» از نوارِ پیشرفتِ پلیر — زمانِ فعلی/کل + اسلایدرِ
+// seek، دقیقاً همون چیزی که توی StoryUserAudioBar بود.
+function UserAudioProgressTrack({ ua, color }) {
+  const { currentTime, duration, seek, hasAudio } = ua || {};
+  function fmtTime(sec) {
+    const s = Math.max(0, Math.round(sec || 0));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return toFaDigits(`${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`);
+  }
+  return (
+    <div className="px-4 flex items-center gap-2" style={{ paddingTop: 6 }}>
+      <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 34 }}>{fmtTime(currentTime)}</span>
+      <input
+        type="range"
+        min={0}
+        max={duration || 0}
+        step={0.1}
+        value={currentTime || 0}
+        onChange={(e) => hasAudio && seek(Number(e.target.value))}
+        disabled={!hasAudio}
+        style={{ flex: 1, accentColor: color, opacity: hasAudio ? 1 : 0.5 }}
+      />
+      <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 34, textAlign: "left" }}>{fmtTime(duration)}</span>
+    </div>
+  );
+}
+
+// سوییچِ دوحالته‌ی TTS ⇄ صوتِ من — نسخه‌ی کوچیکِ همون سوییچِ داخلِ
+// StoryUserAudioBar، فقط برای نمایش روی نوارِ سراسریِ پایینِ صفحه (پلیرِ
+// اصلی) وقتی تبِ فعلی «داستان‌ساز»ه.
+function PlayerBarStorySwitch({ ua }) {
+  const { hasAudio, playbackMode, setPlaybackMode } = ua || {};
+  return (
+    <div className="flex items-center justify-center" style={{ paddingTop: 6 }}>
+      <div className="flex items-center gap-1" style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 20, padding: 2 }}>
+        <button
+          onClick={() => setPlaybackMode && setPlaybackMode("tts")}
+          style={{
+            padding: "3px 12px", borderRadius: 18, fontSize: 11, border: "none",
+            backgroundColor: playbackMode === "tts" ? colors.teal : "transparent",
+            color: playbackMode === "tts" ? "white" : colors.ink,
+          }}
+        >
+          TTS
+        </button>
+        <button
+          onClick={() => hasAudio && setPlaybackMode && setPlaybackMode("user")}
+          disabled={!hasAudio}
+          style={{
+            padding: "3px 12px", borderRadius: 18, fontSize: 11, border: "none",
+            backgroundColor: playbackMode === "user" ? colors.teal : "transparent",
+            color: playbackMode === "user" ? "white" : (hasAudio ? colors.ink : colors.cardBorder),
+            cursor: hasAudio ? "pointer" : "default",
+          }}
+        >
+          صوت من
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, onUserAudioStateChange, autoScrollActive, calendarSystem, highlightColor, uid, uiLang }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
   // languages) — no separate picker duplicated here.
@@ -8116,6 +8154,32 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     latestStoryTextContext = { text: fullStoryText, code: storyLang };
     if (onFullTextChange) onFullTextChange({ text: fullStoryText, code: storyLang });
   }, [fullStoryText, storyLang]);
+
+  // درست مثلِ onFullTextChange بالا — هر بار وضعیتِ صوتِ کاربر (آپلود شده یا
+  // نه، در حالِ پخش یا نه، زمانِ فعلی/کل، و اینکه پلیر الان رو حالتِ tts یا
+  // user ایستاده) عوض بشه، به App گزارش می‌شه تا نوارِ پخشِ سراسریِ پایینِ
+  // صفحه (پلیرِ اصلی) بتونه سوییچ و کنترل‌های همین صوت رو نشون بده. توابعِ
+  // play/pause/seek/nextLine/prevLine/setPlaybackMode مستقیم همینجا پاس داده
+  // می‌شن (نه به‌عنوانِ dependency) تا افکت فقط با تغییرِ واقعیِ مقادیر اجرا
+  // بشه، نه با هر رندر.
+  useEffect(() => {
+    if (onUserAudioStateChange) {
+      onUserAudioStateChange({
+        hasAudio: userAudio.hasAudio,
+        isPlaying: userAudio.isPlaying,
+        currentTime: userAudio.currentTime,
+        duration: userAudio.duration,
+        playbackMode,
+        play: userAudio.play,
+        pause: userAudio.pause,
+        seek: userAudio.seek,
+        nextLine: userAudio.nextLine,
+        prevLine: userAudio.prevLine,
+        setPlaybackMode,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainStoryKey, userAudio.hasAudio, userAudio.isPlaying, userAudio.currentTime, userAudio.duration, playbackMode]);
 
   useEffect(() => {
     setCollections(loadWordCollections().filter((c) => c.langCode === storyLang));
@@ -9830,12 +9894,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           )}
 
           {fullStoryText && (
-            <StoryUserAudioBar
-              userAudio={userAudio}
-              playbackMode={playbackMode}
-              setPlaybackMode={setPlaybackMode}
-              allSentences={allSentences}
-            />
+            <StoryUserAudioBar userAudio={userAudio} />
           )}
 
           <div className="flex flex-col gap-5">
@@ -12112,6 +12171,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // پنلِ تنظیماتِ بیشترِ پلیر (شفافیت) — تو طراحیِ جدید، پشتِ دکمه‌ی «فهرست»
   // (☰) جمع‌وجور شده تا نوارِ کنترلِ اصلی شلوغ نشه؛ خودِ قابلیت دقیقاً همونیه
   // که قبلاً بود، فقط پیش‌فرض بسته‌ست.
+  const [showPlayerSettings, setShowPlayerSettings] = useState(false);
   // شفافیتِ پنلِ شناورِ «تمرین جمله‌سازی با هوش مصنوعی» — دقیقاً مثل
   // playerOpacity بالا، جدا و مستقل ذخیره می‌شه که با شفافیتِ پلیر تداخل
   // نکنه.
@@ -12192,12 +12252,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // گرامری زیرِ پنلِ شناور گم نشه.
   const [practicePanelHeight, setPracticePanelHeight] = useState(0);
   const [loaded, setLoaded] = useState(false);
-  const [loadTimedOut, setLoadTimedOut] = useState(false);
-  useEffect(() => {
-    if (loaded) return;
-    const t = setTimeout(() => setLoadTimedOut(true), 6000);
-    return () => clearTimeout(t);
-  }, [loaded]);
   // «loaded» فقط یعنی نسخه‌ی محلی (localStorage) لود شده و صفحه می‌تونه باز
   // بشه — ولی نسخه‌ی ابری (Supabase) ممکنه هنوز در راه باشه (مخصوصاً
   // اولین‌بار روی یه دستگاه/مرورگر تازه که چیزی توی localStorage نیست).
@@ -12218,6 +12272,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // 🔊ِ «خواندنِ کل متن» روی نوارِ پلیر (پایینِ صفحه) بتونه بدونِ داشتنِ
   // دکمه‌ی جداگانه‌ی بالای داستان، همون متن رو بخونه.
   const [storyPlayerText, setStoryPlayerText] = useState({ text: "", code: "" });
+  // وضعیت/کنترل‌های صوتِ آپلودیِ کاربر برای داستانِ فعلی — از StoryBuilder
+  // گزارش می‌شه (onUserAudioStateChange) تا نوارِ سراسریِ پایینِ صفحه
+  // (پلیرِ اصلی) بتونه سوییچِ TTS⇄صوتِ من و کنترل‌هاش رو نشون بده.
+  const [storyUserAudio, setStoryUserAudio] = useState(null);
   // همون الگو، ولی برای متنِ خوندنیِ تبِ «مکالمات روزمره» (سناریوی
   // بازشده). هر تب که بخواد دکمه‌ی 🔊ِ روی پلیر متنِ خودش رو بخونه، یه
   // state مشابه اینجا اضافه می‌کنه و پایین (روی نوارِ پلیر) به ازای
@@ -12594,43 +12652,21 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             consumeMainTextResumeOffset(`${TTS_LOCALE[wordListPlayerText.code] || "en-US"}::${wordListPlayerText.text}`),
         }
       : null;
+  // فقط وقتی تبِ فعلی «داستان‌ساز»ه و کاربر روی نوارِ سراسریِ پایینِ صفحه
+  // سوییچ رو رویِ «صوتِ من» گذاشته، پلیرِ اصلی به‌جای TTS، فایلِ آپلودیِ
+  // کاربر رو کنترل می‌کنه (پخش/توقف، جمله‌ی قبل/بعد کاملاً دستی، بدون
+  // هایلایتِ خودکار — دقیقاً همون منطقی که خودِ StoryBuilder داره).
+  const isStoryUserAudioMode = tab === "story" && storyUserAudio?.playbackMode === "user";
 
   if (!loaded) {
     return (
       <div
         dir="rtl"
         lang="fa"
-        style={{
-          fontFamily: fontFa,
-          backgroundColor: colors.paper,
-          minHeight: "100vh",
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-          alignItems: "center",
-          justifyContent: "center",
-          color: colors.inkSoft,
-          padding: 20,
-          textAlign: "center",
-        }}
+        style={{ fontFamily: fontFa, backgroundColor: colors.paper, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: colors.inkSoft }}
       >
         <style>{`@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap');`}</style>
         در حال بارگذاری...
-        {loadTimedOut && (
-          <>
-            <p style={{ fontSize: 12.5, maxWidth: 320 }}>
-              بارگذاری بیش از حدِ معمول طول کشید. اگه دکمه‌ی پایین رو بزنی،
-              برنامه بدونِ نسخه‌ی ذخیره‌شده‌ی محلی باز می‌شه (داده‌ی ابری هنوز
-              در پس‌زمینه لود می‌شه).
-            </p>
-            <button
-              onClick={() => setLoaded(true)}
-              style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: colors.teal, color: "white", fontSize: 13 }}
-            >
-              بازکردنِ برنامه
-            </button>
-          </>
-        )}
       </div>
     );
   }
@@ -13065,6 +13101,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             aiSettings={aiSettings}
             jumpTo={storyJump}
             onFullTextChange={setStoryPlayerText}
+            onUserAudioStateChange={setStoryUserAudio}
             autoScrollActive={tab === "story"}
             calendarSystem={appPrefs.calendarSystem || "jalali"}
             highlightColor={appPrefs.highlightColor}
@@ -13115,38 +13152,76 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             WebkitTouchCallout: "none",
           }}
         >
+          {/* سوییچِ TTS ⇄ صوتِ من — فقط توی تبِ داستان‌ساز نشون داده می‌شه. */}
+          {tab === "story" && <PlayerBarStorySwitch ua={storyUserAudio} />}
           {/* ردیفِ نوارِ پیشرفت: زمانِ فعلی — نوارِ کِشیدنی — زمانِ کل — سرعت */}
-          <PlayerProgressTrack color={colors.gold} />
+          {isStoryUserAudioMode ? (
+            <UserAudioProgressTrack ua={storyUserAudio} color={colors.gold} />
+          ) : (
+            <PlayerProgressTrack color={colors.gold} />
+          )}
           {/* ردیفِ کنترل‌ها: تکرار، جمله‌ی قبل، پخش/توقفِ مرکزی، جمله‌ی بعد، تنظیمات */}
           <div className="px-4" style={{ paddingTop: 2, paddingBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-around" }}>
             <MuteButton color={colors.gold} />
             <RepeatButton color={colors.gold} />
             <RestartButton color={colors.gold} startText={activeTabAudio?.text} startCode={activeTabAudio?.code} />
-            <ChunkNavButton direction="prev" color={colors.ink} />
-            <MainPlayButton
-              startText={activeTabAudio?.text}
-              startCode={activeTabAudio?.code}
-              resolveStartOffset={activeTabAudio?.resolveStartOffset}
-              color={colors.teal}
-            />
-            <ChunkNavButton direction="next" color={colors.ink} />
+            {isStoryUserAudioMode ? (
+              <UserAudioChunkNavButton direction="prev" ua={storyUserAudio} color={colors.ink} />
+            ) : (
+              <ChunkNavButton direction="prev" color={colors.ink} />
+            )}
+            {isStoryUserAudioMode ? (
+              <UserAudioMainPlayButton ua={storyUserAudio} color={colors.teal} />
+            ) : (
+              <MainPlayButton
+                startText={activeTabAudio?.text}
+                startCode={activeTabAudio?.code}
+                resolveStartOffset={activeTabAudio?.resolveStartOffset}
+                color={colors.teal}
+              />
+            )}
+            {isStoryUserAudioMode ? (
+              <UserAudioChunkNavButton direction="next" ua={storyUserAudio} color={colors.ink} />
+            ) : (
+              <ChunkNavButton direction="next" color={colors.ink} />
+            )}
+            <button
+              onClick={() => setShowPlayerSettings((v) => !v)}
+              aria-label="تنظیماتِ پلیر"
+              title="تنظیماتِ پلیر (شفافیت)"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: showPlayerSettings ? colors.gold : colors.ink,
+                padding: 6,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <ListMusic size={20} />
+            </button>
           </div>
-          {/* شفافیتِ پلیر — دیگه پشتِ آیکونِ جدا نیست، همیشه داخلِ خودِ پلیر
-              دیده می‌شه. منطقِ ذخیره/بازنشانی (playerOpacity, دکمه‌ی
-              بازنشانیِ زیرِ ۷٪) کاملاً دست‌نخورده باقی موند. */}
-          <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2, paddingBottom: 8 }}>
-            <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={playerOpacity}
-              onChange={(e) => setPlayerOpacity(Number(e.target.value))}
-              aria-label="شفافیت پلیر"
-              style={{ flex: 1, accentColor: colors.gold }}
-            />
-            <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
-          </div>
+          {/* پنلِ تنظیماتِ بیشتر — شفافیتِ پلیر؛ همون قابلیتِ قبلی، فقط الان
+              پشتِ دکمه‌ی ☰ جمع‌وجور شده تا نوارِ کنترلِ اصلی شبیهِ پلیرِ عکسِ
+              فرستاده‌شده بمونه. */}
+          {showPlayerSettings && (
+            <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2, paddingBottom: 8 }}>
+              <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={playerOpacity}
+                onChange={(e) => setPlayerOpacity(Number(e.target.value))}
+                aria-label="شفافیت پلیر"
+                style={{ flex: 1, accentColor: colors.gold }}
+              />
+              <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
+            </div>
+          )}
         </div>
         {/* دکمه‌ی «بازنشانیِ شفافیت» — وقتی شفافیتِ پلیر خیلی پایین میاد (زیرِ
             ۷۰٪)، خودِ نوار (و اسلایدرِ توش) هم کم‌رنگ/کم‌کنتراست می‌شه و
@@ -15523,17 +15598,6 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
   const [appPrefs, setAppPrefs] = useState(loadAppPrefs);
-  // اگه چکِ سشنِ Supabase (مثلاً به‌خاطرِ شبکه/آدرسِ اشتباهِ پروژه) هیچ‌وقت
-  // جواب نده، checkingSession برای همیشه true می‌مونه و کاربر گیرِ اسپینر
-  // می‌مونه بدون هیچ راهی برای فهمیدنِ چرا. بعد از ۸ ثانیه، به‌جایِ گیر
-  // موندنِ ابدی، فرض می‌کنیم کاربر مهمونه و صفحه‌ی ورود رو نشون می‌دیم —
-  // اگه سشن واقعاً بعداً برسه، effectِ بالا همچنان setUser رو صدا می‌زنه.
-  const [sessionTimedOut, setSessionTimedOut] = useState(false);
-  useEffect(() => {
-    if (!checkingSession) return;
-    const t = setTimeout(() => setSessionTimedOut(true), 8000);
-    return () => clearTimeout(t);
-  }, [checkingSession]);
 
   useEffect(() => saveAppPrefs(appPrefs), [appPrefs]);
 
@@ -15632,39 +15696,10 @@ export default function App() {
     minHeight: "100vh",
   };
 
-  if (checkingSession && !sessionTimedOut) {
+  if (checkingSession) {
     return (
       <div style={{ ...rootStyle, display: "flex", alignItems: "center", justifyContent: "center", background: colors.paper }}>
         <Loader2 size={28} className="spin" color={colors.gold} />
-      </div>
-    );
-  }
-  if (checkingSession && sessionTimedOut) {
-    return (
-      <div
-        dir="rtl"
-        style={{
-          ...rootStyle,
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          alignItems: "center",
-          justifyContent: "center",
-          background: colors.paper,
-          padding: 20,
-          textAlign: "center",
-        }}
-      >
-        <p style={{ fontSize: 13, color: colors.inkSoft }}>
-          چکِ ورودِ حساب بیش از حدِ معمول طول کشید — احتمالاً مشکلِ اتصال یا
-          سرور. می‌تونی صفحه‌ی ورود رو باز کنی و دوباره امتحان کنی.
-        </p>
-        <button
-          onClick={() => setSessionTimedOut(false) || setUser(null)}
-          style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: colors.teal, color: "white", fontSize: 13 }}
-        >
-          رفتن به صفحه‌ی ورود
-        </button>
       </div>
     );
   }
@@ -15697,36 +15732,4 @@ export default function App() {
 // ---------------------------------------------------------------------------
 import ReactDOM from "react-dom/client";
 const rootEl = document.getElementById("root");
-
-// روی گوشی (بدون دیوتولز/کنسول) اگه یه خطای جاوااسکریپتی قبل یا حین mount
-// شدنِ اپ پرتاب بشه، معمولاً هیچی رو صفحه دیده نمی‌شه یا همون «در حال
-// بارگذاری...» برای همیشه می‌مونه و هیچ‌جوره نمی‌شه فهمید مشکل چیه. این
-// هندلرِ سراسری، هر خطای mount-نشده (چه synchronous چه یه Promise رد شده)
-// رو مستقیم روی خودِ صفحه (نه فقط کنسول) می‌نویسه تا بدونِ لپ‌تاپ هم قابلِ
-// خوندن باشه.
-function showFatalErrorOverlay(err) {
-  try {
-    const msg = (err && (err.stack || err.message)) ? String(err.stack || err.message) : String(err);
-    let box = document.getElementById("fatal-error-overlay");
-    if (!box) {
-      box = document.createElement("div");
-      box.id = "fatal-error-overlay";
-      box.style.cssText =
-        "position:fixed;inset:0;z-index:99999;background:#fff3f3;color:#7a1f1f;" +
-        "direction:ltr;text-align:left;font-family:monospace;font-size:12px;" +
-        "padding:16px;overflow:auto;white-space:pre-wrap;line-height:1.5;";
-      document.body.appendChild(box);
-    }
-    box.textContent += (box.textContent ? "\n\n---\n\n" : "خطا در اجرای برنامه:\n\n") + msg;
-  } catch (e) {
-    // نوشتنِ خودِ اورلی هم اگه شکست بخوره، دیگه کاری نمی‌شه کرد
-  }
-}
-window.addEventListener("error", (e) => showFatalErrorOverlay(e.error || e.message));
-window.addEventListener("unhandledrejection", (e) => showFatalErrorOverlay(e.reason));
-
-try {
-  ReactDOM.createRoot(rootEl).render(<App />);
-} catch (e) {
-  showFatalErrorOverlay(e);
-}
+ReactDOM.createRoot(rootEl).render(<App />);
