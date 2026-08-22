@@ -1931,14 +1931,19 @@ const speechController = (() => {
   // و عربی، که Google-Translate-TTS اصلاً پشتیبانی‌شون نمی‌کنه)، بعد
   // Google-Translate-TTS و StreamElements به‌عنوانِ پشتیبان اگه به هر
   // دلیلی خودِ Worker دردسترس نبود.
+  // برای فارسی/عربی، Google-Translate-TTS (۴۰۴ می‌ده) و StreamElements
+  // (۴۰۱ می‌ده) اصلاً کار نمی‌کنن — امتحان‌کردن‌شون فقط باعثِ تأخیر و یه
+  // خطای اضافه توی کنسول می‌شه، برای همین فقط پراکسیِ Edge رو برمی‌گردونیم.
   function onlineTtsProviders(chunkText, langCode) {
     const voice = EDGE_TTS_VOICE[langCode] || EDGE_TTS_VOICE.en;
     const q = encodeURIComponent(sanitizeForTTS(chunkText));
     const edgeProxy = { kind: "url", url: `${DEFAULT_BACKEND_URL}/api/tts?voice=${encodeURIComponent(voice)}&text=${q}` };
+    if (langCode === "fa" || langCode === "ar") return [edgeProxy];
     const googleTranslate = { kind: "url", url: `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}` };
     const streamElements = { kind: "url", url: `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}` };
     return [edgeProxy, googleTranslate, streamElements];
   }
+
 
   function stopOnlineAudio() {
     if (onlineAudio) {
