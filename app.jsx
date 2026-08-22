@@ -4872,19 +4872,40 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
   const [asrModelProgress, setAsrModelProgress] = useState("");
   const [asrModelDone, setAsrModelDone] = useState(false);
   const [asrModelError, setAsrModelError] = useState("");
+  const asrModelWorkerRef = useRef(null);
+  // ⛔️ قبلاً این تابع مستقیماً رو threadِ اصلی (نه Worker) اجرا می‌شد — یعنی
+  // دانلود+کامپایلِ WASMِ مدل کلِ صفحه (حتی دکمه‌ها) رو تا آخر قفل می‌کرد؛
+  // دقیقاً همون چیزی که باعث می‌شد رو درصدِ بالا (مثلاً ۸۹٪) کاملاً هنگ کنه.
+  // حالا دقیقاً مثلِ آپلودِ فایلِ صوتی، همین کار تویِ whisper-worker.js
+  // (خارج از threadِ اصلی) انجام می‌شه.
   const handlePreDownloadAsrModel = async () => {
     setAsrModelError("");
     setAsrModelBusy(true);
     setAsrModelProgress("در حال آماده‌سازی...");
     try {
-      const { pipeline, env } = await import("https://esm.sh/@xenova/transformers@2.17.2");
-      env.allowLocalModels = false;
-      await pipeline("automatic-speech-recognition", "Xenova/whisper-base", {
-        progress_callback: (p) => {
-          if (p?.status === "progress" && Number.isFinite(p.progress)) {
-            setAsrModelProgress(`در حال دانلود... ${Math.round(p.progress)}٪`);
+      await new Promise((resolve, reject) => {
+        const worker = new Worker(new URL("./whisper-worker.js", import.meta.url), { type: "module" });
+        asrModelWorkerRef.current = worker;
+        worker.onmessage = (ev) => {
+          const msg = ev.data || {};
+          if (msg.type === "model-progress") {
+            setAsrModelProgress(`در حال دانلود... ${Math.round(msg.progress)}٪`);
+          } else if (msg.type === "done") {
+            worker.terminate();
+            asrModelWorkerRef.current = null;
+            resolve();
+          } else if (msg.type === "error") {
+            worker.terminate();
+            asrModelWorkerRef.current = null;
+            reject(new Error(msg.message || "خطای نامشخص"));
           }
-        },
+        };
+        worker.onerror = (ev) => {
+          worker.terminate();
+          asrModelWorkerRef.current = null;
+          reject(new Error(ev?.message || "اجرایِ Workerِ تشخیصِ گفتار با خطا مواجه شد"));
+        };
+        worker.postMessage({ type: "preload", modelId: "Xenova/whisper-base" });
       });
       setAsrModelProgress("");
       setAsrModelDone(true);
@@ -4894,7 +4915,22 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
       setAsrModelError(`دانلودِ مدل مشکل داشت${detail ? " — " + detail : ""}`);
     } finally {
       setAsrModelBusy(false);
+      if (asrModelWorkerRef.current) {
+        asrModelWorkerRef.current.terminate();
+        asrModelWorkerRef.current = null;
+      }
     }
+  };
+  // دکمه‌ی لغو برای همین دانلودِ ازپیش — اگه گیر کرد، کاربر بدونِ
+  // force-quit/پاک‌کردنِ کش می‌تونه متوقفش کنه.
+  const cancelAsrModelPreDownload = () => {
+    if (asrModelWorkerRef.current) {
+      asrModelWorkerRef.current.terminate();
+      asrModelWorkerRef.current = null;
+    }
+    setAsrModelBusy(false);
+    setAsrModelProgress("");
+    setAsrModelError("");
   };
   // اندازه/بولدِ متنِ زبان‌های مقصد (جدا از اندازه‌ی فونتِ کلیِ اپ بالا) —
   // در localStorage با کلیدِ خودش ذخیره می‌شه (نه appPrefs)، چون از یه
@@ -5222,29 +5258,48 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
 
           {/* پیش‌دانلودِ مدلِ تشخیصِ گفتار (برای واردکردنِ فایلِ صوتی در تبِ
               «بسازِ داستان») — تا خودِ لحظه‌ی آپلودِ فایل منتظرِ دانلود نمونه. */}
-          <button
-            onClick={handlePreDownloadAsrModel}
-            disabled={asrModelBusy || asrModelDone}
-            className="flex items-center gap-2"
-            style={{
-              fontSize: 12.5,
-              fontWeight: 700,
-              color: colors.ink,
-              border: `1px solid ${colors.cardBorder}`,
-              borderRadius: 12,
-              padding: "9px 12px",
-              width: "100%",
-              marginTop: 8,
-              opacity: asrModelBusy || asrModelDone ? 0.6 : 1,
-            }}
-          >
-            {asrModelBusy ? <Loader2 size={14} className="spin" /> : <span>🎧</span>}
-            {asrModelBusy
-              ? (asrModelProgress || "در حال دانلود...")
-              : asrModelDone
-                ? "مدلِ تشخیصِ گفتار آماده‌ست"
-                : "دانلودِ مدلِ تشخیصِ گفتار (برای فایلِ صوتی)"}
-          </button>
+          <div style={{ display: "flex", gap: 6, alignItems: "stretch", marginTop: 8 }}>
+            <button
+              onClick={handlePreDownloadAsrModel}
+              disabled={asrModelBusy || asrModelDone}
+              className="flex items-center gap-2"
+              style={{
+                fontSize: 12.5,
+                fontWeight: 700,
+                color: colors.ink,
+                border: `1px solid ${colors.cardBorder}`,
+                borderRadius: 12,
+                padding: "9px 12px",
+                flex: 1,
+                opacity: asrModelBusy || asrModelDone ? 0.6 : 1,
+              }}
+            >
+              {asrModelBusy ? <Loader2 size={14} className="spin" /> : <span>🎧</span>}
+              {asrModelBusy
+                ? (asrModelProgress || "در حال دانلود...")
+                : asrModelDone
+                  ? "مدلِ تشخیصِ گفتار آماده‌ست"
+                  : "دانلودِ مدلِ تشخیصِ گفتار (برای فایلِ صوتی)"}
+            </button>
+            {/* اگه گیر کرد، دیگه نیازی به force-quit/پاک‌کردنِ کش نیست —
+                همین‌جا با یه تپ متوقف می‌شه. */}
+            {asrModelBusy && (
+              <button
+                onClick={cancelAsrModelPreDownload}
+                className="flex items-center justify-center"
+                style={{
+                  border: `1px solid ${colors.rose}`,
+                  borderRadius: 12,
+                  padding: "9px 12px",
+                  fontWeight: 700,
+                  fontSize: 12.5,
+                  color: colors.rose,
+                }}
+              >
+                لغو
+              </button>
+            )}
+          </div>
           <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
             یه مدلِ چندزبانه‌ی واحد (~۱۵۰ مگابایت) که تبدیلِ «فایلِ صوتی → متن» رو
             کاملاً تو همین گوشی انجام می‌ده — نیازی به انتخابِ زبون نیست. فقط یه‌بار

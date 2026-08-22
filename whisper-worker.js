@@ -1,54 +1,75 @@
 // این فایل به‌صورتِ Web Worker اجرا می‌شه — یعنی کاملاً جدا از threadِ اصلیِ
 // صفحه. قبلاً لودِ مدل و خودِ رونویسی مستقیماً تویِ کامپوننتِ React (روی
 // threadِ اصلی) اجرا می‌شد؛ چون WebAssembly برای محاسباتِ سنگین (مثلِ
-// رونویسیِ چند دقیقه صدا با Whisper) هیچ‌وقت به event loop برنمی‌گرده،
-// کل صفحه (حتی دکمه‌ها/اسکرول) قفل می‌شد — دقیقاً همون چیزی که باعث می‌شد
-// اپ «هنگ» به‌نظر برسه و کاربر مجبور بشه با force-quit خارج بشه.
-// با انتقالِ این کار به یه Worker جدا، threadِ اصلی همیشه آزاد می‌مونه،
-// پیشرفتِ واقعی (قطعه‌به‌قطعه) قابلِ نمایشه، و کاربر هر وقت خواست می‌تونه
-// با یه دکمه لغوش کنه (worker.terminate()) بدون نیاز به بستنِ کلِ اپ.
+// دانلود+کامپایلِ مدلِ Whisper، یا رونویسیِ چند دقیقه صدا) هیچ‌وقت به
+// event loop برنمی‌گرده، کل صفحه (حتی دکمه‌ها/اسکرول) قفل می‌شد — دقیقاً
+// همون چیزی که باعث می‌شد اپ «هنگ» به‌نظر برسه و کاربر مجبور بشه با
+// force-quit خارج بشه. با انتقالِ این کار به یه Worker جدا، threadِ اصلی
+// همیشه آزاد می‌مونه، پیشرفتِ واقعی قابلِ نمایشه، و کاربر هر وقت خواست
+// می‌تونه با یه دکمه لغوش کنه (worker.terminate()) بدون نیاز به بستنِ اپ.
+//
+// این Worker دو نوع پیام می‌گیره:
+//   { type: "preload", modelId }              → فقط دانلود/آماده‌سازیِ مدل (دکمه‌ی تنظیمات)
+//   { type: "transcribe", pcmData, modelId }   → دانلود/آماده‌سازیِ مدل + رونویسیِ واقعی
 
 let cachedTranscriber = null;
 let cachedModelId = null;
 
+// دانلود/آماده‌سازیِ مدل، با watchdog: اگه ۳۰ ثانیه هیچ پیشرفتی تویِ
+// دانلود نیاد (مثلاً به‌خاطرِ محدودیتِ دسترسی به huggingface.co تویِ بعضی
+// شبکه‌ها)، به‌جای هنگِ ابدی، خطایِ روشن می‌ده.
+async function ensureModelLoaded(modelId) {
+  if (cachedTranscriber && cachedModelId === modelId) {
+    self.postMessage({ type: "model-progress", progress: 100 });
+    return cachedTranscriber;
+  }
+  const { pipeline, env } = await import("https://esm.sh/@xenova/transformers@2.17.2");
+  env.allowLocalModels = false;
+
+  let lastProgressAt = Date.now();
+  const modelPromise = pipeline("automatic-speech-recognition", modelId, {
+    progress_callback: (p) => {
+      lastProgressAt = Date.now();
+      if (p?.status === "progress" && Number.isFinite(p.progress)) {
+        self.postMessage({ type: "model-progress", progress: p.progress });
+      }
+    },
+  });
+  let stallTimer;
+  const stallPromise = new Promise((_, reject) => {
+    stallTimer = setInterval(() => {
+      if (Date.now() - lastProgressAt > 30000) {
+        clearInterval(stallTimer);
+        reject(new Error("دانلود/آماده‌سازیِ مدل بیش از ۳۰ ثانیه بدونِ پیشرفت متوقف موند — احتمالاً دسترسی به سرورِ مدل تویِ این شبکه محدوده."));
+      }
+    }, 3000);
+  });
+  try {
+    cachedTranscriber = await Promise.race([modelPromise, stallPromise]);
+    cachedModelId = modelId;
+    return cachedTranscriber;
+  } finally {
+    clearInterval(stallTimer);
+  }
+}
+
 self.onmessage = async (e) => {
   const { type, pcmData, modelId } = e.data || {};
+
+  if (type === "preload") {
+    try {
+      await ensureModelLoaded(modelId);
+      self.postMessage({ type: "done" });
+    } catch (err) {
+      self.postMessage({ type: "error", message: err?.message || err?.name || String(err || "خطای نامشخص") });
+    }
+    return;
+  }
+
   if (type !== "transcribe") return;
 
   try {
-    const { pipeline, env } = await import("https://esm.sh/@xenova/transformers@2.17.2");
-    env.allowLocalModels = false;
-
-    if (!cachedTranscriber || cachedModelId !== modelId) {
-      let lastProgressAt = Date.now();
-      const modelPromise = pipeline("automatic-speech-recognition", modelId, {
-        progress_callback: (p) => {
-          lastProgressAt = Date.now();
-          if (p?.status === "progress" && Number.isFinite(p.progress)) {
-            self.postMessage({ type: "model-progress", progress: p.progress });
-          }
-        },
-      });
-      // همون منطقِ watchdog که قبلاً تویِ threadِ اصلی بود: اگه ۳۰ ثانیه
-      // هیچ پیشرفتی تویِ دانلودِ مدل نیاد، «متوقف‌شده» در نظر گرفته می‌شه.
-      let stallTimer;
-      const stallPromise = new Promise((_, reject) => {
-        stallTimer = setInterval(() => {
-          if (Date.now() - lastProgressAt > 30000) {
-            clearInterval(stallTimer);
-            reject(new Error("دانلودِ مدل بیش از ۳۰ ثانیه بدونِ پیشرفت متوقف موند — احتمالاً دسترسی به سرورِ مدل تویِ این شبکه محدوده."));
-          }
-        }, 3000);
-      });
-      try {
-        cachedTranscriber = await Promise.race([modelPromise, stallPromise]);
-        cachedModelId = modelId;
-      } finally {
-        clearInterval(stallTimer);
-      }
-    } else {
-      self.postMessage({ type: "model-progress", progress: 100 });
-    }
+    const transcriber = await ensureModelLoaded(modelId);
 
     const totalChunksEstimate = Math.max(1, Math.ceil(pcmData.length / 16000 / 25));
     let chunksDone = 0;
@@ -66,7 +87,7 @@ self.onmessage = async (e) => {
 
     let result;
     try {
-      result = await cachedTranscriber(pcmData, {
+      result = await transcriber(pcmData, {
         chunk_length_s: 30,
         stride_length_s: 5,
         return_timestamps: "word",
