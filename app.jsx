@@ -435,6 +435,27 @@ async function translateFree(text, targetLang, sourceLang = "auto", aiSettings =
   return text; // اگر هیچ سرویسی جواب نداد، متن اصلی برگردانده می‌شود
 }
 
+// اجرای یه آرایه از تسک‌های async با سقفِ هم‌زمانیِ محدود (به‌جای
+// Promise.all خام که همه رو یک‌جا شلیک می‌کنه). دلیلِ وجودش: برای
+// PDF/فایلِ صوتیِ طولانی که صدها جمله داره، اگه هم‌زمان صدها درخواستِ
+// ترجمه به Google/MyMemory/... بره، این سرویس‌های رایگان کاربر رو
+// rate-limit یا بلاک می‌کنن — نتیجه‌ش دقیقاً همون «بعضی‌جاها ترجمه شده،
+// بعضی‌جاها نه»ست، چون هر جمله‌ای که به هر دلیلی (rate-limit/timeout)
+// شکست بخوره، بدونِ ترجمه (متنِ اصلی) برمی‌گرده.
+async function runWithConcurrencyLimit(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function runNext() {
+    while (nextIndex < items.length) {
+      const i = nextIndex++;
+      results[i] = await worker(items[i], i);
+    }
+  }
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, runNext);
+  await Promise.all(workers);
+  return results;
+}
+
 // نگه‌داشته شده برای سازگاری با کدهای قبلی که این نام رو صدا می‌زدن —
 // حالا خودش زنجیره‌ی کامل fallback رو صدا می‌زنه.
 async function translateWithGoogle(text, targetLang) {
@@ -4557,6 +4578,39 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
   const uiLang = appPrefs.uiLang || "fa";
   const panelDir = APP_LANGUAGES[uiLang]?.dir || "rtl";
   const panelFont = uiLang === "en" ? fontLatin : fontFa;
+  // دانلودِ ازپیشِ مدلِ تشخیصِ گفتار (Whisper) — دقیقاً همون مدلی که
+  // «واردکردنِ فایلِ صوتی برای خوانش» موقعِ آپلود لازمش داره؛ چون مرورگر
+  // خودش (IndexedDB/کش) این دانلود رو نگه می‌داره، اگه کاربر از همین‌جا
+  // یه‌بار دانلودش کنه، بعداً تو صفحه‌ی خوانش دیگه لازم نیست منتظرِ
+  // دانلود بمونه. توجه: برخلافِ صداهای بالا (TTS، هر زبون صدای خودش)،
+  // این یه مدلِ چندزبانه‌ی واحده — چندتا زبونِ مختلف رو با همین یه مدل
+  // تشخیص می‌ده، نیازی به انتخابِ زبون نیست.
+  const [asrModelBusy, setAsrModelBusy] = useState(false);
+  const [asrModelProgress, setAsrModelProgress] = useState("");
+  const [asrModelDone, setAsrModelDone] = useState(false);
+  const [asrModelError, setAsrModelError] = useState("");
+  const handlePreDownloadAsrModel = async () => {
+    setAsrModelError("");
+    setAsrModelBusy(true);
+    setAsrModelProgress("در حال آماده‌سازی...");
+    try {
+      const { pipeline, env } = await import("@xenova/transformers");
+      env.allowLocalModels = false;
+      await pipeline("automatic-speech-recognition", "Xenova/whisper-base", {
+        progress_callback: (p) => {
+          if (p?.status === "progress" && Number.isFinite(p.progress)) {
+            setAsrModelProgress(`در حال دانلود... ${Math.round(p.progress)}٪`);
+          }
+        },
+      });
+      setAsrModelProgress("");
+      setAsrModelDone(true);
+    } catch (err) {
+      setAsrModelError("دانلودِ مدل مشکل داشت — اتصالِ اینترنت رو چک کن");
+    } finally {
+      setAsrModelBusy(false);
+    }
+  };
   // اندازه/بولدِ متنِ زبان‌های مقصد (جدا از اندازه‌ی فونتِ کلیِ اپ بالا) —
   // در localStorage با کلیدِ خودش ذخیره می‌شه (نه appPrefs)، چون از یه
   // هوکِ سبکِ مشترک (useTargetTextPrefs) توسطِ خودِ ClickableSentence هم
@@ -4880,6 +4934,40 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
           >
             <BookOpen size={14} /> {tr("offlineDownload", uiLang)}
           </button>
+
+          {/* پیش‌دانلودِ مدلِ تشخیصِ گفتار (برای واردکردنِ فایلِ صوتی در تبِ
+              «بسازِ داستان») — تا خودِ لحظه‌ی آپلودِ فایل منتظرِ دانلود نمونه. */}
+          <button
+            onClick={handlePreDownloadAsrModel}
+            disabled={asrModelBusy || asrModelDone}
+            className="flex items-center gap-2"
+            style={{
+              fontSize: 12.5,
+              fontWeight: 700,
+              color: colors.ink,
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: 12,
+              padding: "9px 12px",
+              width: "100%",
+              marginTop: 8,
+              opacity: asrModelBusy || asrModelDone ? 0.6 : 1,
+            }}
+          >
+            {asrModelBusy ? <Loader2 size={14} className="spin" /> : <span>🎧</span>}
+            {asrModelBusy
+              ? (asrModelProgress || "در حال دانلود...")
+              : asrModelDone
+                ? "مدلِ تشخیصِ گفتار آماده‌ست"
+                : "دانلودِ مدلِ تشخیصِ گفتار (برای فایلِ صوتی)"}
+          </button>
+          <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
+            یه مدلِ چندزبانه‌ی واحد (~۱۵۰ مگابایت) که تبدیلِ «فایلِ صوتی → متن» رو
+            کاملاً تو همین گوشی انجام می‌ده — نیازی به انتخابِ زبون نیست. فقط یه‌بار
+            دانلود می‌شه و بعدش تو خودِ گوشی می‌مونه.
+          </p>
+          {asrModelError && (
+            <p style={{ fontSize: 11, color: colors.rose, marginTop: 4 }}>{asrModelError}</p>
+          )}
         </div>
       )}
 
@@ -7029,14 +7117,20 @@ const MAX_WORDS_PER_SENTENCE_ITEM = 40;
 function splitTextIntoSentenceStrings(text) {
   const t = (text || "").trim();
   if (!t) return [];
+  // نقطه‌ی بینِ دو رقم (مثلِ 3.2 یا 20.15) پایانِ جمله نیست، یه عددِ اعشاریه —
+  // قبل از تقسیم‌کردن موقتاً با یه کاراکترِ کنترلی (که تو متنِ واقعی پیش
+  // نمی‌آد) جایگزینش می‌کنیم تا رجکسِ زیر روش نشکنه، بعد برش‌ش می‌دیم.
+  const DECIMAL_MARK = "\u0001";
+  const protectedT = t.replace(/(\d)\.(?=\d)/g, `$1${DECIMAL_MARK}`);
   const re = /[^.!?؟。！]+[.!?؟。！]*/g;
   const rawParts = [];
   let m;
-  while ((m = re.exec(t))) {
+  while ((m = re.exec(protectedT))) {
     const trimmed = m[0].trim();
     if (trimmed) rawParts.push(trimmed);
   }
-  const parts = rawParts.length ? rawParts : [t];
+  const restoreDecimals = (s) => s.split(DECIMAL_MARK).join(".");
+  const parts = (rawParts.length ? rawParts : [protectedT]).map(restoreDecimals);
   // اگه یکی از این «جمله»‌ها (به‌خاطرِ نبودِ نقطه/علامتِ‌نگارشیِ کافی تو
   // متنِ خام) غیرعادی بلند از آب دراومد، همینجا هم رویِ مرزِ کلمه می‌شکونیمش
   // — دقیقاً هم‌شکلِ همون منطقی که speechController برای پخشِ صوتی داره.
@@ -7698,29 +7792,44 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     if (!missingLangs.length) return;
     let cancelled = false;
     (async () => {
-      const updated = await Promise.all(
-        paragraphs.map(async (p) => {
-          const sentences = await Promise.all(
-            (p.sentences || []).map(async (s) => {
-              const additions = {};
-              for (const code of missingLangs) {
-                if (s.t && code in s.t) continue;
-                try {
-                  // forceVerify=true: جمله‌های خودِ داستان مهم‌ترین متنِ اپن —
-                  // این‌جا حتی اگه تست‌های رایگان چیزی مشکوک ندیدن هم یه بار
-                  // (فقط دفعه‌ی اول، بعدش برای همیشه کش می‌شه) AI بررسیش کنه.
-                  additions[code] = await translateFree(s.text || "", code, storyLang, aiSettings, true);
-                } catch (e) {
-                  additions[code] = s.text || "";
-                }
-              }
-              return Object.keys(additions).length ? { ...s, t: { ...(s.t || {}), ...additions } } : s;
-            })
-          );
-          return { ...p, sentences };
-        })
-      );
-      if (!cancelled) setParagraphs(updated);
+      // همه‌ی جمله‌های همه‌ی پاراگراف‌ها (× همه‌ی زبان‌های ناقص) رو تو یه
+      // لیستِ تخت جمع می‌کنیم و با سقفِ هم‌زمانیِ محدود اجرا می‌کنیم — نه
+      // یک‌جا برای همه (که برای متن‌های طولانی باعثِ rate-limit/ترجمه‌ی
+      // ناقص می‌شد). ترتیبِ نتیجه با runWithConcurrencyLimit حفظ می‌شه، پس
+      // نگاشتِ برگشت به pIdx/sIdx امن‌ه.
+      const jobs = [];
+      paragraphs.forEach((p, pIdx) => {
+        (p.sentences || []).forEach((s, sIdx) => {
+          missingLangs.forEach((code) => {
+            if (s.t && code in s.t) return;
+            jobs.push({ pIdx, sIdx, code, text: s.text || "" });
+          });
+        });
+      });
+      if (!jobs.length) return;
+      const results = await runWithConcurrencyLimit(jobs, 4, async (job) => {
+        try {
+          // forceVerify=true: جمله‌های خودِ داستان مهم‌ترین متنِ اپن —
+          // این‌جا حتی اگه تست‌های رایگان چیزی مشکوک ندیدن هم یه بار
+          // (فقط دفعه‌ی اول، بعدش برای همیشه کش می‌شه) AI بررسیش کنه.
+          return await translateFree(job.text, job.code, storyLang, aiSettings, true);
+        } catch (e) {
+          return job.text;
+        }
+      });
+      if (cancelled) return;
+      setParagraphs((prevParagraphs) => {
+        const updated = prevParagraphs.map((p) => ({
+          ...p,
+          sentences: (p.sentences || []).map((s) => ({ ...s })),
+        }));
+        jobs.forEach((job, i) => {
+          const sentence = updated[job.pIdx]?.sentences?.[job.sIdx];
+          if (!sentence) return;
+          sentence.t = { ...(sentence.t || {}), [job.code]: results[i] };
+        });
+        return updated;
+      });
     })();
     return () => {
       cancelled = true;
@@ -8413,9 +8522,16 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       // برای همین با یه OfflineAudioContext دوباره resample‌ش می‌کنیم.
       setAudioReadProgress("در حال خوندنِ فایلِ صوتی...");
       const arrayBuf = await file.arrayBuffer();
-      const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const decoded = await decodeCtx.decodeAudioData(arrayBuf.slice(0));
-      decodeCtx.close?.();
+      let decoded;
+      try {
+        const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
+        decoded = await decodeCtx.decodeAudioData(arrayBuf.slice(0));
+        decodeCtx.close?.();
+      } catch (decodeErr) {
+        console.error("audio-read: decode failed", decodeErr);
+        setAudioReadError("این فایل قابلِ خوندن نبود — فرمت/کدکش پشتیبانی نمی‌شه (یه mp3/wav استاندارد امتحان کن)");
+        return;
+      }
       if (decoded.duration > AUDIO_READ_MAX_SECONDS) {
         setAudioReadError(`طولِ این فایل بیشتر از ${Math.round(AUDIO_READ_MAX_SECONDS / 60)} دقیقه‌ست — یه فایلِ کوتاه‌تر امتحان کن`);
         return;
@@ -8433,26 +8549,40 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       // کشِ مرورگر میاد). progress_callback درصدِ دانلود رو می‌ده تا کاربر
       // بفهمه اپ هنگ نکرده، فقط داره مدل رو دانلود می‌کنه.
       setAudioReadProgress("در حال آماده‌سازیِ سیستمِ تشخیصِ گفتار (بارِ اول ممکنه کمی طول بکشه)...");
-      const { pipeline, env } = await import("@xenova/transformers");
-      env.allowLocalModels = false;
-      const transcriber = await pipeline("automatic-speech-recognition", AUDIO_WHISPER_MODEL, {
-        progress_callback: (p) => {
-          if (p?.status === "progress" && Number.isFinite(p.progress)) {
-            setAudioReadProgress(`در حال دانلودِ مدلِ تشخیصِ گفتار... ${Math.round(p.progress)}٪`);
-          }
-        },
-      });
+      let transcriber;
+      try {
+        const { pipeline, env } = await import("@xenova/transformers");
+        env.allowLocalModels = false;
+        transcriber = await pipeline("automatic-speech-recognition", AUDIO_WHISPER_MODEL, {
+          progress_callback: (p) => {
+            if (p?.status === "progress" && Number.isFinite(p.progress)) {
+              setAudioReadProgress(`در حال دانلودِ مدلِ تشخیصِ گفتار... ${Math.round(p.progress)}٪`);
+            }
+          },
+        });
+      } catch (modelErr) {
+        console.error("audio-read: model load failed", modelErr);
+        setAudioReadError("دانلود/بارگذاریِ مدلِ تشخیصِ گفتار مشکل داشت — اتصالِ اینترنت رو چک کن (فقط بارِ اول لازمه)");
+        return;
+      }
 
       // ۳) خودِ رونویسی — chunk_length_s/stride_length_s باعث می‌شه فایل‌های
       // بلند هم (نه فقط چند ثانیه) به‌درستی، تکه‌تکه، پردازش بشن.
       setAudioReadProgress("در حال تبدیلِ صدا به متن...");
-      const result = await transcriber(pcmData, {
-        chunk_length_s: 30,
-        stride_length_s: 5,
-      });
-      const rawText = (result?.text || "").trim();
+      let rawText = "";
+      try {
+        const result = await transcriber(pcmData, {
+          chunk_length_s: 30,
+          stride_length_s: 5,
+        });
+        rawText = (result?.text || "").trim();
+      } catch (transcribeErr) {
+        console.error("audio-read: transcription failed", transcribeErr);
+        setAudioReadError("تشخیصِ گفتار رو این فایل مشکل داشت — یه فایلِ صوتیِ کوتاه‌تر یا واضح‌تر امتحان کن");
+        return;
+      }
       if (!rawText) {
-        setAudioReadError("متنی از این فایلِ صوتی تشخیص داده نشد — شاید صدا واضح نیست یا فایل خرابه");
+        setAudioReadError("متنی از این فایلِ صوتی تشخیص داده نشد — این قابلیت برای صدای حرف‌زدنه، نه آهنگ/موسیقی");
         return;
       }
 
@@ -8480,6 +8610,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setRepeatNotice("");
       setAudioReadProgress("");
     } catch (err) {
+      console.error("audio-read: unexpected failure", err);
       setAudioReadError("تبدیلِ این فایلِ صوتی به متن مشکل داشت — شاید فرمتش پشتیبانی نمی‌شه، یا اتصالِ اینترنت (برای دانلودِ بارِ اولِ مدل) قطع بود");
     } finally {
       setAudioReadBusy(false);
@@ -9122,9 +9253,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           {audioReadError && (
             <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{audioReadError}</p>
           )}
-          <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
-            متنِ فایلِ صوتی با تشخیصِ گفتار (کاملاً تو خودِ گوشی، بدونِ فرستادنِ صدا به سرور) استخراج می‌شه و وارد همین سیستمِ خوانش می‌شه. بارِ اول، دانلودِ مدلِ تشخیصِ گفتار به اینترنت نیاز داره؛ دفعاتِ بعد سریع‌تره. دقتش برای صدای واضح خوبه، ولی مثلِ رونویسیِ انسانی دقیق نیست.
-          </p>
         </div>
 
         <button
