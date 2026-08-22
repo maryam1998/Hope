@@ -1008,6 +1008,19 @@ const HIGHLIGHT_COLOR_PALETTE = [
 // با وجودِ هم‌رنگ بودنِ پس‌زمینه، پنل هنوز به‌وضوح از بقیه‌ی صفحه جدا دیده بشه.
 const PRACTICE_PANEL_BORDER = colors.goldSoft;
 
+// وقتی کاربر از تنظیمات «بدون هایلایت» رو انتخاب کرده باشه
+// (appPrefs.highlightColor === "none")، حتی وقتی جمله/کلمه/پاراگرافِ فعلی
+// در حالِ خوندنه، هیچ رنگِ هایلایتی روش اعمال نمی‌شه — متن فقط خونده
+// می‌شه، بدونِ علامت‌گذاریِ بصری. همه‌جایی که پس‌زمینه‌ی «زنده»ی خواندن رو
+// نشون می‌دن (StoryBuilder، PhraseList، لیستِ لغات و ...) به‌جای نوشتنِ
+// دستیِ `isActive ? (highlightColor || READ_MARKER_COLOR) : inactive` از
+// همین تابع استفاده می‌کنن.
+function highlightBg(highlightColor, isActive, inactiveValue) {
+  const fallback = inactiveValue === undefined ? "transparent" : inactiveValue;
+  if (!isActive || highlightColor === "none") return fallback;
+  return highlightColor || READ_MARKER_COLOR;
+}
+
 // Theme presets — each is a full set of the 9 tokens above. "vintage" is the
 // original look; the rest are alternate moods, all still checked for
 // readable contrast (dark ink/text tokens on light paper tokens, or the
@@ -1253,7 +1266,7 @@ function loadAppPrefs() {
       fontSize: APP_FONT_SIZES[parsed.fontSize] ? parsed.fontSize : "medium",
       uiLang: APP_LANGUAGES[parsed.uiLang] ? parsed.uiLang : "fa",
       calendarSystem: CALENDAR_SYSTEMS.includes(parsed.calendarSystem) ? parsed.calendarSystem : "jalali",
-      highlightColor: HIGHLIGHT_COLOR_PALETTE.includes(parsed.highlightColor) ? parsed.highlightColor : HIGHLIGHT_COLOR_PALETTE[0],
+      highlightColor: (parsed.highlightColor === "none" || HIGHLIGHT_COLOR_PALETTE.includes(parsed.highlightColor)) ? parsed.highlightColor : HIGHLIGHT_COLOR_PALETTE[0],
     };
   } catch (e) {
     return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali", highlightColor: HIGHLIGHT_COLOR_PALETTE[0] };
@@ -5178,6 +5191,27 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
             {uiLang === "en" ? "Read-aloud highlight color" : "رنگ هایلایتِ خواندن"}
           </p>
           <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
+            {/* گزینه‌ی «بدون هایلایت»: کاربر می‌تونه انتخاب کنه که موقعِ
+                خواندنِ خودکار، هیچ رنگی دورِ جمله/کلمه/پاراگرافِ در‌حالِ‌خواندن
+                کشیده نشه — فقط متن با صدای بلند خونده بشه. */}
+            <button
+              onClick={() => update("highlightColor", "none")}
+              aria-pressed={appPrefs.highlightColor === "none"}
+              title={uiLang === "en" ? "No highlight" : "بدون هایلایت"}
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: "50%",
+                backgroundColor: "white",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: appPrefs.highlightColor === "none" ? `3px solid ${colors.ink}` : `1px solid ${colors.cardBorder}`,
+                flexShrink: 0,
+              }}
+            >
+              <X size={14} color={colors.inkSoft} />
+            </button>
             {HIGHLIGHT_COLOR_PALETTE.map((hex) => (
               <button
                 key={hex}
@@ -7770,6 +7804,36 @@ function PlayerBarStorySwitch({ ua }) {
   );
 }
 
+// متنِ کاملِ یه داستانِ ذخیره‌شده رو از روی paragraphs می‌سازه — دقیقاً با
+// همون منطقِ fullStoryText/allSentences که داخلِ خودِ StoryBuilder برای
+// داستانِ فعلی استفاده می‌شه؛ اینجا برای این لازمه که بتونیم، بدونِ باز
+// کردنِ هر داستان، کلیدِ صوتِ آپلودیِ اون رو (که بر اساسِ متن ساخته می‌شه)
+// حساب کنیم و بفهمیم آیا صدایی براش ذخیره شده یا نه.
+function getStoryEntryFullText(entry) {
+  if (!entry || !Array.isArray(entry.paragraphs)) return "";
+  return entry.paragraphs
+    .flatMap((p) => (p?.sentences || []).map((s) => s?.text || ""))
+    .join(" ");
+}
+
+// همون کلیدی که useStoryUserAudio/mainStoryKey برای داستانِ بازِ فعلی
+// می‌سازه — `${locale}::${fullText}` — تا صوتِ آپلودیِ هر داستانِ
+// ذخیره‌شده رو بدونِ بازکردنش تو IndexedDB پیدا کنیم.
+function getStoryEntryAudioKey(entry) {
+  const text = getStoryEntryFullText(entry);
+  if (!text) return null;
+  return `${TTS_LOCALE[entry.storyLang] || "en-US"}::${text}`;
+}
+
+// یه تکه از متنِ خودِ داستان (نه لیستِ لغات) به‌عنوانِ نامِ کارت — درست
+// مثل وقتی خودِ متن رو موقعِ ساختن/ذخیره‌کردن می‌بینیم.
+function getStoryEntryPreview(entry, maxLen) {
+  const limit = maxLen || 70;
+  const text = getStoryEntryFullText(entry).trim();
+  if (!text) return "";
+  return text.length > limit ? `${text.slice(0, limit).trim()}…` : text;
+}
+
 function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, onUserAudioStateChange, autoScrollActive, calendarSystem, highlightColor, uid, uiLang }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
@@ -7876,6 +7940,30 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // Sort byِ سیستم (جدیدترین/قدیمی‌ترین تاریخ، نام A→Z/Z→A، و تعدادِ
   // کلمات کم/زیاد به‌جای اندازه‌ی فایل).
   const [savedStoriesSort, setSavedStoriesSort] = useState("newest");
+  // نقشه‌ی id-ِ داستانِ ذخیره‌شده → آیا صوتِ آپلودیِ کاربر داره یا نه؛ فقط
+  // برای نشون‌دادنِ آیکونِ 🎵 کنارِ کارتِ داستان‌های ذخیره‌شده استفاده می‌شه.
+  // چون صوت با کلیدِ متن (نه idِ داستان) توی IndexedDB ذخیره می‌شه، اینجا
+  // برای هر داستان همون کلید رو از روی متنش می‌سازیم و وجودش رو چک می‌کنیم.
+  const [savedStoriesAudioMap, setSavedStoriesAudioMap] = useState({});
+  useEffect(() => {
+    if (!showSaved || !savedStories.length) return;
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        savedStories.map(async (s) => {
+          const key = getStoryEntryAudioKey(s);
+          if (!key) return [s.id, false];
+          const rec = await getStoryAudioRecord(key);
+          return [s.id, !!rec];
+        })
+      );
+      if (cancelled) return;
+      const map = {};
+      entries.forEach(([id, has]) => { map[id] = has; });
+      setSavedStoriesAudioMap(map);
+    })();
+    return () => { cancelled = true; };
+  }, [showSaved, savedStories]);
   const [justSaved, setJustSaved] = useState(false);
   // لغاتِ ذخیره‌شده‌ی همین زبان — به‌شکلِ چیپ‌های کوچیکِ قابل‌تپ همین‌جا هم
   // نشون داده می‌شن (نه فقط توی تبِ «لغات ذخیره‌شده») تا کاربر لازم نباشه
@@ -8571,6 +8659,57 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       }
       return already ? prev.filter((w) => w !== word) : [...prev, word];
     });
+  };
+
+  // وقتی کاربر یه لغت/عبارتی که خودش جایی کپی کرده رو تو همین کادرِ جستجو
+  // پیست می‌کنه: اگه این متن تو هیچ‌کدوم از منبع‌های خودِ نرم‌افزار (VOCAB،
+  // لغات‌واخبار/اسلنگ/مکالمات‌روزمره، لغاتِ ذخیره‌شده) پیدا نشه — یعنی چیزیه
+  // که کاربر از بیرون آورده — مستقیم (دقیقاً مثلِ addCustomWord) به
+  // انتخاب‌هایِ داستان اضافه‌ش می‌کنیم، نه اینکه فقط تو کادرِ جستجو بمونه.
+  // اگه پیدا بشه، دخالت نمی‌کنیم و می‌ذاریم جستجوی معمولی کارشو بکنه.
+  const handleVocabPaste = async (e) => {
+    const pasted = (e.clipboardData || window.clipboardData)?.getData("text") || "";
+    const w = pasted.trim();
+    if (!w) return;
+    const q = w.toLowerCase();
+    const foundInVocab = VOCAB.some((v) => {
+      const vw = v.t[storyLang] || v.t.en || "";
+      return vw.toLowerCase().includes(q) || (v.meaningFa && v.meaningFa.includes(w));
+    });
+    const foundInPools = [STORY_SEARCH_WORD_POOL, STORY_SEARCH_CONVERSATION_POOL].some((pool) =>
+      pool.some((item) => item.term.toLowerCase().includes(q) || (item.fa && item.fa.includes(w)))
+    );
+    const foundInSaved = savedWordsForLang.some(
+      (se) => se.word.toLowerCase().includes(q) || (se.meaning && se.meaning.includes(w))
+    );
+    if (foundInVocab || foundInPools || foundInSaved) return;
+
+    e.preventDefault();
+    if (selectedWords.includes(w)) return;
+    setWordTranslating(true);
+    try {
+      const res = await translateFree(w, storyLang, "auto", aiSettings);
+      const translated = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim() || w;
+      if (!selectedWords.includes(translated)) {
+        setSelectedWords((prev) => [...prev, translated]);
+        ensureSavedStoryWord(translated, storyLang);
+      }
+      setTranslateNote(
+        normalizeWord(translated) !== normalizeWord(w)
+          ? `«${w}» → «${translated}» اضافه شد`
+          : `«${w}» به داستان‌ساز اضافه شد`
+      );
+      setTimeout(() => setTranslateNote(""), 3000);
+    } catch (err) {
+      if (!selectedWords.includes(w)) {
+        setSelectedWords((prev) => [...prev, w]);
+        ensureSavedStoryWord(w, storyLang);
+      }
+      setTranslateNote(`ترجمه‌ی خودکار ناموفق بود؛ «${w}» به‌همون شکل اضافه شد`);
+      setTimeout(() => setTranslateNote(""), 3000);
+    } finally {
+      setWordTranslating(false);
+    }
   };
 
   const addCustomWord = async () => {
@@ -9275,10 +9414,16 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                     <div className="flex items-center justify-between">
                       <div>
                         <p style={{ fontWeight: 700, fontSize: 13 }}>
+                          {savedStoriesAudioMap[s.id] && (
+                            <span title="صوتِ آپلودی داره" style={{ marginLeft: 6 }}>🎵</span>
+                          )}
                           {LANGUAGES.find((l) => l.code === s.storyLang)?.label} · {s.storyLevel} ·{" "}
                           {CONTENT_TYPES.find((c) => c.key === s.contentType)?.label || "عمومی"} ·{" "}
                           {STORY_LENGTHS.find((l) => l.key === s.storyLength)?.label || "متوسط"}
                         </p>
+                        {getStoryEntryPreview(s) && (
+                          <p style={{ fontSize: 12, color: colors.ink, marginTop: 2 }}>{getStoryEntryPreview(s)}</p>
+                        )}
                         <p style={{ fontSize: 12, color: colors.inkSoft }}>{s.selectedWords.join("، ")}</p>
                       </div>
                       <div className="flex gap-2">
@@ -9454,6 +9599,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         <input
           value={vocabQuery}
           onChange={(e) => setVocabQuery(e.target.value)}
+          onPaste={handleVocabPaste}
           placeholder="یا از لغات، مکالمات روزمره، لغات و اخبار، اسلنگ، لغات ذخیره‌شده جستجو کن..."
           style={{
             width: "100%",
@@ -9938,7 +10084,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                   می‌گیره — مو‌به‌مو مثلِ تصویرِ مرجع. */}
                               <span
                                 style={{
-                                  backgroundColor: isSentenceActive ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+                                  backgroundColor: highlightBg(highlightColor, isSentenceActive),
                                   borderRadius: 5,
                                   padding: isSentenceActive ? "2px 4px" : "2px 0",
                                   WebkitBoxDecorationBreak: "clone",
@@ -10005,7 +10151,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                     {translated ? (
                                       <span
                                         style={{
-                                          backgroundColor: isTranslationSentenceActive ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+                                          backgroundColor: highlightBg(highlightColor, isTranslationSentenceActive),
                                           borderRadius: 5,
                                           padding: isTranslationSentenceActive ? "2px 4px" : "2px 0",
                                           WebkitBoxDecorationBreak: "clone",
@@ -10073,7 +10219,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                             >
                               <span
                                 style={{
-                                  backgroundColor: isParaActive ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+                                  backgroundColor: highlightBg(highlightColor, isParaActive),
                                   borderRadius: 5,
                                   padding: isParaActive ? "2px 4px" : "2px 0",
                                   WebkitBoxDecorationBreak: "clone",
@@ -10142,7 +10288,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                 {translated ? (
                                   <span
                                     style={{
-                                      backgroundColor: isTranslationParaActive ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+                                      backgroundColor: highlightBg(highlightColor, isTranslationParaActive),
                                       borderRadius: 5,
                                       padding: isTranslationParaActive ? "2px 4px" : "2px 0",
                                       WebkitBoxDecorationBreak: "clone",
@@ -13152,7 +13298,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               space-between پخش می‌شن رویِ کلِ عرضِ پلیر تا فضایِ خالیِ
               کنارها هدر نره، ولی خودِ آیکون‌ها هم زیادی به هم نچسبن. */}
           <div className="px-3" style={{ paddingTop: 2, paddingBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <MyVoiceRecorder color={colors.rose} />
+            <div style={{ marginInlineStart: 10 }}>
+              <MyVoiceRecorder color={colors.rose} />
+            </div>
             <MuteButton color={colors.gold} />
             <RepeatButton color={colors.gold} />
             <RestartButton color={colors.gold} startText={activeTabAudio?.text} startCode={activeTabAudio?.code} />
@@ -13462,7 +13610,7 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
                 }}
                 className="flex items-center justify-between p-3 rounded-lg"
                 style={{
-                  backgroundColor: activePhraseId === p.id ? (highlightColor || READ_MARKER_COLOR) : "white",
+                  backgroundColor: highlightBg(highlightColor, activePhraseId === p.id, "white"),
                   border: `1px solid ${colors.cardBorder}`,
                   transition: "background-color 0.35s ease",
                 }}
@@ -13476,7 +13624,7 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
                         fontWeight: 800,
                         fontSize: 15,
                         color: mainTextColor,
-                        backgroundColor: activeTranslation && activeTranslation.code === nativeLang && activeTranslation.id === p.id ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+                        backgroundColor: highlightBg(highlightColor, activeTranslation && activeTranslation.code === nativeLang && activeTranslation.id === p.id),
                         borderRadius: 5,
                         padding: activeTranslation && activeTranslation.code === nativeLang && activeTranslation.id === p.id ? "2px 4px" : "2px 0",
                         transition: "background-color 0.35s ease",
@@ -13518,7 +13666,7 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
                             flex: 1,
                             fontWeight: 800,
                             color: translationColor,
-                            backgroundColor: isTransActive ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+                            backgroundColor: highlightBg(highlightColor, isTransActive),
                             borderRadius: 5,
                             padding: isTransActive ? "2px 4px" : "2px 0",
                             transition: "background-color 0.35s ease",
@@ -14678,8 +14826,8 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
           style={{
             position: "relative",
             backgroundColor: "white",
-            border: `1px solid ${justJumpedId === w.id ? (highlightColor || READ_MARKER_COLOR) : colors.cardBorder}`,
-            boxShadow: justJumpedId === w.id ? `0 0 0 2px ${highlightColor || READ_MARKER_COLOR}` : "none",
+            border: `1px solid ${highlightBg(highlightColor, justJumpedId === w.id, colors.cardBorder)}`,
+            boxShadow: justJumpedId === w.id && highlightColor !== "none" ? `0 0 0 2px ${highlightColor || READ_MARKER_COLOR}` : "none",
             transition: "border-color 0.4s ease, box-shadow 0.4s ease",
           }}
         >
@@ -14699,7 +14847,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
                     هست، نه یه باکسِ تمام‌عرض دورِ کل ردیف. */}
                 <span
                   style={{
-                    backgroundColor: activeWordId === w.id ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+                    backgroundColor: highlightBg(highlightColor, activeWordId === w.id),
                     borderRadius: 5,
                     padding: activeWordId === w.id ? "2px 4px" : "2px 0",
                     WebkitBoxDecorationBreak: "clone",
@@ -14871,7 +15019,7 @@ function WordTargetTranslation({ word, wordId, pos, langCode, abbr, knownText, n
 
   const myOffset = lineOffsets && lineOffsets.find((o) => o.id === wordId);
   const highlightStyle = {
-    backgroundColor: isActiveLine ? (highlightColor || READ_MARKER_COLOR) : "transparent",
+    backgroundColor: highlightBg(highlightColor, isActiveLine),
     borderRadius: 5,
     padding: isActiveLine ? "2px 4px" : "2px 0",
     WebkitBoxDecorationBreak: "clone",
