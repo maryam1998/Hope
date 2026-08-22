@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, Square, ListChecks } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -222,48 +222,237 @@ async function deleteStoryAudioRecord(storyKey) {
 }
 
 // هوکِ مدیریتِ صوتِ کاربر برای یک داستانِ مشخص (storyKey پایدار — معمولاً
-// mainStoryKey). یک <audio> واقعی رو کنترل می‌کنه. بعد از آپلود، به‌محضِ
-// معلوم‌شدنِ duration، تایم‌استمپِ هر جمله به‌صورتِ خودکار و متناسب با طولِ
-// کاراکتریِ همون جمله نسبت به کلِ متن تخمین زده می‌شه (سریع، ولی تقریبی).
-// بعدش کاربر می‌تونه با «حالتِ تنظیمِ دستی» (adjustDraft) هر خط رو با یه
-// اسلایدر بینِ خطِ قبل/بعدش درگ کنه تا دقیق‌تر بشه.
+// mainStoryKey). یک <audio> واقعی رو کنترل می‌کنه — بدونِ هیچ محدودیتی
+// رو فرمتِ فایل. هیچ هایلایت/خوانشِ خودکاری بر اساسِ زمانِ صدا انجام
+// نمی‌شه؛ خطِ فعال فقط با دکمه‌های «جمله‌ی قبل/بعد» (که خودِ کاربر پایینِ
+// پلیر می‌زنه) عوض می‌شه — یه شمارنده‌ی ساده (manualIndex) که کاملاً
+// مستقل از currentTimeِ صداست.
+// ============================================================
+// ابزارِ SRT — کاربر یه فایلِ زیرنویسِ srt وارد می‌کنه، متنِ هر بلوک
+// (بدونِ دست‌زدن به شماره/تایم‌کد) ترجمه می‌شه، و در نهایت یه فایلِ srt
+// جدید (با همون تایم‌کدها ولی متنِ ترجمه‌شده) قابلِ دانلوده — تا کاربر
+// خودش تو پلیرِ ویدیو/صوتِ خودش (بیرون از این اپ) بارش کنه.
+// ============================================================
+function parseSRT(raw) {
+  const text = (raw || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!text) return [];
+  const blocks = text.split(/\n\s*\n/);
+  const entries = [];
+  for (const block of blocks) {
+    const lines = block.split("\n").filter((l) => l.length || l === "");
+    if (!lines.length) continue;
+    let idx = 0;
+    let timeLineIdx = 0;
+    // خطِ اول ممکنه شماره‌ی بلوک باشه (اختیاری در بعضی فایل‌ها)
+    if (/^\d+$/.test(lines[0].trim())) {
+      idx = parseInt(lines[0].trim(), 10);
+      timeLineIdx = 1;
+    }
+    const timeLine = lines[timeLineIdx];
+    if (!timeLine || !timeLine.includes("-->")) continue;
+    const [start, end] = timeLine.split("-->").map((s) => s.trim());
+    const textLines = lines.slice(timeLineIdx + 1);
+    entries.push({
+      index: idx || entries.length + 1,
+      start,
+      end,
+      text: textLines.join("\n"),
+    });
+  }
+  return entries;
+}
+
+function serializeSRT(entries) {
+  return entries
+    .map((e, i) => `${i + 1}\n${e.start} --> ${e.end}\n${e.text}\n`)
+    .join("\n");
+}
+
+// کامپوننتِ ابزارِ SRT — کاملاً مستقل از داستانِ فعلی؛ فقط داخلِ تبِ
+// داستان‌ساز به‌عنوانِ یه پنلِ جمع‌شدنی نشون داده می‌شه.
+function SrtTranslatorTool({ nativeLang, targetOrder, aiSettings, uiLang }) {
+  const [open, setOpen] = useState(false);
+  const [fileName, setFileName] = useState("");
+  const [entries, setEntries] = useState([]); // [{index,start,end,text}]
+  const [translatedEntries, setTranslatedEntries] = useState(null);
+  const [targetLang, setTargetLang] = useState((targetOrder && targetOrder[0]) || "en");
+  const [translating, setTranslating] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [error, setError] = useState("");
+  const fileInputRef = useRef(null);
+  const cancelRef = useRef(false);
+
+  const langOptions = LANGUAGES;
+
+  function handleFile(file) {
+    if (!file) return;
+    setError("");
+    setTranslatedEntries(null);
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = parseSRT(String(reader.result || ""));
+        if (!parsed.length) {
+          setError("فایل srt قابلِ خوندن نبود یا خالی بود.");
+          setEntries([]);
+          return;
+        }
+        setEntries(parsed);
+      } catch {
+        setError("خطا در خواندنِ فایل srt.");
+        setEntries([]);
+      }
+    };
+    reader.onerror = () => setError("خطا در خواندنِ فایل.");
+    reader.readAsText(file);
+  }
+
+  async function translateAll() {
+    if (!entries.length) return;
+    setTranslating(true);
+    setError("");
+    cancelRef.current = false;
+    const out = [];
+    for (let i = 0; i < entries.length; i++) {
+      if (cancelRef.current) break;
+      const e = entries[i];
+      const plain = (e.text || "").replace(/\n/g, " ").trim();
+      let translated = plain;
+      try {
+        translated = plain ? await translateFree(plain, targetLang, "auto", aiSettings) : "";
+      } catch {
+        translated = plain; // اگه ترجمه‌ی یه خط شکست خورد، متنِ اصلی نگه داشته می‌شه (بهتر از خالی)
+      }
+      out.push({ ...e, text: translated || plain });
+      setProgress({ done: i + 1, total: entries.length });
+    }
+    setTranslatedEntries(out);
+    setTranslating(false);
+  }
+
+  function cancelTranslate() {
+    cancelRef.current = true;
+    setTranslating(false);
+  }
+
+  function download() {
+    if (!translatedEntries) return;
+    const base = fileName.replace(/\.srt$/i, "") || "subtitles";
+    downloadTextFile(`${base}.${targetLang}.srt`, serializeSRT(translatedEntries), "text/plain;charset=utf-8");
+  }
+
+  const boxStyle = {
+    border: `1px solid ${colors.cardBorder}`,
+    borderRadius: 12,
+    padding: "10px 12px",
+    marginBottom: 14,
+    backgroundColor: colors.cardBg || "white",
+  };
+
+  return (
+    <div style={boxStyle}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center justify-between"
+        style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+      >
+        <span style={{ fontSize: 14, fontWeight: 600, color: colors.ink }}>ترجمه‌ی زیرنویس (SRT)</span>
+        {open ? <ChevronUp size={18} color={colors.inkSoft} /> : <ChevronDown size={18} color={colors.inkSoft} />}
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 8 }}>
+            یه فایلِ srt وارد کن، زبانِ مقصد رو انتخاب کن، ترجمه کن و فایلِ srtِ ترجمه‌شده رو دانلود کن — برای استفاده تو هر پلیرِ ویدیو/صوتِ دیگه.
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".srt"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleFile(f);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.cardBorder}`, background: "white", fontSize: 13 }}
+            >
+              انتخابِ فایل srt
+            </button>
+            {fileName && <span style={{ fontSize: 12, color: colors.inkSoft }}>{fileName} ({toFaDigits(String(entries.length))} خط)</span>}
+          </div>
+
+          {entries.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: 10 }}>
+              <select
+                value={targetLang}
+                onChange={(e) => { setTargetLang(e.target.value); setTranslatedEntries(null); }}
+                style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${colors.cardBorder}`, background: "white", fontSize: 13 }}
+              >
+                {langOptions.map((l) => (
+                  <option key={l.code} value={l.code}>{l.label}</option>
+                ))}
+              </select>
+
+              {!translating ? (
+                <button
+                  onClick={translateAll}
+                  style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: colors.teal, color: "white", fontWeight: 600, fontSize: 13 }}
+                >
+                  ترجمه کن
+                </button>
+              ) : (
+                <button
+                  onClick={cancelTranslate}
+                  style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: colors.rose, color: "white", fontSize: 13 }}
+                >
+                  توقف ({toFaDigits(String(progress.done))}/{toFaDigits(String(progress.total))})
+                </button>
+              )}
+
+              {translatedEntries && !translating && (
+                <button
+                  onClick={download}
+                  style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${colors.teal}`, color: colors.teal, background: "white", fontSize: 13 }}
+                >
+                  دانلودِ srt ترجمه‌شده
+                </button>
+              )}
+            </div>
+          )}
+
+          {error && <p style={{ fontSize: 12, color: colors.rose, marginTop: 8 }}>{error}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function useStoryUserAudio(storyKey, allSentences) {
   const audioElRef = useRef(null);
   if (!audioElRef.current && typeof Audio !== "undefined") {
     audioElRef.current = new Audio();
   }
   const [hasAudio, setHasAudio] = useState(false);
-  const [timestamps, setTimestamps] = useState([]); // [{pi,si,time}]
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [adjusting, setAdjusting] = useState(false);
-  const [adjustDraft, setAdjustDraft] = useState([]); // کپیِ قابل‌ویرایش، فقط حینِ تنظیم
+  const [manualIndex, setManualIndex] = useState(0); // اشاره‌گرِ دستیِ خط، فقط با دکمه‌ی قبل/بعد عوض می‌شه
   const objectUrlRef = useRef(null);
-  const pendingAutoRef = useRef(false); // یعنی: بعد از loadedmetadata خودکار تایم‌بندی کن
-
-  function computeAutoTimestamps(dur) {
-    if (!allSentences || !allSentences.length || !dur) return [];
-    const lens = allSentences.map((s) => (s?.text || "").length || 1);
-    const total = lens.reduce((a, b) => a + b, 0) || 1;
-    let acc = 0;
-    return allSentences.map((s, i) => {
-      const t = { pi: s._pi, si: s._si, time: (acc / total) * dur };
-      acc += lens[i];
-      return t;
-    });
-  }
 
   // بارگذاریِ اولیه از IndexedDB وقتی storyKey عوض می‌شه
   useEffect(() => {
     let cancelled = false;
     setHasAudio(false);
-    setTimestamps([]);
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
-    setAdjusting(false);
-    pendingAutoRef.current = false;
+    setManualIndex(0);
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current);
       objectUrlRef.current = null;
@@ -275,7 +464,6 @@ function useStoryUserAudio(storyKey, allSentences) {
       const url = URL.createObjectURL(rec.blob);
       objectUrlRef.current = url;
       if (audioElRef.current) audioElRef.current.src = url;
-      setTimestamps(rec.timestamps || []);
       setHasAudio(true);
     })();
     return () => { cancelled = true; };
@@ -285,19 +473,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     const el = audioElRef.current;
     if (!el) return;
     const onTime = () => setCurrentTime(el.currentTime || 0);
-    const onDur = async () => {
-      const dur = el.duration || 0;
-      setDuration(dur);
-      if (pendingAutoRef.current && dur) {
-        pendingAutoRef.current = false;
-        const auto = computeAutoTimestamps(dur);
-        setTimestamps(auto);
-        if (storyKey) {
-          const rec = await getStoryAudioRecord(storyKey);
-          if (rec) await saveStoryAudioRecord(storyKey, { ...rec, timestamps: auto });
-        }
-      }
-    };
+    const onDur = () => setDuration(el.duration || 0);
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
     const onEnd = () => setIsPlaying(false);
@@ -313,60 +489,31 @@ function useStoryUserAudio(storyKey, allSentences) {
       el.removeEventListener("pause", onPause);
       el.removeEventListener("ended", onEnd);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storyKey, allSentences]);
+  }, []);
 
   async function uploadFile(file) {
     if (!storyKey || !file) return;
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     const url = URL.createObjectURL(file);
     objectUrlRef.current = url;
-    pendingAutoRef.current = true; // همین که duration معلوم شد، خودکار تایم‌بندی کن
     if (audioElRef.current) {
       audioElRef.current.src = url;
       audioElRef.current.load();
     }
-    setTimestamps([]);
+    setManualIndex(0);
     setHasAudio(true);
-    await saveStoryAudioRecord(storyKey, { blob: file, timestamps: [], savedAt: Date.now() });
+    await saveStoryAudioRecord(storyKey, { blob: file, savedAt: Date.now() });
   }
 
   function play() { audioElRef.current?.play().catch(() => {}); }
   function pause() { audioElRef.current?.pause(); }
   function seek(t) { if (audioElRef.current) audioElRef.current.currentTime = t; }
 
-  function regenerateAuto() {
-    if (!duration) return;
-    setTimestamps(computeAutoTimestamps(duration));
+  function nextLine() {
+    setManualIndex((i) => Math.min(i + 1, Math.max((allSentences?.length || 1) - 1, 0)));
   }
-
-  // «تنظیمِ دستی»: یه کپیِ قابل‌ویرایش از تایم‌استمپ‌ها می‌سازیم؛ هر خط با
-  // یه اسلایدر (بینِ زمانِ خطِ قبل و خطِ بعد) قابلِ درگ کردنه. تا وقتی
-  // «ذخیره» زده نشده، چیزی روی IndexedDB نوشته نمی‌شه.
-  function startAdjusting() {
-    setAdjustDraft(timestamps.length ? timestamps.map((t) => ({ ...t })) : computeAutoTimestamps(duration));
-    setAdjusting(true);
-  }
-  function updateDraftTime(index, time) {
-    setAdjustDraft((prev) => {
-      const next = prev.slice();
-      const lo = index > 0 ? next[index - 1].time : 0;
-      const hi = index < next.length - 1 ? next[index + 1].time : (duration || time);
-      next[index] = { ...next[index], time: Math.min(Math.max(time, lo), hi) };
-      return next;
-    });
-  }
-  async function saveAdjusting() {
-    setTimestamps(adjustDraft);
-    setAdjusting(false);
-    if (storyKey) {
-      const rec = await getStoryAudioRecord(storyKey);
-      if (rec) await saveStoryAudioRecord(storyKey, { ...rec, timestamps: adjustDraft });
-    }
-  }
-  function cancelAdjusting() {
-    setAdjusting(false);
-    setAdjustDraft([]);
+  function prevLine() {
+    setManualIndex((i) => Math.max(i - 1, 0));
   }
 
   async function removeAudio() {
@@ -375,40 +522,30 @@ function useStoryUserAudio(storyKey, allSentences) {
     objectUrlRef.current = null;
     if (audioElRef.current) audioElRef.current.removeAttribute("src");
     setHasAudio(false);
-    setTimestamps([]);
+    setManualIndex(0);
     if (storyKey) await deleteStoryAudioRecord(storyKey);
   }
 
-  // جمله‌ای که الان بر اساسِ currentTime باید هایلایت بشه — آخرین
-  // تایم‌استمپی که زمانش از currentTime کمتر/مساویه.
+  // خطِ فعال، فقط از روی manualIndex — هیچ ربطی به currentTime نداره.
   const activeSentence = useMemo(() => {
-    if (!timestamps.length) return null;
-    let found = null;
-    for (const ts of timestamps) {
-      if (currentTime >= ts.time) found = ts;
-      else break;
-    }
-    return found ? { pi: found.pi, si: found.si } : null;
-  }, [timestamps, currentTime]);
+    if (!allSentences || !allSentences.length) return null;
+    const s = allSentences[Math.min(manualIndex, allSentences.length - 1)];
+    return s ? { pi: s._pi, si: s._si } : null;
+  }, [allSentences, manualIndex]);
 
   return {
     hasAudio,
-    timestamps,
     isPlaying,
     currentTime,
     duration,
-    adjusting,
-    adjustDraft,
+    manualIndex,
     activeSentence,
     uploadFile,
     play,
     pause,
     seek,
-    regenerateAuto,
-    startAdjusting,
-    updateDraftTime,
-    saveAdjusting,
-    cancelAdjusting,
+    nextLine,
+    prevLine,
     removeAudio,
   };
 }
@@ -7489,23 +7626,21 @@ function enforceSentenceSplit(paragraphs) {
 
 // نوارِ کوچکِ صوتِ کاربر برای داستان — بالای متنِ داستان می‌شینه. یه سوییچِ
 // دوحالته (TTS ⇄ صوتِ من) داره؛ اگه هنوز صوتی آپلود نشده فقط دکمه‌ی آپلود
-// نشون می‌ده. بعد از آپلود، تایم‌بندیِ هر خط خودکار (بر اساسِ طولِ متن)
-// تخمین زده می‌شه. دکمه‌ی «تنظیمِ دستی» یه لیستِ همه‌ی خط‌ها با یه
-// اسلایدر برای هر خط نشون می‌ده — کاربر با کشیدنِ (درگ) اسلایدر، زمانِ
-// دقیقِ همون خط رو (بینِ خطِ قبل و بعدش) تنظیم می‌کنه.
-function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode, allSentences }) {
+// نشون می‌ده (هیچ محدودیتی رو فرمتِ فایل نیست). هیچ هایلایت/خوانشِ
+// خودکاری وجود نداره — خطِ فعال فقط با دکمه‌های «◀ جمله‌ی قبل / جمله‌ی
+// بعد ▶» پایینِ پلیر عوض می‌شه، کاملاً دستی و مستقل از پخشِ صدا.
+function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode }) {
   const fileInputRef = useRef(null);
   const {
-    hasAudio, timestamps, isPlaying, currentTime, duration,
-    adjusting, adjustDraft, uploadFile, play, pause, seek,
-    regenerateAuto, startAdjusting, updateDraftTime, saveAdjusting, cancelAdjusting, removeAudio,
+    hasAudio, isPlaying, currentTime, duration,
+    uploadFile, play, pause, seek, nextLine, prevLine, removeAudio,
   } = userAudio;
 
   function fmtTime(sec) {
-    const s = Math.max(0, sec || 0);
+    const s = Math.max(0, Math.round(sec || 0));
     const m = Math.floor(s / 60);
     const r = s % 60;
-    return toFaDigits(`${String(m).padStart(2, "0")}:${r.toFixed(1).padStart(4, "0")}`);
+    return toFaDigits(`${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`);
   }
 
   const boxStyle = {
@@ -7515,62 +7650,6 @@ function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode, allSenten
     marginBottom: 14,
     backgroundColor: colors.cardBg || "white",
   };
-
-  if (adjusting) {
-    return (
-      <div style={boxStyle}>
-        <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 8 }}>
-          هر اسلایدر رو بکش تا زمانِ شروعِ اون خط دقیق بشه. با «پخش از اینجا» می‌تونی چک کنی.
-        </p>
-        <div style={{ maxHeight: 320, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
-          {adjustDraft.map((ts, idx) => {
-            const s = allSentences.find((x) => x._pi === ts.pi && x._si === ts.si);
-            const lo = idx > 0 ? adjustDraft[idx - 1].time : 0;
-            const hi = idx < adjustDraft.length - 1 ? adjustDraft[idx + 1].time : (duration || ts.time);
-            return (
-              <div key={`${ts.pi}-${ts.si}`}>
-                <div className="flex items-center justify-between gap-2">
-                  <p style={{ fontSize: 13, fontFamily: fontFa, flex: 1 }} dir="auto">{s?.text}</p>
-                  <span style={{ fontSize: 11, color: colors.inkSoft, flexShrink: 0 }}>{fmtTime(ts.time)}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={lo}
-                    max={hi}
-                    step={0.05}
-                    value={ts.time}
-                    onChange={(e) => updateDraftTime(idx, Number(e.target.value))}
-                    style={{ flex: 1 }}
-                  />
-                  <button
-                    onClick={() => { seek(ts.time); play(); }}
-                    style={{ padding: "3px 8px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, background: "white", fontSize: 11, flexShrink: 0 }}
-                  >
-                    پخش از اینجا
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: 10 }}>
-          <button
-            onClick={saveAdjusting}
-            style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: colors.teal, color: "white", fontWeight: 600 }}
-          >
-            ذخیره
-          </button>
-          <button
-            onClick={cancelAdjusting}
-            style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "none", color: colors.rose }}
-          >
-            انصراف
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div style={boxStyle}>
@@ -7605,7 +7684,6 @@ function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode, allSenten
             <input
               ref={fileInputRef}
               type="file"
-              accept="audio/*"
               style={{ display: "none" }}
               onChange={(e) => {
                 const f = e.target.files?.[0];
@@ -7633,10 +7711,24 @@ function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode, allSenten
       {hasAudio && playbackMode === "user" && (
         <div className="flex items-center gap-2" style={{ marginTop: 10 }}>
           <button
+            onClick={prevLine}
+            title="جمله‌ی قبل"
+            style={{ background: "none", border: "none", cursor: "pointer", color: colors.ink, padding: 4, display: "flex", flexShrink: 0 }}
+          >
+            <SkipBack size={18} />
+          </button>
+          <button
             onClick={isPlaying ? pause : play}
             style={{ padding: 6, borderRadius: 999, border: "none", background: colors.teal, color: "white", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
           >
             {isPlaying ? <Pause size={16} /> : <PlayCircle size={18} />}
+          </button>
+          <button
+            onClick={nextLine}
+            title="جمله‌ی بعد"
+            style={{ background: "none", border: "none", cursor: "pointer", color: colors.ink, padding: 4, display: "flex", flexShrink: 0 }}
+          >
+            <SkipForward size={18} />
           </button>
           <input
             type="range"
@@ -7650,26 +7742,6 @@ function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode, allSenten
           <span style={{ fontSize: 11, color: colors.inkSoft, flexShrink: 0 }}>
             {fmtTime(currentTime)} / {fmtTime(duration)}
           </span>
-        </div>
-      )}
-
-      {hasAudio && (
-        <div className="flex items-center gap-3" style={{ marginTop: 8 }}>
-          <button
-            onClick={startAdjusting}
-            disabled={!duration}
-            style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.gold}`, color: colors.gold, background: "white", fontSize: 13, opacity: duration ? 1 : 0.5 }}
-          >
-            تنظیمِ دستیِ خط‌ها
-          </button>
-          {!!timestamps.length && (
-            <button
-              onClick={regenerateAuto}
-              style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: "none", color: colors.inkSoft, fontSize: 11 }}
-            >
-              بازگشت به تخمینِ خودکار
-            </button>
-          )}
         </div>
       )}
     </div>
@@ -9086,6 +9158,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           </button>
         </div>
       </div>
+
+      <SrtTranslatorTool nativeLang={nativeLang} targetOrder={targetOrder} aiSettings={aiSettings} uiLang={uiLang} />
 
       {showSaved ? (
         <div className="flex flex-col gap-3">
@@ -12038,7 +12112,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // پنلِ تنظیماتِ بیشترِ پلیر (شفافیت) — تو طراحیِ جدید، پشتِ دکمه‌ی «فهرست»
   // (☰) جمع‌وجور شده تا نوارِ کنترلِ اصلی شلوغ نشه؛ خودِ قابلیت دقیقاً همونیه
   // که قبلاً بود، فقط پیش‌فرض بسته‌ست.
-  const [showPlayerSettings, setShowPlayerSettings] = useState(false);
   // شفافیتِ پنلِ شناورِ «تمرین جمله‌سازی با هوش مصنوعی» — دقیقاً مثل
   // playerOpacity بالا، جدا و مستقل ذخیره می‌شه که با شفافیتِ پلیر تداخل
   // نکنه.
@@ -13024,43 +13097,23 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               color={colors.teal}
             />
             <ChunkNavButton direction="next" color={colors.ink} />
-            <button
-              onClick={() => setShowPlayerSettings((v) => !v)}
-              aria-label="تنظیماتِ پلیر"
-              title="تنظیماتِ پلیر (شفافیت)"
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: showPlayerSettings ? colors.gold : colors.ink,
-                padding: 6,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <ListMusic size={20} />
-            </button>
           </div>
-          {/* پنلِ تنظیماتِ بیشتر — شفافیتِ پلیر؛ همون قابلیتِ قبلی، فقط الان
-              پشتِ دکمه‌ی ☰ جمع‌وجور شده تا نوارِ کنترلِ اصلی شبیهِ پلیرِ عکسِ
-              فرستاده‌شده بمونه. */}
-          {showPlayerSettings && (
-            <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2, paddingBottom: 8 }}>
-              <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={playerOpacity}
-                onChange={(e) => setPlayerOpacity(Number(e.target.value))}
-                aria-label="شفافیت پلیر"
-                style={{ flex: 1, accentColor: colors.gold }}
-              />
-              <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
-            </div>
-          )}
+          {/* شفافیتِ پلیر — دیگه پشتِ آیکونِ جدا نیست، همیشه داخلِ خودِ پلیر
+              دیده می‌شه. منطقِ ذخیره/بازنشانی (playerOpacity, دکمه‌ی
+              بازنشانیِ زیرِ ۷٪) کاملاً دست‌نخورده باقی موند. */}
+          <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2, paddingBottom: 8 }}>
+            <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={playerOpacity}
+              onChange={(e) => setPlayerOpacity(Number(e.target.value))}
+              aria-label="شفافیت پلیر"
+              style={{ flex: 1, accentColor: colors.gold }}
+            />
+            <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
+          </div>
         </div>
         {/* دکمه‌ی «بازنشانیِ شفافیت» — وقتی شفافیتِ پلیر خیلی پایین میاد (زیرِ
             ۷۰٪)، خودِ نوار (و اسلایدرِ توش) هم کم‌رنگ/کم‌کنتراست می‌شه و
