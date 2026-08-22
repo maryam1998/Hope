@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -167,221 +167,6 @@ async function getTranslationCacheCount() {
     return 0;
   }
 }
-
-// ============================================================
-// ذخیره‌ی خودِ فایلِ صوتیِ پادکست‌های آپلودشده — فقط و فقط رویِ خودِ گوشی
-// (IndexedDB)، هرگز به Supabase/هیچ سروری فرستاده نمی‌شه. چیزی که به
-// Supabase می‌ره فقط متنِ رونویسی‌شده + تایم‌استمپِ هر جمله‌ست (چند عدد،
-// حجمش ناچیزه) — نه خودِ صدا. یعنی این صدا فقط رویِ همون گوشی/مرورگری
-// می‌مونه که آپلودش کرده؛ با تعویضِ گوشی، متن سینک می‌شه ولی صدا نه (و
-// کاربر باید دوباره آپلودش کنه) — همون رفتاری که خواسته شده بود.
-// ============================================================
-const PODCAST_AUDIO_DB_NAME = "phrasebook-podcast-audio";
-const PODCAST_AUDIO_STORE = "audio";
-
-function openPodcastAudioDB() {
-  return new Promise((resolve, reject) => {
-    if (typeof indexedDB === "undefined") { reject(new Error("indexeddb-unavailable")); return; }
-    const req = indexedDB.open(PODCAST_AUDIO_DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(PODCAST_AUDIO_STORE)) {
-        db.createObjectStore(PODCAST_AUDIO_STORE);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function savePodcastAudioBlob(key, blob) {
-  try {
-    const db = await openPodcastAudioDB();
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(PODCAST_AUDIO_STORE, "readwrite");
-      tx.objectStore(PODCAST_AUDIO_STORE).put(blob, key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-    return true;
-  } catch (e) {
-    console.error("podcast-audio: save failed", e);
-    return false;
-  }
-}
-
-async function loadPodcastAudioBlob(key) {
-  if (!key) return null;
-  try {
-    const db = await openPodcastAudioDB();
-    return await new Promise((resolve) => {
-      const tx = db.transaction(PODCAST_AUDIO_STORE, "readonly");
-      const req = tx.objectStore(PODCAST_AUDIO_STORE).get(key);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => resolve(null);
-    });
-  } catch {
-    return null;
-  }
-}
-
-async function deletePodcastAudioBlob(key) {
-  if (!key) return;
-  try {
-    const db = await openPodcastAudioDB();
-    await new Promise((resolve) => {
-      const tx = db.transaction(PODCAST_AUDIO_STORE, "readwrite");
-      tx.objectStore(PODCAST_AUDIO_STORE).delete(key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
-    });
-  } catch {}
-}
-
-// از رویِ متنِ تقسیم‌شده به جمله‌ها + خروجیِ تایم‌استمپِ کلمه‌به‌کلمه‌ی Whisper
-// (return_timestamps: "word")، برایِ هر جمله یه بازه‌ی {start, end} (ثانیه)
-// می‌سازه. تطبیق با شمارشِ کلمه انجام می‌شه (نه مقایسه‌ی متنی حرف‌به‌حرف)
-// چون سریع‌تر و برایِ این منظور (هایلایتِ جمله‌ای، نه کلمه‌ای) دقتش کافیه —
-// اگه یکی-دو کلمه جابه‌جا بشه، مرزِ هایلایت فقط چندصدم ثانیه می‌لغزه.
-function alignSentencesToWordTimestamps(sentences, wordChunks) {
-  const timings = [];
-  let wIdx = 0;
-  let lastEnd = 0;
-  for (let i = 0; i < sentences.length; i++) {
-    const wordCount = (sentences[i].match(/\S+/g) || []).length;
-    if (!wordCount || wIdx >= wordChunks.length) {
-      timings.push({ start: lastEnd, end: lastEnd });
-      continue;
-    }
-    const startChunk = wordChunks[wIdx];
-    const endWIdx = Math.min(wIdx + wordCount, wordChunks.length) - 1;
-    const endChunk = wordChunks[endWIdx];
-    const start = Array.isArray(startChunk?.timestamp) ? (startChunk.timestamp[0] ?? lastEnd) : lastEnd;
-    const end = Array.isArray(endChunk?.timestamp) ? (endChunk.timestamp[1] ?? endChunk.timestamp[0] ?? start) : start;
-    timings.push({ start, end });
-    lastEnd = end;
-    wIdx = endWIdx + 1;
-  }
-  return timings;
-}
-
-// کنترلرِ سراسریِ پخشِ «صدای اصلیِ پادکست» — دقیقاً هم‌الگویِ speechController
-// (subscribe/getState) تا کامپوننت‌های هایلایتِ موجود بتونن به همین‌شکل
-// بهش گوش بدن، ولی به‌جایِ TTS، خودِ فایلِ صوتیِ آپلودشده (با صدایِ واقعیِ
-// گوینده) رو پخش می‌کنه و بر اساسِ currentTime، ایندکسِ جمله‌ی فعال رو
-// از رویِ sentenceTimings پیدا می‌کنه.
-const podcastAudioController = (() => {
-  let audioEl = null;
-  let objectUrl = null;
-  let sentenceTimings = []; // [{pi, si, start, end}] — به ترتیبِ ظاهرشدنِ جمله‌ها
-  let status = "idle"; // "idle" | "playing" | "paused"
-  let activeIndex = -1;
-  let storyKey = null; // audioKey همین داستانِ فعلاً بارشده — برایِ جلوگیری از بارگذاریِ تکراری
-  const listeners = new Set();
-
-  function notify() {
-    listeners.forEach((cb) => cb(controller.getState()));
-  }
-
-  function findActiveIndex(t) {
-    if (!sentenceTimings.length) return -1;
-    let lo = 0, hi = sentenceTimings.length - 1, ans = 0;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (sentenceTimings[mid].start <= t) { ans = mid; lo = mid + 1; }
-      else hi = mid - 1;
-    }
-    return ans;
-  }
-
-  function handleTimeUpdate() {
-    if (!audioEl) return;
-    const idx = findActiveIndex(audioEl.currentTime);
-    if (idx !== activeIndex) {
-      activeIndex = idx;
-      notify();
-    }
-  }
-
-  function onEnded() {
-    status = "idle";
-    activeIndex = -1;
-    notify();
-  }
-
-  const controller = {
-    subscribe(cb) {
-      listeners.add(cb);
-      return () => listeners.delete(cb);
-    },
-    getState() {
-      return { storyKey, status, activeIndex, total: sentenceTimings.length };
-    },
-    isLoaded(key) {
-      return storyKey === key && !!audioEl;
-    },
-    unload() {
-      if (audioEl) {
-        audioEl.pause();
-        audioEl.removeEventListener("timeupdate", handleTimeUpdate);
-        audioEl.removeEventListener("ended", onEnded);
-        audioEl.src = "";
-      }
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-      objectUrl = null;
-      audioEl = null;
-      sentenceTimings = [];
-      storyKey = null;
-      status = "idle";
-      activeIndex = -1;
-      notify();
-    },
-    async load(key, blob, timings) {
-      controller.unload();
-      storyKey = key;
-      sentenceTimings = (timings || []).slice().sort((a, b) => a.start - b.start);
-      objectUrl = URL.createObjectURL(blob);
-      audioEl = new Audio(objectUrl);
-      audioEl.preload = "auto";
-      audioEl.addEventListener("timeupdate", handleTimeUpdate);
-      audioEl.addEventListener("ended", onEnded);
-      audioEl.addEventListener("pause", () => {
-        if (status === "playing") { status = "paused"; notify(); }
-      });
-      try {
-        if (navigator.mediaSession) {
-          navigator.mediaSession.setActionHandler("play", () => controller.play());
-          navigator.mediaSession.setActionHandler("pause", () => controller.pause());
-        }
-      } catch (e) {}
-      notify();
-    },
-    play() {
-      if (!audioEl) return;
-      status = "playing";
-      audioEl.play().catch(() => { status = "paused"; notify(); });
-      notify();
-    },
-    pause() {
-      if (!audioEl) return;
-      audioEl.pause();
-      status = "paused";
-      notify();
-    },
-    toggle() {
-      if (status === "playing") controller.pause();
-      else controller.play();
-    },
-    seekToSentenceIndex(idx) {
-      if (!audioEl || !sentenceTimings[idx]) return;
-      audioEl.currentTime = sentenceTimings[idx].start;
-      activeIndex = idx;
-      notify();
-      if (status !== "playing") controller.play();
-    },
-  };
-  return controller;
-})();
 
 // همه‌ی ترجمه‌های کش‌شده‌ی یک زبانِ مقصد خاص (مثلاً «هر جمله‌ای که قبلاً به
 // آلمانی ترجمه و کش شده») رو یک‌جا، با یه اسکنِ Cursor، برمی‌گردونه — به
@@ -1573,6 +1358,11 @@ const speechController = (() => {
   let locale = "en-US";
   let status = "idle"; // "idle" | "playing" | "paused"
   let rate = Number(localStorage.getItem("phrasebook-tts-rate")) || 1; // 0.25 (slow) .. 2 (fast), 1 = normal
+  // بی‌صداکردنِ خروجیِ صوتیِ خودِ خوانش (TTS/آنلاین) — برای کسی که یه
+  // نرم‌افزارِ جداگانه (مثلاً یه پخش‌کننده/screen reader دیگه رویِ گوشی)
+  // صدایِ خودش رو داره و نمی‌خواد صدایِ این اپ باهاش تداخل کنه؛ هایلایت و
+  // پیش‌رفتنِ جمله‌به‌جمله دقیقاً عادی ادامه پیدا می‌کنه، فقط صدا خاموشه.
+  let muted = localStorage.getItem("phrasebook-tts-muted") === "1";
   // "local" = TTS خود گوشی (speechSynthesis) | "online" = سرویس رایگان
   // آنلاین (وقتی گوشی اصلاً صدایی برای اون زبون نصب نداره).
   let mode = "local";
@@ -1948,6 +1738,7 @@ const speechController = (() => {
           // صدای Edge خودش با نرخِ SSML کند/تندشده — پخشِ مرورگر رو روی
           // نرمال می‌ذاریم تا دوباره کند/تند نشه.
           audio.playbackRate = 1;
+          audio.volume = muted ? 0 : 1;
           audio.onplaying = () => {
             onlineAnyAudioPlayed = true;
           };
@@ -1977,6 +1768,7 @@ const speechController = (() => {
 
     const audio = new Audio(provider.url);
     audio.playbackRate = rate;
+    audio.volume = muted ? 0 : 1;
     audio.onplaying = () => {
       onlineAnyAudioPlayed = true;
     };
@@ -2240,6 +2032,7 @@ const speechController = (() => {
     const utter = new SpeechSynthesisUtterance(sanitizeForTTS(chunks[idx].text));
     utter.lang = locale;
     utter.rate = engineRate(rate);
+    utter.volume = muted ? 0 : 1;
 
     const bestVoice = getBestVoice(locale);
     if (bestVoice) utter.voice = bestVoice;
@@ -2315,7 +2108,7 @@ const speechController = (() => {
       return () => listeners.delete(cb);
     },
     getState() {
-      return { key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining };
+      return { key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, muted };
     },
     // آفستِ کاراکتریِ شروعِ جمله‌ای که همین الان (یا آخرین‌بار) در حال
     // پخشه — فقط برای «ادامه‌ی پخش از همون‌جا» وقتی متنِ در حال پخش عوض
@@ -2534,6 +2327,25 @@ const speechController = (() => {
         // بعدی اعمال می‌شه؛ فعلاً فقط اعلامش می‌کنیم که UI آپدیت بشه.
         notify();
       }
+    },
+    // بی‌صداکردنِ صرفاً خروجیِ صوتی — پخش/هایلایت/پیش‌رفتنِ جمله‌به‌جمله
+    // دقیقاً عادی ادامه پیدا می‌کنه. رویِ صدایِ آنلاینِ درحالِ‌پخش (اگه
+    // بود) فوراً اعمال می‌شه؛ برایِ TTSِ محلی، چون مرورگر اجازه‌ی
+    // تغییرِ volumeِ یه utteranceِ درحالِ‌پخش رو نمی‌ده، از جمله‌ی بعدی
+    // اعمال می‌شه (مثلِ سرعت).
+    getMuted() {
+      return muted;
+    },
+    setMuted(v) {
+      muted = !!v;
+      try {
+        localStorage.setItem("phrasebook-tts-muted", muted ? "1" : "0");
+      } catch (e) {}
+      if (onlineAudio) onlineAudio.volume = muted ? 0 : 1;
+      notify();
+    },
+    toggleMuted() {
+      controller.setMuted(!muted);
     },
     // --- برای نوارِ پیشرفتِ پلیرِ جدید (کِشیدنی/تپ‌کردنی) --------------------
     // مرزهای هر جمله (start/end کاراکتری) داخلِ متنِ کاملِ در حالِ پخش —
@@ -4861,77 +4673,6 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
   const uiLang = appPrefs.uiLang || "fa";
   const panelDir = APP_LANGUAGES[uiLang]?.dir || "rtl";
   const panelFont = uiLang === "en" ? fontLatin : fontFa;
-  // دانلودِ ازپیشِ مدلِ تشخیصِ گفتار (Whisper) — دقیقاً همون مدلی که
-  // «واردکردنِ فایلِ صوتی برای خوانش» موقعِ آپلود لازمش داره؛ چون مرورگر
-  // خودش (IndexedDB/کش) این دانلود رو نگه می‌داره، اگه کاربر از همین‌جا
-  // یه‌بار دانلودش کنه، بعداً تو صفحه‌ی خوانش دیگه لازم نیست منتظرِ
-  // دانلود بمونه. توجه: برخلافِ صداهای بالا (TTS، هر زبون صدای خودش)،
-  // این یه مدلِ چندزبانه‌ی واحده — چندتا زبونِ مختلف رو با همین یه مدل
-  // تشخیص می‌ده، نیازی به انتخابِ زبون نیست.
-  const [asrModelBusy, setAsrModelBusy] = useState(false);
-  const [asrModelProgress, setAsrModelProgress] = useState("");
-  const [asrModelDone, setAsrModelDone] = useState(false);
-  const [asrModelError, setAsrModelError] = useState("");
-  const asrModelWorkerRef = useRef(null);
-  // ⛔️ قبلاً این تابع مستقیماً رو threadِ اصلی (نه Worker) اجرا می‌شد — یعنی
-  // دانلود+کامپایلِ WASMِ مدل کلِ صفحه (حتی دکمه‌ها) رو تا آخر قفل می‌کرد؛
-  // دقیقاً همون چیزی که باعث می‌شد رو درصدِ بالا (مثلاً ۸۹٪) کاملاً هنگ کنه.
-  // حالا دقیقاً مثلِ آپلودِ فایلِ صوتی، همین کار تویِ whisper-worker.js
-  // (خارج از threadِ اصلی) انجام می‌شه.
-  const handlePreDownloadAsrModel = async () => {
-    setAsrModelError("");
-    setAsrModelBusy(true);
-    setAsrModelProgress("در حال آماده‌سازی...");
-    try {
-      await new Promise((resolve, reject) => {
-        const worker = new Worker(new URL("./whisper-worker.js", import.meta.url), { type: "module" });
-        asrModelWorkerRef.current = worker;
-        worker.onmessage = (ev) => {
-          const msg = ev.data || {};
-          if (msg.type === "model-progress") {
-            setAsrModelProgress(`در حال دانلود... ${Math.round(msg.progress)}٪`);
-          } else if (msg.type === "done") {
-            worker.terminate();
-            asrModelWorkerRef.current = null;
-            resolve();
-          } else if (msg.type === "error") {
-            worker.terminate();
-            asrModelWorkerRef.current = null;
-            reject(new Error(msg.message || "خطای نامشخص"));
-          }
-        };
-        worker.onerror = (ev) => {
-          worker.terminate();
-          asrModelWorkerRef.current = null;
-          reject(new Error(ev?.message || "اجرایِ Workerِ تشخیصِ گفتار با خطا مواجه شد"));
-        };
-        worker.postMessage({ type: "preload", modelId: "Xenova/whisper-small" });
-      });
-      setAsrModelProgress("");
-      setAsrModelDone(true);
-    } catch (err) {
-      console.error("asr-model-predownload failed", err);
-      const detail = err?.message || err?.name || String(err || "");
-      setAsrModelError(`دانلودِ مدل مشکل داشت${detail ? " — " + detail : ""}`);
-    } finally {
-      setAsrModelBusy(false);
-      if (asrModelWorkerRef.current) {
-        asrModelWorkerRef.current.terminate();
-        asrModelWorkerRef.current = null;
-      }
-    }
-  };
-  // دکمه‌ی لغو برای همین دانلودِ ازپیش — اگه گیر کرد، کاربر بدونِ
-  // force-quit/پاک‌کردنِ کش می‌تونه متوقفش کنه.
-  const cancelAsrModelPreDownload = () => {
-    if (asrModelWorkerRef.current) {
-      asrModelWorkerRef.current.terminate();
-      asrModelWorkerRef.current = null;
-    }
-    setAsrModelBusy(false);
-    setAsrModelProgress("");
-    setAsrModelError("");
-  };
   // اندازه/بولدِ متنِ زبان‌های مقصد (جدا از اندازه‌ی فونتِ کلیِ اپ بالا) —
   // در localStorage با کلیدِ خودش ذخیره می‌شه (نه appPrefs)، چون از یه
   // هوکِ سبکِ مشترک (useTargetTextPrefs) توسطِ خودِ ClickableSentence هم
@@ -5256,58 +4997,6 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
             <BookOpen size={14} /> {tr("offlineDownload", uiLang)}
           </button>
 
-          {/* پیش‌دانلودِ مدلِ تشخیصِ گفتار (برای واردکردنِ فایلِ صوتی در تبِ
-              «بسازِ داستان») — تا خودِ لحظه‌ی آپلودِ فایل منتظرِ دانلود نمونه. */}
-          <div style={{ display: "flex", gap: 6, alignItems: "stretch", marginTop: 8 }}>
-            <button
-              onClick={handlePreDownloadAsrModel}
-              disabled={asrModelBusy || asrModelDone}
-              className="flex items-center gap-2"
-              style={{
-                fontSize: 12.5,
-                fontWeight: 700,
-                color: colors.ink,
-                border: `1px solid ${colors.cardBorder}`,
-                borderRadius: 12,
-                padding: "9px 12px",
-                flex: 1,
-                opacity: asrModelBusy || asrModelDone ? 0.6 : 1,
-              }}
-            >
-              {asrModelBusy ? <Loader2 size={14} className="spin" /> : <span>🎧</span>}
-              {asrModelBusy
-                ? (asrModelProgress || "در حال دانلود...")
-                : asrModelDone
-                  ? "مدلِ تشخیصِ گفتار آماده‌ست"
-                  : "دانلودِ مدلِ تشخیصِ گفتار (برای فایلِ صوتی)"}
-            </button>
-            {/* اگه گیر کرد، دیگه نیازی به force-quit/پاک‌کردنِ کش نیست —
-                همین‌جا با یه تپ متوقف می‌شه. */}
-            {asrModelBusy && (
-              <button
-                onClick={cancelAsrModelPreDownload}
-                className="flex items-center justify-center"
-                style={{
-                  border: `1px solid ${colors.rose}`,
-                  borderRadius: 12,
-                  padding: "9px 12px",
-                  fontWeight: 700,
-                  fontSize: 12.5,
-                  color: colors.rose,
-                }}
-              >
-                لغو
-              </button>
-            )}
-          </div>
-          <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
-            یه مدلِ چندزبانه‌ی واحد (~۱۵۰ مگابایت) که تبدیلِ «فایلِ صوتی → متن» رو
-            کاملاً تو همین گوشی انجام می‌ده — نیازی به انتخابِ زبون نیست. فقط یه‌بار
-            دانلود می‌شه و بعدش تو خودِ گوشی می‌مونه.
-          </p>
-          {asrModelError && (
-            <p style={{ fontSize: 11, color: colors.rose, marginTop: 4 }}>{asrModelError}</p>
-          )}
         </div>
       )}
 
@@ -5619,6 +5308,50 @@ function RepeatButton({ color }) {
           {label}
         </span>
       )}
+    </button>
+  );
+}
+// دکمه‌ی «بی‌صداکردنِ خوانش» — برایِ کسی که یه نرم‌افزار/دستگاهِ صوتیِ
+// جداگانه داره و نمی‌خواد صدایِ TTS اپ باهاش قاطی/تداخل کنه: با زدنش،
+// خروجیِ صوتی خاموش می‌شه ولی پخش (پیش‌رفتنِ جمله‌به‌جمله، هایلایت، نوارِ
+// پیشرفت) دقیقاً عادی ادامه پیدا می‌کنه — انگار داره می‌خونه، فقط بی‌صدا.
+// این یه تنظیمِ سراسریه (خودِ speechController نگهش می‌داره، مثلِ تکرار/
+// سرعت) — هرجایِ اپ که بشه پخش کرد، همینجا خاموش/روشنش می‌کنه.
+function MuteButton({ color }) {
+  const [state, setState] = useState(() => speechController.getState());
+  useEffect(() => speechController.subscribe(setState), []);
+
+  const handleClick = (e) => {
+    e.stopPropagation();
+    speechController.toggleMuted();
+  };
+
+  const c = color || colors.gold;
+  const muted = !!state.muted;
+
+  return (
+    <button
+      onClick={handleClick}
+      aria-label={muted ? "روشن‌کردنِ صدا" : "بی‌صداکردنِ صدا"}
+      title={
+        muted
+          ? "صدا خاموشه — پخش و هایلایت عادی ادامه داره؛ بزن روشنش کن"
+          : "بی‌صداکردنِ صدایِ خوانش — برایِ وقتی نرم‌افزارِ دیگه‌ای صدایِ خودش رو داره"
+      }
+      style={{
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        padding: 2,
+        color: muted ? colors.rose : c,
+        opacity: muted ? 1 : 0.6,
+      }}
+    >
+      {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
     </button>
   );
 }
@@ -7554,57 +7287,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [showLinkReading, setShowLinkReading] = useState(false);
   const [linkReadBusy, setLinkReadBusy] = useState(false);
   const [linkReadError, setLinkReadError] = useState("");
-  // وارد کردنِ یه فایلِ صوتی (mp3/wav/...) برای خوانش — دقیقاً همون مقصدِ
-  // نهاییِ PDF/پیست/لینک (paragraphs همون سیستمِ خوانش)، فقط منبعِ متن به‌جای
-  // فایل/صفحه‌ی وب، خودِ صوته. تشخیصِ گفتار کاملاً تو خودِ مرورگر انجام
-  // می‌شه (با Whisper کامپایل‌شده به WASM، از مدلِ transformers.js) — هیچ
-  // فایلِ صوتی‌ای به هیچ سروری فرستاده نمی‌شه، ولی چون خودِ مدل (~۱۵۰
-  // مگابایت) باید اولین‌بار دانلود بشه و رویِ گوشی اجرا بشه، هم کندتره هم
-  // به اینترنت برای همون یک‌بار دانلودِ مدل نیاز داره. audioReadProgress
-  // برای نشون‌دادنِ درصدِ دانلودِ مدل/پیشرفتِ رونویسی استفاده می‌شه — چون این
-  // مرحله ممکنه چند ده‌ثانیه تا چند دقیقه طول بکشه و بدونِ فیدبک، کاربر
-  // فکر می‌کنه اپ هنگ کرده.
-  const [audioReadBusy, setAudioReadBusy] = useState(false);
-  const [audioReadError, setAudioReadError] = useState("");
-  const [audioReadProgress, setAudioReadProgress] = useState("");
-  const audioReadInputRef = useRef(null);
-  // Web Worker که کارِ سنگینِ دانلودِ مدل + رونویسی رو خارج از threadِ اصلی
-  // اجرا می‌کنه — تا صفحه هیچ‌وقت (حتی رویِ فایل‌های بلند) قفل نشه، و
-  // کاربر بتونه هر وقت خواست با دکمه‌ی «لغو» متوقفش کنه.
-  const audioReadWorkerRef = useRef(null);
-  // کلیدِ فایلِ صوتیِ همین داستان تویِ IndexedDB (اگه از رویِ آپلودِ پادکست
-  // ساخته شده باشه) — فقط همین رشته با متادیتای داستان ذخیره/سینک می‌شه،
-  // نه خودِ صدا. اگه داستان از منبعِ دیگه‌ای (PDF/پیست/AI) باشه، null می‌مونه.
-  const [podcastAudioKey, setPodcastAudioKey] = useState(null);
-  // تایم‌بندیِ هر جمله (ثانیه) نسبت به همین فایلِ صوتی — [{pi, si, start, end}]
-  const [podcastTimings, setPodcastTimings] = useState([]);
-  const [podcastPlayerState, setPodcastPlayerState] = useState(() => podcastAudioController.getState());
-  useEffect(() => podcastAudioController.subscribe(setPodcastPlayerState), []);
-  // وقتی این داستان از صفحه خارج می‌شه (کامپوننت آنماونت می‌شه)، اگه پلیرِ
-  // پادکست هنوز رویِ همین داستان بارشده بود، آزادش کن (URL.revokeObjectURL).
-  useEffect(() => {
-    return () => {
-      if (podcastAudioKey && podcastAudioController.isLoaded(podcastAudioKey)) {
-        podcastAudioController.unload();
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const togglePodcastPlayback = async () => {
-    if (!podcastAudioKey) return;
-    if (podcastAudioController.isLoaded(podcastAudioKey)) {
-      podcastAudioController.toggle();
-      return;
-    }
-    const blob = await loadPodcastAudioBlob(podcastAudioKey);
-    if (!blob) {
-      setAudioReadError("فایلِ صوتیِ این داستان دیگه رویِ این گوشی پیدا نشد (شاید کشِ مرورگر پاک شده)");
-      return;
-    }
-    await podcastAudioController.load(podcastAudioKey, blob, podcastTimings);
-    podcastAudioController.play();
-  };
   const [newWordTerm, setNewWordTerm] = useState("");
   const [newWordMeaning, setNewWordMeaning] = useState("");
   const [addingWord, setAddingWord] = useState(false);
@@ -7820,29 +7502,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     // بعدی شروع می‌شه آپدیت می‌شه (نه با تخمین)، پس subscribe به‌تنهایی کافیه.
     return speechController.subscribe(update);
   }, [fullStoryText, storyLang, sentenceOffsets]);
-
-  // دقیقاً همون activeStorySentence بالا، ولی وقتی منبعِ در حالِ پخش «صدای
-  // اصلیِ پادکست» (podcastAudioController) باشه، نه TTS — چون همون
-  // stateِ activeStorySentence رو می‌نویسه (نه یه state جدا)، کل زنجیره‌ی
-  // هایلایت/اسکرولِ خودکارِ از قبل موجود بدونِ هیچ تغییرِ دیگه‌ای همینجوری
-  // کار می‌کنه، چه صدا از TTS بیاد چه از فایلِ صوتیِ واقعی.
-  useEffect(() => {
-    const update = (state) => {
-      if (!podcastAudioKey || state.storyKey !== podcastAudioKey) return;
-      if (state.status === "idle") {
-        setActiveStorySentence(null);
-        return;
-      }
-      const t = podcastTimings[state.activeIndex];
-      setActiveStorySentence((prev) => {
-        const next = t ? { pi: t.pi, si: t.si } : null;
-        if (prev && next && prev.pi === next.pi && prev.si === next.si) return prev;
-        return next;
-      });
-    };
-    update(podcastAudioController.getState());
-    return podcastAudioController.subscribe(update);
-  }, [podcastAudioKey, podcastTimings]);
 
   // دقیقاً همون مکانیزمِ activeStorySentence بالا، ولی برای «پخشِ کلِ یه
   // ترجمه» — وقتی کاربر روی 🔊ِ کنارِ یه ترجمه می‌زنه، حالا (به‌جای فقط
@@ -8402,12 +8061,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     setQuestions([]);
     setAnswers({});
     setSubmitted(false);
-    // داستانِ تازه‌ی هوش‌مصنوعی صدایِ اصلی نداره — هر صدای پادکستِ قبلی که
-    // بارشده بود رو هم آزاد کن، وگرنه دکمه‌ی «پخش با صدای اصلی» برایِ متنِ
-    // جدید هم (اشتباهاً) نمایش داده می‌شه.
-    if (podcastAudioKey) podcastAudioController.unload();
-    setPodcastAudioKey(null);
-    setPodcastTimings([]);
     try {
       // 🔥 اینجا فقط داستان به زبان اصلی ساخته می‌شه (بدون درخواست ترجمه از هوش مصنوعی)
       const genre = CONTENT_TYPES.find((c) => c.key === contentType) || CONTENT_TYPES[0];
@@ -8725,10 +8378,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setSubmitted(false);
       setError("");
       setRepeatNotice("");
-      // متنِ استخراج‌شده از PDF صدایِ اصلی نداره.
-      if (podcastAudioKey) podcastAudioController.unload();
-      setPodcastAudioKey(null);
-      setPodcastTimings([]);
       if (truncated) {
         setPdfReadError("توجه: چون فایل بزرگ بود، فقط بخشی از متنش خونده و آماده‌ی خوانش شد");
       }
@@ -8777,10 +8426,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setRepeatNotice("");
     setPastedReadingText("");
     setShowPasteReading(false);
-    // متنِ پیست‌شده صدایِ اصلی نداره — پلیرِ پادکستِ قبلی (اگه بود) رو آزاد کن.
-    if (podcastAudioKey) podcastAudioController.unload();
-    setPodcastAudioKey(null);
-    setPodcastTimings([]);
   };
 
   // استخراجِ «متنِ اصلیِ» یه صفحه‌ی وب از رویِ HTMLِ خامش — یعنی بدنه‌ی
@@ -8888,10 +8533,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setRepeatNotice("");
       setLinkReadUrl("");
       setShowLinkReading(false);
-      // متنِ استخراج‌شده از لینک صدایِ اصلی نداره.
-      if (podcastAudioKey) podcastAudioController.unload();
-      setPodcastAudioKey(null);
-      setPodcastTimings([]);
       if (truncated) {
         setLinkReadError("توجه: چون متنِ صفحه زیاد بود، فقط بخشی از اون آماده‌ی خوانش شد");
       }
@@ -8906,199 +8547,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     }
   };
 
-  // «وارد کردنِ یه فایلِ صوتی برای خوانش» — دقیقاً همون مقصدِ نهایی‌ای که
-  // PDF/پیست/لینک دارن، فقط منبعِ متن خودِ صداست. تشخیصِ گفتار (speech-to-
-  // text) کاملاً محلی/تو خودِ مرورگر انجام می‌شه — با Whisper کامپایل‌شده
-  // به WASM (کتابخونه‌ی @xenova/transformers) — پس هیچ فایلِ صوتی‌ای به
-  // هیچ سروری فرستاده نمی‌شه. نکته: این یعنی همین‌جا (import("@xenova/
-  // transformers")) باید این پکیج به package.json پروژه اضافه بشه — دقیقاً
-  // هم‌الگوی pdfjs-dist بالاتر که همین‌طوری، به‌صورتِ dynamic import، فقط
-  // موقعِ نیاز لود می‌شه (نه تو بارگذاریِ اولیه‌ی اپ).
-  //
-  // مدلِ Whisper خودش (~۱۵۰ مگابایت، quantized) اولین‌باری که این قابلیت
-  // استفاده بشه باید از اینترنت دانلود بشه (بعدش تو کشِ مرورگر/IndexedDB
-  // می‌مونه و دفعاتِ بعدی آفلاین هم کار می‌کنه) — پس فقط «فایلِ صوتی» به
-  // سرور نمی‌ره، ولی خودِ مدل بارِ اول نیاز به اینترنت داره.
-  const AUDIO_READ_MAX_BYTES = 25 * 1024 * 1024; // ۲۵ مگابایت — سقفِ حجمِ فایلِ صوتی
-  const AUDIO_READ_MAX_SECONDS = 20 * 60; // ۲۰ دقیقه — فراتر از این، تشخیصِ گفتارِ محلی رویِ موبایل عملاً خیلی کند/سنگین می‌شه
-  const AUDIO_WHISPER_MODEL = "Xenova/whisper-small"; // مولتی‌لینگوال؛ نسبت به base دقتِ محسوس‌تری داره (به‌خصوص رویِ ۱۳ زبونِ اپ) با اینکه سرعتش هنوز قابلِ قبوله — برایِ دقتِ بازم بیشتر (و کندتر) می‌شه به "Xenova/whisper-medium" تغییرش داد
-
-  const handleAudioImportForReading = async (e) => {
-    const file = e.target.files?.[0];
-    if (e.target) e.target.value = "";
-    if (!file) return;
-    setAudioReadError("");
-    setAudioReadProgress("");
-    if (file.size > AUDIO_READ_MAX_BYTES) {
-      setAudioReadError(`حجمِ فایل بیشتر از ${Math.round(AUDIO_READ_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه — یه فایلِ کوچیک‌تر امتحان کن`);
-      return;
-    }
-    setAudioReadBusy(true);
-    try {
-      // ۱) دیکد کردنِ فایلِ صوتی (mp3/wav/m4a/...) به PCM خام — Whisper
-      // دقیقاً ورودیِ نمونه‌برداری‌شده با ۱۶۰۰۰Hz تک‌کاناله (مونو) می‌خواد،
-      // برای همین با یه OfflineAudioContext دوباره resample‌ش می‌کنیم.
-      setAudioReadProgress("در حال خوندنِ فایلِ صوتی...");
-      const arrayBuf = await file.arrayBuffer();
-      let decoded;
-      try {
-        const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
-        decoded = await decodeCtx.decodeAudioData(arrayBuf.slice(0));
-        decodeCtx.close?.();
-      } catch (decodeErr) {
-        console.error("audio-read: decode failed", decodeErr);
-        setAudioReadError(`این فایل قابلِ خوندن نبود — فرمت/کدکش پشتیبانی نمی‌شه${decodeErr?.message ? " (" + decodeErr.message + ")" : ""}`);
-        return;
-      }
-      if (decoded.duration > AUDIO_READ_MAX_SECONDS) {
-        setAudioReadError(`طولِ این فایل بیشتر از ${Math.round(AUDIO_READ_MAX_SECONDS / 60)} دقیقه‌ست — یه فایلِ کوتاه‌تر امتحان کن`);
-        return;
-      }
-      const targetRate = 16000;
-      const offlineCtx = new OfflineAudioContext(1, Math.ceil(decoded.duration * targetRate), targetRate);
-      const src = offlineCtx.createBufferSource();
-      src.buffer = decoded;
-      src.connect(offlineCtx.destination);
-      src.start(0);
-      const resampled = await offlineCtx.startRendering();
-      const pcmData = resampled.getChannelData(0); // Float32Array مونو، ۱۶kHz — فرمتِ موردِ نیازِ Whisper
-
-      // ۲) و ۳) لودِ مدل + رونویسی — هردو تویِ یه Web Worker جدا اجرا می‌شن
-      // (whisper-worker.js)، نه رویِ threadِ اصلی. قبلاً چون WebAssembly
-      // (محاسباتِ سنگینِ Whisper) روی threadِ اصلی اجرا می‌شد، برای فایل‌های
-      // بلند (مثلِ پادکستِ ۱۲دقیقه‌ای) کلِ صفحه — حتی دکمه‌ها — قفل می‌شد و
-      // تنها راهِ کاربر force-quit بود. حالا threadِ اصلی همیشه آزاده: هم
-      // پیشرفتِ واقعیِ قطعه‌به‌قطعه نشون داده می‌شه، هم یه دکمه‌ی «لغو» همیشه
-      // در دسترسه.
-      setAudioReadProgress("در حال آماده‌سازیِ سیستمِ تشخیصِ گفتار (بارِ اول ممکنه کمی طول بکشه)...");
-      let rawText = "";
-      let wordChunks = [];
-      try {
-        const result = await new Promise((resolve, reject) => {
-          const worker = new Worker(new URL("./whisper-worker.js", import.meta.url), { type: "module" });
-          audioReadWorkerRef.current = worker;
-          worker.onmessage = (ev) => {
-            const msg = ev.data || {};
-            if (msg.type === "model-progress") {
-              setAudioReadProgress(`در حال دانلودِ مدلِ تشخیصِ گفتار... ${Math.round(msg.progress)}٪`);
-            } else if (msg.type === "chunk-progress") {
-              setAudioReadProgress(`در حال تبدیلِ صدا به متن... قطعه‌ی ${msg.chunksDone} از حدودِ ${msg.totalChunksEstimate}`);
-            } else if (msg.type === "done") {
-              worker.terminate();
-              audioReadWorkerRef.current = null;
-              resolve(msg);
-            } else if (msg.type === "error") {
-              worker.terminate();
-              audioReadWorkerRef.current = null;
-              reject(new Error(msg.message || "خطای نامشخص"));
-            }
-          };
-          worker.onerror = (ev) => {
-            worker.terminate();
-            audioReadWorkerRef.current = null;
-            reject(new Error(ev?.message || "اجرایِ Workerِ تشخیصِ گفتار با خطا مواجه شد"));
-          };
-          // pcmData رو با transfer (بدون کپی) به Worker می‌فرستیم — سریع‌تره
-          // و حافظه تکراری نمی‌کنه؛ بعدش pcmData دیگه رویِ همین thread قابلِ
-          // استفاده نیست، که چون بعد از اینجا دیگه لازم نداریمش مشکلی نیست.
-          worker.postMessage({ type: "transcribe", pcmData, modelId: AUDIO_WHISPER_MODEL }, [pcmData.buffer]);
-        });
-        rawText = (result?.text || "").trim();
-        wordChunks = Array.isArray(result?.chunks) ? result.chunks : [];
-      } catch (transcribeErr) {
-        console.error("audio-read: transcription failed", transcribeErr);
-        if (transcribeErr?.message !== "CANCELLED") {
-          setAudioReadError(`تشخیصِ گفتار رو این فایل مشکل داشت${transcribeErr?.message ? " — " + transcribeErr.message : ""}`);
-        }
-        return;
-      }
-      if (!rawText) {
-        setAudioReadError("متنی از این فایلِ صوتی تشخیص داده نشد — این قابلیت برای صدای حرف‌زدنه، نه آهنگ/موسیقی");
-        return;
-      }
-
-      // از این‌جا به بعد دقیقاً همون مسیرِ PDF/پیست/لینک: تقسیم به جمله →
-      // گروه‌بندیِ هر ۵ جمله در یک پاراگراف → تشخیصِ زبان/سطح → نمایش.
-      const allSentences = splitTextIntoSentenceStrings(rawText);
-      if (!allSentences.length) {
-        setAudioReadError("متنی برای خوندن پیدا نشد");
-        return;
-      }
-      const detectedLang = detectPastedTextLanguage(rawText);
-      if (detectedLang) setStoryLang(detectedLang);
-      setStoryLevel(detectTextCEFRLevel(rawText));
-      const storyParagraphs = [];
-      for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
-        const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
-        storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
-      }
-      setParagraphs(storyParagraphs);
-      setCurrentStoryId(null);
-      setQuestions([]);
-      setAnswers({});
-      setSubmitted(false);
-      setError("");
-      setRepeatNotice("");
-
-      // ۴) اگه اصلاً بشه بهش تایم‌استمپ داد، خودِ فایلِ صوتی (همون Blobِ
-      // اصلی، بدون هیچ فشرده/تبدیلی) رو تویِ IndexedDBِ همین گوشی ذخیره
-      // کن — این تنها جایی‌ست که این صدا می‌ره؛ هیچ‌وقت به Supabase/سرور
-      // فرستاده نمی‌شه. اگه ذخیره‌سازی به هر دلیلی (مثلاً حالتِ خصوصیِ
-      // مرورگر) شکست بخوره، داستان همچنان با متن کار می‌کنه، فقط دکمه‌ی
-      // «پخش با صدای اصلی» نمایش داده نمی‌شه.
-      if (wordChunks.length) {
-        const flatTimings = alignSentencesToWordTimestamps(allSentences, wordChunks);
-        const newAudioKey = `podcast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const savedOk = await savePodcastAudioBlob(newAudioKey, file);
-        if (savedOk) {
-          const perSentenceTimings = allSentences.map((_, gi) => {
-            const t = flatTimings[gi] || { start: 0, end: 0 };
-            return { pi: 0, si: 0, ...t }; // pi/si واقعی پایین‌تر پر می‌شه
-          });
-          let gi = 0;
-          storyParagraphs.forEach((p, pi) => {
-            p.sentences.forEach((_, si) => {
-              perSentenceTimings[gi].pi = pi;
-              perSentenceTimings[gi].si = si;
-              gi++;
-            });
-          });
-          setPodcastAudioKey(newAudioKey);
-          setPodcastTimings(perSentenceTimings);
-        } else {
-          setPodcastAudioKey(null);
-          setPodcastTimings([]);
-        }
-      } else {
-        setPodcastAudioKey(null);
-        setPodcastTimings([]);
-      }
-      setAudioReadProgress("");
-    } catch (err) {
-      console.error("audio-read: unexpected failure", err);
-      setAudioReadError("تبدیلِ این فایلِ صوتی به متن مشکل داشت — شاید فرمتش پشتیبانی نمی‌شه، یا اتصالِ اینترنت (برای دانلودِ بارِ اولِ مدل) قطع بود");
-    } finally {
-      setAudioReadBusy(false);
-      if (audioReadWorkerRef.current) {
-        audioReadWorkerRef.current.terminate();
-        audioReadWorkerRef.current = null;
-      }
-    }
-  };
-
-  // دکمه‌ی «لغو» — به‌جای اینکه کاربر برای متوقف‌کردنِ یه پردازشِ گیرکرده
-  // مجبور بشه کل اپ رو force-quit کنه و کش رو پاک کنه، همین‌جا با یه تپ
-  // Workerِ درحالِ‌اجرا رو می‌کشه و حالت برمی‌گرده به عادی.
-  const cancelAudioTranscription = () => {
-    if (audioReadWorkerRef.current) {
-      audioReadWorkerRef.current.terminate();
-      audioReadWorkerRef.current = null;
-    }
-    setAudioReadBusy(false);
-    setAudioReadProgress("");
-    setAudioReadError("");
-  };
-
   const saveCurrentStory = () => {
     if (!paragraphs.length) return;
     const entry = {
@@ -9111,10 +8559,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       paragraphs,
       questions,
       savedAt: new Date().toISOString(),
-      // فقط اشاره‌گر (کلید) + تایم‌بندی‌ها ذخیره/سینک می‌شه — خودِ صدا هرگز
-      // از IndexedDBِ همین گوشی بیرون نمی‌ره.
-      podcastAudioKey: podcastAudioKey || null,
-      podcastTimings: podcastAudioKey ? podcastTimings : [],
     };
     setSavedStories((prev) => [entry, ...prev]);
     setCurrentStoryId(entry.id);
@@ -9134,21 +8578,10 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setSubmitted(false);
     setShowSaved(false);
     setCurrentStoryId(entry.id);
-    // اگه پلیرِ پادکست رویِ داستانِ قبلی بارشده بود، آزادش کن؛ داستانِ
-    // تازه‌بازشده (اگه صدا داشت) فقط با زدنِ دکمه‌ی پخش دوباره لود می‌شه.
-    if (podcastAudioController.getState().storyKey) podcastAudioController.unload();
-    setPodcastAudioKey(entry.podcastAudioKey || null);
-    setPodcastTimings(entry.podcastTimings || []);
   };
 
   const deleteSavedStory = (id) => {
-    setSavedStories((prev) => {
-      const target = prev.find((s) => s.id === id);
-      // فایلِ صوتیِ همین داستان هم از IndexedDB پاک بشه — وگرنه صداهایِ
-      // داستان‌های حذف‌شده برای همیشه (بی‌فایده) رویِ گوشی می‌مونن.
-      if (target?.podcastAudioKey) deletePodcastAudioBlob(target.podcastAudioKey);
-      return prev.filter((s) => s.id !== id);
-    });
+    setSavedStories((prev) => prev.filter((s) => s.id !== id));
   };
 
   const submitQuiz = () => {
@@ -9717,82 +9150,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{linkReadError}</p>
               )}
             </div>
-          )}
-        </div>
-
-        <div style={{ textAlign: "start" }}>
-          <input
-            ref={audioReadInputRef}
-            type="file"
-            accept="audio/*"
-            onChange={handleAudioImportForReading}
-            style={{ display: "none" }}
-          />
-          <div style={{ display: "flex", gap: 6, alignItems: "stretch", marginTop: 8 }}>
-            <button
-              onClick={() => audioReadInputRef.current?.click()}
-              disabled={audioReadBusy}
-              className="flex items-center justify-center gap-2"
-              style={{
-                flex: 1,
-                border: `1px dashed ${colors.cardBorder}`,
-                borderRadius: 14,
-                padding: "10px 16px",
-                fontWeight: 700,
-                fontSize: 13,
-                color: colors.teal,
-                opacity: audioReadBusy ? 0.6 : 1,
-              }}
-            >
-              {audioReadBusy ? <Loader2 size={16} className="spin" /> : <span>🎧</span>}
-              {audioReadBusy ? (audioReadProgress || "در حال پردازش...") : "افزودن پادکست (فایلِ صوتیِ mp3)"}
-            </button>
-            {/* این دکمه فقط وقتی پردازش درحالِ اجراست ظاهر می‌شه — جایگزینِ
-                force-quit/پاک‌کردنِ کش برای متوقف‌کردنِ یه پردازشِ گیرکرده. */}
-            {audioReadBusy && (
-              <button
-                onClick={cancelAudioTranscription}
-                className="flex items-center justify-center"
-                style={{
-                  border: `1px solid ${colors.rose}`,
-                  borderRadius: 14,
-                  padding: "10px 14px",
-                  fontWeight: 700,
-                  fontSize: 13,
-                  color: colors.rose,
-                }}
-              >
-                لغو
-              </button>
-            )}
-          </div>
-          {audioReadError && (
-            <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{audioReadError}</p>
-          )}
-          {/* وقتی این داستان از رویِ یه فایلِ صوتیِ آپلودشده ساخته شده، این
-              دکمه با صدایِ واقعیِ خودِ گوینده (نه TTS) پخش می‌کنه و همزمان
-              جمله‌به‌جمله هایلایتش می‌کنه. صدا فقط رویِ همین گوشیه (IndexedDB). */}
-          {podcastAudioKey && (
-            <button
-              onClick={togglePodcastPlayback}
-              className="flex items-center justify-center gap-2"
-              style={{
-                width: "100%",
-                border: `1px solid ${colors.teal}`,
-                borderRadius: 14,
-                padding: "10px 16px",
-                fontWeight: 700,
-                fontSize: 13,
-                color: "white",
-                backgroundColor: colors.teal,
-                marginTop: 8,
-              }}
-            >
-              <span>{podcastPlayerState.storyKey === podcastAudioKey && podcastPlayerState.status === "playing" ? "⏸️" : "🎙️"}</span>
-              {podcastPlayerState.storyKey === podcastAudioKey && podcastPlayerState.status === "playing"
-                ? "توقفِ پخشِ صدای اصلی"
-                : "پخش با صدای اصلیِ گوینده"}
-            </button>
           )}
         </div>
 
@@ -13183,6 +12540,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           <PlayerProgressTrack color={colors.gold} />
           {/* ردیفِ کنترل‌ها: تکرار، جمله‌ی قبل، پخش/توقفِ مرکزی، جمله‌ی بعد، تنظیمات */}
           <div className="px-4" style={{ paddingTop: 2, paddingBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-around" }}>
+            <MuteButton color={colors.gold} />
             <RepeatButton color={colors.gold} />
             <RestartButton color={colors.gold} startText={activeTabAudio?.text} startCode={activeTabAudio?.code} />
             <ChunkNavButton direction="prev" color={colors.ink} />
