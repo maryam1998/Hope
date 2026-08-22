@@ -1822,8 +1822,18 @@ const speechController = (() => {
   // به chunks[i].text یا آفست‌های start/end دست نمی‌زنه (اونا برای
   // sync/ادامه‌دادن از همون نقطه هنوز باید دقیقاً با متنِ اصلی یکی باشن).
   function sanitizeForTTS(s) {
+    // علائمِ نگارشی‌ای که برای مکثِ طبیعیِ بینِ‌جمله/بند لازمن و نگه‌داشته
+    // می‌شن — بقیه‌ی نشونه‌ها (ایموجی، #، @، %، &، پرانتز، بولت، و غیره)
+    // پایین‌تر حذف می‌شن چون خیلی از موتورهای TTS به‌جای ردشدن ازشون،
+    // اسم/توصیفِ لفظی‌شون رو می‌خونن.
+    const KEEP_PUNCT = ".,!?;:،؛؟…";
     return String(s || "")
       .replace(/[\u2066-\u2069\u200B-\u200F\u061C\uFEFF]/g, "") // isolate marks/zero-width/bidi/BOM
+      // ایموجی‌ها — صورتک/نماد/پرچم/تغییردهنده‌ی رنگِ‌پوست/دنباله‌های ZWJ و
+      // انتخاب‌گرِ نمایشِ ایموجی. اکثرِ موتورهای TTS به‌جای رد شدن ازشون،
+      // توصیفِ لفظی‌شون رو می‌خونن (مثلاً «😊» → «face with smiling eyes»)
+      // که دقیقاً همون چیزیه که کاربر گزارش کرد.
+      .replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\u20E3\uFE0F]/gu, "")
       // علامت‌های نقل‌قول رو در هر شکلی حذف می‌کنیم — چه گیومه‌ی فارسی/تایپوگرافیک
       // («» „ ‟ " " ' ')، چه گیومه‌ی ساده‌ی انگلیسیِ روی کیبورد (" و ') که قبلاً
       // حذف نمی‌شدن و همون چیزی بودن که باعثِ خونده‌شدنِ «گیومه» توسطِ موتورِ
@@ -1832,6 +1842,12 @@ const speechController = (() => {
       // نشونه‌های باقی‌مونده‌ی مارک‌داون (اگه یه‌جایی قبل از رسیدن به اینجا
       // پاک نشده باشن) — بعضی موتورهای TTS این علامت‌ها رو هم لفظی می‌خونن.
       .replace(/[*_~]/g, "")
+      // بقیه‌ی علائمِ نگارشی/نمادها (#، @، %، &، +، =، <، >، |، \، ^، پرانتز/
+      // براکت، بولت، خط‌تیره‌ی تزئینی و ...) — چون خیلی از موتورها این‌ها رو
+      // به‌جای سکوت، لفظی («هشتگ»، «امپرسند»، ...) می‌خونن. فقط علائمِ لازم
+      // برای مکثِ طبیعیِ بینِ‌جمله (بالا در KEEP_PUNCT) دست‌نخورده می‌مونن؛
+      // بقیه با یه فاصله جایگزین می‌شن تا کلمه‌های اطرافشون به‌هم نچسبن.
+      .replace(/[\p{P}\p{S}]/gu, (ch) => (KEEP_PUNCT.includes(ch) ? ch : " "))
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -3839,6 +3855,49 @@ function detectPastedTextLanguage(text) {
   // اگه حتی برنده هم امتیازِ صفر داشت، سرنخِ قابلِ‌اطمینانی نیست — به‌جای
   // حدسِ کورکورانه، null برمی‌گردونیم تا زبونِ قبلی دست‌نخورده بمونه.
   return topScore > 0 ? topCode : null;
+}
+
+// ---------------------------------------------------------------------------
+// تشخیصِ سریعِ سطحِ CEFR یه متن — کاملاً محلی، بدونِ هیچ فراخوانیِ AI، پس
+// آنی (چند میلی‌ثانیه، حتی برای متنِ چندهزارکاراکتری) اجرا می‌شه؛ دقیقاً
+// برای همون لحظه‌ای طراحی شده که کاربر متن رو پیست/PDF/لینک می‌کنه و قبلاً
+// سطح همیشه رویِ A2 (مقدارِ اولیه‌ی storyLevel) می‌موند، چون هیچ‌کدوم از
+// این سه مسیر اصلاً سطح رو تنظیم نمی‌کردن.
+//
+// روش: چند سنجه‌ی سبکِ زبان‌شناسیِ کلاسیک (شبیهِ خانواده‌ی Flesch-Kincaid،
+// ولی بدونِ نیاز به شمارشِ دقیقِ هجا که برای فارسی/عربی و خیلی زبون‌های
+// دیگه اصلاً تعریف‌شده/قابلِ‌اتکا نیست) با هم ترکیب می‌شن:
+//   • میانگینِ طولِ جمله (کلمه) — جمله‌های بلندتر → معمولاً سطحِ بالاتر
+//   • میانگینِ طولِ کلمه (حرف) — جایگزینِ سبکِ «تعدادِ هجا»، مستقل از زبون
+//   • نسبتِ کلماتِ «بلند» (۷+ حرف) — سرنخِ واژگانِ تخصصی/پیچیده
+//   • تنوعِ واژگانی (نسبتِ کلماتِ یکتا به کلِ کلمات) — تکرارِ زیاد → ساده‌تر
+// این یه تخمینِ صرفاً آماریه، نه تحلیلِ زبان‌شناختیِ واقعی — دقتش قابلِ
+// مقایسه با قضاوتِ AI/معلم نیست، ولی برای اینکه سطحِ پیش‌فرض دیگه همیشه
+// «ثابت رویِ A2» نباشه و تقریباً درست باشه، کافیه. آستانه‌های زیر تجربی‌ان؛
+// اگه بعداً حس شد سیستماتیک بالا/پایین می‌زنه، همینا رو می‌شه تنظیم کرد.
+function detectTextCEFRLevel(text) {
+  const t = (text || "").trim();
+  if (!t) return "A2";
+  const sentences = splitTextIntoSentenceStrings(t);
+  const words = t.split(/\s+/).filter(Boolean);
+  if (!words.length || !sentences.length) return "A2";
+
+  const cleanWords = words.map((w) => w.replace(/[^\p{L}\p{N}]/gu, "")).filter(Boolean);
+  if (!cleanWords.length) return "A2";
+
+  const avgSentenceLen = words.length / sentences.length;
+  const avgWordLen = cleanWords.reduce((sum, w) => sum + w.length, 0) / cleanWords.length;
+  const longWordRatio = cleanWords.filter((w) => w.length >= 7).length / cleanWords.length;
+  const uniqueRatio = new Set(cleanWords.map((w) => w.toLowerCase())).size / cleanWords.length;
+
+  const score = avgSentenceLen * 1.0 + avgWordLen * 3.0 + longWordRatio * 40 + uniqueRatio * 15;
+
+  if (score < 14) return "A1";
+  if (score < 19) return "A2";
+  if (score < 24) return "B1";
+  if (score < 29) return "B2";
+  if (score < 34) return "C1";
+  return "C2";
 }
 
 // Only these have real phrase/vocab data (conversation  / VOCAB below). Russian and
@@ -6953,15 +7012,44 @@ function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSe
 // صرفاً به رعایتِ مدل اعتماد کنیم، خروجیِ هر پاراگراف رو خودمون هم از نو
 // رویِ علامتِ‌های پایانِ‌جمله (.!?؟。！) می‌شکنیم تا «جمله به جمله» همیشه
 // واقعاً جمله‌به‌جمله باشه — صرف‌نظر از این‌که مدل چطور گروه‌بندی کرده بود.
+// سقفِ تعدادِ کلمه در هر «جمله»‌یِ داخلِ دیتای اپ — دقیقاً همون عددی که
+// speechController برای شکستنِ اضطراریِ جمله‌های خیلی‌بلند موقعِ خوندن با
+// صدا استفاده می‌کنه (MAX_WORDS_PER_CHUNK). قبلاً این‌جا هیچ سقفی نبود، و
+// وقتی متنِ ورودی (خصوصاً PDF/پیست/لینک) علامتِ‌پایانِ‌جمله نداشت (یا کم
+// داشت)، کلِ یه پاراگراف/صفحه به‌عنوانِ یک «جمله»‌ی غول‌پیکر ثبت می‌شد —
+// همون چیزی که کاربر به‌عنوانِ «جمله‌به‌جمله جدا نمی‌شه» می‌دید. بدترش این
+// بود که همین یک «جمله»‌ی غول‌پیکر، موقعِ پخشِ صوتی، خودِ speechController
+// (با همین سقف) به چند تکه‌ی کوچیک‌تر می‌شکستش تا بخونتش — یعنی صدا داشت
+// جمله‌به‌جمله جلو می‌رفت ولی هایلایت/اسکرول (که رویِ گرانولاریتیِ دیتای
+// اپ کار می‌کنه) کلِ اون مدت رویِ همون یک آیتمِ غول‌پیکر گیر می‌کرد و
+// حرکت نمی‌کرد. با اعمالِ همین سقف این‌جا هم، دیتای اپ و چیزی که صدا واقعاً
+// می‌خونه یک‌به‌یک هماهنگ می‌مونن.
+const MAX_WORDS_PER_SENTENCE_ITEM = 40;
+
 function splitTextIntoSentenceStrings(text) {
   const t = (text || "").trim();
   if (!t) return [];
   const re = /[^.!?؟。！]+[.!?؟。！]*/g;
-  const out = [];
+  const rawParts = [];
   let m;
   while ((m = re.exec(t))) {
     const trimmed = m[0].trim();
-    if (trimmed) out.push(trimmed);
+    if (trimmed) rawParts.push(trimmed);
+  }
+  const parts = rawParts.length ? rawParts : [t];
+  // اگه یکی از این «جمله»‌ها (به‌خاطرِ نبودِ نقطه/علامتِ‌نگارشیِ کافی تو
+  // متنِ خام) غیرعادی بلند از آب دراومد، همینجا هم رویِ مرزِ کلمه می‌شکونیمش
+  // — دقیقاً هم‌شکلِ همون منطقی که speechController برای پخشِ صوتی داره.
+  const out = [];
+  for (const part of parts) {
+    const words = part.split(/\s+/).filter(Boolean);
+    if (words.length <= MAX_WORDS_PER_SENTENCE_ITEM) {
+      out.push(part);
+      continue;
+    }
+    for (let i = 0; i < words.length; i += MAX_WORDS_PER_SENTENCE_ITEM) {
+      out.push(words.slice(i, i + MAX_WORDS_PER_SENTENCE_ITEM).join(" "));
+    }
   }
   return out.length ? out : [t];
 }
@@ -8090,8 +8178,12 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         setPdfReadError("متنی از این PDF استخراج نشد — شاید این فایل اسکن/عکسه، نه متنِ واقعی");
         return;
       }
-      const detectedLang = detectPastedTextLanguage(allSentences.join(" "));
+      const fullRawText = allSentences.join(" ");
+      const detectedLang = detectPastedTextLanguage(fullRawText);
       if (detectedLang) setStoryLang(detectedLang);
+      // سطح رو دیگه همیشه A2 نمی‌ذاریم — از رویِ خودِ متنِ استخراج‌شده،
+      // بدونِ AI و آنی، حدس زده می‌شه (نگاه کن: detectTextCEFRLevel بالا).
+      setStoryLevel(detectTextCEFRLevel(fullRawText));
       const storyParagraphs = [];
       for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
         const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
@@ -8136,6 +8228,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     }
     const detectedLang = detectPastedTextLanguage(raw);
     if (detectedLang) setStoryLang(detectedLang);
+    // همون تشخیصِ خودکارِ سطح، برای مسیرِ پیستِ مستقیمِ متن.
+    setStoryLevel(detectTextCEFRLevel(raw));
     const storyParagraphs = [];
     for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
       const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
@@ -8241,6 +8335,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       }
       const detectedLang = detectPastedTextLanguage(bodyText);
       if (detectedLang) setStoryLang(detectedLang);
+      // همون تشخیصِ خودکارِ سطح، برای مسیرِ واردکردنِ لینک.
+      setStoryLevel(detectTextCEFRLevel(bodyText));
       const storyParagraphs = [];
       for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
         const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
