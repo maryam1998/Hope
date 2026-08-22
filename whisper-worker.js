@@ -23,7 +23,7 @@ async function ensureModelLoaded(modelId) {
     self.postMessage({ type: "model-progress", progress: 100 });
     return cachedTranscriber;
   }
-  const { pipeline, env } = await import("https://esm.sh/@xenova/transformers@2.17.2");
+  const { pipeline, env } = await import("https://esm.sh/@huggingface/transformers@3.0.0");
   env.allowLocalModels = false;
 
   let lastProgressAt = Date.now();
