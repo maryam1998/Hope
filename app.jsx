@@ -2049,7 +2049,7 @@ const speechController = (() => {
       lastOffsetByKey.set(key, chunks[chunkIndex].start);
     }
     listeners.forEach((cb) =>
-      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, ttsError })
+      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, ttsError, muted })
     );
   }
 
@@ -13134,22 +13134,25 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             WebkitTouchCallout: "none",
           }}
         >
-          {/* ردیفِ بالای پلیر: ضبطِ صدایِ خودم (سمتِ راست، همیشه در دسترس، نه
-              فقط تبِ داستان‌ساز) و سوییچِ TTS⇄صوتِ من (فقط تبِ داستان‌ساز) —
-              هر دو تویِ یک ردیفِ مشترک با space-between، تا فضایِ خالیِ
-              کنارِ سوییچ برای ضبط استفاده بشه و پلیر ارتفاعِ اضافه نگیره. */}
-          <div className="px-4" style={{ paddingTop: 6, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <MyVoiceRecorder color={colors.rose} />
-            {tab === "story" && <PlayerBarStorySwitch ua={storyUserAudio} />}
-          </div>
+          {/* ردیفِ سوییچِ TTS⇄صوتِ من — فقط تبِ داستان‌ساز؛ اگه این تب نباشه
+              اصلاً رندر نمی‌شه که فضایِ خالی نمونه. */}
+          {tab === "story" && (
+            <div className="px-4" style={{ paddingTop: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <PlayerBarStorySwitch ua={storyUserAudio} />
+            </div>
+          )}
           {/* ردیفِ نوارِ پیشرفت: زمانِ فعلی — نوارِ کِشیدنی — زمانِ کل — سرعت */}
           {isStoryUserAudioMode ? (
             <UserAudioProgressTrack ua={storyUserAudio} color={colors.gold} />
           ) : (
             <PlayerProgressTrack color={colors.gold} />
           )}
-          {/* ردیفِ کنترل‌ها: تکرار، جمله‌ی قبل، پخش/توقفِ مرکزی، جمله‌ی بعد، تنظیمات */}
-          <div className="px-4" style={{ paddingTop: 2, paddingBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-around" }}>
+          {/* ردیفِ واحدِ همه‌ی آیکون‌ها: ضبطِ صدا، میوت، تکرار، بازگشت‌به‌اول،
+              جمله‌ی بعد، پخش/توقفِ مرکزی، جمله‌ی قبل، شفافیت — همه با فاصله‌ی
+              کم توی یه ردیف، فقط دکمه‌ی پخش/توقفِ مرکزی یه‌کم فاصله‌ی
+              بیشتر داره تا برجسته بمونه. */}
+          <div className="px-4" style={{ paddingTop: 2, paddingBottom: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <MyVoiceRecorder color={colors.rose} />
             <MuteButton color={colors.gold} />
             <RepeatButton color={colors.gold} />
             <RestartButton color={colors.gold} startText={activeTabAudio?.text} startCode={activeTabAudio?.code} />
@@ -13158,86 +13161,87 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             ) : (
               <ChunkNavButton direction="next" color={colors.ink} />
             )}
-            {isStoryUserAudioMode ? (
-              <UserAudioMainPlayButton ua={storyUserAudio} color={colors.teal} />
-            ) : (
-              <MainPlayButton
-                startText={activeTabAudio?.text}
-                startCode={activeTabAudio?.code}
-                resolveStartOffset={activeTabAudio?.resolveStartOffset}
-                color={colors.teal}
-              />
-            )}
+            <div style={{ margin: "0 4px" }}>
+              {isStoryUserAudioMode ? (
+                <UserAudioMainPlayButton ua={storyUserAudio} color={colors.teal} />
+              ) : (
+                <MainPlayButton
+                  startText={activeTabAudio?.text}
+                  startCode={activeTabAudio?.code}
+                  resolveStartOffset={activeTabAudio?.resolveStartOffset}
+                  color={colors.teal}
+                />
+              )}
+            </div>
             {isStoryUserAudioMode ? (
               <UserAudioChunkNavButton direction="prev" ua={storyUserAudio} color={colors.ink} />
             ) : (
               <ChunkNavButton direction="prev" color={colors.ink} />
             )}
-          </div>
-          {/* آیکونِ شفافیتِ پلیر — به‌جای نوارِ اسلایدرِ همیشه-نمایانِ قبلی که
-              فضا اشغال می‌کرد، حالا فقط یه آیکونِ کوچیک نشون داده می‌شه؛ با
-              کلیک روش، پاپ‌آورِ اسلایدر (با همون منطق و ذخیره‌سازیِ قبلی +
-              دکمه‌ی ریست) باز/بسته می‌شه. */}
-          <div className="px-4" style={{ paddingTop: 2, paddingBottom: 6, display: "flex", justifyContent: "flex-end", position: "relative" }}>
-            <button
-              onClick={(e) => { e.stopPropagation(); setOpacityPopoverOpen((v) => !v); }}
-              aria-label="تنظیمِ شفافیتِ پلیر"
-              title="تنظیمِ شفافیتِ پلیر"
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: opacityPopoverOpen ? colors.gold : colors.inkSoft,
-                padding: 4,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Layers size={15} />
-            </button>
-            {opacityPopoverOpen && (
-              <div
-                onMouseDown={(e) => e.stopPropagation()}
-                onTouchStart={(e) => e.stopPropagation()}
+            {/* آیکونِ شفافیتِ پلیر — کلیک روش پاپ‌آورِ اسلایدر (با دکمه‌ی ریست)
+                رو دقیقاً بالایِ خودِ آیکون باز می‌کنه. */}
+            <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+              <button
+                onClick={(e) => { e.stopPropagation(); setOpacityPopoverOpen((v) => !v); }}
+                aria-label="تنظیمِ شفافیتِ پلیر"
+                title="تنظیمِ شفافیتِ پلیر"
                 style={{
-                  position: "absolute",
-                  bottom: "100%",
-                  right: 12,
-                  marginBottom: 6,
-                  backgroundColor: colors.paper,
-                  border: `1px solid ${colors.cardBorder}`,
-                  borderRadius: 12,
-                  padding: "8px 12px",
-                  boxShadow: "0 -2px 10px rgba(28,37,65,0.15)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: opacityPopoverOpen ? colors.gold : colors.inkSoft,
+                  padding: 4,
                   display: "flex",
                   alignItems: "center",
-                  gap: 8,
-                  width: 220,
-                  zIndex: 42,
+                  justifyContent: "center",
                 }}
               >
-                <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={playerOpacity}
-                  onChange={(e) => setPlayerOpacity(Number(e.target.value))}
-                  aria-label="شفافیت پلیر"
-                  style={{ flex: 1, accentColor: colors.gold }}
-                />
-                <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
-                <button
-                  onClick={() => setPlayerOpacity(100)}
-                  aria-label="بازنشانی شفافیت پلیر به ۱۰۰٪"
-                  title="بازنشانی شفافیت"
-                  style={{ background: "none", border: "none", cursor: "pointer", color: colors.gold, padding: 2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+                <Layers size={15} />
+              </button>
+              {opacityPopoverOpen && (
+                <div
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  style={{
+                    position: "absolute",
+                    bottom: "100%",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    marginBottom: 6,
+                    backgroundColor: colors.paper,
+                    border: `1px solid ${colors.cardBorder}`,
+                    borderRadius: 12,
+                    padding: "8px 12px",
+                    boxShadow: "0 -2px 10px rgba(28,37,65,0.15)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    width: 220,
+                    zIndex: 42,
+                  }}
                 >
-                  <RotateCcw size={14} />
-                </button>
-              </div>
-            )}
+                  <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={playerOpacity}
+                    onChange={(e) => setPlayerOpacity(Number(e.target.value))}
+                    aria-label="شفافیت پلیر"
+                    style={{ flex: 1, accentColor: colors.gold }}
+                  />
+                  <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
+                  <button
+                    onClick={() => setPlayerOpacity(100)}
+                    aria-label="بازنشانی شفافیت پلیر به ۱۰۰٪"
+                    title="بازنشانی شفافیت"
+                    style={{ background: "none", border: "none", cursor: "pointer", color: colors.gold, padding: 2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+                  >
+                    <RotateCcw size={14} />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
         {/* دکمه‌ی «بازنشانیِ شفافیت» — وقتی شفافیتِ پلیر خیلی پایین میاد (زیرِ
