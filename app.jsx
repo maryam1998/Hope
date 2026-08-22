@@ -4905,7 +4905,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
           asrModelWorkerRef.current = null;
           reject(new Error(ev?.message || "اجرایِ Workerِ تشخیصِ گفتار با خطا مواجه شد"));
         };
-        worker.postMessage({ type: "preload", modelId: "Xenova/whisper-base" });
+        worker.postMessage({ type: "preload", modelId: "Xenova/whisper-small" });
       });
       setAsrModelProgress("");
       setAsrModelDone(true);
@@ -8921,7 +8921,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   // سرور نمی‌ره، ولی خودِ مدل بارِ اول نیاز به اینترنت داره.
   const AUDIO_READ_MAX_BYTES = 25 * 1024 * 1024; // ۲۵ مگابایت — سقفِ حجمِ فایلِ صوتی
   const AUDIO_READ_MAX_SECONDS = 20 * 60; // ۲۰ دقیقه — فراتر از این، تشخیصِ گفتارِ محلی رویِ موبایل عملاً خیلی کند/سنگین می‌شه
-  const AUDIO_WHISPER_MODEL = "Xenova/whisper-base"; // مولتی‌لینگوال، تعادلِ حجم/دقت — برای دقتِ بیشتر (با حجمِ خیلی بیشتر) می‌شه به "Xenova/whisper-small" تغییرش داد
+  const AUDIO_WHISPER_MODEL = "Xenova/whisper-small"; // مولتی‌لینگوال؛ نسبت به base دقتِ محسوس‌تری داره (به‌خصوص رویِ ۱۳ زبونِ اپ) با اینکه سرعتش هنوز قابلِ قبوله — برایِ دقتِ بازم بیشتر (و کندتر) می‌شه به "Xenova/whisper-medium" تغییرش داد
 
   const handleAudioImportForReading = async (e) => {
     const file = e.target.files?.[0];
