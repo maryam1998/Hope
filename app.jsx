@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -5739,6 +5739,7 @@ function MuteButton({ color }) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        position: "relative",
         background: "none",
         border: "none",
         cursor: "pointer",
@@ -5748,6 +5749,25 @@ function MuteButton({ color }) {
       }}
     >
       {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+      {/* خطِ قطریِ روشن/واضح روی خودِ آیکون — علاوه بر آیکونِ VolumeX،
+          تا وقتی صدا خاموشه، بدونِ هیچ ابهامی (حتی با یه نگاهِ گذرا) روشن
+          باشه که صدا قطعه. */}
+      {muted && (
+        <span
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            width: 17,
+            height: 2,
+            backgroundColor: colors.rose,
+            transform: "translate(-50%, -50%) rotate(-45deg)",
+            borderRadius: 1,
+            pointerEvents: "none",
+          }}
+        />
+      )}
     </button>
   );
 }
@@ -5954,6 +5974,154 @@ function ChunkNavButton({ direction, color }) {
     >
       {direction === "prev" ? <SkipBack size={20} /> : <SkipForward size={20} />}
     </button>
+  );
+}
+// دکمه‌ی «ضبطِ صدایِ خودم» — گوشه‌ی بالا-راستِ پلیر. کاملاً جدا از پخشِ
+// اصلیِ TTS (که با MuteButton/MainPlayButton و speechController کار
+// می‌کنه): این ضبط با getUserMedia + MediaRecorder انجام می‌شه و پخشِ
+// برگشتی‌اش هم یه <audio> کاملاً مستقله — پس نه رویِ خواندنِ اپ تأثیر
+// می‌ذاره نه برعکس، و می‌شه هر دو رو همزمان پخش کرد و باهم مقایسه کرد.
+// صدایِ ضبط‌شده فقط توی حافظه (state) نگه داشته می‌شه — جایی ذخیره
+// نمی‌شه، موقتیه، و با دکمه‌ی ضربدر یا بستنِ صفحه پاک می‌شه.
+function MyVoiceRecorder({ color }) {
+  const [recording, setRecording] = useState(false);
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [playing, setPlaying] = useState(false);
+  const [micError, setMicError] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const streamRef = useRef(null);
+  const audioElRef = useRef(null);
+  const audioUrlRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      if (audioElRef.current) audioElRef.current.pause();
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    };
+  }, []);
+
+  const startRecording = async (e) => {
+    e.stopPropagation();
+    setMicError(false);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      const mr = new MediaRecorder(stream);
+      mr.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) chunksRef.current.push(ev.data);
+      };
+      mr.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
+        if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+        const url = URL.createObjectURL(blob);
+        audioUrlRef.current = url;
+        audioElRef.current = null;
+        setAudioUrl(url);
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+        }
+      };
+      mediaRecorderRef.current = mr;
+      mr.start();
+      setRecording(true);
+    } catch {
+      setMicError(true);
+    }
+  };
+
+  const stopRecording = (e) => {
+    e.stopPropagation();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    setRecording(false);
+  };
+
+  const togglePlay = (e) => {
+    e.stopPropagation();
+    if (!audioUrl) return;
+    if (!audioElRef.current) {
+      audioElRef.current = new Audio(audioUrl);
+      audioElRef.current.onended = () => setPlaying(false);
+    }
+    if (playing) {
+      audioElRef.current.pause();
+      setPlaying(false);
+    } else {
+      audioElRef.current.currentTime = 0;
+      audioElRef.current.play().catch(() => {});
+      setPlaying(true);
+    }
+  };
+
+  const deleteRecording = (e) => {
+    e.stopPropagation();
+    if (audioElRef.current) {
+      audioElRef.current.pause();
+      audioElRef.current = null;
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+    setAudioUrl(null);
+    setPlaying(false);
+  };
+
+  const c = color || colors.rose;
+
+  return (
+    <div
+      className="px-4"
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      style={{ paddingTop: 6, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}
+    >
+      {micError && (
+        <span style={{ fontSize: 10, color: colors.rose }}>دسترسی به میکروفون رد شد</span>
+      )}
+      {audioUrl && (
+        <>
+          <button
+            onClick={togglePlay}
+            aria-label={playing ? "توقفِ پخشِ صدایِ ضبط‌شده" : "پخشِ صدایِ ضبط‌شده‌ی من"}
+            title="پخشِ صدایِ خودم — جدا از خواندنِ اپ"
+            style={{ background: "none", border: "none", cursor: "pointer", color: colors.teal, padding: 3, display: "flex", alignItems: "center", justifyContent: "center" }}
+          >
+            {playing ? <Pause size={15} /> : <PlayCircle size={15} />}
+          </button>
+          <button
+            onClick={deleteRecording}
+            aria-label="حذفِ صدایِ ضبط‌شده"
+            title="حذفِ صدایِ ضبط‌شده (موقتی بود، ذخیره نمی‌شه)"
+            style={{ background: "none", border: "none", cursor: "pointer", color: colors.inkSoft, padding: 3, display: "flex", alignItems: "center", justifyContent: "center" }}
+          >
+            <X size={15} />
+          </button>
+        </>
+      )}
+      <button
+        onClick={recording ? stopRecording : startRecording}
+        aria-label={recording ? "توقفِ ضبط" : "ضبطِ صدایِ من"}
+        title={recording ? "توقفِ ضبط" : "ضبطِ صدایِ من — برایِ خواندنِ متن و تمرین با صدایِ بلندِ خودم"}
+        style={{
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          color: recording ? colors.rose : c,
+          padding: 3,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {recording ? <Square size={15} fill={colors.rose} /> : <Mic size={15} />}
+      </button>
+    </div>
   );
 }
 // نوارِ پیشرفتِ کِشیدنی/تپ‌کردنیِ پلیر — دقیقاً همون ایده‌ی دموی
@@ -12168,10 +12336,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   useEffect(() => {
     localStorage.setItem("phrasebook-player-opacity", String(playerOpacity));
   }, [playerOpacity]);
-  // پنلِ تنظیماتِ بیشترِ پلیر (شفافیت) — تو طراحیِ جدید، پشتِ دکمه‌ی «فهرست»
-  // (☰) جمع‌وجور شده تا نوارِ کنترلِ اصلی شلوغ نشه؛ خودِ قابلیت دقیقاً همونیه
-  // که قبلاً بود، فقط پیش‌فرض بسته‌ست.
-  const [showPlayerSettings, setShowPlayerSettings] = useState(false);
   // شفافیتِ پنلِ شناورِ «تمرین جمله‌سازی با هوش مصنوعی» — دقیقاً مثل
   // playerOpacity بالا، جدا و مستقل ذخیره می‌شه که با شفافیتِ پلیر تداخل
   // نکنه.
@@ -13152,6 +13316,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             WebkitTouchCallout: "none",
           }}
         >
+          {/* ضبطِ صدایِ خودم — گوشه‌ی بالا-راستِ پلیر، همیشه در دسترس (نه فقط
+              تبِ داستان‌ساز)؛ کاملاً مستقل از پخشِ اصلیِ TTS، پس می‌شه هر دو
+              رو همزمان پخش کرد و مقایسه کرد. */}
+          <MyVoiceRecorder color={colors.rose} />
           {/* سوییچِ TTS ⇄ صوتِ من — فقط توی تبِ داستان‌ساز نشون داده می‌شه. */}
           {tab === "story" && <PlayerBarStorySwitch ua={storyUserAudio} />}
           {/* ردیفِ نوارِ پیشرفت: زمانِ فعلی — نوارِ کِشیدنی — زمانِ کل — سرعت */}
@@ -13166,9 +13334,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             <RepeatButton color={colors.gold} />
             <RestartButton color={colors.gold} startText={activeTabAudio?.text} startCode={activeTabAudio?.code} />
             {isStoryUserAudioMode ? (
-              <UserAudioChunkNavButton direction="prev" ua={storyUserAudio} color={colors.ink} />
+              <UserAudioChunkNavButton direction="next" ua={storyUserAudio} color={colors.ink} />
             ) : (
-              <ChunkNavButton direction="prev" color={colors.ink} />
+              <ChunkNavButton direction="next" color={colors.ink} />
             )}
             {isStoryUserAudioMode ? (
               <UserAudioMainPlayButton ua={storyUserAudio} color={colors.teal} />
@@ -13181,47 +13349,27 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               />
             )}
             {isStoryUserAudioMode ? (
-              <UserAudioChunkNavButton direction="next" ua={storyUserAudio} color={colors.ink} />
+              <UserAudioChunkNavButton direction="prev" ua={storyUserAudio} color={colors.ink} />
             ) : (
-              <ChunkNavButton direction="next" color={colors.ink} />
+              <ChunkNavButton direction="prev" color={colors.ink} />
             )}
-            <button
-              onClick={() => setShowPlayerSettings((v) => !v)}
-              aria-label="تنظیماتِ پلیر"
-              title="تنظیماتِ پلیر (شفافیت)"
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: showPlayerSettings ? colors.gold : colors.ink,
-                padding: 6,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <ListMusic size={20} />
-            </button>
           </div>
-          {/* پنلِ تنظیماتِ بیشتر — شفافیتِ پلیر؛ همون قابلیتِ قبلی، فقط الان
-              پشتِ دکمه‌ی ☰ جمع‌وجور شده تا نوارِ کنترلِ اصلی شبیهِ پلیرِ عکسِ
-              فرستاده‌شده بمونه. */}
-          {showPlayerSettings && (
-            <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2, paddingBottom: 8 }}>
-              <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={playerOpacity}
-                onChange={(e) => setPlayerOpacity(Number(e.target.value))}
-                aria-label="شفافیت پلیر"
-                style={{ flex: 1, accentColor: colors.gold }}
-              />
-              <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
-            </div>
-          )}
+          {/* ردیفِ شفافیتِ پلیر — همیشه در پایینِ خودِ پلیر نشون داده می‌شه
+              (دیگه پشتِ دکمه‌ی جداگانه‌ای مخفی نیست). منطق و ذخیره‌سازیِ
+              قبلی (playerOpacity / localStorage) دست‌نخورده می‌مونه. */}
+          <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2, paddingBottom: 8 }}>
+            <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={playerOpacity}
+              onChange={(e) => setPlayerOpacity(Number(e.target.value))}
+              aria-label="شفافیت پلیر"
+              style={{ flex: 1, accentColor: colors.gold }}
+            />
+            <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
+          </div>
         </div>
         {/* دکمه‌ی «بازنشانیِ شفافیت» — وقتی شفافیتِ پلیر خیلی پایین میاد (زیرِ
             ۷۰٪)، خودِ نوار (و اسلایدرِ توش) هم کم‌رنگ/کم‌کنتراست می‌شه و
