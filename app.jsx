@@ -1108,142 +1108,6 @@ async function firestoreSaveState(uid, data) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 🌍 داستان‌های عمومی (Community Stories) — روی همون Supabase که بالا برای
-// حساب‌ها/همگام‌سازی وصل شده (نه Firebase — اون بخش بالا الان استفاده نمی‌شه،
-// چون FIREBASE_CONFIG هنوز پر نشده و اپ واقعاً از Supabase استفاده می‌کنه).
-//
-// ⚠️ برای فعال‌سازیِ این بخش، این SQL رو یه‌بار تو Supabase → SQL Editor اجرا کن:
-//
-//   create table if not exists community_stories (
-//     id uuid primary key default gen_random_uuid(),
-//     lang_code text not null,
-//     level text not null,
-//     content_type text,
-//     story_length text,
-//     words jsonb not null default '[]',
-//     paragraphs jsonb not null,
-//     questions jsonb not null default '[]',
-//     author_uid uuid references auth.users(id),
-//     views integer not null default 0,
-//     saves integer not null default 0,
-//     created_at timestamptz not null default now()
-//   );
-//   alter table community_stories enable row level security;
-//   create policy "anyone can read community stories" on community_stories
-//     for select using (true);
-//   create policy "anyone can add a community story" on community_stories
-//     for insert with check (true);
-//   -- توجه: افزایشِ views/saves از سمتِ کلاینت مستقیم UPDATE نمی‌زنه (چون
-//   -- policyِ update نداریم و نباید هرکسی بتونه متنِ داستانِ بقیه رو عوض
-//   -- کنه)؛ به‌جاش از یه تابعِ محدود (فقط همین دو ستون) استفاده می‌کنیم:
-//   create or replace function bump_community_story_stat(story_id uuid, stat_field text)
-//   returns void language plpgsql security definer as $$
-//   begin
-//     if stat_field = 'views' then
-//       update community_stories set views = views + 1 where id = story_id;
-//     elsif stat_field = 'saves' then
-//       update community_stories set saves = saves + 1 where id = story_id;
-//     end if;
-//   end; $$;
-//   grant execute on function bump_community_story_stat(uuid, text) to anon, authenticated;
-// ---------------------------------------------------------------------------
-// تعداد کاندیدی که برای پیداکردنِ «داستانِ مشابه» می‌گیریم — محدود نگه‌داشتنش
-// هزینه‌ی خوندن رو کم می‌کنه؛ همپوشانیِ لغات رو خودمون تو کلاینت حساب می‌کنیم
-// (Postgres جدولِ jsonb برای این مقایسه‌ی fuzzy مناسب نیست).
-const COMMUNITY_SIMILARITY_POOL = 40;
-
-// برای مقایسه‌ی «همپوشانیِ لغات هدف»، هر لیستِ لغت رو نرمالایز می‌کنیم (با
-// همون normalizeWord که بقیه‌ی اپ استفاده می‌کنه) تا اختلافِ حروفِ بزرگ/کوچیک
-// یا فاصله‌ی اضافه باعثِ عدمِ تطبیقِ کاذب نشه.
-function communityWordOverlapScore(wordsA, wordsB) {
-  const a = new Set((wordsA || []).map((w) => normalizeWord(w)).filter(Boolean));
-  const b = new Set((wordsB || []).map((w) => normalizeWord(w)).filter(Boolean));
-  if (!a.size || !b.size) return 0;
-  let intersection = 0;
-  a.forEach((w) => {
-    if (b.has(w)) intersection += 1;
-  });
-  const union = new Set([...a, ...b]).size;
-  return union ? intersection / union : 0;
-}
-
-// جستجوی «داستانِ مشابه» قبل از صدا زدنِ AI. فقط زبان و سطح دقیقاً باید
-// یکی باشه (وگرنه اصلاً به‌دردِ این یادگیرنده نمی‌خوره)؛ نوعِ محتوا و طولِ
-// داستان امتیازِ اضافه می‌دن ولی الزامی نیستن. اگه بهترین امتیاز از حدِ
-// آستانه بالاتر رفت، همون رو برمی‌گردونیم؛ وگرنه null (یعنی چیزِ مشابهِ
-// کافی پیدا نشد و باید AI صدا زده بشه).
-async function communityFindSimilarStory({ langCode, level, contentType, storyLength, words }) {
-  try {
-    const { data, error } = await supabase
-      .from("community_stories")
-      .select("*")
-      .eq("lang_code", langCode)
-      .eq("level", level)
-      .order("created_at", { ascending: false })
-      .limit(COMMUNITY_SIMILARITY_POOL);
-    if (error || !data) return null;
-    let best = null;
-    data.forEach((row) => {
-      const overlap = communityWordOverlapScore(words, row.words);
-      if (overlap < 0.4) return; // همپوشانیِ لغات خیلی کمه، جایگزینِ خوبی نیست
-      let score = overlap * 0.75;
-      if (row.content_type === contentType) score += 0.15;
-      if (row.story_length === storyLength) score += 0.1;
-      if (!best || score > best.score) best = { ...row, score, overlap };
-    });
-    if (best && best.score >= 0.55) return best;
-    return null;
-  } catch (e) {
-    return null; // آفلاین / جدول هنوز ساخته نشده — مشکلی نیست
-  }
-}
-
-// انتشارِ داستانِ تازه‌ساخته‌شده تو کتابخانه‌ی عمومی (اگه کاربر «عمومی» رو
-// انتخاب کرده باشه). fire-and-forget — نباید جلوی نمایشِ داستان به خودِ
-// کاربر رو بگیره یا خطا نشون بده.
-async function communityPublishStory({ langCode, level, contentType, storyLength, words, paragraphs, questions, uid }) {
-  try {
-    await supabase.from("community_stories").insert({
-      lang_code: langCode,
-      level,
-      content_type: contentType,
-      story_length: storyLength,
-      words,
-      paragraphs,
-      questions,
-      author_uid: uid || null,
-    });
-  } catch (e) {
-    // بی‌اهمیت — نسخه‌ی محلیِ کاربر همچنان نشون داده می‌شه
-  }
-}
-
-// فهرستِ داستان‌های عمومی برای پنلِ «داستان‌های کاربران» — بر اساسِ زبانِ
-// جاری + (اختیاری) سطح، مرتب‌شده بر اساسِ محبوب‌ترین (views) یا جدیدترین.
-async function communityListStories({ langCode, level, sort, limitN }) {
-  try {
-    let q = supabase.from("community_stories").select("*").eq("lang_code", langCode);
-    if (level && level !== "all") q = q.eq("level", level);
-    q = q.order(sort === "popular" ? "views" : "created_at", { ascending: false }).limit(limitN || 20);
-    const { data, error } = await q;
-    return error || !data ? [] : data;
-  } catch (e) {
-    return [];
-  }
-}
-
-// افزایشِ شمارنده‌ی views/saves از طریقِ تابعِ محدودِ بالا — بی‌صدا انجام
-// می‌شه، شکست‌خوردنش هم چیزی رو خراب نمی‌کنه (فقط شمارنده به‌روز نمی‌شه).
-async function communityBumpStat(id, field) {
-  if (!id) return;
-  try {
-    await supabase.rpc("bump_community_story_stat", { story_id: id, stat_field: field });
-  } catch (e) {
-    // بی‌اهمیت
-  }
-}
-
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
 const POS_FA = {
@@ -7206,25 +7070,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // می‌شه) به کاربر می‌گه کدوم لغت چند بار واقعاً استفاده شده.
   const [repeatNotice, setRepeatNotice] = useState("");
   const [showSaved, setShowSaved] = useState(false);
-  // ============================================================
-  // 🌍 داستان‌های عمومی (Community Stories)
-  // isPublicStory: وقتی کاربر داستان می‌سازه، آیا وارد کتابخانه‌ی عمومی
-  // بشه یا نه. پیشفرض عمومیه (صرفه‌جویی توکن بیشتر برای همه، به قیمتِ
-  // حریمِ خصوصیِ کمتر) — هر کاربر هر بار می‌تونه قبل از ساختن عوضش کنه.
-  const [isPublicStory, setIsPublicStory] = useState(true);
-  // چک‌کردنِ «داستانِ مشابه» قبل از صدا زدنِ AI؛ وقتی یکی پیدا شه، توی
-  // similarMatch می‌شینه و به‌جای ساختِ داستان، یه کارتِ انتخاب نشون داده
-  // می‌شه (بخون / بازم با AI بساز) — هیچ توکنی مصرف نمی‌شه مگر کاربر
-  // صریحاً «ساخت داستان جدید» رو بزنه.
-  const [checkingSimilar, setCheckingSimilar] = useState(false);
-  const [similarMatch, setSimilarMatch] = useState(null);
-  // پنلِ مرورِ «داستان‌های کاربران» — جدا از showSaved (که فقط داستان‌های
-  // خودِ همین کاربره)؛ همون الگوی دکمه/پنل تکرار شده.
-  const [showCommunity, setShowCommunity] = useState(false);
-  const [communitySort, setCommunitySort] = useState("popular"); // "popular" | "newest"
-  const [communityLevelFilter, setCommunityLevelFilter] = useState("all");
-  const [communityList, setCommunityList] = useState([]);
-  const [communityLoading, setCommunityLoading] = useState(false);
   // فیلترِ سطح برای لیستِ «داستان‌های ذخیره‌شده» — دقیقاً همون الگوی
   // LevelFilterRow که بقیه‌ی تب‌ها (واژگان، عبارت‌ها و ...) دارن؛ هر داستان
   // از قبل با سطحِ خودش (storyLevel) ذخیره می‌شه، این فیلتر فقط برای پیداکردن
@@ -7932,30 +7777,8 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // force=true یعنی «مطمئنم، بدونِ چک‌کردنِ دوباره‌ی داستان‌های مشابه، مستقیم
   // AI رو صدا بزن» — وقتی کاربر خودش از کارتِ «داستانِ مشابه پیدا شد» دکمه‌ی
   // «ساخت داستان جدید» رو بزنه همین حالت پیش میاد.
-  const generateStory = async ({ force } = {}) => {
+  const generateStory = async () => {
     if (!selectedWords.length || generating) return;
-    setSimilarMatch(null);
-
-    // ============================================================
-    // 🔎 قبل از صدا زدنِ AI: آیا داستانِ مشابهی (همون زبان + همون سطح +
-    // همپوشانیِ بالای لغاتِ هدف) قبلاً تو کتابخانه‌ی عمومی ساخته شده؟ اگه
-    // آره، به‌جای مصرفِ توکن، همون رو به کاربر پیشنهاد می‌دیم و خودش تصمیم
-    // می‌گیره بخونتش یا بازم داستانِ تازه بسازه.
-    if (!force) {
-      setCheckingSimilar(true);
-      const match = await communityFindSimilarStory({
-        langCode: storyLang,
-        level: storyLevel,
-        contentType,
-        storyLength,
-        words: selectedWords,
-      });
-      setCheckingSimilar(false);
-      if (match) {
-        setSimilarMatch(match);
-        return;
-      }
-    }
 
     // اطمینان از اینکه هر لغتی که برای این داستان استفاده می‌شه، تو انبار
     // دائمی «لغات ذخیره‌شده» هم بمونه — حتی اگه از یه مسیر دیگه (غیر از
@@ -8206,22 +8029,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       // از «لغات ذخیره‌شده» پاک می‌شدن. دیگه این کار انجام نمی‌شه — لغات
       // ذخیره‌شده می‌مونن تا هر وقت خواستی (با دکمه‌ی ضربدر کنار هرکدوم)
       // خودت پاکشون کنی.
-
-      // 🌍 اگه کاربر «عمومی» رو انتخاب کرده، همین داستانِ تازه‌ساخته‌شده رو
-      // (بی‌صدا، بدون بلاک‌کردنِ رابط کاربری) وارد کتابخانه‌ی عمومی می‌کنیم
-      // تا کاربرِ بعدی که همین زبان/سطح/لغات رو خواست، دیگه نیازی به AI نداشته باشه.
-      if (isPublicStory) {
-        communityPublishStory({
-          langCode: storyLang,
-          level: storyLevel,
-          contentType,
-          storyLength,
-          words: selectedWords,
-          paragraphs: storyParagraphs,
-          questions: finalQuestions,
-          uid,
-        });
-      }
     } catch (e) {
       const msg = String(e?.message || "");
       if (msg.startsWith("ai-backend-error:")) {
@@ -8499,52 +8306,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setSavedStories((prev) => prev.filter((s) => s.id !== id));
   };
 
-  // بازکردنِ یه داستانِ عمومی (چه از کارتِ «داستانِ مشابه پیدا شد» چه از
-  // پنلِ مرورِ «داستان‌های کاربران») — دقیقاً مثلِ openSavedStory، با این
-  // فرق که currentStoryId رو null می‌ذاریم (این داستانِ خودِ این کاربر
-  // نیست، هنوز تو «داستان‌های ذخیره‌شده»ی خودش ذخیره نشده) و شمارنده‌ی
-  // views رو (بی‌صدا) بالا می‌بریم.
-  const openCommunityStory = (entry) => {
-    setStoryLang(entry.lang_code);
-    setStoryLevel(entry.level);
-    setStoryLength(entry.story_length || "medium");
-    setContentType(entry.content_type || "general");
-    setSelectedWords(entry.words || []);
-    setParagraphs(entry.paragraphs);
-    setQuestions(entry.questions || []);
-    setAnswers({});
-    setSubmitted(false);
-    setShowSaved(false);
-    setShowCommunity(false);
-    setCurrentStoryId(null);
-    setSimilarMatch(null);
-    setError("");
-    setRepeatNotice("");
-    if (entry.id) communityBumpStat(entry.id, "views");
-  };
-
-  // پنلِ «داستان‌های کاربران» هر وقت باز بشه یا فیلتر/مرتب‌سازی/زبان عوض
-  // بشه، دوباره از Supabase می‌گیره.
-  useEffect(() => {
-    if (!showCommunity) return;
-    let cancelled = false;
-    setCommunityLoading(true);
-    communityListStories({
-      langCode: storyLang,
-      level: communityLevelFilter,
-      sort: communitySort,
-      limitN: 20,
-    }).then((list) => {
-      if (!cancelled) {
-        setCommunityList(list);
-        setCommunityLoading(false);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [showCommunity, storyLang, communityLevelFilter, communitySort]);
-
   const submitQuiz = () => {
     setSubmitted(true);
     setWordStats((prev) => {
@@ -8572,24 +8333,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         <div className="flex gap-2">
           <button
             onClick={() => {
-              setShowCommunity((s) => !s);
-              setShowSaved(false);
-            }}
-            style={{
-              fontSize: 12,
-              padding: "5px 12px",
-              borderRadius: 20,
-              border: `1px solid ${colors.cardBorder}`,
-              backgroundColor: showCommunity ? colors.teal : "white",
-              color: showCommunity ? "white" : colors.ink,
-            }}
-          >
-            🌍 داستان‌های کاربران
-          </button>
-          <button
-            onClick={() => {
               setShowSaved((s) => !s);
-              setShowCommunity(false);
             }}
             style={{
               fontSize: 12,
@@ -8605,74 +8349,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         </div>
       </div>
 
-      {showCommunity ? (
-        <div className="flex flex-col gap-3">
-          <p style={{ fontSize: 12, color: colors.inkSoft }}>
-            داستان‌هایی که کاربرهای دیگه با زبان «{storyLangLabel}» ساخته و «عمومی» گذاشته‌ان — خوندنشون کاملاً رایگانه و AI صدا زده نمی‌شه.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setCommunitySort("popular")}
-              style={{
-                padding: "5px 12px",
-                borderRadius: 20,
-                fontSize: 12,
-                border: `1px solid ${communitySort === "popular" ? colors.gold : colors.cardBorder}`,
-                backgroundColor: communitySort === "popular" ? colors.goldSoft : "white",
-              }}
-            >
-              🔥 محبوب‌ترین
-            </button>
-            <button
-              onClick={() => setCommunitySort("newest")}
-              style={{
-                padding: "5px 12px",
-                borderRadius: 20,
-                fontSize: 12,
-                border: `1px solid ${communitySort === "newest" ? colors.gold : colors.cardBorder}`,
-                backgroundColor: communitySort === "newest" ? colors.goldSoft : "white",
-              }}
-            >
-              🆕 جدیدترین
-            </button>
-          </div>
-          <LevelFilterRow levelFilter={communityLevelFilter} setLevelFilter={setCommunityLevelFilter} uiLang={uiLang} />
-
-          {communityLoading && <p style={{ fontSize: 13, color: colors.inkSoft }}>در حال بارگذاری...</p>}
-          {!communityLoading && communityList.length === 0 && (
-            <p style={{ fontSize: 13, color: colors.inkSoft }}>
-              هنوز داستانِ عمومی‌ای برای «{storyLangLabel}»{communityLevelFilter !== "all" ? ` و سطحِ ${communityLevelFilter}` : ""} ساخته نشده.
-            </p>
-          )}
-          {!communityLoading &&
-            communityList.map((s) => (
-              <div
-                key={s.id}
-                style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 14 }}
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p style={{ fontWeight: 700, fontSize: 13 }}>
-                      {LANGUAGES.find((l) => l.code === s.lang_code)?.label} · {s.level} ·{" "}
-                      {CONTENT_TYPES.find((c) => c.key === s.content_type)?.label || "عمومی"} ·{" "}
-                      {STORY_LENGTHS.find((l) => l.key === s.story_length)?.label || "متوسط"}
-                    </p>
-                    <p style={{ fontSize: 12, color: colors.inkSoft }}>{(s.words || []).join("، ")}</p>
-                    <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 4 }}>
-                      👁 {s.views || 0} مطالعه · ❤️ {s.saves || 0} ذخیره
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => openCommunityStory(s)}
-                    style={{ fontSize: 12, color: colors.teal, textDecoration: "underline", whiteSpace: "nowrap" }}
-                  >
-                    باز کردن
-                  </button>
-                </div>
-              </div>
-            ))}
-        </div>
-      ) : showSaved ? (
+      {showSaved ? (
         <div className="flex flex-col gap-3">
           {/* سطح‌ها همیشه توی ردیفِ خودشون، تمام‌عرض و بدون تنگ‌شدن نشون
               داده می‌شن؛ مرتب‌سازی یه ردیفِ جدا زیرشه — قبلاً کنارِ هم
@@ -8687,20 +8364,18 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             <p style={{ fontSize: 13, color: colors.inkSoft }}>هنوز داستانی ذخیره نکردی.</p>
           )}
           {savedStories.length > 0 && (() => {
-            // هر داستان از قبل با سطحِ خودش (storyLevel) ذخیره شده؛ اینجا فقط
-            // بر همون اساس فیلتر/دسته‌بندی می‌کنیم — وقتی فیلترِ خاصی
-            // (مثلاً B1) انتخاب شده فقط داستان‌های همون سطح نشون داده می‌شن،
-            // وقتی «همه سطح‌ها»ست، داستان‌ها زیرِ عنوانِ سطحِ خودشون (به ترتیبِ
-            // A1→C2) دسته‌بندی می‌شن تا پیداکردن‌شون راحت‌تر باشه.
+            // هر داستان از قبل با سطحِ خودش (storyLevel) ذخیره شده. وقتی فیلترِ
+            // خاصی (مثلاً B1) انتخاب شده فقط داستان‌های همون سطح نشون داده
+            // می‌شن. وقتی «همه سطح‌ها»ست، دیگه بر اساسِ سطح دسته‌بندی/تفکیک
+            // نمی‌کنیم — همه‌ی داستان‌ها با هم قاطی، فقط بر اساسِ sortKey
+            // (مثلاً تاریخ) مرتب می‌شن؛ سطحِ هر داستان همون‌طور که قبلاً بود
+            // (خط اول کارت) نمایش داده می‌شه.
             const groups = (
               savedStoriesLevelFilter !== "all"
                 ? [[savedStoriesLevelFilter, savedStories.filter((s) => s.storyLevel === savedStoriesLevelFilter)]]
-                : [
-                    ...LEVELS.map((lv) => [lv, savedStories.filter((s) => s.storyLevel === lv)]),
-                    ["نامشخص", savedStories.filter((s) => !LEVELS.includes(s.storyLevel))],
-                  ].filter(([, list]) => list.length > 0)
+                : [["all", savedStories]]
             ).map(([lv, list]) => [lv, sortSavedStories(list, savedStoriesSort)]);
-            if (!groups.length) {
+            if (!groups.length || groups.every(([, list]) => list.length === 0)) {
               return (
                 <p style={{ fontSize: 13, color: colors.inkSoft }}>
                   داستانی با سطح {savedStoriesLevelFilter} ذخیره نشده.
@@ -8709,11 +8384,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             }
             return groups.map(([lv, list]) => (
               <div key={lv} className="flex flex-col gap-2">
-                {savedStoriesLevelFilter === "all" && (
-                  <p style={{ fontSize: 12, fontWeight: 700, color: colors.teal, margin: "4px 0 0" }}>
-                    سطح {lv} ({list.length})
-                  </p>
-                )}
                 {list.map((s) => (
                   <div
                     key={s.id}
@@ -9087,38 +8757,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         </div>
       )}
 
-      {/* 🔎 وقتی قبل از ساختن، یه داستانِ عمومیِ مشابه (همون زبان+سطح، و
-          همپوشانیِ بالای لغاتِ هدف) پیدا بشه، به‌جای مصرفِ AI این کارت
-          نشون داده می‌شه — کاربر خودش تصمیم می‌گیره. */}
-      {similarMatch && (
-        <div style={{ backgroundColor: colors.goldSoft, border: `1px solid ${colors.gold}`, borderRadius: 12, padding: 14 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
-            یک داستانِ مشابه (شباهت حدود {Math.round(similarMatch.score * 100)}٪) قبلاً ساخته شده
-          </p>
-          <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 10 }}>
-            همون زبان، همون سطح و اکثر لغاتِ هدف رو داره. می‌تونی رایگان بخونیش، یا بازم با AI یه داستانِ تازه بسازی.
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => openCommunityStory(similarMatch)}
-              style={{ flex: 1, padding: "8px 10px", borderRadius: 10, fontSize: 12, fontWeight: 700, backgroundColor: colors.teal, color: "white" }}
-            >
-              📖 خواندن داستانِ مشابه (رایگان)
-            </button>
-            <button
-              onClick={() => generateStory({ force: true })}
-              disabled={generating}
-              style={{ flex: 1, padding: "8px 10px", borderRadius: 10, fontSize: 12, fontWeight: 700, backgroundColor: "white", border: `1px solid ${colors.gold}`, color: colors.ink, opacity: generating ? 0.6 : 1 }}
-            >
-              ✨ ساخت داستانِ جدید (AI)
-            </button>
-          </div>
-        </div>
-      )}
-
       <button
         onClick={() => generateStory()}
-        disabled={!selectedWords.length || generating || checkingSimilar}
+        disabled={!selectedWords.length || generating}
         style={{
           display: "flex",
           alignItems: "center",
@@ -9129,15 +8770,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           borderRadius: 14,
           padding: "12px 16px",
           fontWeight: 700,
-          opacity: !selectedWords.length || generating || checkingSimilar ? 0.6 : 1,
+          opacity: !selectedWords.length || generating ? 0.6 : 1,
         }}
       >
         <Sparkles size={18} />
-        {checkingSimilar
-          ? "در حال جستجوی داستانِ مشابه..."
-          : generating
-          ? "در حال ساخت داستان..."
-          : "بساز داستان"}
+        {generating ? "در حال ساخت داستان..." : "بساز داستان"}
       </button>
 
       <div style={{ textAlign: "center" }}>
