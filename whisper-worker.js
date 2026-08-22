@@ -18,16 +18,37 @@ let cachedModelId = null;
 // دانلود/آماده‌سازیِ مدل، با watchdog: اگه ۳۰ ثانیه هیچ پیشرفتی تویِ
 // دانلود نیاد (مثلاً به‌خاطرِ محدودیتِ دسترسی به huggingface.co تویِ بعضی
 // شبکه‌ها)، به‌جای هنگِ ابدی، خطایِ روشن می‌ده.
-async function ensureModelLoaded(modelId) {
-  if (cachedTranscriber && cachedModelId === modelId) {
-    self.postMessage({ type: "model-progress", progress: 100 });
-    return cachedTranscriber;
-  }
-  const { pipeline, env } = await import("https://esm.sh/@huggingface/transformers@3.0.0");
-  env.allowLocalModels = false;
+// نکته‌ی مهم: تویِ transformers.js، دیفالتِ dtype رویِ wasm از قبل خودش
+// "q8" (کوانتایزِ int8) بود — یعنی کدِ قبلی هم از اولش کوانتایز بارگذاری
+// می‌کرد و اینجا صراحتاً همون q8 رو نگه می‌داریم، فقط برایِ خوانایی.
+// رویِ WebGPU اما یه باگِ شناخته‌شده تویِ خودِ transformers.js هست:
+// دیکودرِ q8 با WebGPU برایِ مدل‌هایِ Whisper خروجیِ نامفهوم/بی‌معنی
+// می‌ده (encoder سالمه، فقط decoder)؛ پس رویِ WebGPU از dtypeِ پیش‌فرضش
+// (fp32) استفاده می‌کنیم، نه q8 — حجمِ دانلود بیشتره ولی خروجی درسته.
+function dtypeFor(device) {
+  return device === "webgpu" ? "fp32" : "q8";
+}
 
+// اگه مرورگر از WebGPU پشتیبانی کنه، اجراش رو بهش می‌سپاریم (چند برابرِ
+// wasm سریع‌تره)؛ در غیرِ این صورت (یا اگه خودِ بارگذاری با WebGPU خطا
+// بده) به‌صورتِ خودکار به wasm برمی‌گردیم — پس رویِ گوشی/مرورگرِ قدیمی‌تر
+// هم چیزی نمی‌شکنه.
+async function pickDevice() {
+  try {
+    if (self.navigator?.gpu && (await self.navigator.gpu.requestAdapter())) {
+      return "webgpu";
+    }
+  } catch {
+    // ignore — می‌ریم سراغِ wasm
+  }
+  return "wasm";
+}
+
+async function loadWithWatchdog(pipelineFn, modelId, device) {
   let lastProgressAt = Date.now();
-  const modelPromise = pipeline("automatic-speech-recognition", modelId, {
+  const modelPromise = pipelineFn("automatic-speech-recognition", modelId, {
+    dtype: dtypeFor(device),
+    device,
     progress_callback: (p) => {
       lastProgressAt = Date.now();
       if (p?.status === "progress" && Number.isFinite(p.progress)) {
@@ -45,12 +66,35 @@ async function ensureModelLoaded(modelId) {
     }, 3000);
   });
   try {
-    cachedTranscriber = await Promise.race([modelPromise, stallPromise]);
-    cachedModelId = modelId;
-    return cachedTranscriber;
+    return await Promise.race([modelPromise, stallPromise]);
   } finally {
     clearInterval(stallTimer);
   }
+}
+
+async function ensureModelLoaded(modelId) {
+  if (cachedTranscriber && cachedModelId === modelId) {
+    self.postMessage({ type: "model-progress", progress: 100 });
+    return cachedTranscriber;
+  }
+  const { pipeline, env } = await import("https://esm.sh/@huggingface/transformers@3.0.0");
+  env.allowLocalModels = false;
+
+  const device = await pickDevice();
+  try {
+    cachedTranscriber = await loadWithWatchdog(pipeline, modelId, device);
+  } catch (err) {
+    // اگه انتخابِ WebGPU بود و خودِ بارگذاری (نه تایم‌اوت) شکست خورد، یه بار
+    // دیگه با wasm امتحان می‌کنیم — بعضی مرورگرها navigator.gpu رو دارن ولی
+    // موقعِ ساختِ واقعیِ pipeline خطا می‌دن.
+    if (device === "webgpu" && !/بیش از ۳۰ ثانیه/.test(err?.message || "")) {
+      cachedTranscriber = await loadWithWatchdog(pipeline, modelId, "wasm");
+    } else {
+      throw err;
+    }
+  }
+  cachedModelId = modelId;
+  return cachedTranscriber;
 }
 
 self.onmessage = async (e) => {
