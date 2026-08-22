@@ -222,9 +222,11 @@ async function deleteStoryAudioRecord(storyKey) {
 }
 
 // هوکِ مدیریتِ صوتِ کاربر برای یک داستانِ مشخص (storyKey پایدار — معمولاً
-// mainStoryKey). یک <audio> واقعی رو کنترل می‌کنه؛ در «حالتِ علامت‌گذاری»
-// هر بار markLine() صدا زده بشه، زمانِ فعلیِ پخش رو به‌عنوانِ نقطه‌ی
-// شروعِ جمله‌ی بعدی (به ترتیبِ allSentences) ثبت می‌کنه.
+// mainStoryKey). یک <audio> واقعی رو کنترل می‌کنه. بعد از آپلود، به‌محضِ
+// معلوم‌شدنِ duration، تایم‌استمپِ هر جمله به‌صورتِ خودکار و متناسب با طولِ
+// کاراکتریِ همون جمله نسبت به کلِ متن تخمین زده می‌شه (سریع، ولی تقریبی).
+// بعدش کاربر می‌تونه با «حالتِ تنظیمِ دستی» (adjustDraft) هر خط رو با یه
+// اسلایدر بینِ خطِ قبل/بعدش درگ کنه تا دقیق‌تر بشه.
 function useStoryUserAudio(storyKey, allSentences) {
   const audioElRef = useRef(null);
   if (!audioElRef.current && typeof Audio !== "undefined") {
@@ -235,10 +237,22 @@ function useStoryUserAudio(storyKey, allSentences) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [marking, setMarking] = useState(false);
-  const [markIndex, setMarkIndex] = useState(0); // پیشرفت در allSentences حین علامت‌گذاری
-  const markedRef = useRef([]);
+  const [adjusting, setAdjusting] = useState(false);
+  const [adjustDraft, setAdjustDraft] = useState([]); // کپیِ قابل‌ویرایش، فقط حینِ تنظیم
   const objectUrlRef = useRef(null);
+  const pendingAutoRef = useRef(false); // یعنی: بعد از loadedmetadata خودکار تایم‌بندی کن
+
+  function computeAutoTimestamps(dur) {
+    if (!allSentences || !allSentences.length || !dur) return [];
+    const lens = allSentences.map((s) => (s?.text || "").length || 1);
+    const total = lens.reduce((a, b) => a + b, 0) || 1;
+    let acc = 0;
+    return allSentences.map((s, i) => {
+      const t = { pi: s._pi, si: s._si, time: (acc / total) * dur };
+      acc += lens[i];
+      return t;
+    });
+  }
 
   // بارگذاریِ اولیه از IndexedDB وقتی storyKey عوض می‌شه
   useEffect(() => {
@@ -248,7 +262,8 @@ function useStoryUserAudio(storyKey, allSentences) {
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
-    setMarking(false);
+    setAdjusting(false);
+    pendingAutoRef.current = false;
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current);
       objectUrlRef.current = null;
@@ -270,7 +285,19 @@ function useStoryUserAudio(storyKey, allSentences) {
     const el = audioElRef.current;
     if (!el) return;
     const onTime = () => setCurrentTime(el.currentTime || 0);
-    const onDur = () => setDuration(el.duration || 0);
+    const onDur = async () => {
+      const dur = el.duration || 0;
+      setDuration(dur);
+      if (pendingAutoRef.current && dur) {
+        pendingAutoRef.current = false;
+        const auto = computeAutoTimestamps(dur);
+        setTimestamps(auto);
+        if (storyKey) {
+          const rec = await getStoryAudioRecord(storyKey);
+          if (rec) await saveStoryAudioRecord(storyKey, { ...rec, timestamps: auto });
+        }
+      }
+    };
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
     const onEnd = () => setIsPlaying(false);
@@ -286,14 +313,19 @@ function useStoryUserAudio(storyKey, allSentences) {
       el.removeEventListener("pause", onPause);
       el.removeEventListener("ended", onEnd);
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storyKey, allSentences]);
 
   async function uploadFile(file) {
     if (!storyKey || !file) return;
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     const url = URL.createObjectURL(file);
     objectUrlRef.current = url;
-    if (audioElRef.current) audioElRef.current.src = url;
+    pendingAutoRef.current = true; // همین که duration معلوم شد، خودکار تایم‌بندی کن
+    if (audioElRef.current) {
+      audioElRef.current.src = url;
+      audioElRef.current.load();
+    }
     setTimestamps([]);
     setHasAudio(true);
     await saveStoryAudioRecord(storyKey, { blob: file, timestamps: [], savedAt: Date.now() });
@@ -303,36 +335,38 @@ function useStoryUserAudio(storyKey, allSentences) {
   function pause() { audioElRef.current?.pause(); }
   function seek(t) { if (audioElRef.current) audioElRef.current.currentTime = t; }
 
-  function startMarking() {
-    markedRef.current = [];
-    setMarkIndex(0);
-    setMarking(true);
-    seek(0);
-    play();
+  function regenerateAuto() {
+    if (!duration) return;
+    setTimestamps(computeAutoTimestamps(duration));
   }
-  function markLine() {
-    if (!marking || !allSentences || markIndex >= allSentences.length) return;
-    const s = allSentences[markIndex];
-    markedRef.current.push({ pi: s._pi, si: s._si, time: audioElRef.current?.currentTime || 0 });
-    setMarkIndex((i) => i + 1);
+
+  // «تنظیمِ دستی»: یه کپیِ قابل‌ویرایش از تایم‌استمپ‌ها می‌سازیم؛ هر خط با
+  // یه اسلایدر (بینِ زمانِ خطِ قبل و خطِ بعد) قابلِ درگ کردنه. تا وقتی
+  // «ذخیره» زده نشده، چیزی روی IndexedDB نوشته نمی‌شه.
+  function startAdjusting() {
+    setAdjustDraft(timestamps.length ? timestamps.map((t) => ({ ...t })) : computeAutoTimestamps(duration));
+    setAdjusting(true);
   }
-  async function finishMarking(save) {
-    pause();
-    setMarking(false);
-    if (save && markedRef.current.length && storyKey) {
+  function updateDraftTime(index, time) {
+    setAdjustDraft((prev) => {
+      const next = prev.slice();
+      const lo = index > 0 ? next[index - 1].time : 0;
+      const hi = index < next.length - 1 ? next[index + 1].time : (duration || time);
+      next[index] = { ...next[index], time: Math.min(Math.max(time, lo), hi) };
+      return next;
+    });
+  }
+  async function saveAdjusting() {
+    setTimestamps(adjustDraft);
+    setAdjusting(false);
+    if (storyKey) {
       const rec = await getStoryAudioRecord(storyKey);
-      const newTimestamps = markedRef.current.slice();
-      setTimestamps(newTimestamps);
-      if (rec) {
-        await saveStoryAudioRecord(storyKey, { ...rec, timestamps: newTimestamps });
-      }
+      if (rec) await saveStoryAudioRecord(storyKey, { ...rec, timestamps: adjustDraft });
     }
   }
-  function cancelMarking() {
-    pause();
-    setMarking(false);
-    setMarkIndex(0);
-    markedRef.current = [];
+  function cancelAdjusting() {
+    setAdjusting(false);
+    setAdjustDraft([]);
   }
 
   async function removeAudio() {
@@ -363,17 +397,18 @@ function useStoryUserAudio(storyKey, allSentences) {
     isPlaying,
     currentTime,
     duration,
-    marking,
-    markIndex,
+    adjusting,
+    adjustDraft,
     activeSentence,
     uploadFile,
     play,
     pause,
     seek,
-    startMarking,
-    markLine,
-    finishMarking,
-    cancelMarking,
+    regenerateAuto,
+    startAdjusting,
+    updateDraftTime,
+    saveAdjusting,
+    cancelAdjusting,
     removeAudio,
   };
 }
@@ -7454,23 +7489,23 @@ function enforceSentenceSplit(paragraphs) {
 
 // نوارِ کوچکِ صوتِ کاربر برای داستان — بالای متنِ داستان می‌شینه. یه سوییچِ
 // دوحالته (TTS ⇄ صوتِ من) داره؛ اگه هنوز صوتی آپلود نشده فقط دکمه‌ی آپلود
-// نشون می‌ده. بعد از آپلود، اگه تایم‌استمپ نداشته باشه دکمه‌ی «علامت‌گذاری
-// خط‌ها» ظاهر می‌شه؛ در حینِ علامت‌گذاری هر تپ روی «خطِ بعدی» زمانِ فعلیِ
-// پخش رو به همون جمله وصل می‌کنه. بعد از داشتنِ تایم‌استمپ، یه نوارِ پخش/
-// مکث/پیشرفتِ ساده نشون داده می‌شه.
+// نشون می‌ده. بعد از آپلود، تایم‌بندیِ هر خط خودکار (بر اساسِ طولِ متن)
+// تخمین زده می‌شه. دکمه‌ی «تنظیمِ دستی» یه لیستِ همه‌ی خط‌ها با یه
+// اسلایدر برای هر خط نشون می‌ده — کاربر با کشیدنِ (درگ) اسلایدر، زمانِ
+// دقیقِ همون خط رو (بینِ خطِ قبل و بعدش) تنظیم می‌کنه.
 function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode, allSentences }) {
   const fileInputRef = useRef(null);
   const {
     hasAudio, timestamps, isPlaying, currentTime, duration,
-    marking, markIndex, uploadFile, play, pause, seek,
-    startMarking, markLine, finishMarking, cancelMarking, removeAudio,
+    adjusting, adjustDraft, uploadFile, play, pause, seek,
+    regenerateAuto, startAdjusting, updateDraftTime, saveAdjusting, cancelAdjusting, removeAudio,
   } = userAudio;
 
   function fmtTime(sec) {
-    const s = Math.max(0, Math.round(sec || 0));
+    const s = Math.max(0, sec || 0);
     const m = Math.floor(s / 60);
     const r = s % 60;
-    return toFaDigits(`${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`);
+    return toFaDigits(`${String(m).padStart(2, "0")}:${r.toFixed(1).padStart(4, "0")}`);
   }
 
   const boxStyle = {
@@ -7481,43 +7516,53 @@ function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode, allSenten
     backgroundColor: colors.cardBg || "white",
   };
 
-  if (marking) {
-    const currentLine = allSentences[markIndex];
-    const done = markIndex >= (allSentences?.length || 0);
+  if (adjusting) {
     return (
       <div style={boxStyle}>
-        <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>
-          {done ? "همه‌ی خط‌ها علامت‌گذاری شد ✅" : `علامت‌گذاری خط ${toFaDigits(String(markIndex + 1))} از ${toFaDigits(String(allSentences.length))}`}
+        <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 8 }}>
+          هر اسلایدر رو بکش تا زمانِ شروعِ اون خط دقیق بشه. با «پخش از اینجا» می‌تونی چک کنی.
         </p>
-        {currentLine && (
-          <p style={{ fontSize: 14, marginBottom: 8, fontFamily: fontFa }} dir="auto">
-            {currentLine.text}
-          </p>
-        )}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div style={{ maxHeight: 320, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
+          {adjustDraft.map((ts, idx) => {
+            const s = allSentences.find((x) => x._pi === ts.pi && x._si === ts.si);
+            const lo = idx > 0 ? adjustDraft[idx - 1].time : 0;
+            const hi = idx < adjustDraft.length - 1 ? adjustDraft[idx + 1].time : (duration || ts.time);
+            return (
+              <div key={`${ts.pi}-${ts.si}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <p style={{ fontSize: 13, fontFamily: fontFa, flex: 1 }} dir="auto">{s?.text}</p>
+                  <span style={{ fontSize: 11, color: colors.inkSoft, flexShrink: 0 }}>{fmtTime(ts.time)}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={lo}
+                    max={hi}
+                    step={0.05}
+                    value={ts.time}
+                    onChange={(e) => updateDraftTime(idx, Number(e.target.value))}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    onClick={() => { seek(ts.time); play(); }}
+                    style={{ padding: "3px 8px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, background: "white", fontSize: 11, flexShrink: 0 }}
+                  >
+                    پخش از اینجا
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: 10 }}>
           <button
-            onClick={isPlaying ? pause : play}
-            style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.cardBorder}`, background: "white" }}
+            onClick={saveAdjusting}
+            style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: colors.teal, color: "white", fontWeight: 600 }}
           >
-            {isPlaying ? "توقف موقت" : "پخش"}
-          </button>
-          {!done && (
-            <button
-              onClick={markLine}
-              style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: colors.teal, color: "white", fontWeight: 600 }}
-            >
-              خطِ بعدی ▶
-            </button>
-          )}
-          <button
-            onClick={() => finishMarking(true)}
-            disabled={markIndex === 0}
-            style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.teal}`, color: colors.teal, background: "white", opacity: markIndex === 0 ? 0.5 : 1 }}
-          >
-            ذخیره و پایان
+            ذخیره
           </button>
           <button
-            onClick={cancelMarking}
+            onClick={cancelAdjusting}
             style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "none", color: colors.rose }}
           >
             انصراف
@@ -7608,21 +7653,24 @@ function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode, allSenten
         </div>
       )}
 
-      {hasAudio && !timestamps.length && (
-        <button
-          onClick={startMarking}
-          style={{ marginTop: 10, padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.gold}`, color: colors.gold, background: "white", fontSize: 13 }}
-        >
-          علامت‌گذاری خط‌ها (برای هایلایتِ زنده)
-        </button>
-      )}
-      {hasAudio && !!timestamps.length && (
-        <button
-          onClick={startMarking}
-          style={{ marginTop: 8, padding: "4px 10px", borderRadius: 8, border: "none", background: "none", color: colors.inkSoft, fontSize: 11 }}
-        >
-          علامت‌گذاریِ دوباره
-        </button>
+      {hasAudio && (
+        <div className="flex items-center gap-3" style={{ marginTop: 8 }}>
+          <button
+            onClick={startAdjusting}
+            disabled={!duration}
+            style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.gold}`, color: colors.gold, background: "white", fontSize: 13, opacity: duration ? 1 : 0.5 }}
+          >
+            تنظیمِ دستیِ خط‌ها
+          </button>
+          {!!timestamps.length && (
+            <button
+              onClick={regenerateAuto}
+              style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: "none", color: colors.inkSoft, fontSize: 11 }}
+            >
+              بازگشت به تخمینِ خودکار
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
