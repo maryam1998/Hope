@@ -433,6 +433,56 @@ function SrtTranslatorTool({ nativeLang, targetOrder, aiSettings, uiLang }) {
   );
 }
 
+// storyAudioController — یه singletonِ سبک، دقیقاً به همون الگویِ
+// speechController (subscribe/getState)، تا پلیرِ اصلیِ چسبیده‌به‌کفِ صفحه
+// (RestartButton / MainPlayButton / ChunkNavButton / PlayerProgressTrack)
+// بتونه، وقتی کاربر تو تبِ داستان روی «صوت من» سوییچ کرده، همون دکمه‌ها رو
+// به‌جایِ speechController (TTS) مستقیم به <audio>ِ آپلودشده وصل کنه —
+// بدونِ اینکه دو تا پلیرِ جدا و تکراری داشته باشیم. StoryBuilder هر رندر،
+// جدیدترین state/توابعِ useStoryUserAudio رو با publish اینجا به‌روز نگه
+// می‌داره؛ خودِ این کنترلر فقط یه لایه‌ی نازکِ subscribe/دلیگیت‌کردنه.
+const storyAudioController = (() => {
+  let state = {
+    mode: "tts", // "tts" | "user" — کپیِ همون playbackModeِ StoryBuilder
+    hasAudio: false,
+    isPlaying: false,
+    currentTime: 0,
+    duration: 0,
+    manualIndex: 0,
+    totalLines: 0,
+  };
+  let api = {
+    play: () => {},
+    pause: () => {},
+    seek: () => {},
+    nextLine: () => {},
+    prevLine: () => {},
+    restart: () => {},
+  };
+  const listeners = new Set();
+  function notify() {
+    listeners.forEach((fn) => fn(state));
+  }
+  return {
+    getState: () => state,
+    subscribe(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    publish(nextState, nextApi) {
+      state = { ...state, ...nextState };
+      if (nextApi) api = { ...api, ...nextApi };
+      notify();
+    },
+    play: () => api.play(),
+    pause: () => api.pause(),
+    seek: (t) => api.seek(t),
+    nextLine: () => api.nextLine(),
+    prevLine: () => api.prevLine(),
+    restart: () => api.restart(),
+  };
+})();
+
 function useStoryUserAudio(storyKey, allSentences) {
   const audioElRef = useRef(null);
   if (!audioElRef.current && typeof Audio !== "undefined") {
@@ -5763,9 +5813,44 @@ function MuteButton({ color }) {
 // WordList و...) با subscribe شدن به همین speechController و مقایسه‌ی
 // key/chunkIndex کار می‌کنن؛ پس چون key دست‌نخورده می‌مونه، هایلایت هم
 // بدونِ هیچ تغییرِ اضافه‌ای، خودش با chunkIndexِ صفر هماهنگ می‌شه.
-function RestartButton({ color, startText, startCode }) {
+function RestartButton({ color, startText, startCode, allowStoryAudio }) {
   const [state, setState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setState), []);
+  const [audioState, setAudioState] = useState(() => storyAudioController.getState());
+  useEffect(() => storyAudioController.subscribe(setAudioState), []);
+  const useStoryAudio = allowStoryAudio && audioState.mode === "user";
+
+  // حالتِ «صوتِ من»: به‌جایِ speechController، مستقیم صوتِ آپلودی رو از
+  // ثانیه‌ی صفر دوباره پخش می‌کنه.
+  if (useStoryAudio) {
+    const c2 = color || colors.gold;
+    const disabled2 = !audioState.hasAudio;
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!disabled2) storyAudioController.restart();
+        }}
+        disabled={disabled2}
+        aria-label="شروع مجدد از ابتدای صوت"
+        title="شروع مجدد از ابتدای صوتِ آپلودی"
+        style={{
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "none",
+          border: "none",
+          cursor: disabled2 ? "default" : "pointer",
+          padding: 2,
+          color: disabled2 ? colors.cardBorder : c2,
+          opacity: disabled2 ? 0.4 : 1,
+        }}
+      >
+        <RotateCcw size={15} />
+      </button>
+    );
+  }
 
   const locale = TTS_LOCALE[startCode] || "en-US";
   const myKey = startText ? `${locale}::${startText}` : null;
@@ -5822,16 +5907,56 @@ function RestartButton({ color, startText, startCode }) {
 //    فعلی — داستان/مکالمه/لیست‌کلمات)، با زدنش همون متن با تنظیمِ تکرارِ
 //    سراسری شروع به پخش می‌کنه. این همون کاریه که قبلاً یه SpeakButtonِ
 //    جدا کنارِ پلیر انجامش می‌داد؛ الان همون قابلیت داخلِ دکمه‌ی مرکزیه.
-function MainPlayButton({ startText, startCode, resolveStartOffset, color, size }) {
+function MainPlayButton({ startText, startCode, resolveStartOffset, color, size, allowStoryAudio }) {
   const [state, setState] = useState(() => speechController.getState());
   const [localMsg, setLocalMsg] = useState(null);
   useEffect(() => speechController.subscribe(setState), []);
+  const [audioState, setAudioState] = useState(() => storyAudioController.getState());
+  useEffect(() => storyAudioController.subscribe(setAudioState), []);
+  const useStoryAudio = allowStoryAudio && audioState.mode === "user";
 
   useEffect(() => {
     if (!localMsg) return;
     const t = setTimeout(() => setLocalMsg(null), 5000);
     return () => clearTimeout(t);
   }, [localMsg]);
+
+  // حالتِ «صوتِ من»: دکمه‌ی مرکزی پخش/توقفِ فایلِ آپلودی رو کنترل می‌کنه —
+  // بدونِ speechController، بدونِ startText.
+  if (useStoryAudio) {
+    const c2 = color || colors.teal;
+    const btnSize2 = size || 30;
+    const disabled2 = !audioState.hasAudio;
+    const isPlaying2 = audioState.isPlaying;
+    return (
+      <button
+        onClick={() => {
+          if (disabled2) return;
+          isPlaying2 ? storyAudioController.pause() : storyAudioController.play();
+        }}
+        disabled={disabled2}
+        aria-label={isPlaying2 ? "توقف موقت" : "پخش"}
+        title={disabled2 ? "صوتی آپلود نشده" : isPlaying2 ? "توقف موقت" : "پخشِ صوتِ آپلودی"}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: btnSize2 + 14,
+          height: btnSize2 + 14,
+          borderRadius: "50%",
+          background: "none",
+          border: "none",
+          cursor: disabled2 ? "default" : "pointer",
+          color: disabled2 ? colors.cardBorder : c2,
+          opacity: disabled2 ? 0.45 : 1,
+          flexShrink: 0,
+          padding: 0,
+        }}
+      >
+        {isPlaying2 ? <Pause size={btnSize2} /> : <PlayCircle size={btnSize2} />}
+      </button>
+    );
+  }
 
   const isActive = state.status !== "idle" && !!state.key;
   const isPlaying = isActive && state.status === "playing";
@@ -5918,9 +6043,46 @@ function MainPlayButton({ startText, startCode, resolveStartOffset, color, size 
 // مرکزیِ پخش می‌شینن. فقط وقتی یه متن در حالِ پخش/مکث‌شدنه فعالن؛ با
 // speechController.seekToChunk جمله‌ی currentِ فعلی رو عوض می‌کنن (پخش هم
 // خودکار از همون‌جا ادامه پیدا می‌کنه).
-function ChunkNavButton({ direction, color }) {
+function ChunkNavButton({ direction, color, allowStoryAudio }) {
   const [state, setState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setState), []);
+  const [audioState, setAudioState] = useState(() => storyAudioController.getState());
+  useEffect(() => storyAudioController.subscribe(setAudioState), []);
+  const useStoryAudio = allowStoryAudio && audioState.mode === "user";
+
+  // حالتِ «صوتِ من»: جمله‌ی قبل/بعد فقط شمارشگرِ دستیِ خط (manualIndex) رو
+  // عوض می‌کنه — کاملاً مستقل از زمانِ صدا، دقیقاً همون رفتارِ قبلی.
+  if (useStoryAudio) {
+    const atStart2 = audioState.manualIndex <= 0;
+    const atEnd2 = audioState.totalLines > 0 && audioState.manualIndex >= audioState.totalLines - 1;
+    const disabled2 = !audioState.hasAudio || (direction === "prev" ? atStart2 : atEnd2);
+    const c2 = color || colors.ink;
+    return (
+      <button
+        onClick={() => {
+          if (disabled2) return;
+          direction === "prev" ? storyAudioController.prevLine() : storyAudioController.nextLine();
+        }}
+        disabled={disabled2}
+        aria-label={direction === "prev" ? "جمله‌ی قبل" : "جمله‌ی بعد"}
+        title={direction === "prev" ? "جمله‌ی قبل" : "جمله‌ی بعد"}
+        style={{
+          background: "none",
+          border: "none",
+          cursor: disabled2 ? "default" : "pointer",
+          color: disabled2 ? colors.cardBorder : c2,
+          opacity: disabled2 ? 0.45 : 1,
+          padding: 6,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        {direction === "prev" ? <SkipBack size={20} /> : <SkipForward size={20} />}
+      </button>
+    );
+  }
 
   const isActive = state.status !== "idle" && !!state.key && state.total > 0;
   const atStart = state.chunkIndex <= 0;
@@ -5963,20 +6125,32 @@ function ChunkNavButton({ direction, color }) {
 // یه تخمینه — بر اساسِ طولِ کاراکتریِ متن و سرعتِ فعلیِ پخش. کشیدن/تپ‌کردن
 // رو نوار، جمله‌ی متناظرش رو با speechController.seekToChunk صدا می‌زنه.
 const TTS_MS_PER_CHAR = 90; // فقط برای تخمینِ زمانِ نمایشی — نه پخشِ واقعی
-function PlayerProgressTrack({ color }) {
+function PlayerProgressTrack({ color, allowStoryAudio }) {
   const [state, setState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setState), []);
+  const [audioState, setAudioState] = useState(() => storyAudioController.getState());
+  useEffect(() => storyAudioController.subscribe(setAudioState), []);
+  const useStoryAudio = allowStoryAudio && audioState.mode === "user";
   const trackRef = useRef(null);
   const [dragPct, setDragPct] = useState(null);
   const draggingRef = useRef(false);
 
-  const isActive = state.status !== "idle" && !!state.key && state.total > 0;
-  const meta = isActive ? speechController.getChunksMeta() : [];
-  const fullLen = isActive ? speechController.getFullTextLength() : 0;
+  // حالتِ «صوتِ من»: برخلافِ TTS (که زمانِ واقعی نداره و باید از رویِ
+  // طولِ کاراکتری تخمین زده بشه)، اینجا یه <audio> واقعیه — پس
+  // currentTime/duration واقعی از خودِ فایل می‌گیریم، دقیق‌تر از تخمین.
+  const isActive = useStoryAudio
+    ? audioState.hasAudio
+    : state.status !== "idle" && !!state.key && state.total > 0;
+  const meta = !useStoryAudio && isActive ? speechController.getChunksMeta() : [];
+  const fullLen = !useStoryAudio && isActive ? speechController.getFullTextLength() : 0;
   const msPerChar = TTS_MS_PER_CHAR / Math.max(state.rate || 1, 0.25);
-  const totalMs = fullLen * msPerChar;
-  const chunkStart = isActive && meta[state.chunkIndex] ? meta[state.chunkIndex].start : 0;
-  const restPct = fullLen ? (chunkStart / fullLen) * 100 : 0;
+  const totalMs = useStoryAudio ? (audioState.duration || 0) * 1000 : fullLen * msPerChar;
+  const chunkStart = !useStoryAudio && isActive && meta[state.chunkIndex] ? meta[state.chunkIndex].start : 0;
+  const restPct = useStoryAudio
+    ? (audioState.duration ? (audioState.currentTime / audioState.duration) * 100 : 0)
+    : fullLen
+    ? (chunkStart / fullLen) * 100
+    : 0;
   const shownPct = dragPct != null ? dragPct : restPct;
   const c = color || colors.gold;
 
@@ -6009,9 +6183,13 @@ function PlayerProgressTrack({ color }) {
   }
   function onEnd(clientX) {
     const pct = pctFromClientX(clientX);
-    const idx = idxFromPct(pct);
     setDragPct(null);
     draggingRef.current = false;
+    if (useStoryAudio) {
+      storyAudioController.seek((pct / 100) * (audioState.duration || 0));
+      return;
+    }
+    const idx = idxFromPct(pct);
     speechController.seekToChunk(idx);
   }
   function startDrag(clientX) {
@@ -6101,7 +6279,8 @@ function PlayerProgressTrack({ color }) {
       <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 12, color: colors.inkSoft, minWidth: 36, textAlign: "center", flexShrink: 0 }}>
         {isActive ? fmtTime(totalMs) : "۰۰:۰۰"}
       </span>
-      <SpeedControl color={colors.gold} />
+      {/* سرعتِ پخش فقط برای TTSه — رویِ فایلِ صوتیِ آپلودی معنی نداره */}
+      {!useStoryAudio && <SpeedControl color={colors.gold} />}
     </div>
   );
 }
@@ -7626,22 +7805,13 @@ function enforceSentenceSplit(paragraphs) {
 
 // نوارِ کوچکِ صوتِ کاربر برای داستان — بالای متنِ داستان می‌شینه. یه سوییچِ
 // دوحالته (TTS ⇄ صوتِ من) داره؛ اگه هنوز صوتی آپلود نشده فقط دکمه‌ی آپلود
-// نشون می‌ده (هیچ محدودیتی رو فرمتِ فایل نیست). هیچ هایلایت/خوانشِ
-// خودکاری وجود نداره — خطِ فعال فقط با دکمه‌های «◀ جمله‌ی قبل / جمله‌ی
-// بعد ▶» پایینِ پلیر عوض می‌شه، کاملاً دستی و مستقل از پخشِ صدا.
+// نشون می‌ده (هیچ محدودیتی رو فرمتِ فایل نیست). خودِ پخش/توقف/جمله‌ی
+// قبل‌بعد/نوارِ زمان اینجا نیست — همه‌شون از همون پلیرِ اصلیِ چسبیده‌به‌کفِ
+// صفحه کنترل می‌شن (وقتی سوییچ رو «صوت من» بذاری، دکمه‌های پلیرِ اصلی
+// خودکار به همین صوتِ آپلودی وصل می‌شن؛ ر.ک. storyAudioController).
 function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode }) {
   const fileInputRef = useRef(null);
-  const {
-    hasAudio, isPlaying, currentTime, duration,
-    uploadFile, play, pause, seek, nextLine, prevLine, removeAudio,
-  } = userAudio;
-
-  function fmtTime(sec) {
-    const s = Math.max(0, Math.round(sec || 0));
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return toFaDigits(`${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`);
-  }
+  const { hasAudio, uploadFile, removeAudio } = userAudio;
 
   const boxStyle = {
     border: `1px solid ${colors.cardBorder}`,
@@ -7709,40 +7879,9 @@ function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode }) {
       </div>
 
       {hasAudio && playbackMode === "user" && (
-        <div className="flex items-center gap-2" style={{ marginTop: 10 }}>
-          <button
-            onClick={prevLine}
-            title="جمله‌ی قبل"
-            style={{ background: "none", border: "none", cursor: "pointer", color: colors.ink, padding: 4, display: "flex", flexShrink: 0 }}
-          >
-            <SkipBack size={18} />
-          </button>
-          <button
-            onClick={isPlaying ? pause : play}
-            style={{ padding: 6, borderRadius: 999, border: "none", background: colors.teal, color: "white", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
-          >
-            {isPlaying ? <Pause size={16} /> : <PlayCircle size={18} />}
-          </button>
-          <button
-            onClick={nextLine}
-            title="جمله‌ی بعد"
-            style={{ background: "none", border: "none", cursor: "pointer", color: colors.ink, padding: 4, display: "flex", flexShrink: 0 }}
-          >
-            <SkipForward size={18} />
-          </button>
-          <input
-            type="range"
-            min={0}
-            max={duration || 0}
-            step={0.1}
-            value={currentTime}
-            onChange={(e) => seek(Number(e.target.value))}
-            style={{ flex: 1 }}
-          />
-          <span style={{ fontSize: 11, color: colors.inkSoft, flexShrink: 0 }}>
-            {fmtTime(currentTime)} / {fmtTime(duration)}
-          </span>
-        </div>
+        <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 8 }}>
+          پخش/توقف و جمله‌ی قبل‌وبعد رو از پلیرِ پایینِ صفحه کنترل کن.
+        </p>
       )}
     </div>
   );
@@ -7994,6 +8133,39 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     if (playbackMode === "user" && !userAudio.hasAudio) setPlaybackMode("tts");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mainStoryKey, userAudio.hasAudio]);
+  // پلیرِ اصلیِ چسبیده‌به‌کفِ صفحه (پایینِ PhrasebookMain) از این‌جا به بعد
+  // دکمه‌های خودش (Restart/Play-Pause/جمله‌ی قبل‌بعد/نوارِ پیشرفت) رو، وقتی
+  // playbackModeِ همین تب "user"ه، مستقیم به همین userAudioِ آپلودی وصل
+  // می‌کنه — دیگه پلیرِ ریزِ جداگانه‌ای تویِ StoryUserAudioBar لازم نیست.
+  // هر رندر (بدونِ آرایه‌ی dependency) publish می‌شه تا closureِ توابع
+  // (که به allSentences/manualIndex وابسته‌ان) همیشه تازه بمونه.
+  useEffect(() => {
+    storyAudioController.publish(
+      {
+        mode: playbackMode,
+        hasAudio: userAudio.hasAudio,
+        isPlaying: userAudio.isPlaying,
+        currentTime: userAudio.currentTime,
+        duration: userAudio.duration,
+        manualIndex: userAudio.manualIndex,
+        totalLines: allSentences?.length || 0,
+      },
+      {
+        play: userAudio.play,
+        pause: userAudio.pause,
+        seek: userAudio.seek,
+        nextLine: userAudio.nextLine,
+        prevLine: userAudio.prevLine,
+        // «شروع مجدد» برای صوتِ آپلودی یعنی برگشت به ثانیه‌ی صفر و پخش —
+        // شمارشگرِ دستیِ خط (manualIndex) دست‌نخورده می‌مونه، چون طبقِ
+        // تصمیمِ قبلی مستقل از زمانِ صداست.
+        restart: () => {
+          userAudio.seek(0);
+          userAudio.play();
+        },
+      }
+    );
+  });
   // وقتی از پاپ‌آپِ کلمه یا محدوده‌ی انتخابی، دکمه‌ی پخش زده می‌شه، همین‌جا
   // موقعیت (نسبت به کلِ fullStoryText) به‌خاطر سپرده می‌شه — تا دفعه‌ی بعد
   // که دکمه‌ی «پخشِ کل متن» روی نوارِ پلیر زده بشه، از همون‌جا (نه از اول)
@@ -13084,57 +13256,38 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           }}
         >
           {/* ردیفِ نوارِ پیشرفت: زمانِ فعلی — نوارِ کِشیدنی — زمانِ کل — سرعت */}
-          <PlayerProgressTrack color={colors.gold} />
+          <PlayerProgressTrack color={colors.gold} allowStoryAudio={tab === "story"} />
           {/* ردیفِ کنترل‌ها: تکرار، جمله‌ی قبل، پخش/توقفِ مرکزی، جمله‌ی بعد، تنظیمات */}
           <div className="px-4" style={{ paddingTop: 2, paddingBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-around" }}>
             <MuteButton color={colors.gold} />
             <RepeatButton color={colors.gold} />
-            <RestartButton color={colors.gold} startText={activeTabAudio?.text} startCode={activeTabAudio?.code} />
-            <ChunkNavButton direction="prev" color={colors.ink} />
+            <RestartButton color={colors.gold} startText={activeTabAudio?.text} startCode={activeTabAudio?.code} allowStoryAudio={tab === "story"} />
+            <ChunkNavButton direction="next" color={colors.ink} allowStoryAudio={tab === "story"} />
             <MainPlayButton
               startText={activeTabAudio?.text}
               startCode={activeTabAudio?.code}
               resolveStartOffset={activeTabAudio?.resolveStartOffset}
               color={colors.teal}
+              allowStoryAudio={tab === "story"}
             />
-            <ChunkNavButton direction="next" color={colors.ink} />
-            <button
-              onClick={() => setShowPlayerSettings((v) => !v)}
-              aria-label="تنظیماتِ پلیر"
-              title="تنظیماتِ پلیر (شفافیت)"
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: showPlayerSettings ? colors.gold : colors.ink,
-                padding: 6,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <ListMusic size={20} />
-            </button>
+            <ChunkNavButton direction="prev" color={colors.ink} allowStoryAudio={tab === "story"} />
           </div>
-          {/* پنلِ تنظیماتِ بیشتر — شفافیتِ پلیر؛ همون قابلیتِ قبلی، فقط الان
-              پشتِ دکمه‌ی ☰ جمع‌وجور شده تا نوارِ کنترلِ اصلی شبیهِ پلیرِ عکسِ
-              فرستاده‌شده بمونه. */}
-          {showPlayerSettings && (
-            <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2, paddingBottom: 8 }}>
-              <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={playerOpacity}
-                onChange={(e) => setPlayerOpacity(Number(e.target.value))}
-                aria-label="شفافیت پلیر"
-                style={{ flex: 1, accentColor: colors.gold }}
-              />
-              <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
-            </div>
-          )}
+          {/* ردیفِ شفافیتِ پلیر — همیشه توی خودِ پلیر نمایان‌ه (بدون دکمه‌ی
+              ☰ برای باز/بسته کردنش)؛ منطقِ ریست‌شدن (دکمه‌ی بازنشانی زیرِ
+              ۷٪) دست‌نخورده باقی می‌مونه. */}
+          <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2, paddingBottom: 8 }}>
+            <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={playerOpacity}
+              onChange={(e) => setPlayerOpacity(Number(e.target.value))}
+              aria-label="شفافیت پلیر"
+              style={{ flex: 1, accentColor: colors.gold }}
+            />
+            <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
+          </div>
         </div>
         {/* دکمه‌ی «بازنشانیِ شفافیت» — وقتی شفافیتِ پلیر خیلی پایین میاد (زیرِ
             ۷۰٪)، خودِ نوار (و اسلایدرِ توش) هم کم‌رنگ/کم‌کنتراست می‌شه و
