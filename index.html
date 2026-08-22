@@ -79,7 +79,14 @@
         }
       });
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("sw.js").catch(() => {});
+        // updateViaCache: "none" یعنی هر بار که مرورگر می‌خواد چک کنه sw.js
+        // عوض شده یا نه، از کشِ HTTPِ دیسک رد بشه و واقعاً بره سراغِ شبکه —
+        // قبلاً همین باعث می‌شد با اینکه خودِ sw.js عوض شده بود (مثلاً
+        // CACHE_VERSION از v2 به v3)، مرورگر بازم نسخه‌ی قدیمیِ *خودِ فایلِ*
+        // sw.js رو از کش می‌خوند، هیچ‌وقت متوجهِ آپدیت نمی‌شد، و در نتیجه
+        // سرویس‌ورکرِ تازه هیچ‌وقت نصب/فعال نمی‌شد — کشِ قدیمیِ باندل هم
+        // برای همیشه باقی می‌موند.
+        navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
       });
     }
   </script>
