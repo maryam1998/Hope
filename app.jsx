@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -13148,10 +13148,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             <PlayerProgressTrack color={colors.gold} />
           )}
           {/* ردیفِ واحدِ همه‌ی آیکون‌ها: ضبطِ صدا، میوت، تکرار، بازگشت‌به‌اول،
-              جمله‌ی بعد، پخش/توقفِ مرکزی، جمله‌ی قبل، شفافیت — همه با فاصله‌ی
-              کم توی یه ردیف، فقط دکمه‌ی پخش/توقفِ مرکزی یه‌کم فاصله‌ی
-              بیشتر داره تا برجسته بمونه. */}
-          <div className="px-4" style={{ paddingTop: 2, paddingBottom: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              جمله‌ی بعد، پخش/توقفِ مرکزی، جمله‌ی قبل، شفافیت — با
+              space-between پخش می‌شن رویِ کلِ عرضِ پلیر تا فضایِ خالیِ
+              کنارها هدر نره، ولی خودِ آیکون‌ها هم زیادی به هم نچسبن. */}
+          <div className="px-3" style={{ paddingTop: 2, paddingBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <MyVoiceRecorder color={colors.rose} />
             <MuteButton color={colors.gold} />
             <RepeatButton color={colors.gold} />
@@ -13196,7 +13196,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                   justifyContent: "center",
                 }}
               >
-                <Layers size={15} />
+                <Blend size={15} />
               </button>
               {opacityPopoverOpen && (
                 <div
