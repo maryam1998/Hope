@@ -3977,6 +3977,69 @@ function detectPastedTextLanguage(text) {
   return topScore > 0 ? topCode : null;
 }
 
+// نگاشتِ سطحِ هر لغتِ انگلیسی از رویِ بانکِ لغاتِ خودِ اپ (VOCAB/WORDS_AZ/
+// DAILY_WORDS/NEWS_WORDS/SLANG_WORDS) — فقط یک‌بار ساخته می‌شه (سطحِ ماژول)
+// تا هر پیست دوباره روی چندین آرایه‌ی چندهزارتایی loop نزنه.
+const CEFR_RANK = { A1: 1, A2: 2, B1: 3, B2: 4, C1: 5, C2: 6 };
+const EN_WORD_LEVEL_MAP = (() => {
+  const map = new Map();
+  [...VOCAB, ...WORDS_AZ, ...DAILY_WORDS, ...NEWS_WORDS, ...SLANG_WORDS].forEach((w) => {
+    const en = ((w.en ?? w.t?.en) || "").toLowerCase().trim();
+    const rank = CEFR_RANK[w.level];
+    if (en && rank && !map.has(en)) map.set(en, rank);
+  });
+  return map;
+})();
+
+// حدسِ خودکارِ سطحِ CEFR یه متنِ پیست/PDF/لینک‌شده — بدونِ AI، آنی و رایگان
+// (دقیقاً هم‌روحِ detectPastedTextLanguage بالا). قبلاً این متن‌ها همیشه با
+// سطحِ پیش‌فرضِ A2 وارد داستان‌ساز می‌شدن، فارغ از این‌که متن واقعاً چقدر
+// ساده یا سخت بود. اینجا دو سرنخ رو ترکیب می‌کنیم:
+//  ۱) طولِ جمله‌ها و طولِ لغات (هرچی جمله/لغت بلندتر، سطح بالاتر) — این
+//     سرنخ برای هر زبونی کار می‌کنه، چون فقط به طول وابسته‌ست نه دیکشنری.
+//  ۲) برای متنِ انگلیسی (که بیشترِ بانکِ لغاتِ سطح‌بندی‌شده‌ی اپ رو داریم)،
+//     سطحِ خودِ لغاتِ به‌کاررفته از رویِ EN_WORD_LEVEL_MAP — با وزنِ بیشتر
+//     چون مستقیم‌تر از طولِ جمله‌ست.
+// اگه متن خیلی کوتاه بود یا سرنخِ قابلِ‌اطمینانی نداشت، به A2 برمی‌گرده —
+// دقیقاً همون رفتارِ قبلی، فقط دیگه همیشگی نیست.
+function detectTextLevel(text, lang) {
+  const clean = (text || "").trim();
+  if (!clean) return "A2";
+  const sentences = splitTextIntoSentenceStrings(clean);
+  const words = clean.match(/[\p{L}\p{N}'’-]+/gu) || [];
+  if (!words.length || !sentences.length) return "A2";
+
+  const avgWordsPerSentence = words.length / sentences.length;
+  const avgWordLen = words.reduce((sum, w) => sum + w.length, 0) / words.length;
+
+  let lengthScore;
+  if (avgWordsPerSentence <= 8) lengthScore = 1;
+  else if (avgWordsPerSentence <= 11) lengthScore = 2;
+  else if (avgWordsPerSentence <= 14) lengthScore = 3;
+  else if (avgWordsPerSentence <= 18) lengthScore = 4;
+  else if (avgWordsPerSentence <= 23) lengthScore = 5;
+  else lengthScore = 6;
+  if (avgWordLen > 6.5) lengthScore = Math.min(6, lengthScore + 1);
+  else if (avgWordLen < 4) lengthScore = Math.max(1, lengthScore - 1);
+
+  let finalScore = lengthScore;
+  if (lang === "en") {
+    const matched = words
+      .map((w) => EN_WORD_LEVEL_MAP.get(w.toLowerCase()))
+      .filter(Boolean)
+      .sort((a, b) => a - b);
+    // فقط وقتی سهمِ معناداری از لغاتِ متن رو شناختیم به این سرنخ اعتماد
+    // می‌کنیم؛ وگرنه (مثلاً متنِ پر از اسمِ خاص/اصطلاحِ فنی) فقط با طولِ
+    // جمله تصمیم می‌گیریم.
+    if (matched.length >= Math.max(5, words.length * 0.3)) {
+      const p70 = matched[Math.min(Math.floor(matched.length * 0.7), matched.length - 1)];
+      finalScore = Math.round(p70 * 0.7 + lengthScore * 0.3);
+    }
+  }
+  finalScore = Math.min(6, Math.max(1, Math.round(finalScore)));
+  return LEVELS[finalScore - 1];
+}
+
 // Only these have real phrase/vocab data (conversation  / VOCAB below). Russian and
 // Italian are only used as extra translation options in the Story Builder,
 // which generates its translations live via AI rather than from static data.
@@ -8283,8 +8346,10 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         setPdfReadError("متنی از این PDF استخراج نشد — شاید این فایل اسکن/عکسه، نه متنِ واقعی");
         return;
       }
-      const detectedLang = detectPastedTextLanguage(allSentences.join(" "));
+      const pdfFullText = allSentences.join(" ");
+      const detectedLang = detectPastedTextLanguage(pdfFullText);
       if (detectedLang) setStoryLang(detectedLang);
+      setStoryLevel(detectTextLevel(pdfFullText, detectedLang || storyLang));
       const storyParagraphs = [];
       for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
         const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
@@ -8329,6 +8394,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     }
     const detectedLang = detectPastedTextLanguage(raw);
     if (detectedLang) setStoryLang(detectedLang);
+    setStoryLevel(detectTextLevel(raw, detectedLang || storyLang));
     const storyParagraphs = [];
     for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
       const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
@@ -8434,6 +8500,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       }
       const detectedLang = detectPastedTextLanguage(bodyText);
       if (detectedLang) setStoryLang(detectedLang);
+      setStoryLevel(detectTextLevel(bodyText, detectedLang || storyLang));
       const storyParagraphs = [];
       for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
         const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
@@ -8687,33 +8754,30 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             <p style={{ fontSize: 13, color: colors.inkSoft }}>هنوز داستانی ذخیره نکردی.</p>
           )}
           {savedStories.length > 0 && (() => {
-            // هر داستان از قبل با سطحِ خودش (storyLevel) ذخیره شده؛ اینجا فقط
-            // بر همون اساس فیلتر/دسته‌بندی می‌کنیم — وقتی فیلترِ خاصی
-            // (مثلاً B1) انتخاب شده فقط داستان‌های همون سطح نشون داده می‌شن،
-            // وقتی «همه سطح‌ها»ست، داستان‌ها زیرِ عنوانِ سطحِ خودشون (به ترتیبِ
-            // A1→C2) دسته‌بندی می‌شن تا پیداکردن‌شون راحت‌تر باشه.
-            const groups = (
+            // هر داستان از قبل با سطحِ خودش (storyLevel) ذخیره شده. وقتی
+            // فیلترِ خاصی (مثلاً B1) انتخاب شده، فقط داستان‌های همون سطح
+            // نشون داده می‌شن. قبلاً وقتی «همه سطح‌ها»ست، داستان‌ها زیرِ
+            // عنوانِ سطحِ خودشون دسته‌بندی می‌شدن — ولی این باعث می‌شد
+            // ترتیبِ واقعیِ ذخیره‌شدن (کدوم واقعاً اولین/آخرین داستانه) بینِ
+            // دسته‌ها گم بشه. الان توی «همه سطح‌ها» دیگه دسته‌بندی نمی‌کنیم؛
+            // همه‌ی داستان‌ها قاطی، فقط با همون sortSavedStories (که ترتیبِ
+            // واقعی رو نشون می‌ده) مرتب می‌شن — سطحِ هر داستان هم همچنان
+            // روی خودِ کارتش (پایین‌تر) نوشته شده، پس گم نمی‌شه.
+            const list = sortSavedStories(
               savedStoriesLevelFilter !== "all"
-                ? [[savedStoriesLevelFilter, savedStories.filter((s) => s.storyLevel === savedStoriesLevelFilter)]]
-                : [
-                    ...LEVELS.map((lv) => [lv, savedStories.filter((s) => s.storyLevel === lv)]),
-                    ["نامشخص", savedStories.filter((s) => !LEVELS.includes(s.storyLevel))],
-                  ].filter(([, list]) => list.length > 0)
-            ).map(([lv, list]) => [lv, sortSavedStories(list, savedStoriesSort)]);
-            if (!groups.length) {
+                ? savedStories.filter((s) => s.storyLevel === savedStoriesLevelFilter)
+                : savedStories,
+              savedStoriesSort
+            );
+            if (!list.length) {
               return (
                 <p style={{ fontSize: 13, color: colors.inkSoft }}>
                   داستانی با سطح {savedStoriesLevelFilter} ذخیره نشده.
                 </p>
               );
             }
-            return groups.map(([lv, list]) => (
-              <div key={lv} className="flex flex-col gap-2">
-                {savedStoriesLevelFilter === "all" && (
-                  <p style={{ fontSize: 12, fontWeight: 700, color: colors.teal, margin: "4px 0 0" }}>
-                    سطح {lv} ({list.length})
-                  </p>
-                )}
+            return (
+              <div className="flex flex-col gap-2">
                 {list.map((s) => (
                   <div
                     key={s.id}
@@ -8766,7 +8830,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                   </div>
                 ))}
               </div>
-            ));
+            );
           })()}
         </div>
       ) : (
