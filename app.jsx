@@ -9745,7 +9745,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               }}
             >
               {audioReadBusy ? <Loader2 size={16} className="spin" /> : <span>🎧</span>}
-              {audioReadBusy ? (audioReadProgress || "در حال پردازش...") : "یا یه فایلِ صوتی (mp3) برای خوانش وارد کن"}
+              {audioReadBusy ? (audioReadProgress || "در حال پردازش...") : "افزودن پادکست (فایلِ صوتیِ mp3)"}
             </button>
             {/* این دکمه فقط وقتی پردازش درحالِ اجراست ظاهر می‌شه — جایگزینِ
                 force-quit/پاک‌کردنِ کش برای متوقف‌کردنِ یه پردازشِ گیرکرده. */}
