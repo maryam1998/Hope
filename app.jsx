@@ -7120,6 +7120,20 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [showLinkReading, setShowLinkReading] = useState(false);
   const [linkReadBusy, setLinkReadBusy] = useState(false);
   const [linkReadError, setLinkReadError] = useState("");
+  // وارد کردنِ یه فایلِ صوتی (mp3/wav/...) برای خوانش — دقیقاً همون مقصدِ
+  // نهاییِ PDF/پیست/لینک (paragraphs همون سیستمِ خوانش)، فقط منبعِ متن به‌جای
+  // فایل/صفحه‌ی وب، خودِ صوته. تشخیصِ گفتار کاملاً تو خودِ مرورگر انجام
+  // می‌شه (با Whisper کامپایل‌شده به WASM، از مدلِ transformers.js) — هیچ
+  // فایلِ صوتی‌ای به هیچ سروری فرستاده نمی‌شه، ولی چون خودِ مدل (~۱۵۰
+  // مگابایت) باید اولین‌بار دانلود بشه و رویِ گوشی اجرا بشه، هم کندتره هم
+  // به اینترنت برای همون یک‌بار دانلودِ مدل نیاز داره. audioReadProgress
+  // برای نشون‌دادنِ درصدِ دانلودِ مدل/پیشرفتِ رونویسی استفاده می‌شه — چون این
+  // مرحله ممکنه چند ده‌ثانیه تا چند دقیقه طول بکشه و بدونِ فیدبک، کاربر
+  // فکر می‌کنه اپ هنگ کرده.
+  const [audioReadBusy, setAudioReadBusy] = useState(false);
+  const [audioReadError, setAudioReadError] = useState("");
+  const [audioReadProgress, setAudioReadProgress] = useState("");
+  const audioReadInputRef = useRef(null);
   const [newWordTerm, setNewWordTerm] = useState("");
   const [newWordMeaning, setNewWordMeaning] = useState("");
   const [addingWord, setAddingWord] = useState(false);
@@ -8365,6 +8379,113 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     }
   };
 
+  // «وارد کردنِ یه فایلِ صوتی برای خوانش» — دقیقاً همون مقصدِ نهایی‌ای که
+  // PDF/پیست/لینک دارن، فقط منبعِ متن خودِ صداست. تشخیصِ گفتار (speech-to-
+  // text) کاملاً محلی/تو خودِ مرورگر انجام می‌شه — با Whisper کامپایل‌شده
+  // به WASM (کتابخونه‌ی @xenova/transformers) — پس هیچ فایلِ صوتی‌ای به
+  // هیچ سروری فرستاده نمی‌شه. نکته: این یعنی همین‌جا (import("@xenova/
+  // transformers")) باید این پکیج به package.json پروژه اضافه بشه — دقیقاً
+  // هم‌الگوی pdfjs-dist بالاتر که همین‌طوری، به‌صورتِ dynamic import، فقط
+  // موقعِ نیاز لود می‌شه (نه تو بارگذاریِ اولیه‌ی اپ).
+  //
+  // مدلِ Whisper خودش (~۱۵۰ مگابایت، quantized) اولین‌باری که این قابلیت
+  // استفاده بشه باید از اینترنت دانلود بشه (بعدش تو کشِ مرورگر/IndexedDB
+  // می‌مونه و دفعاتِ بعدی آفلاین هم کار می‌کنه) — پس فقط «فایلِ صوتی» به
+  // سرور نمی‌ره، ولی خودِ مدل بارِ اول نیاز به اینترنت داره.
+  const AUDIO_READ_MAX_BYTES = 25 * 1024 * 1024; // ۲۵ مگابایت — سقفِ حجمِ فایلِ صوتی
+  const AUDIO_READ_MAX_SECONDS = 20 * 60; // ۲۰ دقیقه — فراتر از این، تشخیصِ گفتارِ محلی رویِ موبایل عملاً خیلی کند/سنگین می‌شه
+  const AUDIO_WHISPER_MODEL = "Xenova/whisper-base"; // مولتی‌لینگوال، تعادلِ حجم/دقت — برای دقتِ بیشتر (با حجمِ خیلی بیشتر) می‌شه به "Xenova/whisper-small" تغییرش داد
+
+  const handleAudioImportForReading = async (e) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = "";
+    if (!file) return;
+    setAudioReadError("");
+    setAudioReadProgress("");
+    if (file.size > AUDIO_READ_MAX_BYTES) {
+      setAudioReadError(`حجمِ فایل بیشتر از ${Math.round(AUDIO_READ_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه — یه فایلِ کوچیک‌تر امتحان کن`);
+      return;
+    }
+    setAudioReadBusy(true);
+    try {
+      // ۱) دیکد کردنِ فایلِ صوتی (mp3/wav/m4a/...) به PCM خام — Whisper
+      // دقیقاً ورودیِ نمونه‌برداری‌شده با ۱۶۰۰۰Hz تک‌کاناله (مونو) می‌خواد،
+      // برای همین با یه OfflineAudioContext دوباره resample‌ش می‌کنیم.
+      setAudioReadProgress("در حال خوندنِ فایلِ صوتی...");
+      const arrayBuf = await file.arrayBuffer();
+      const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const decoded = await decodeCtx.decodeAudioData(arrayBuf.slice(0));
+      decodeCtx.close?.();
+      if (decoded.duration > AUDIO_READ_MAX_SECONDS) {
+        setAudioReadError(`طولِ این فایل بیشتر از ${Math.round(AUDIO_READ_MAX_SECONDS / 60)} دقیقه‌ست — یه فایلِ کوتاه‌تر امتحان کن`);
+        return;
+      }
+      const targetRate = 16000;
+      const offlineCtx = new OfflineAudioContext(1, Math.ceil(decoded.duration * targetRate), targetRate);
+      const src = offlineCtx.createBufferSource();
+      src.buffer = decoded;
+      src.connect(offlineCtx.destination);
+      src.start(0);
+      const resampled = await offlineCtx.startRendering();
+      const pcmData = resampled.getChannelData(0); // Float32Array مونو، ۱۶kHz — فرمتِ موردِ نیازِ Whisper
+
+      // ۲) لودِ مدلِ Whisper (فقط بارِ اول واقعاً دانلود می‌شه؛ دفعاتِ بعد از
+      // کشِ مرورگر میاد). progress_callback درصدِ دانلود رو می‌ده تا کاربر
+      // بفهمه اپ هنگ نکرده، فقط داره مدل رو دانلود می‌کنه.
+      setAudioReadProgress("در حال آماده‌سازیِ سیستمِ تشخیصِ گفتار (بارِ اول ممکنه کمی طول بکشه)...");
+      const { pipeline, env } = await import("@xenova/transformers");
+      env.allowLocalModels = false;
+      const transcriber = await pipeline("automatic-speech-recognition", AUDIO_WHISPER_MODEL, {
+        progress_callback: (p) => {
+          if (p?.status === "progress" && Number.isFinite(p.progress)) {
+            setAudioReadProgress(`در حال دانلودِ مدلِ تشخیصِ گفتار... ${Math.round(p.progress)}٪`);
+          }
+        },
+      });
+
+      // ۳) خودِ رونویسی — chunk_length_s/stride_length_s باعث می‌شه فایل‌های
+      // بلند هم (نه فقط چند ثانیه) به‌درستی، تکه‌تکه، پردازش بشن.
+      setAudioReadProgress("در حال تبدیلِ صدا به متن...");
+      const result = await transcriber(pcmData, {
+        chunk_length_s: 30,
+        stride_length_s: 5,
+      });
+      const rawText = (result?.text || "").trim();
+      if (!rawText) {
+        setAudioReadError("متنی از این فایلِ صوتی تشخیص داده نشد — شاید صدا واضح نیست یا فایل خرابه");
+        return;
+      }
+
+      // از این‌جا به بعد دقیقاً همون مسیرِ PDF/پیست/لینک: تقسیم به جمله →
+      // گروه‌بندیِ هر ۵ جمله در یک پاراگراف → تشخیصِ زبان/سطح → نمایش.
+      const allSentences = splitTextIntoSentenceStrings(rawText);
+      if (!allSentences.length) {
+        setAudioReadError("متنی برای خوندن پیدا نشد");
+        return;
+      }
+      const detectedLang = detectPastedTextLanguage(rawText);
+      if (detectedLang) setStoryLang(detectedLang);
+      setStoryLevel(detectTextCEFRLevel(rawText));
+      const storyParagraphs = [];
+      for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
+        const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
+        storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
+      }
+      setParagraphs(storyParagraphs);
+      setCurrentStoryId(null);
+      setQuestions([]);
+      setAnswers({});
+      setSubmitted(false);
+      setError("");
+      setRepeatNotice("");
+      setAudioReadProgress("");
+    } catch (err) {
+      setAudioReadError("تبدیلِ این فایلِ صوتی به متن مشکل داشت — شاید فرمتش پشتیبانی نمی‌شه، یا اتصالِ اینترنت (برای دانلودِ بارِ اولِ مدل) قطع بود");
+    } finally {
+      setAudioReadBusy(false);
+    }
+  };
+
   const saveCurrentStory = () => {
     if (!paragraphs.length) return;
     const entry = {
@@ -8969,6 +9090,41 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               )}
             </div>
           )}
+        </div>
+
+        <div style={{ textAlign: "start" }}>
+          <input
+            ref={audioReadInputRef}
+            type="file"
+            accept="audio/*"
+            onChange={handleAudioImportForReading}
+            style={{ display: "none" }}
+          />
+          <button
+            onClick={() => audioReadInputRef.current?.click()}
+            disabled={audioReadBusy}
+            className="flex items-center justify-center gap-2"
+            style={{
+              width: "100%",
+              border: `1px dashed ${colors.cardBorder}`,
+              borderRadius: 14,
+              padding: "10px 16px",
+              fontWeight: 700,
+              fontSize: 13,
+              color: colors.teal,
+              marginTop: 8,
+              opacity: audioReadBusy ? 0.6 : 1,
+            }}
+          >
+            {audioReadBusy ? <Loader2 size={16} className="spin" /> : <span>🎧</span>}
+            {audioReadBusy ? (audioReadProgress || "در حال پردازش...") : "یا یه فایلِ صوتی (mp3) برای خوانش وارد کن"}
+          </button>
+          {audioReadError && (
+            <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{audioReadError}</p>
+          )}
+          <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
+            متنِ فایلِ صوتی با تشخیصِ گفتار (کاملاً تو خودِ گوشی، بدونِ فرستادنِ صدا به سرور) استخراج می‌شه و وارد همین سیستمِ خوانش می‌شه. بارِ اول، دانلودِ مدلِ تشخیصِ گفتار به اینترنت نیاز داره؛ دفعاتِ بعد سریع‌تره. دقتش برای صدای واضح خوبه، ولی مثلِ رونویسیِ انسانی دقیق نیست.
+          </p>
         </div>
 
         <button
