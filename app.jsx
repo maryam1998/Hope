@@ -1913,178 +1913,31 @@ const speechController = (() => {
   }
 
   // -------------------------------------------------------------------
-  // Edge/Azure Neural TTS (همون موتورِ «خواندنِ با صدای بلند»ِ Microsoft
-  // Edge) — یه سرویسِ آنلاینِ رایگان و بدونِ کلید که رسماً مستند نیست ولی
-  // خودِ اپلیکیشنِ Edge هم دقیقاً همین پروتکل رو صدا می‌زنه. برخلافِ
-  // Google-Translate-TTS/StreamElements، این سرویس برای هر ۱۵ زبونِ بالا
-  // (از جمله فارسی، عربی، ایتالیایی، هندی، کره‌ای، روسی، ژاپنی) صدای واقعی
-  // برمی‌گردونه. کارش این‌طوریه: یه وب‌سوکت به سرورِ Edge وصل می‌شه، یه
-  // پیامِ SSML می‌فرسته، و صدا رو به‌صورتِ چند تکه‌ی باینریِ mp3 پس می‌گیره؛
-  // اون تکه‌ها رو به‌هم می‌چسبونیم و یه Blob URL قابلِ پخش با <audio> می‌سازیم.
+  // Edge/Azure Neural TTS — قبلاً اینجا مستقیم از خودِ صفحه یه وب‌سوکت به
+  // speech.platform.bing.com باز می‌شد، ولی چون Origin صفحه یه دامنه‌ی
+  // معمولیه (نه خودِ اپلیکیشنِ Edge)، سرورِ مایکروسافت همیشه رد می‌کرد و
+  // اتصال با "failed" می‌افتاد — این یه محدودیتِ ذاتیه، نه یه باگِ قابلِ
+  // رفع از سمتِ کلاینت. برای همین این درخواست رو به بک‌اندِ Cloudflare
+  // Worker خودمون (همونی که برای AI chat استفاده می‌شه — src/index.js)
+  // فرستادیم؛ اونجا سمتِ سرور (بدونِ محدودیتِ Origin) وب‌سوکت رو به
+  // مایکروسافت وصل می‌کنه، mp3 رو می‌گیره، و یه فایلِ صوتیِ ساده
+  // برمی‌گردونه — از دیدِ اینجا دقیقاً مثلِ یه URLِ معمولی (مثلِ
+  // Google-Translate-TTS/StreamElements)، بدونِ نیاز به هیچ منطقِ
+  // وب‌سوکت/GEC-token توی خودِ اپ.
   // -------------------------------------------------------------------
-  const EDGE_TTS_TRUSTED_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
-
-  function edgeTtsUuid() {
-    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID().replace(/-/g, "");
-    let s = "";
-    for (let i = 0; i < 32; i++) s += Math.floor(Math.random() * 16).toString(16);
-    return s;
-  }
-
-  function edgeTtsEscapeXml(s) {
-    return (s || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&apos;");
-  }
-
-  async function edgeTtsSecMsGec() {
-    // پروتکلِ Edge از یه هدرِ امنیتیِ مبتنی‌بر زمان استفاده می‌کنه: ثانیه‌های
-    // یونیکسِ الان + افستِ اپاکِ ویندوز، گردشده به پایینِ نزدیک‌ترین ۵ دقیقه،
-    // تبدیل‌شده به تیک‌های ۱۰۰نانوثانیه‌ای، بعد SHA-256 با توکنِ ثابتِ بالا.
-    const WIN_EPOCH = 11644473600;
-    let ticks = Math.floor(Date.now() / 1000) + WIN_EPOCH;
-    ticks -= ticks % 300;
-    const ticksStr = String(Math.round(ticks * 1e7));
-    const strToHash = ticksStr + EDGE_TTS_TRUSTED_TOKEN;
-    const enc = new TextEncoder().encode(strToHash);
-    const hashBuf = await window.crypto.subtle.digest("SHA-256", enc);
-    return Array.from(new Uint8Array(hashBuf))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("")
-      .toUpperCase();
-  }
-
-  // یه تکه‌متن رو با موتورِ Edge/Azure می‌خونه و یه Blob URL از mp3ِ نتیجه
-  // برمی‌گردونه (reject می‌شه اگه وب‌سوکت/شبکه شکست بخوره یا هیچ صدایی
-  // نیاد — تا مسیرِ فراخوان بتونه بره سراغِ سرویسِ بعدی).
-  function fetchEdgeTtsAudio(chunkText, voice, speedRate) {
-    return new Promise((resolve, reject) => {
-      const sanitized = sanitizeForTTS(chunkText);
-      if (!sanitized || !window.WebSocket || !window.crypto || !window.crypto.subtle) {
-        reject(new Error("edge-tts-unavailable"));
-        return;
-      }
-      edgeTtsSecMsGec()
-        .then((gec) => {
-          const connId = edgeTtsUuid();
-          const wsUrl =
-            "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1" +
-            `?TrustedClientToken=${EDGE_TTS_TRUSTED_TOKEN}` +
-            `&Sec-MS-GEC=${gec}` +
-            `&Sec-MS-GEC-Version=1-131.0.2903.99` +
-            `&ConnectionId=${connId}`;
-          let ws;
-          try {
-            ws = new WebSocket(wsUrl);
-          } catch (e) {
-            reject(e);
-            return;
-          }
-          ws.binaryType = "arraybuffer";
-          const audioParts = [];
-          let settled = false;
-          const finishOk = () => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timeoutId);
-            try {
-              ws.close();
-            } catch (e) {}
-            if (!audioParts.length) {
-              reject(new Error("edge-tts-no-audio"));
-              return;
-            }
-            const blob = new Blob(audioParts, { type: "audio/mpeg" });
-            resolve(URL.createObjectURL(blob));
-          };
-          const finishFail = (err) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timeoutId);
-            try {
-              ws.close();
-            } catch (e) {}
-            reject(err || new Error("edge-tts-failed"));
-          };
-          const timeoutId = setTimeout(() => finishFail(new Error("edge-tts-timeout")), 15000);
-
-          ws.onopen = () => {
-            try {
-              const now = new Date().toISOString();
-              ws.send(
-                `X-Timestamp:${now}\r\n` +
-                  "Content-Type:application/json; charset=utf-8\r\n" +
-                  "Path:speech.config\r\n\r\n" +
-                  JSON.stringify({
-                    context: {
-                      synthesis: {
-                        audio: {
-                          metadataoptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: false },
-                          outputFormat: "audio-24khz-48kbitrate-mono-mp3",
-                        },
-                      },
-                    },
-                  })
-              );
-              const pct = Math.round(((Number(speedRate) || 1) - 1) * 100);
-              const rateStr = pct >= 0 ? `+${pct}%` : `${pct}%`;
-              const ssml =
-                `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>` +
-                `<voice name='${voice}'><prosody rate='${rateStr}'>${edgeTtsEscapeXml(sanitized)}</prosody></voice>` +
-                `</speak>`;
-              ws.send(
-                `X-RequestId:${edgeTtsUuid()}\r\n` +
-                  "Content-Type:application/ssml+xml\r\n" +
-                  `X-Timestamp:${now}\r\n` +
-                  "Path:ssml\r\n\r\n" +
-                  ssml
-              );
-            } catch (e) {
-              finishFail(e);
-            }
-          };
-          ws.onmessage = (evt) => {
-            if (typeof evt.data === "string") {
-              if (evt.data.indexOf("Path:turn.end") !== -1) finishOk();
-              return;
-            }
-            try {
-              const buf = new Uint8Array(evt.data);
-              if (buf.length < 2) return;
-              const headerLen = (buf[0] << 8) | buf[1];
-              const headerStr = new TextDecoder("utf-8").decode(buf.slice(2, 2 + headerLen));
-              if (headerStr.indexOf("Path:audio") !== -1) {
-                const audioData = buf.slice(2 + headerLen);
-                if (audioData.length) audioParts.push(audioData);
-              }
-            } catch (e) {}
-          };
-          ws.onerror = () => finishFail(new Error("edge-tts-ws-error"));
-          ws.onclose = () => finishOk();
-        })
-        .catch((e) => reject(e));
-    });
-  }
 
   // فهرستِ سرویس‌های آنلاینِ جایگزین برای یه تکه‌متن، به‌ترتیبِ اولویت:
-  // اول Edge/Azure (پوششِ کاملِ همه‌ی زبون‌ها)، بعد Google-Translate-TTS و
-  // StreamElements به‌عنوانِ پشتیبان اگه به هر دلیلی وب‌سوکتِ Edge دردسترس
-  // نبود (مثلاً شبکه/فایروالی که وب‌سوکت رو بلاک کرده).
+  // اول پراکسیِ Edge/Azureِ خودمون (پوششِ کاملِ همه‌ی زبون‌ها از جمله فارسی
+  // و عربی، که Google-Translate-TTS اصلاً پشتیبانی‌شون نمی‌کنه)، بعد
+  // Google-Translate-TTS و StreamElements به‌عنوانِ پشتیبان اگه به هر
+  // دلیلی خودِ Worker دردسترس نبود.
   function onlineTtsProviders(chunkText, langCode) {
     const voice = EDGE_TTS_VOICE[langCode] || EDGE_TTS_VOICE.en;
     const q = encodeURIComponent(sanitizeForTTS(chunkText));
+    const edgeProxy = { kind: "url", url: `${DEFAULT_BACKEND_URL}/api/tts?voice=${encodeURIComponent(voice)}&text=${q}` };
     const googleTranslate = { kind: "url", url: `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}` };
-    const edge = { kind: "edge", text: chunkText, voice };
     const streamElements = { kind: "url", url: `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}` };
-    // Google Translate TTS رو اول امتحان می‌کنیم، نه Edge/Azure — چون دامنه‌ی
-    // خودِ Microsoft/Bing (speech.platform.bing.com) در بعضی کشورها (مثلاً
-    // ایران) فیلتره، درحالی‌که translate.google.com معمولاً در دسترسه.
-    // Edge به‌عنوانِ پشتیبانِ دوم می‌مونه (کیفیتش بالاتره، برای کاربرهایی
-    // که فیلتر نیستن)، و StreamElements آخرین گزینه.
-    return [googleTranslate, edge, streamElements];
+    return [edgeProxy, googleTranslate, streamElements];
   }
 
   function stopOnlineAudio() {
@@ -2120,47 +1973,6 @@ const speechController = (() => {
       if (status !== "playing") return;
       playOnlineChunkUrls(providers, providerIndex + 1, idx);
     };
-
-    if (provider.kind === "edge") {
-      fetchEdgeTtsAudio(provider.text, provider.voice, rate)
-        .then((blobUrl) => {
-          if (status !== "playing") {
-            try {
-              URL.revokeObjectURL(blobUrl);
-            } catch (e) {}
-            return;
-          }
-          const audio = new Audio(blobUrl);
-          // صدای Edge خودش با نرخِ SSML کند/تندشده — پخشِ مرورگر رو روی
-          // نرمال می‌ذاریم تا دوباره کند/تند نشه.
-          audio.playbackRate = 1;
-          audio.volume = muted ? 0 : 1;
-          audio.onplaying = () => {
-            onlineAnyAudioPlayed = true;
-          };
-          const cleanup = () => {
-            try {
-              URL.revokeObjectURL(blobUrl);
-            } catch (e) {}
-          };
-          audio.onended = () => {
-            cleanup();
-            if (status !== "playing") return;
-            playOnlineChunk(idx + 1);
-          };
-          audio.onerror = () => {
-            cleanup();
-            goNext();
-          };
-          onlineAudio = audio;
-          audio.play().catch(() => {
-            cleanup();
-            goNext();
-          });
-        })
-        .catch(() => goNext());
-      return;
-    }
 
     const audio = new Audio(provider.url);
     audio.playbackRate = rate;
