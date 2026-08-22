@@ -7513,6 +7513,10 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [audioReadError, setAudioReadError] = useState("");
   const [audioReadProgress, setAudioReadProgress] = useState("");
   const audioReadInputRef = useRef(null);
+  // Web Worker که کارِ سنگینِ دانلودِ مدل + رونویسی رو خارج از threadِ اصلی
+  // اجرا می‌کنه — تا صفحه هیچ‌وقت (حتی رویِ فایل‌های بلند) قفل نشه، و
+  // کاربر بتونه هر وقت خواست با دکمه‌ی «لغو» متوقفش کنه.
+  const audioReadWorkerRef = useRef(null);
   // کلیدِ فایلِ صوتیِ همین داستان تویِ IndexedDB (اگه از رویِ آپلودِ پادکست
   // ساخته شده باشه) — فقط همین رشته با متادیتای داستان ذخیره/سینک می‌شه،
   // نه خودِ صدا. اگه داستان از منبعِ دیگه‌ای (PDF/پیست/AI) باشه، null می‌مونه.
@@ -8904,49 +8908,53 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       const resampled = await offlineCtx.startRendering();
       const pcmData = resampled.getChannelData(0); // Float32Array مونو، ۱۶kHz — فرمتِ موردِ نیازِ Whisper
 
-      // ۲) لودِ مدلِ Whisper (فقط بارِ اول واقعاً دانلود می‌شه؛ دفعاتِ بعد از
-      // کشِ مرورگر میاد). progress_callback درصدِ دانلود رو می‌ده تا کاربر
-      // بفهمه اپ هنگ نکرده، فقط داره مدل رو دانلود می‌کنه.
+      // ۲) و ۳) لودِ مدل + رونویسی — هردو تویِ یه Web Worker جدا اجرا می‌شن
+      // (whisper-worker.js)، نه رویِ threadِ اصلی. قبلاً چون WebAssembly
+      // (محاسباتِ سنگینِ Whisper) روی threadِ اصلی اجرا می‌شد، برای فایل‌های
+      // بلند (مثلِ پادکستِ ۱۲دقیقه‌ای) کلِ صفحه — حتی دکمه‌ها — قفل می‌شد و
+      // تنها راهِ کاربر force-quit بود. حالا threadِ اصلی همیشه آزاده: هم
+      // پیشرفتِ واقعیِ قطعه‌به‌قطعه نشون داده می‌شه، هم یه دکمه‌ی «لغو» همیشه
+      // در دسترسه.
       setAudioReadProgress("در حال آماده‌سازیِ سیستمِ تشخیصِ گفتار (بارِ اول ممکنه کمی طول بکشه)...");
-      let transcriber;
-      try {
-        const { pipeline, env } = await import("https://esm.sh/@xenova/transformers@2.17.2");
-        env.allowLocalModels = false;
-        transcriber = await pipeline("automatic-speech-recognition", AUDIO_WHISPER_MODEL, {
-          progress_callback: (p) => {
-            if (p?.status === "progress" && Number.isFinite(p.progress)) {
-              setAudioReadProgress(`در حال دانلودِ مدلِ تشخیصِ گفتار... ${Math.round(p.progress)}٪`);
-            }
-          },
-        });
-      } catch (modelErr) {
-        console.error("audio-read: model load failed", modelErr);
-        {
-          const detail = modelErr?.message || modelErr?.name || String(modelErr || "");
-          setAudioReadError(`دانلود/بارگذاریِ مدلِ تشخیصِ گفتار مشکل داشت${detail ? " — " + detail : ""}`);
-        }
-        return;
-      }
-
-      // ۳) خودِ رونویسی — chunk_length_s/stride_length_s باعث می‌شه فایل‌های
-      // بلند هم (نه فقط چند ثانیه) به‌درستی، تکه‌تکه، پردازش بشن.
-      setAudioReadProgress("در حال تبدیلِ صدا به متن...");
       let rawText = "";
       let wordChunks = [];
       try {
-        const result = await transcriber(pcmData, {
-          chunk_length_s: 30,
-          stride_length_s: 5,
-          // تایم‌استمپِ کلمه‌به‌کلمه — همون چیزی که لازمه تا بعداً بشه هر
-          // جمله رو به بازه‌ی زمانیِ خودش (تویِ خودِ فایلِ صوتی) وصل کرد؛
-          // کاملاً محلی/رایگانه، فقط کمی کندتر از رونویسیِ بدونِ تایم‌استمپ.
-          return_timestamps: "word",
+        const result = await new Promise((resolve, reject) => {
+          const worker = new Worker(new URL("./whisper-worker.js", import.meta.url), { type: "module" });
+          audioReadWorkerRef.current = worker;
+          worker.onmessage = (ev) => {
+            const msg = ev.data || {};
+            if (msg.type === "model-progress") {
+              setAudioReadProgress(`در حال دانلودِ مدلِ تشخیصِ گفتار... ${Math.round(msg.progress)}٪`);
+            } else if (msg.type === "chunk-progress") {
+              setAudioReadProgress(`در حال تبدیلِ صدا به متن... قطعه‌ی ${msg.chunksDone} از حدودِ ${msg.totalChunksEstimate}`);
+            } else if (msg.type === "done") {
+              worker.terminate();
+              audioReadWorkerRef.current = null;
+              resolve(msg);
+            } else if (msg.type === "error") {
+              worker.terminate();
+              audioReadWorkerRef.current = null;
+              reject(new Error(msg.message || "خطای نامشخص"));
+            }
+          };
+          worker.onerror = (ev) => {
+            worker.terminate();
+            audioReadWorkerRef.current = null;
+            reject(new Error(ev?.message || "اجرایِ Workerِ تشخیصِ گفتار با خطا مواجه شد"));
+          };
+          // pcmData رو با transfer (بدون کپی) به Worker می‌فرستیم — سریع‌تره
+          // و حافظه تکراری نمی‌کنه؛ بعدش pcmData دیگه رویِ همین thread قابلِ
+          // استفاده نیست، که چون بعد از اینجا دیگه لازم نداریمش مشکلی نیست.
+          worker.postMessage({ type: "transcribe", pcmData, modelId: AUDIO_WHISPER_MODEL }, [pcmData.buffer]);
         });
         rawText = (result?.text || "").trim();
         wordChunks = Array.isArray(result?.chunks) ? result.chunks : [];
       } catch (transcribeErr) {
         console.error("audio-read: transcription failed", transcribeErr);
-        setAudioReadError(`تشخیصِ گفتار رو این فایل مشکل داشت${transcribeErr?.message ? " — " + transcribeErr.message : ""}`);
+        if (transcribeErr?.message !== "CANCELLED") {
+          setAudioReadError(`تشخیصِ گفتار رو این فایل مشکل داشت${transcribeErr?.message ? " — " + transcribeErr.message : ""}`);
+        }
         return;
       }
       if (!rawText) {
@@ -9016,7 +9024,24 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setAudioReadError("تبدیلِ این فایلِ صوتی به متن مشکل داشت — شاید فرمتش پشتیبانی نمی‌شه، یا اتصالِ اینترنت (برای دانلودِ بارِ اولِ مدل) قطع بود");
     } finally {
       setAudioReadBusy(false);
+      if (audioReadWorkerRef.current) {
+        audioReadWorkerRef.current.terminate();
+        audioReadWorkerRef.current = null;
+      }
     }
+  };
+
+  // دکمه‌ی «لغو» — به‌جای اینکه کاربر برای متوقف‌کردنِ یه پردازشِ گیرکرده
+  // مجبور بشه کل اپ رو force-quit کنه و کش رو پاک کنه، همین‌جا با یه تپ
+  // Workerِ درحالِ‌اجرا رو می‌کشه و حالت برمی‌گرده به عادی.
+  const cancelAudioTranscription = () => {
+    if (audioReadWorkerRef.current) {
+      audioReadWorkerRef.current.terminate();
+      audioReadWorkerRef.current = null;
+    }
+    setAudioReadBusy(false);
+    setAudioReadProgress("");
+    setAudioReadError("");
   };
 
   const saveCurrentStory = () => {
@@ -9648,25 +9673,44 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             onChange={handleAudioImportForReading}
             style={{ display: "none" }}
           />
-          <button
-            onClick={() => audioReadInputRef.current?.click()}
-            disabled={audioReadBusy}
-            className="flex items-center justify-center gap-2"
-            style={{
-              width: "100%",
-              border: `1px dashed ${colors.cardBorder}`,
-              borderRadius: 14,
-              padding: "10px 16px",
-              fontWeight: 700,
-              fontSize: 13,
-              color: colors.teal,
-              marginTop: 8,
-              opacity: audioReadBusy ? 0.6 : 1,
-            }}
-          >
-            {audioReadBusy ? <Loader2 size={16} className="spin" /> : <span>🎧</span>}
-            {audioReadBusy ? (audioReadProgress || "در حال پردازش...") : "یا یه فایلِ صوتی (mp3) برای خوانش وارد کن"}
-          </button>
+          <div style={{ display: "flex", gap: 6, alignItems: "stretch", marginTop: 8 }}>
+            <button
+              onClick={() => audioReadInputRef.current?.click()}
+              disabled={audioReadBusy}
+              className="flex items-center justify-center gap-2"
+              style={{
+                flex: 1,
+                border: `1px dashed ${colors.cardBorder}`,
+                borderRadius: 14,
+                padding: "10px 16px",
+                fontWeight: 700,
+                fontSize: 13,
+                color: colors.teal,
+                opacity: audioReadBusy ? 0.6 : 1,
+              }}
+            >
+              {audioReadBusy ? <Loader2 size={16} className="spin" /> : <span>🎧</span>}
+              {audioReadBusy ? (audioReadProgress || "در حال پردازش...") : "یا یه فایلِ صوتی (mp3) برای خوانش وارد کن"}
+            </button>
+            {/* این دکمه فقط وقتی پردازش درحالِ اجراست ظاهر می‌شه — جایگزینِ
+                force-quit/پاک‌کردنِ کش برای متوقف‌کردنِ یه پردازشِ گیرکرده. */}
+            {audioReadBusy && (
+              <button
+                onClick={cancelAudioTranscription}
+                className="flex items-center justify-center"
+                style={{
+                  border: `1px solid ${colors.rose}`,
+                  borderRadius: 14,
+                  padding: "10px 14px",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  color: colors.rose,
+                }}
+              >
+                لغو
+              </button>
+            )}
+          </div>
           {audioReadError && (
             <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{audioReadError}</p>
           )}
