@@ -154,6 +154,230 @@ async function setCachedTranslation(text, targetLang, sourceLang, translation) {
   }
 }
 
+// ============================================================
+// صوتِ خودِ کاربر برای داستان‌ها — کاربر یک فایلِ صوتیِ واقعی (ضبط/آپلود)
+// رو به یک داستان وصل می‌کنه؛ خودِ فایل (Blob) و تایم‌استمپِ هر جمله
+// (که با «حالتِ علامت‌گذاری» دستی مشخص می‌شه) کاملاً روی خودِ گوشی، توی
+// IndexedDB ذخیره می‌مونه — هیچ‌وقت به Supabase یا هیچ سروری فرستاده
+// نمی‌شه.
+// ============================================================
+const STORY_AUDIO_DB_NAME = "story-user-audio";
+const STORY_AUDIO_STORE = "audio";
+
+function openStoryAudioDB() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") { reject(new Error("indexeddb-unavailable")); return; }
+    const req = indexedDB.open(STORY_AUDIO_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORY_AUDIO_STORE)) {
+        db.createObjectStore(STORY_AUDIO_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// record شکل: { blob: Blob, timestamps: [{pi,si,time}, ...], savedAt }
+async function saveStoryAudioRecord(storyKey, record) {
+  try {
+    const db = await openStoryAudioDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORY_AUDIO_STORE, "readwrite");
+      tx.objectStore(STORY_AUDIO_STORE).put(record, storyKey);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function getStoryAudioRecord(storyKey) {
+  try {
+    const db = await openStoryAudioDB();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(STORY_AUDIO_STORE, "readonly");
+      const req = tx.objectStore(STORY_AUDIO_STORE).get(storyKey);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function deleteStoryAudioRecord(storyKey) {
+  try {
+    const db = await openStoryAudioDB();
+    await new Promise((resolve) => {
+      const tx = db.transaction(STORY_AUDIO_STORE, "readwrite");
+      tx.objectStore(STORY_AUDIO_STORE).delete(storyKey);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch {}
+}
+
+// هوکِ مدیریتِ صوتِ کاربر برای یک داستانِ مشخص (storyKey پایدار — معمولاً
+// mainStoryKey). یک <audio> واقعی رو کنترل می‌کنه؛ در «حالتِ علامت‌گذاری»
+// هر بار markLine() صدا زده بشه، زمانِ فعلیِ پخش رو به‌عنوانِ نقطه‌ی
+// شروعِ جمله‌ی بعدی (به ترتیبِ allSentences) ثبت می‌کنه.
+function useStoryUserAudio(storyKey, allSentences) {
+  const audioElRef = useRef(null);
+  if (!audioElRef.current && typeof Audio !== "undefined") {
+    audioElRef.current = new Audio();
+  }
+  const [hasAudio, setHasAudio] = useState(false);
+  const [timestamps, setTimestamps] = useState([]); // [{pi,si,time}]
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [marking, setMarking] = useState(false);
+  const [markIndex, setMarkIndex] = useState(0); // پیشرفت در allSentences حین علامت‌گذاری
+  const markedRef = useRef([]);
+  const objectUrlRef = useRef(null);
+
+  // بارگذاریِ اولیه از IndexedDB وقتی storyKey عوض می‌شه
+  useEffect(() => {
+    let cancelled = false;
+    setHasAudio(false);
+    setTimestamps([]);
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setMarking(false);
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+    if (!storyKey) return;
+    (async () => {
+      const rec = await getStoryAudioRecord(storyKey);
+      if (cancelled || !rec) return;
+      const url = URL.createObjectURL(rec.blob);
+      objectUrlRef.current = url;
+      if (audioElRef.current) audioElRef.current.src = url;
+      setTimestamps(rec.timestamps || []);
+      setHasAudio(true);
+    })();
+    return () => { cancelled = true; };
+  }, [storyKey]);
+
+  useEffect(() => {
+    const el = audioElRef.current;
+    if (!el) return;
+    const onTime = () => setCurrentTime(el.currentTime || 0);
+    const onDur = () => setDuration(el.duration || 0);
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    const onEnd = () => setIsPlaying(false);
+    el.addEventListener("timeupdate", onTime);
+    el.addEventListener("loadedmetadata", onDur);
+    el.addEventListener("play", onPlay);
+    el.addEventListener("pause", onPause);
+    el.addEventListener("ended", onEnd);
+    return () => {
+      el.removeEventListener("timeupdate", onTime);
+      el.removeEventListener("loadedmetadata", onDur);
+      el.removeEventListener("play", onPlay);
+      el.removeEventListener("pause", onPause);
+      el.removeEventListener("ended", onEnd);
+    };
+  }, []);
+
+  async function uploadFile(file) {
+    if (!storyKey || !file) return;
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    const url = URL.createObjectURL(file);
+    objectUrlRef.current = url;
+    if (audioElRef.current) audioElRef.current.src = url;
+    setTimestamps([]);
+    setHasAudio(true);
+    await saveStoryAudioRecord(storyKey, { blob: file, timestamps: [], savedAt: Date.now() });
+  }
+
+  function play() { audioElRef.current?.play().catch(() => {}); }
+  function pause() { audioElRef.current?.pause(); }
+  function seek(t) { if (audioElRef.current) audioElRef.current.currentTime = t; }
+
+  function startMarking() {
+    markedRef.current = [];
+    setMarkIndex(0);
+    setMarking(true);
+    seek(0);
+    play();
+  }
+  function markLine() {
+    if (!marking || !allSentences || markIndex >= allSentences.length) return;
+    const s = allSentences[markIndex];
+    markedRef.current.push({ pi: s._pi, si: s._si, time: audioElRef.current?.currentTime || 0 });
+    setMarkIndex((i) => i + 1);
+  }
+  async function finishMarking(save) {
+    pause();
+    setMarking(false);
+    if (save && markedRef.current.length && storyKey) {
+      const rec = await getStoryAudioRecord(storyKey);
+      const newTimestamps = markedRef.current.slice();
+      setTimestamps(newTimestamps);
+      if (rec) {
+        await saveStoryAudioRecord(storyKey, { ...rec, timestamps: newTimestamps });
+      }
+    }
+  }
+  function cancelMarking() {
+    pause();
+    setMarking(false);
+    setMarkIndex(0);
+    markedRef.current = [];
+  }
+
+  async function removeAudio() {
+    pause();
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    objectUrlRef.current = null;
+    if (audioElRef.current) audioElRef.current.removeAttribute("src");
+    setHasAudio(false);
+    setTimestamps([]);
+    if (storyKey) await deleteStoryAudioRecord(storyKey);
+  }
+
+  // جمله‌ای که الان بر اساسِ currentTime باید هایلایت بشه — آخرین
+  // تایم‌استمپی که زمانش از currentTime کمتر/مساویه.
+  const activeSentence = useMemo(() => {
+    if (!timestamps.length) return null;
+    let found = null;
+    for (const ts of timestamps) {
+      if (currentTime >= ts.time) found = ts;
+      else break;
+    }
+    return found ? { pi: found.pi, si: found.si } : null;
+  }, [timestamps, currentTime]);
+
+  return {
+    hasAudio,
+    timestamps,
+    isPlaying,
+    currentTime,
+    duration,
+    marking,
+    markIndex,
+    activeSentence,
+    uploadFile,
+    play,
+    pause,
+    seek,
+    startMarking,
+    markLine,
+    finishMarking,
+    cancelMarking,
+    removeAudio,
+  };
+}
+
 async function getTranslationCacheCount() {
   try {
     const db = await openTranslationDB();
@@ -7228,6 +7452,182 @@ function enforceSentenceSplit(paragraphs) {
   });
 }
 
+// نوارِ کوچکِ صوتِ کاربر برای داستان — بالای متنِ داستان می‌شینه. یه سوییچِ
+// دوحالته (TTS ⇄ صوتِ من) داره؛ اگه هنوز صوتی آپلود نشده فقط دکمه‌ی آپلود
+// نشون می‌ده. بعد از آپلود، اگه تایم‌استمپ نداشته باشه دکمه‌ی «علامت‌گذاری
+// خط‌ها» ظاهر می‌شه؛ در حینِ علامت‌گذاری هر تپ روی «خطِ بعدی» زمانِ فعلیِ
+// پخش رو به همون جمله وصل می‌کنه. بعد از داشتنِ تایم‌استمپ، یه نوارِ پخش/
+// مکث/پیشرفتِ ساده نشون داده می‌شه.
+function StoryUserAudioBar({ userAudio, playbackMode, setPlaybackMode, allSentences }) {
+  const fileInputRef = useRef(null);
+  const {
+    hasAudio, timestamps, isPlaying, currentTime, duration,
+    marking, markIndex, uploadFile, play, pause, seek,
+    startMarking, markLine, finishMarking, cancelMarking, removeAudio,
+  } = userAudio;
+
+  function fmtTime(sec) {
+    const s = Math.max(0, Math.round(sec || 0));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return toFaDigits(`${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`);
+  }
+
+  const boxStyle = {
+    border: `1px solid ${colors.cardBorder}`,
+    borderRadius: 12,
+    padding: "10px 12px",
+    marginBottom: 14,
+    backgroundColor: colors.cardBg || "white",
+  };
+
+  if (marking) {
+    const currentLine = allSentences[markIndex];
+    const done = markIndex >= (allSentences?.length || 0);
+    return (
+      <div style={boxStyle}>
+        <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>
+          {done ? "همه‌ی خط‌ها علامت‌گذاری شد ✅" : `علامت‌گذاری خط ${toFaDigits(String(markIndex + 1))} از ${toFaDigits(String(allSentences.length))}`}
+        </p>
+        {currentLine && (
+          <p style={{ fontSize: 14, marginBottom: 8, fontFamily: fontFa }} dir="auto">
+            {currentLine.text}
+          </p>
+        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={isPlaying ? pause : play}
+            style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.cardBorder}`, background: "white" }}
+          >
+            {isPlaying ? "توقف موقت" : "پخش"}
+          </button>
+          {!done && (
+            <button
+              onClick={markLine}
+              style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: colors.teal, color: "white", fontWeight: 600 }}
+            >
+              خطِ بعدی ▶
+            </button>
+          )}
+          <button
+            onClick={() => finishMarking(true)}
+            disabled={markIndex === 0}
+            style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.teal}`, color: colors.teal, background: "white", opacity: markIndex === 0 ? 0.5 : 1 }}
+          >
+            ذخیره و پایان
+          </button>
+          <button
+            onClick={cancelMarking}
+            style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "none", color: colors.rose }}
+          >
+            انصراف
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={boxStyle}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1" style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 20, padding: 2 }}>
+          <button
+            onClick={() => setPlaybackMode("tts")}
+            style={{
+              padding: "4px 12px", borderRadius: 18, fontSize: 12, border: "none",
+              backgroundColor: playbackMode === "tts" ? colors.teal : "transparent",
+              color: playbackMode === "tts" ? "white" : colors.ink,
+            }}
+          >
+            TTS
+          </button>
+          <button
+            onClick={() => hasAudio && setPlaybackMode("user")}
+            disabled={!hasAudio}
+            style={{
+              padding: "4px 12px", borderRadius: 18, fontSize: 12, border: "none",
+              backgroundColor: playbackMode === "user" ? colors.teal : "transparent",
+              color: playbackMode === "user" ? "white" : (hasAudio ? colors.ink : colors.cardBorder),
+              cursor: hasAudio ? "pointer" : "default",
+            }}
+          >
+            صوت من
+          </button>
+        </div>
+
+        {!hasAudio ? (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="audio/*"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) uploadFile(f);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.cardBorder}`, background: "white", fontSize: 13 }}
+            >
+              آپلود صوت
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={removeAudio}
+            style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "none", color: colors.rose, fontSize: 12 }}
+          >
+            حذف صوت
+          </button>
+        )}
+      </div>
+
+      {hasAudio && playbackMode === "user" && (
+        <div className="flex items-center gap-2" style={{ marginTop: 10 }}>
+          <button
+            onClick={isPlaying ? pause : play}
+            style={{ padding: 6, borderRadius: 999, border: "none", background: colors.teal, color: "white", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+          >
+            {isPlaying ? <Pause size={16} /> : <PlayCircle size={18} />}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={duration || 0}
+            step={0.1}
+            value={currentTime}
+            onChange={(e) => seek(Number(e.target.value))}
+            style={{ flex: 1 }}
+          />
+          <span style={{ fontSize: 11, color: colors.inkSoft, flexShrink: 0 }}>
+            {fmtTime(currentTime)} / {fmtTime(duration)}
+          </span>
+        </div>
+      )}
+
+      {hasAudio && !timestamps.length && (
+        <button
+          onClick={startMarking}
+          style={{ marginTop: 10, padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.gold}`, color: colors.gold, background: "white", fontSize: 13 }}
+        >
+          علامت‌گذاری خط‌ها (برای هایلایتِ زنده)
+        </button>
+      )}
+      {hasAudio && !!timestamps.length && (
+        <button
+          onClick={startMarking}
+          style={{ marginTop: 8, padding: "4px 10px", borderRadius: 8, border: "none", background: "none", color: colors.inkSoft, fontSize: 11 }}
+        >
+          علامت‌گذاریِ دوباره
+        </button>
+      )}
+    </div>
+  );
+}
+
 function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, autoScrollActive, calendarSystem, highlightColor, uid, uiLang }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
@@ -7463,6 +7863,17 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   }, [translatedSentenceOffsetsByLang]);
 
   const mainStoryKey = fullStoryText ? `${TTS_LOCALE[storyLang] || "en-US"}::${fullStoryText}` : null;
+  // صوتِ خودِ کاربر برای همین داستان (اگه آپلود/علامت‌گذاری شده باشه) —
+  // کاملاً مستقل از speechController/TTS، فقط با mainStoryKey به داستان
+  // فعلی وصل می‌شه. playbackMode مشخص می‌کنه پلیر الان کدوم منبع رو نشون
+  // می‌ده: "tts" (پیش‌فرض، همون سیستمِ قبلی) یا "user" (فایلِ صوتیِ کاربر).
+  const userAudio = useStoryUserAudio(mainStoryKey, allSentences);
+  const [playbackMode, setPlaybackMode] = useState("tts"); // "tts" | "user"
+  useEffect(() => {
+    // اگه داستان عوض شد و صوتِ کاربر نداشت، خودکار برگرد به TTS
+    if (playbackMode === "user" && !userAudio.hasAudio) setPlaybackMode("tts");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainStoryKey, userAudio.hasAudio]);
   // وقتی از پاپ‌آپِ کلمه یا محدوده‌ی انتخابی، دکمه‌ی پخش زده می‌شه، همین‌جا
   // موقعیت (نسبت به کلِ fullStoryText) به‌خاطر سپرده می‌شه — تا دفعه‌ی بعد
   // که دکمه‌ی «پخشِ کل متن» روی نوارِ پلیر زده بشه، از همون‌جا (نه از اول)
@@ -7549,16 +7960,17 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // فعال باشه، خطِ در حالِ خواندن رو خودکار وسطِ صفحه نگه می‌داره — کاربر
   // خطش رو گم نمی‌کنه.
   useEffect(() => {
-    if (!autoScrollActive || !activeStorySentence) return;
+    const sentenceForScroll = playbackMode === "user" ? userAudio.activeSentence : activeStorySentence;
+    if (!autoScrollActive || !sentenceForScroll) return;
     const node =
       granularity === "sentence"
-        ? sentenceElsRef.current[`${activeStorySentence.pi}-${activeStorySentence.si}`]
-        : paragraphElsRef.current[activeStorySentence.pi];
+        ? sentenceElsRef.current[`${sentenceForScroll.pi}-${sentenceForScroll.si}`]
+        : paragraphElsRef.current[sentenceForScroll.pi];
     if (node && node.scrollIntoView) {
       node.scrollIntoView({ behavior: "smooth", block: "center" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoScrollActive, activeStorySentence?.pi, activeStorySentence?.si, granularity]);
+  }, [autoScrollActive, activeStorySentence?.pi, activeStorySentence?.si, userAudio.activeSentence?.pi, userAudio.activeSentence?.si, playbackMode, granularity]);
 
   // همون قابلیتِ بالا، ولی برای پخشِ کلِ یه ترجمه — وقتی کاربر 🔊ِ کنارِ یه
   // ترجمه رو می‌زنه و اسکرولِ خودکار فعاله، خطِ در حالِ خواندنِ همون ترجمه
@@ -9295,6 +9707,15 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             </div>
           )}
 
+          {fullStoryText && (
+            <StoryUserAudioBar
+              userAudio={userAudio}
+              playbackMode={playbackMode}
+              setPlaybackMode={setPlaybackMode}
+              allSentences={allSentences}
+            />
+          )}
+
           <div className="flex flex-col gap-5">
             {paragraphs.map((p, pi) => {
               const paragraphText = (p.sentences || []).map((s) => s?.text || "").join(" ");
@@ -9310,7 +9731,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                         // موقتِ ۲.۴ ثانیه‌ای).
                         const isSentenceActive =
                           (highlightSentence && highlightSentence.pi === pi && highlightSentence.si === si) ||
-                          (activeStorySentence && activeStorySentence.pi === pi && activeStorySentence.si === si);
+                          (playbackMode === "user"
+                            ? (userAudio.activeSentence && userAudio.activeSentence.pi === pi && userAudio.activeSentence.si === si)
+                            : (activeStorySentence && activeStorySentence.pi === pi && activeStorySentence.si === si));
                         return (
                         <div
                           key={si}
@@ -9458,7 +9881,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                       {(() => {
                         const isParaActive =
                           (highlightSentence && highlightSentence.pi === pi) ||
-                          (activeStorySentence && activeStorySentence.pi === pi);
+                          (playbackMode === "user"
+                            ? (userAudio.activeSentence && userAudio.activeSentence.pi === pi)
+                            : (activeStorySentence && activeStorySentence.pi === pi));
                         return (
                           <div className="flex items-start gap-2" dir={dirFor(storyLang)}>
                             <SpeakButton
