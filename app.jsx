@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, Square, ListChecks } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -12112,6 +12112,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // پنلِ تنظیماتِ بیشترِ پلیر (شفافیت) — تو طراحیِ جدید، پشتِ دکمه‌ی «فهرست»
   // (☰) جمع‌وجور شده تا نوارِ کنترلِ اصلی شلوغ نشه؛ خودِ قابلیت دقیقاً همونیه
   // که قبلاً بود، فقط پیش‌فرض بسته‌ست.
+  const [showPlayerSettings, setShowPlayerSettings] = useState(false);
   // شفافیتِ پنلِ شناورِ «تمرین جمله‌سازی با هوش مصنوعی» — دقیقاً مثل
   // playerOpacity بالا، جدا و مستقل ذخیره می‌شه که با شفافیتِ پلیر تداخل
   // نکنه.
@@ -12192,12 +12193,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // گرامری زیرِ پنلِ شناور گم نشه.
   const [practicePanelHeight, setPracticePanelHeight] = useState(0);
   const [loaded, setLoaded] = useState(false);
-  const [loadTimedOut, setLoadTimedOut] = useState(false);
-  useEffect(() => {
-    if (loaded) return;
-    const t = setTimeout(() => setLoadTimedOut(true), 6000);
-    return () => clearTimeout(t);
-  }, [loaded]);
   // «loaded» فقط یعنی نسخه‌ی محلی (localStorage) لود شده و صفحه می‌تونه باز
   // بشه — ولی نسخه‌ی ابری (Supabase) ممکنه هنوز در راه باشه (مخصوصاً
   // اولین‌بار روی یه دستگاه/مرورگر تازه که چیزی توی localStorage نیست).
@@ -12600,37 +12595,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       <div
         dir="rtl"
         lang="fa"
-        style={{
-          fontFamily: fontFa,
-          backgroundColor: colors.paper,
-          minHeight: "100vh",
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-          alignItems: "center",
-          justifyContent: "center",
-          color: colors.inkSoft,
-          padding: 20,
-          textAlign: "center",
-        }}
+        style={{ fontFamily: fontFa, backgroundColor: colors.paper, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: colors.inkSoft }}
       >
         <style>{`@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap');`}</style>
         در حال بارگذاری...
-        {loadTimedOut && (
-          <>
-            <p style={{ fontSize: 12.5, maxWidth: 320 }}>
-              بارگذاری بیش از حدِ معمول طول کشید. اگه دکمه‌ی پایین رو بزنی،
-              برنامه بدونِ نسخه‌ی ذخیره‌شده‌ی محلی باز می‌شه (داده‌ی ابری هنوز
-              در پس‌زمینه لود می‌شه).
-            </p>
-            <button
-              onClick={() => setLoaded(true)}
-              style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: colors.teal, color: "white", fontSize: 13 }}
-            >
-              بازکردنِ برنامه
-            </button>
-          </>
-        )}
       </div>
     );
   }
@@ -13130,23 +13098,43 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               color={colors.teal}
             />
             <ChunkNavButton direction="next" color={colors.ink} />
+            <button
+              onClick={() => setShowPlayerSettings((v) => !v)}
+              aria-label="تنظیماتِ پلیر"
+              title="تنظیماتِ پلیر (شفافیت)"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: showPlayerSettings ? colors.gold : colors.ink,
+                padding: 6,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <ListMusic size={20} />
+            </button>
           </div>
-          {/* شفافیتِ پلیر — دیگه پشتِ آیکونِ جدا نیست، همیشه داخلِ خودِ پلیر
-              دیده می‌شه. منطقِ ذخیره/بازنشانی (playerOpacity, دکمه‌ی
-              بازنشانیِ زیرِ ۷٪) کاملاً دست‌نخورده باقی موند. */}
-          <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2, paddingBottom: 8 }}>
-            <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={playerOpacity}
-              onChange={(e) => setPlayerOpacity(Number(e.target.value))}
-              aria-label="شفافیت پلیر"
-              style={{ flex: 1, accentColor: colors.gold }}
-            />
-            <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
-          </div>
+          {/* پنلِ تنظیماتِ بیشتر — شفافیتِ پلیر؛ همون قابلیتِ قبلی، فقط الان
+              پشتِ دکمه‌ی ☰ جمع‌وجور شده تا نوارِ کنترلِ اصلی شبیهِ پلیرِ عکسِ
+              فرستاده‌شده بمونه. */}
+          {showPlayerSettings && (
+            <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2, paddingBottom: 8 }}>
+              <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={playerOpacity}
+                onChange={(e) => setPlayerOpacity(Number(e.target.value))}
+                aria-label="شفافیت پلیر"
+                style={{ flex: 1, accentColor: colors.gold }}
+              />
+              <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
+            </div>
+          )}
         </div>
         {/* دکمه‌ی «بازنشانیِ شفافیت» — وقتی شفافیتِ پلیر خیلی پایین میاد (زیرِ
             ۷۰٪)، خودِ نوار (و اسلایدرِ توش) هم کم‌رنگ/کم‌کنتراست می‌شه و
@@ -15523,17 +15511,6 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
   const [appPrefs, setAppPrefs] = useState(loadAppPrefs);
-  // اگه چکِ سشنِ Supabase (مثلاً به‌خاطرِ شبکه/آدرسِ اشتباهِ پروژه) هیچ‌وقت
-  // جواب نده، checkingSession برای همیشه true می‌مونه و کاربر گیرِ اسپینر
-  // می‌مونه بدون هیچ راهی برای فهمیدنِ چرا. بعد از ۸ ثانیه، به‌جایِ گیر
-  // موندنِ ابدی، فرض می‌کنیم کاربر مهمونه و صفحه‌ی ورود رو نشون می‌دیم —
-  // اگه سشن واقعاً بعداً برسه، effectِ بالا همچنان setUser رو صدا می‌زنه.
-  const [sessionTimedOut, setSessionTimedOut] = useState(false);
-  useEffect(() => {
-    if (!checkingSession) return;
-    const t = setTimeout(() => setSessionTimedOut(true), 8000);
-    return () => clearTimeout(t);
-  }, [checkingSession]);
 
   useEffect(() => saveAppPrefs(appPrefs), [appPrefs]);
 
@@ -15632,39 +15609,10 @@ export default function App() {
     minHeight: "100vh",
   };
 
-  if (checkingSession && !sessionTimedOut) {
+  if (checkingSession) {
     return (
       <div style={{ ...rootStyle, display: "flex", alignItems: "center", justifyContent: "center", background: colors.paper }}>
         <Loader2 size={28} className="spin" color={colors.gold} />
-      </div>
-    );
-  }
-  if (checkingSession && sessionTimedOut) {
-    return (
-      <div
-        dir="rtl"
-        style={{
-          ...rootStyle,
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          alignItems: "center",
-          justifyContent: "center",
-          background: colors.paper,
-          padding: 20,
-          textAlign: "center",
-        }}
-      >
-        <p style={{ fontSize: 13, color: colors.inkSoft }}>
-          چکِ ورودِ حساب بیش از حدِ معمول طول کشید — احتمالاً مشکلِ اتصال یا
-          سرور. می‌تونی صفحه‌ی ورود رو باز کنی و دوباره امتحان کنی.
-        </p>
-        <button
-          onClick={() => setSessionTimedOut(false) || setUser(null)}
-          style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: colors.teal, color: "white", fontSize: 13 }}
-        >
-          رفتن به صفحه‌ی ورود
-        </button>
       </div>
     );
   }
@@ -15697,36 +15645,4 @@ export default function App() {
 // ---------------------------------------------------------------------------
 import ReactDOM from "react-dom/client";
 const rootEl = document.getElementById("root");
-
-// روی گوشی (بدون دیوتولز/کنسول) اگه یه خطای جاوااسکریپتی قبل یا حین mount
-// شدنِ اپ پرتاب بشه، معمولاً هیچی رو صفحه دیده نمی‌شه یا همون «در حال
-// بارگذاری...» برای همیشه می‌مونه و هیچ‌جوره نمی‌شه فهمید مشکل چیه. این
-// هندلرِ سراسری، هر خطای mount-نشده (چه synchronous چه یه Promise رد شده)
-// رو مستقیم روی خودِ صفحه (نه فقط کنسول) می‌نویسه تا بدونِ لپ‌تاپ هم قابلِ
-// خوندن باشه.
-function showFatalErrorOverlay(err) {
-  try {
-    const msg = (err && (err.stack || err.message)) ? String(err.stack || err.message) : String(err);
-    let box = document.getElementById("fatal-error-overlay");
-    if (!box) {
-      box = document.createElement("div");
-      box.id = "fatal-error-overlay";
-      box.style.cssText =
-        "position:fixed;inset:0;z-index:99999;background:#fff3f3;color:#7a1f1f;" +
-        "direction:ltr;text-align:left;font-family:monospace;font-size:12px;" +
-        "padding:16px;overflow:auto;white-space:pre-wrap;line-height:1.5;";
-      document.body.appendChild(box);
-    }
-    box.textContent += (box.textContent ? "\n\n---\n\n" : "خطا در اجرای برنامه:\n\n") + msg;
-  } catch (e) {
-    // نوشتنِ خودِ اورلی هم اگه شکست بخوره، دیگه کاری نمی‌شه کرد
-  }
-}
-window.addEventListener("error", (e) => showFatalErrorOverlay(e.error || e.message));
-window.addEventListener("unhandledrejection", (e) => showFatalErrorOverlay(e.reason));
-
-try {
-  ReactDOM.createRoot(rootEl).render(<App />);
-} catch (e) {
-  showFatalErrorOverlay(e);
-}
+ReactDOM.createRoot(rootEl).render(<App />);
