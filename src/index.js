@@ -69,6 +69,27 @@ export default {
       }
     }
 
+    // فارسی/عربی: مسیرِ جدید Gemini TTS (Google AI Studio). فرانت‌اند اول
+    // همین رو صدا می‌زنه؛ اگه شکست بخوره (مثلاً به‌خاطرِ همون بلاکِ
+    // جغرافیاییِ Google که پایین‌تر تو getProviderChain توضیح داده شده)
+    // خودش برمی‌گرده به /api/tts که از قبل HF-TTS→Edge-TTS رو داره —
+    // یعنی این یه لایه‌ی «تلاشِ اول» اضافه‌ست، نه جایگزینِ کاملِ زنجیره‌ی
+    // قبلی؛ اگه Gemini برای این حساب/ریجن بلاک باشه، فقط یه‌کمی تأخیر
+    // اضافه می‌کنه و بعد خودکار به مسیرِ قبلی می‌ره.
+    if (url.pathname === "/api/tts-gemini" && request.method === "GET") {
+      const text = (url.searchParams.get("text") || "").trim();
+      const voice = url.searchParams.get("voice") || "Kore";
+      if (!text) return json({ error: "text is required" }, 400);
+      try {
+        const wavBytes = await fetchGeminiTtsAudio(text, voice, env);
+        return new Response(wavBytes, {
+          headers: { "Content-Type": "audio/wav", "Cache-Control": "public, max-age=86400", ...CORS_HEADERS },
+        });
+      } catch (e) {
+        return json({ error: e.message || "gemini-tts failed" }, 502);
+      }
+    }
+
     if (url.pathname === "/api/generate" && request.method === "POST") {
       let body;
       try {
@@ -197,6 +218,98 @@ async function fetchHuggingFaceTtsAudio(text, lang, env) {
   const bytes = new Uint8Array(await r.arrayBuffer());
   if (!bytes.length) throw new Error(`hugging-face (${model}): empty audio`);
   return { bytes, contentType: r.headers.get("Content-Type") || "audio/flac" };
+}
+
+// --- Gemini TTS (Google AI Studio) — فقط فارسی/عربی --------------------------
+// از همون کلیدی استفاده می‌کنه که برای زنجیره‌ی چت (callGemini بالاتر توی
+// همین فایل) استفاده می‌شه — یعنی نیازی به یه GEMINI_API_KEY جدا نیست.
+//
+// ⚠️ همون‌طور که تو getProviderChain (پایین‌تر) نوشته شده: Google خودش
+// درخواست‌هایی که از edge locationهای نزدیک به ایرانِ Cloudflare میان رو
+// برای generativelanguage.googleapis.com بلاک می‌کنه («User location is
+// not supported»). این endpoint دقیقاً همون API رو صدا می‌زنه، پس ممکنه
+// به همون مشکل بخوره. اگه بعد از دیپلوی همیشه با خطای gemini-tts شکست
+// خورد (نه فقط گاهی)، یعنی این اکانت/ریجن بلاکه — تو اون حالت این مسیر
+// عملاً همیشه به فالبکِ HF-TTS/Edge-TTS تو /api/tts می‌ره، که مشکلی نیست
+// چون فرانت‌اند خودش این فالبک رو مدیریت می‌کنه.
+const GEMINI_TTS_MODEL_DEFAULT = "gemini-2.5-flash-preview-tts";
+
+async function fetchGeminiTtsAudio(text, voice, env) {
+  const key = env.GEMINI_API_KEY;
+  if (!key) throw new Error("GEMINI_API_KEY not set");
+  const model = env.GEMINI_TTS_MODEL || GEMINI_TTS_MODEL_DEFAULT;
+  const sanitized = String(text).slice(0, 2000);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  let r;
+  try {
+    r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: sanitized }] }],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
+        },
+      }),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    throw new Error(`gemini-tts fetch failed: ${e.message || e}`);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.error?.message || `gemini-tts HTTP ${r.status}`);
+
+  const base64Pcm = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+  if (!base64Pcm) throw new Error("gemini-tts: no audio returned");
+
+  const pcmBytes = base64ToUint8Array(base64Pcm);
+  return pcmToWav(pcmBytes, { sampleRate: 24000, numChannels: 1, bitsPerSample: 16 });
+}
+
+function base64ToUint8Array(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+// مرورگر نمی‌تونه PCM خام رو مستقیم با new Audio() پخش کنه — این تابع یه
+// هدرِ استانداردِ WAV دورش می‌پیچه (پارامترها ثابتن چون Gemini همیشه
+// ۲۴kHz / ۱۶بیت / مونو برمی‌گردونه).
+function pcmToWav(pcmBytes, { sampleRate, numChannels, bitsPerSample }) {
+  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const dataSize = pcmBytes.length;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeString = (offset, str) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeString(36, "data");
+  view.setUint32(40, dataSize, true);
+
+  const wavBytes = new Uint8Array(buffer);
+  wavBytes.set(pcmBytes, 44);
+  return wavBytes;
 }
 
 // --- Edge/Azure Neural TTS proxy ---------------------------------------------
