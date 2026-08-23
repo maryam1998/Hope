@@ -8001,6 +8001,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // همون الگو، برای «وارد کردنِ PDF برای خوانش» (جدا از PDFِ بالا که فقط
   // برای منبعِ لغته) — این‌یکی متنِ کامل رو می‌ذاره تو سیستمِ خوانش.
   const [pdfReadBusy, setPdfReadBusy] = useState(false);
+  const [pdfReadProgress, setPdfReadProgress] = useState("");
   const [pdfReadError, setPdfReadError] = useState("");
   const pdfReadInputRef = useRef(null);
   // پیست‌کردنِ مستقیمِ متن/داستان برای خوانش — همون مسیرِ «وارد کردنِ PDF
@@ -8491,6 +8492,9 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
           .map((s) => s.trim())
           .filter(Boolean)
           .forEach((s) => lines.push(s));
+        if (i % 3 === 0 || i === pageCount) {
+          await new Promise((resolve) => setTimeout(resolve, 0)); // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — بدونِ این، فایل‌های بزرگ UI رو قفل نشون می‌دن
+        }
         if (lines.join("\n").length > PDF_MAX_CHARS) break;
       }
       let text = lines.join("\n");
@@ -9207,6 +9211,19 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         const content = await page.getTextContent();
         const pageText = content.items.map((it) => it.str).join(" ");
         allSentences.push(...splitTextIntoSentenceStrings(pageText));
+        // pdf.js انجامِ getTextContent روی صفحه‌های سنگین رو کاملاً
+        // سینکرون/CPU-heavy انجام می‌ده؛ خودِ await هم همیشه کافی نیست تا
+        // مرورگر فرصتِ رندر/پاسخ‌گویی به لمس پیدا کنه (چون resolve شدنِ
+        // promise یه microtask‌ه، نه یه چرخه‌ی کاملِ event loop). برای
+        // همینه که با حذفِ سقفِ صفحه، فایل‌های بزرگ باعثِ «قفل‌شدنِ» ظاهریِ
+        // صفحه می‌شدن. هر چند صفحه یه‌بار صریحاً به event loop برمی‌گردیم
+        // (setTimeout به‌جایِ Promise.resolve، چون setTimeout یه macrotask
+        // واقعیه و بهِ مرورگر اجازه‌ی رندر/پاسخ به لمس رو می‌ده) تا هم UI
+        // فریز نشه، هم کاربر بفهمه داره کار می‌کنه (نه هنگ کرده).
+        if (i % 3 === 0 || i === pageCount) {
+          setPdfReadProgress(`صفحه‌ی ${i} از ${pageCount}...`);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
         if (allSentences.length > PDF_READ_MAX_SENTENCES) break;
       }
       let truncated = false;
@@ -9243,6 +9260,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setPdfReadError("خوندنِ این PDF مشکل داشت — فایل ممکنه خراب یا رمزگذاری‌شده باشه");
     } finally {
       setPdfReadBusy(false);
+      setPdfReadProgress("");
     }
   };
 
@@ -9946,7 +9964,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           }}
         >
           {pdfReadBusy ? <Loader2 size={16} className="spin" /> : <span>📖</span>}
-          {pdfReadBusy ? "در حال خوندنِ PDF..." : "به‌جاش یه PDF برای خوانش وارد کن"}
+          {pdfReadBusy ? (pdfReadProgress || "در حال خوندنِ PDF...") : "به‌جاش یه PDF برای خوانش وارد کن"}
         </button>
         {pdfReadError && (
           <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfReadError}</p>
