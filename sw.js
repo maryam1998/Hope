@@ -4,7 +4,7 @@
 // همچنین چون خودِ محتوای این فایل عوض می‌شه، مرورگر متوجهِ نسخه‌ی جدید
 // می‌شه و چرخه‌ی install/activate رو اجرا می‌کنه (وگرنه اگه byte-به-byte
 // با نسخه‌ی قبلی یکی باشه، اصلاً آپدیت رو تشخیص نمی‌ده).
-const CACHE_VERSION = "v18";
+const CACHE_VERSION = "v19";
 const CACHE_NAME = `phrasebook-cache-${CACHE_VERSION}`;
 
 const APP_SHELL = ["./", "./index.html", "./app.bundle.min.js", "./manifest.json"];
