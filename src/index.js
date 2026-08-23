@@ -248,7 +248,18 @@ async function fetchEdgeTtsAudio(text, voice) {
     `&Sec-MS-GEC-Version=1-131.0.2903.99` +
     `&ConnectionId=${connId}`;
 
-  const resp = await fetch(wsUrl, { headers: { Upgrade: "websocket" } });
+  // نکته‌ی مهم: سرورِ مایکروسافت فقط با هدرِ Upgrade درخواست رو آپگرید
+  // نمی‌کنه — باید Origin (همون افزونه‌ی داخلیِ Read Aloud خودِ Edge) و
+  // یه User-Agent شبیهِ مرورگرِ Edge هم بفرستیم، وگرنه هندشیکِ وب‌سوکت رو
+  // رد می‌کنه و resp.webSocket خالی می‌مونه.
+  const resp = await fetch(wsUrl, {
+    headers: {
+      Upgrade: "websocket",
+      Origin: "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold",
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+    },
+  });
   const ws = resp.webSocket;
   if (!ws) throw new Error("edge-tts: upstream didn't upgrade to websocket");
   ws.accept();
