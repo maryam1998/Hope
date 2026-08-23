@@ -13633,6 +13633,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     onFullTextChange={setDailyPlayerText}
     autoScrollActive={tab === "conversations"}
     highlightColor={appPrefs.highlightColor}
+    loadReadWordIds={loadReadWordIds}
+    saveReadWordIds={saveReadWordIds}
+    wordsPageSize={WORDS_PAGE_SIZE}
+    readDoneColor={READ_DONE_COLOR}
   />
 )}
 

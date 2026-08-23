@@ -122,7 +122,7 @@ const TTS_LOCALE_MINI = {
   uk: "uk-UA",
 };
 
-function TopicCard({ meta, hasData, onClick, uiLang, isRead, onToggleRead }) {
+function TopicCard({ meta, hasData, onClick, uiLang, isRead, onToggleRead, readDoneColor }) {
   const label = uiLang === "fa" ? meta.fa : meta.en;
   return (
     <div
@@ -157,8 +157,8 @@ function TopicCard({ meta, hasData, onClick, uiLang, isRead, onToggleRead }) {
           width: 16,
           height: 16,
           borderRadius: "50%",
-          border: `2px solid ${isRead ? READ_DONE_COLOR : colors.cardBorder}`,
-          backgroundColor: isRead ? READ_DONE_COLOR : "transparent",
+          border: `2px solid ${isRead ? readDoneColor : colors.cardBorder}`,
+          backgroundColor: isRead ? readDoneColor : "transparent",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -432,7 +432,7 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
   );
 }
 
-function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine, onResolveTranslation, isRead, onToggleRead }) {
+function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine, onResolveTranslation, isRead, onToggleRead, readDoneColor }) {
   const filterFn = (arr) => (levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr);
   const speakerA = filterFn(sc.speakerA);
   const speakerB = filterFn(sc.speakerB);
@@ -453,8 +453,8 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
               width: 16,
               height: 16,
               borderRadius: "50%",
-              border: `2px solid ${isRead ? READ_DONE_COLOR : colors.cardBorder}`,
-              backgroundColor: isRead ? READ_DONE_COLOR : "transparent",
+              border: `2px solid ${isRead ? readDoneColor : colors.cardBorder}`,
+              backgroundColor: isRead ? readDoneColor : "transparent",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -510,6 +510,10 @@ export default function DailyConversationsTab({
   onFullTextChange,
   autoScrollActive,
   highlightColor,
+  loadReadWordIds,
+  saveReadWordIds,
+  wordsPageSize,
+  readDoneColor,
 }) {
   const uiLang = uiLangProp || (nativeLang === "fa" ? "fa" : "en");
   const [activeTopic, setActiveTopic] = useState(() => lastConversationsNav.topic);
@@ -870,7 +874,7 @@ export default function DailyConversationsTab({
       {/* شبکه‌ی کارت‌های موضوعی */}
       {!activeTopic && (() => {
         const total = filteredMeta.length;
-        const defaultTo = Math.min(total, WORDS_PAGE_SIZE) || total || 1;
+        const defaultTo = Math.min(total, wordsPageSize) || total || 1;
         const parsedFrom = parseInt(topicRangeInput.from, 10);
         const parsedTo = parseInt(topicRangeInput.to, 10);
         const effFrom = Number.isNaN(parsedFrom) ? 1 : parsedFrom;
@@ -952,6 +956,7 @@ export default function DailyConversationsTab({
                   hasData={!!dataByTopic[m.en]}
                   isRead={topicReadIds.has(m.en)}
                   onToggleRead={() => toggleTopicRead(m.en)}
+                  readDoneColor={readDoneColor}
                   onClick={() => {
                     setActiveTopic(m.en);
                     setOpenScenario(0);
@@ -991,6 +996,7 @@ export default function DailyConversationsTab({
                 onToggle={() => setOpenScenario(openScenario === i ? null : i)}
                 isRead={scenarioReadIds.has(`${activeTopic}::${i}`)}
                 onToggleRead={() => toggleScenarioRead(activeTopic, i)}
+                readDoneColor={readDoneColor}
                 nativeLang={nativeLang}
                 nativeLabel={nativeLabel}
                 aiSettings={aiSettings}
