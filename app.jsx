@@ -1839,11 +1839,23 @@ const speechController = (() => {
   // همون اولِ کار، هم یه‌بار زودهنگام getVoices() صدا زده می‌شه (که خودش روی
   // خیلی مرورگرها بارگذاریِ لیست رو تریگر می‌کنه)، هم به voiceschanged گوش
   // می‌دیم تا لیست هرچه زودتر آماده باشه.
+  // voicesEverLoaded / controllerInitTime: صرفاً برای تشخیصِ «گوشی اصلاً
+  // موتور TTS نداره» از «فهرستِ صداها هنوز لود نشده» — پایین‌تر، توضیحِ
+  // کامل‌تر همون‌جا که استفاده می‌شه.
+  let voicesEverLoaded = false;
+  const controllerInitTime = Date.now();
+  function markVoicesLoadedIfAny() {
+    try {
+      if (window.speechSynthesis.getVoices().length > 0) voicesEverLoaded = true;
+    } catch (e) {}
+  }
   try {
     if ("speechSynthesis" in window) {
       window.speechSynthesis.getVoices();
+      markVoicesLoadedIfAny();
       window.speechSynthesis.addEventListener("voiceschanged", () => {
         window.speechSynthesis.getVoices();
+        markVoicesLoadedIfAny();
       });
     }
   } catch (e) {}
@@ -2538,7 +2550,17 @@ const speechController = (() => {
         // فهرست هنوز کلاً خالیه (یعنی وضعیتش نامعلومه، نه قطعاً «نداره»)،
         // مسیرِ محلی رو امتحان می‌کنیم؛ فقط وقتی فهرست واقعاً لود شده و
         // مطمئنیم صدایی برای این زبون نیست، خطای no-local-voice می‌دیم.
-        if (!forceOnlineForLang && hasSynthesis && (hasVoice || voices.length === 0)) {
+        // اگه فهرستِ صداها از اولِ کارِ speechController (چند ثانیه پیش)
+        // هیچ‌وقت حتی یه صدا هم نداشته (نه الان، نه هیچ‌وقتِ قبل‌تر)، دیگه
+        // نمی‌شه گفت «هنوز لود نشده» — یعنی گوشی/مرورگر اصلاً هیچ موتورِ
+        // TTSای نداره (نه فقط برای این زبون خاص). این حالت رو از حالتِ
+        // «این زبون رو نداره ولی موتور TTS هست» جدا می‌کنیم چون راهِ حلِ
+        // کاربر برای هرکدوم فرق می‌کنه (نصبِ کلِ موتور در برابرِ دانلودِ
+        // صدای یه زبونِ خاص).
+        const noTtsEngineAtAll =
+          hasSynthesis && voices.length === 0 && !voicesEverLoaded && Date.now() - controllerInitTime > 4000;
+
+        if (!forceOnlineForLang && hasSynthesis && !noTtsEngineAtAll && (hasVoice || voices.length === 0)) {
           mode = "local";
           stopOnlineAudio();
           fullText = text;
@@ -2562,7 +2584,7 @@ const speechController = (() => {
         if (!forceOnlineForLang) {
           status = "idle";
           notify();
-          return "no-local-voice";
+          return noTtsEngineAtAll ? "no-tts-engine" : "no-local-voice";
         }
 
         // مسیر آنلاینِ رایگان — فقط برای فارسی/عربی
@@ -5443,6 +5465,8 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
     } else if (result === "no-local-voice") {
       const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
       setLocalMsg(`صدای ${langLabel} روی گوشیت نصب نیست — از تنظیماتِ گوشی نصبش کن`);
+    } else if (result === "no-tts-engine") {
+      setLocalMsg("گوشیت اصلاً موتور خواندنِ متن (TTS) نداره — از تنظیماتِ گوشی یه موتور TTS نصب/فعال کن");
     }
   };
 
@@ -5790,6 +5814,8 @@ function MainPlayButton({ startText, startCode, resolveStartOffset, color, size 
     } else if (result === "no-local-voice") {
       const langLabel = LANGUAGES.find((l) => l.code === startCode)?.label || startCode;
       setLocalMsg(`صدای ${langLabel} روی گوشیت نصب نیست — از تنظیماتِ گوشی نصبش کن`);
+    } else if (result === "no-tts-engine") {
+      setLocalMsg("گوشیت اصلاً موتور خواندنِ متن (TTS) نداره — از تنظیماتِ گوشی یه موتور TTS نصب/فعال کن");
     }
   };
 
@@ -14435,6 +14461,8 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
               setPopupSpeakMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
             } else if (result === "no-local-voice") {
               setPopupSpeakMsg("صدای این زبان روی گوشیت نصب نیست");
+            } else if (result === "no-tts-engine") {
+              setPopupSpeakMsg("گوشیت اصلاً موتور خواندنِ متن (TTS) نداره — از تنظیماتِ گوشی یه موتور TTS نصب/فعال کن");
             }
           }}
           aria-label="خواندنِ بخشِ انتخاب‌شده"
