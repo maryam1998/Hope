@@ -1945,9 +1945,30 @@ const speechController = (() => {
     }
   }
 
+  // -------------------------------------------------------------------
+  // رفعِ باگِ اصلیِ «هیچ صدایی پخش نمی‌شه»: روی کروم/اندروید، اگه بلافاصله
+  // بعد از speechSynthesis.cancel() (همون خط پایین‌تر، وقتی forceRestart
+  // true‌ست) در همون tick یه speak() جدید صدا زده بشه، مرورگر ظاهراً وضعیتِ
+  // «در حالِ پخش» رو نگه می‌داره (utter نه onerror می‌ده نه onend) ولی
+  // عملاً هیچ صدایی از خروجی نمیاد — یه باگِ شناخته‌شده و قدیمیِ خودِ Web
+  // Speech API که فقط با یه فاصله‌ی کوچیک بینِ cancel() و speak() بعدی حل
+  // می‌شه. برای همین speak() واقعی رو به یه تابعِ جدا (startUtterance)
+  // منتقل کردیم و وقتی forceRestart لازم بوده، صداکردنش رو کمی (۸۰ میلی‌
+  // ثانیه) به تعویق می‌ندازیم؛ pendingSpeakTimer هم مطمئن می‌شه اگه قبل از
+  // رسیدنِ اون تایمر یه speakChunk دیگه صدا زده بشه (مثلاً کاربر سریع چند
+  // بار پشتِ‌سرِهم دکمه رو زد)، نسخه‌ی کهنه‌تر اجرا نشه.
+  let pendingSpeakTimer = null;
+  function clearPendingSpeakTimer() {
+    if (pendingSpeakTimer) {
+      clearTimeout(pendingSpeakTimer);
+      pendingSpeakTimer = null;
+    }
+  }
+
   function cancelSpeech() {
     expectingCancel = true;
     clearGapTimer();
+    clearPendingSpeakTimer();
     try {
       window.speechSynthesis.cancel();
     } catch (e) {}
@@ -2304,12 +2325,15 @@ const speechController = (() => {
     }
 
     clearGapTimer();
-    if (forceRestart) cancelSpeech();
+    clearPendingSpeakTimer();
+    const needsCancelFirst = forceRestart;
+    if (needsCancelFirst) cancelSpeech();
     chunkIndex = idx;
     if (!isRepeatContinuation) chunkRepeatsDone = 0;
     status = "playing";
     notify();
 
+    function startUtterance() {
     const utter = new SpeechSynthesisUtterance(sanitizeForTTS(chunks[idx].text));
     utter.lang = locale;
     utter.rate = engineRate(rate);
@@ -2377,6 +2401,16 @@ const speechController = (() => {
     };
 
     window.speechSynthesis.speak(utter);
+    }
+
+    if (needsCancelFirst) {
+      pendingSpeakTimer = setTimeout(() => {
+        pendingSpeakTimer = null;
+        startUtterance();
+      }, 80);
+    } else {
+      startUtterance();
+    }
   }
 
   // این آبجکت به یه نامِ ثابت (controller) نگه داشته می‌شه، نه فقط return
@@ -2429,13 +2463,18 @@ const speechController = (() => {
         const hasSynthesis = "speechSynthesis" in window;
 
         let newLocale = TTS_LOCALE[code] || "en-US";
-        // فارسی و عربی: طبقِ تصمیمِ صریحِ کاربر، این دو زبون همیشه از سرویسِ
-        // آنلاینِ رایگان (Edge/Azure ...) خونده می‌شن، نه از TTS خودِ گوشی —
-        // چون کیفیت/وجودِ صدای محلی برای این دو زبون رو نمی‌شه مطمئن بود.
-        // همه‌ی زبون‌های دیگه برعکس: فقط و فقط از TTS خودِ گوشی (بدونِ
-        // نیاز به اینترنت) — حتی اگه گوشی صدایی براشون نصب نداشته باشه،
-        // دیگه به‌صورتِ خودکار سراغِ سرویسِ آنلاین نمی‌ریم.
-        const ONLINE_ONLY_LANGS = new Set(["fa", "ar"]);
+        // فارسی: طبقِ تصمیمِ صریحِ کاربر همیشه از سرویسِ آنلاینِ رایگان
+        // (Edge/Azure) خونده می‌شه، نه از TTS خودِ گوشی — چون وجود/کیفیتِ
+        // صدای فارسیِ محلی رو نمی‌شه مطمئن بود.
+        // عربی: برخلافِ قبل، دیگه اجباری به آنلاین‌بودن نداره — چون رویِ
+        // گوشیِ کاربر صدای عربیِ محلی نصب و کارآمده (اپ‌های دیگه‌ش هم
+        // بدونِ اینترنت باهاش می‌خونن)، پس دقیقاً مثلِ بقیه‌ی زبون‌ها اول
+        // سراغِ TTS خودِ گوشی می‌ره و فقط اگه گوشی صدایی براش نداشت،
+        // می‌افته رو آنلاین.
+        // همه‌ی زبون‌های دیگه: فقط و فقط از TTS خودِ گوشی (بدونِ نیاز به
+        // اینترنت) — حتی اگه گوشی صدایی براشون نصب نداشته باشه، دیگه
+        // به‌صورتِ خودکار سراغِ سرویسِ آنلاین نمی‌ریم.
+        const ONLINE_ONLY_LANGS = new Set(["fa"]);
         const forceOnlineForLang = ONLINE_ONLY_LANGS.has(code);
 
         const newKey = `${newLocale}::${text}`;
@@ -2554,18 +2593,18 @@ const speechController = (() => {
           return "ok";
         }
 
-        // اگه زبون جزوِ فارسی/عربی نبود و گوشی هم صدایی براش نداشت، دیگه
-        // خودکار سراغِ اینترنت نمی‌ریم (طبقِ خواستِ کاربر: «فقط TTS گوشی،
-        // بدونِ نیاز به اینترنت» برای همه‌ی زبون‌ها غیر از فارسی/عربی) —
-        // به‌جاش یه خطای روشن نشون می‌دیم که کاربر صدای اون زبون رو از
-        // تنظیماتِ گوشی نصب کنه.
+        // اگه زبون فارسی نبود و گوشی هم صدایی براش نداشت، دیگه خودکار
+        // سراغِ اینترنت نمی‌ریم (طبقِ خواستِ کاربر: «فقط TTS گوشی، بدونِ
+        // نیاز به اینترنت» برای همه‌ی زبون‌ها غیر از فارسی) — به‌جاش یه
+        // خطای روشن نشون می‌دیم که کاربر صدای اون زبون رو از تنظیماتِ
+        // گوشی نصب کنه.
         if (!forceOnlineForLang) {
           status = "idle";
           notify();
           return "no-local-voice";
         }
 
-        // مسیر آنلاینِ رایگان — فقط برای فارسی/عربی
+        // مسیر آنلاینِ رایگان — فقط برای فارسی
         cancelSpeech();
         const onlineLang = code === "zh" ? "zh-CN" : code;
         speakOnline(text, onlineLang, effectiveStartOffset, forceSingle, forceLoop);
