@@ -22,13 +22,43 @@ export default {
     }
 
     if (url.pathname === "/health" && request.method === "GET") {
-      return json({ ok: true, providers: getProviderChain(env) });
+      return json({
+        ok: true,
+        providers: getProviderChain(env),
+        hfTts: {
+          fa: hfTtsConfigStatus(env, "fa"),
+          ar: hfTtsConfigStatus(env, "ar"),
+        },
+      });
     }
 
     if (url.pathname === "/api/tts" && request.method === "GET") {
       const text = (url.searchParams.get("text") || "").trim();
       const voice = url.searchParams.get("voice") || "en-US-AriaNeural";
       if (!text) return json({ error: "text is required" }, 400);
+      // فارسی/عربی با Edge-TTS همیشه نتیجه‌ی خوب/درستی نمی‌ده (طبق تجربه‌ی
+      // کاربر) — برای این دو زبون اول سراغِ مسیرِ رایگانِ Hugging Face
+      // می‌ریم (fetchHuggingFaceTtsAudio پایین‌تر)، و فقط اگه اون هم شکست
+      // خورد (تنظیم‌نشده، یا خودِ سرویس در دسترس نبود) برمی‌گردیم به همون
+      // Edge-TTS قبلی — یعنی برای بقیه‌ی زبون‌ها هیچ تغییری نکرده.
+      const langPrefix = voice.split("-")[0].toLowerCase();
+      if (langPrefix === "fa" || langPrefix === "ar") {
+        try {
+          const { bytes, contentType } = await fetchHuggingFaceTtsAudio(text, langPrefix, env);
+          return new Response(bytes, {
+            headers: { "Content-Type": contentType, "Cache-Control": "public, max-age=86400", ...CORS_HEADERS },
+          });
+        } catch (hfErr) {
+          try {
+            const audioBytes = await fetchEdgeTtsAudio(text, voice);
+            return new Response(audioBytes, {
+              headers: { "Content-Type": "audio/mpeg", "Cache-Control": "public, max-age=86400", ...CORS_HEADERS },
+            });
+          } catch (edgeErr) {
+            return json({ error: `hf-tts: ${hfErr.message || hfErr} | edge-tts: ${edgeErr.message || edgeErr}` }, 502);
+          }
+        }
+      }
       try {
         const audioBytes = await fetchEdgeTtsAudio(text, voice);
         return new Response(audioBytes, {
@@ -74,6 +104,99 @@ function json(data, status = 200) {
     status,
     headers: { "Content-Type": "application/json", ...CORS_HEADERS },
   });
+}
+
+// --- Hugging Face TTS (فارسی/عربی) -------------------------------------------
+// Edge-TTS برای فارسی/عربی نتیجه‌ی قابل‌قبولی نمی‌ده، پس این دو زبون از یک
+// مسیرِ جداگونه رد می‌شن: یا یک «سرویسِ اجراکننده‌ی مدل» که خودت جایی
+// (یه Hugging Face Space، یه Inference Endpoint، یا هر سرور دیگه‌ای که
+// مدلی مثلِ Aava/SILMA رو اجرا می‌کنه) بالا آوردی و آدرسش رو این‌جا تنظیم
+// کردی، یا — اگه اون تنظیم نشده باشه — مسیرِ سرورلسِ رایگانِ خودِ
+// Hugging Face («hf-inference») برای مدلِ پیش‌فرض.
+//
+// نکته‌ی مهم: مدل‌هایی مثلِ xmanii/Ava-82M («Aava») و silma-ai/silma-tts
+// («SILMA») فقط وزنِ خام هستن و روی هیچ‌کدوم از Inference Providerهای
+// Hugging Face دیپلوی نشدن — یعنی نمی‌شه مستقیم با یه درخواستِ ساده صداشون
+// زد؛ برای اجراشون به یه رانتایمِ پایتون (و برای SILMA عملاً GPU) نیاز
+// هست. اون «سرویسِ اجراکننده‌ی مدل»ی که خودت تو نمودارت کشیدی همینه: یه
+// Space یا سرورِ کوچیک که این مدل‌ها رو بار می‌کنه و یه API معمولی
+// (POST متن → بایتِ صوت) جلوش می‌ذاره. وقتی اون رو ساختی/پیدا کردی، فقط
+// آدرسش رو تو HF_TTS_SPACE_FA_URL / HF_TTS_SPACE_AR_URL بذار.
+//
+// تا وقتی همچین سرویسی نداری، این تابع به‌صورتِ پیش‌فرض سراغِ مدل‌های
+// facebook/mms-tts-fas و facebook/mms-tts-ara می‌ره — این‌ها بر خلافِ
+// Aava/SILMA رسماً با کتابخونه‌ی transformers یکپارچه‌ن، ولی چون خیلی
+// پرمصرف نیستن معمولاً (نه همیشه) روی hf-inference در دسترسن؛ کیفیتِ
+// صداشون رباتیک‌تر از Aava/SILMA ولی به‌مراتب بهتر از سکوت/خطاست.
+function hfTtsModelFor(lang, env) {
+  if (lang === "fa") return env.HF_TTS_MODEL_FA || "facebook/mms-tts-fas";
+  if (lang === "ar") return env.HF_TTS_MODEL_AR || "facebook/mms-tts-ara";
+  return null;
+}
+
+function hfTtsSpaceUrlFor(lang, env) {
+  if (lang === "fa") return env.HF_TTS_SPACE_FA_URL || "";
+  if (lang === "ar") return env.HF_TTS_SPACE_AR_URL || "";
+  return "";
+}
+
+// برای /health: می‌گه برای این زبون چه چیزی تنظیم شده، بدونِ اینکه واقعاً
+// یه درخواست بزنه.
+function hfTtsConfigStatus(env, lang) {
+  const spaceUrl = hfTtsSpaceUrlFor(lang, env);
+  if (spaceUrl) return { mode: "custom-space", url: spaceUrl };
+  if (env.HF_API_KEY) return { mode: "hf-inference", model: hfTtsModelFor(lang, env) };
+  return { mode: "none (HF_API_KEY not set)" };
+}
+
+// یه متنِ فارسی/عربی رو می‌فرسته سمتِ سرویسِ TTS و بایت‌های صوتِ نتیجه رو
+// برمی‌گردونه. اول اگه یه «سرویسِ اجراکننده‌ی مدلِ» شخصی تنظیم شده باشه
+// (HF_TTS_SPACE_FA_URL/HF_TTS_SPACE_AR_URL) همون رو صدا می‌زنه — قراردادِ
+// موردِ انتظار از اون سرویس: POST با بدنه‌ی JSON ‏{ text }‏، و پاسخ =
+// بایت‌های خودِ فایلِ صوتی (audio/wav یا audio/mpeg) — یعنی همون چیزی که
+// یه Space یا سرورِ کوچیکِ دورِ Aava/SILMA به‌سادگی می‌تونه برگردونه.
+// اگه تنظیم نشده باشه، مستقیم سراغِ مسیرِ سرورلسِ رایگانِ خودِ Hugging
+// Face (hf-inference) برای مدلِ پیش‌فرض می‌ره.
+async function fetchHuggingFaceTtsAudio(text, lang, env) {
+  const sanitized = String(text).slice(0, 600);
+  const spaceUrl = hfTtsSpaceUrlFor(lang, env);
+
+  if (spaceUrl) {
+    const headers = { "Content-Type": "application/json" };
+    if (env.HF_TTS_SPACE_TOKEN) headers.Authorization = `Bearer ${env.HF_TTS_SPACE_TOKEN}`;
+    const r = await fetch(spaceUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ text: sanitized, lang }),
+    });
+    if (!r.ok) {
+      const snippet = (await r.text().catch(() => "")).slice(0, 160);
+      throw new Error(`custom TTS service HTTP ${r.status}${snippet ? ` (${snippet})` : ""}`);
+    }
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    if (!bytes.length) throw new Error("custom TTS service returned empty audio");
+    return { bytes, contentType: r.headers.get("Content-Type") || "audio/mpeg" };
+  }
+
+  const key = env.HF_API_KEY;
+  if (!key) throw new Error("HF_API_KEY not set (needed for Hugging Face TTS)");
+  const model = hfTtsModelFor(lang, env);
+  const r = await fetch(`https://router.huggingface.co/hf-inference/models/${model}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ inputs: sanitized }),
+  });
+  if (!r.ok) {
+    // Hugging Face معمولاً وقتی مدل دیپلوی نشده یا سرد بوده، به‌جای صدا
+    // یه پیغامِ JSON برمی‌گردونه — همون رو به‌عنوانِ خطا نشون می‌دیم تا
+    // مشخص باشه مشکل از کجاست.
+    const errBody = await safeJson(r).catch(() => null);
+    const msg = errBody?.error || `HTTP ${r.status}`;
+    throw new Error(`hugging-face (${model}): ${msg}`);
+  }
+  const bytes = new Uint8Array(await r.arrayBuffer());
+  if (!bytes.length) throw new Error(`hugging-face (${model}): empty audio`);
+  return { bytes, contentType: r.headers.get("Content-Type") || "audio/flac" };
 }
 
 // --- Edge/Azure Neural TTS proxy ---------------------------------------------
