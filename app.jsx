@@ -13298,7 +13298,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               space-between پخش می‌شن رویِ کلِ عرضِ پلیر تا فضایِ خالیِ
               کنارها هدر نره، ولی خودِ آیکون‌ها هم زیادی به هم نچسبن. */}
           <div className="px-3" style={{ paddingTop: 2, paddingBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ marginInlineStart: 10 }}>
+            <div style={{ marginInlineStart: 16 }}>
               <MyVoiceRecorder color={colors.rose} />
             </div>
             <MuteButton color={colors.gold} />
@@ -13326,71 +13326,64 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             ) : (
               <ChunkNavButton direction="prev" color={colors.ink} />
             )}
-            {/* آیکونِ شفافیتِ پلیر — کلیک روش پاپ‌آورِ اسلایدر (با دکمه‌ی ریست)
-                رو دقیقاً بالایِ خودِ آیکون باز می‌کنه. */}
-            <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-              <button
-                onClick={(e) => { e.stopPropagation(); setOpacityPopoverOpen((v) => !v); }}
-                aria-label="تنظیمِ شفافیتِ پلیر"
-                title="تنظیمِ شفافیتِ پلیر"
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  color: opacityPopoverOpen ? colors.gold : colors.inkSoft,
-                  padding: 4,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Blend size={15} />
-              </button>
-              {opacityPopoverOpen && (
-                <div
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onTouchStart={(e) => e.stopPropagation()}
-                  style={{
-                    position: "absolute",
-                    bottom: "100%",
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    marginBottom: 6,
-                    backgroundColor: colors.paper,
-                    border: `1px solid ${colors.cardBorder}`,
-                    borderRadius: 12,
-                    padding: "8px 12px",
-                    boxShadow: "0 -2px 10px rgba(28,37,65,0.15)",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    width: 220,
-                    zIndex: 42,
-                  }}
-                >
-                  <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={playerOpacity}
-                    onChange={(e) => setPlayerOpacity(Number(e.target.value))}
-                    aria-label="شفافیت پلیر"
-                    style={{ flex: 1, accentColor: colors.gold }}
-                  />
-                  <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
-                  <button
-                    onClick={() => setPlayerOpacity(100)}
-                    aria-label="بازنشانی شفافیت پلیر به ۱۰۰٪"
-                    title="بازنشانی شفافیت"
-                    style={{ background: "none", border: "none", cursor: "pointer", color: colors.gold, padding: 2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
-                  >
-                    <RotateCcw size={14} />
-                  </button>
-                </div>
-              )}
-            </div>
+            {/* آیکونِ شفافیتِ پلیر — کلیک روش ردیفِ سرتاسریِ اسلایدر رو
+                (که در کفِ پلیر، زیرِ همینِ ردیفِ آیکون‌ها رندر می‌شه) باز می‌کنه. */}
+            <button
+              onClick={(e) => { e.stopPropagation(); setOpacityPopoverOpen((v) => !v); }}
+              aria-label="تنظیمِ شفافیتِ پلیر"
+              title="تنظیمِ شفافیتِ پلیر"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: opacityPopoverOpen ? colors.gold : colors.inkSoft,
+                padding: 4,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Blend size={15} />
+            </button>
           </div>
+          {/* ردیفِ سرتاسریِ تنظیمِ شفافیت — دقیقاً در کفِ پلیر، زیرِ ردیفِ
+              آیکون‌ها، به عرضِ کاملِ پلیر (نه یه پاپ‌آورِ کوچیکِ شناور که
+              ممکنه از کادر بزنه بیرون). */}
+          {opacityPopoverOpen && (
+            <div
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              className="px-3"
+              style={{
+                paddingTop: 6,
+                paddingBottom: 10,
+                borderTop: `1px solid ${colors.cardBorder}`,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={playerOpacity}
+                onChange={(e) => setPlayerOpacity(Number(e.target.value))}
+                aria-label="شفافیت پلیر"
+                style={{ flex: 1, accentColor: colors.gold }}
+              />
+              <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
+              <button
+                onClick={() => setPlayerOpacity(100)}
+                aria-label="بازنشانی شفافیت پلیر به ۱۰۰٪"
+                title="بازنشانی شفافیت"
+                style={{ background: "none", border: "none", cursor: "pointer", color: colors.gold, padding: 2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+              >
+                <RotateCcw size={14} />
+              </button>
+            </div>
+          )}
         </div>
         {/* دکمه‌ی «بازنشانیِ شفافیت» — وقتی شفافیتِ پلیر خیلی پایین میاد (زیرِ
             ۷۰٪)، خودِ نوار (و اسلایدرِ توش) هم کم‌رنگ/کم‌کنتراست می‌شه و
