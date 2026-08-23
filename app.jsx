@@ -3339,6 +3339,32 @@ function saveWordTranslation(word, langCode, translatedText) {
   } catch {}
 }
 
+// ---------------------------------------------------------------------------
+// ردیابیِ «خوانده‌شده / خوانده‌نشده»ی هر لغت — چون تعداد لغاتِ هر تب
+// (لغات/لغات‌و‌اخبار/اسلنگ/علاقه‌مندی‌ها) خیلی زیاده، کاربر می‌تونه با یه
+// بازه‌ی عددی (از # تا #) فقط بخشی از لیست رو ببینه، و مشخص کنه کدوم لغات رو
+// قبلاً خونده. چون شماره‌ی id بینِ فایل‌های مختلفِ لغت (WORDS_AZ/NEWS_WORDS/
+// DAILY_WORDS/SLANG_WORDS/...) ممکنه تکراری باشه، این وضعیت را جداگانه به
+// ازای هر تب (listId) ذخیره می‌کنیم، نه فقط به ازای id.
+const WORD_READ_KEY = "phrasebook-word-read-v1";
+function loadReadWordIds(listId) {
+  try {
+    const raw = window.localStorage.getItem(WORD_READ_KEY);
+    const all = raw ? JSON.parse(raw) : {};
+    return new Set(all[listId] || []);
+  } catch {
+    return new Set();
+  }
+}
+function saveReadWordIds(listId, idsSet) {
+  try {
+    const raw = window.localStorage.getItem(WORD_READ_KEY);
+    const all = raw ? JSON.parse(raw) : {};
+    all[listId] = Array.from(idsSet);
+    window.localStorage.setItem(WORD_READ_KEY, JSON.stringify(all));
+  } catch {}
+}
+
 // از هوش مصنوعی یه مثالِ واقعی، امروزی و پرکاربرد برای یه لغت/اصطلاح خاص
 // می‌خواد — و صریحاً می‌گیم چه مثال‌هایی قبلاً ساخته شدن تا تکراری نسازه.
 async function generateWordExample({ word, langCode, meaningNative, nativeLabel, existingExamples, aiSettings }) {
@@ -13156,6 +13182,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                     <h2 style={{ color: colors.gold, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{tr("favoritesWordsHeading", appPrefs.uiLang)}</h2>
                     <WordList
                       words={favoritedWords}
+                      listId="favorites"
                       wordFavorites={wordFavorites}
                       toggleWordFavorite={toggleWordFavorite}
                       query={query}
@@ -13186,6 +13213,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         {tab === "words" && (
           <WordList
             words={wordsWithSaved}
+            listId="words"
             wordFavorites={wordFavorites}
             toggleWordFavorite={toggleWordFavorite}
             query={query}
@@ -13208,6 +13236,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         {tab === "vocab" && (
           <WordList
             words={NEWS_WORDS}
+            listId="vocab"
             wordFavorites={wordFavorites}
             toggleWordFavorite={toggleWordFavorite}
             query={query}
@@ -13230,6 +13259,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         {tab === "slang" && (
           <WordList
             words={SLANG_WORDS}
+            listId="slang"
             wordFavorites={wordFavorites}
             toggleWordFavorite={toggleWordFavorite}
             query={query}
@@ -14657,7 +14687,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
 // به کتابخونه‌ی جدید).
 const WORDS_PAGE_SIZE = 60;
 
-function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor, jumpTarget, uiLang }) {
+function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor, jumpTarget, uiLang }) {
   // زبان‌هایی که باید زیرِ هر لغت ترجمه‌شون نشون داده بشه: همون زبان‌های
   // مقصدی که کاربر بالای صفحه انتخاب/مرتب کرده (targetLangs)، منهای خودِ
   // انگلیسی (چون انگلیسی همون سرلغته که بالا نشون داده می‌شه و تکرارش
@@ -14704,32 +14734,59 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
       })
     : filtered;
 
-  // با هر تغییر جستجو/سطح، دوباره از همون بخش اول شروع می‌کنیم.
-  const [visibleCount, setVisibleCount] = useState(WORDS_PAGE_SIZE);
+  // به‌جای اسکرولِ بی‌نهایت، چون تعدادِ لغات خیلی زیاده، کاربر یه بازه‌ی
+  // عددی («از # تا #») مشخص می‌کنه و فقط همون بخش از لیست رندر می‌شه.
+  // با هر تغییر جستجو/سطح/لیست، بازه دوباره از همون قسمتِ اول شروع می‌شه.
+  const [rangeFrom, setRangeFrom] = useState(1);
+  const [rangeTo, setRangeTo] = useState(Math.min(filtered.length, WORDS_PAGE_SIZE) || 1);
   useEffect(() => {
-    setVisibleCount(WORDS_PAGE_SIZE);
+    setRangeFrom(1);
+    setRangeTo(Math.min(filtered.length, WORDS_PAGE_SIZE) || 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, levelFilter, words]);
 
-  const visible = filtered.slice(0, visibleCount);
-  const hasMore = visibleCount < filtered.length;
+  const clampedFrom = Math.min(Math.max(1, rangeFrom || 1), Math.max(filtered.length, 1));
+  const clampedTo = Math.min(Math.max(clampedFrom, rangeTo || clampedFrom), filtered.length || clampedFrom);
+  const visible = filtered.slice(clampedFrom - 1, clampedTo);
 
-  // وقتی سنسورِ ته لیست دیده بشه، بخش بعدی رو اضافه می‌کنیم.
-  const sentinelRef = useRef(null);
+  const applyRangeFrom = (val) => {
+    const n = parseInt(val, 10);
+    setRangeFrom(Number.isNaN(n) ? 1 : n);
+  };
+  const applyRangeTo = (val) => {
+    const n = parseInt(val, 10);
+    setRangeTo(Number.isNaN(n) ? clampedFrom : n);
+  };
+
+  // -----------------------------------------------------------------------
+  // ردیابیِ خوانده‌شده/خوانده‌نشده — به ازای همین تب (listId) روی دستگاه
+  // ذخیره می‌شه تا کاربر بفهمه کدوم لغات رو قبلاً مرور کرده.
+  const [readIds, setReadIds] = useState(() => loadReadWordIds(listId));
   useEffect(() => {
-    if (!hasMore) return;
-    const node = sentinelRef.current;
-    if (!node) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setVisibleCount((c) => Math.min(c + WORDS_PAGE_SIZE, filtered.length));
-        }
-      },
-      { rootMargin: "600px" }
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [hasMore, filtered.length]);
+    setReadIds(loadReadWordIds(listId));
+  }, [listId]);
+  const toggleWordRead = (id) => {
+    setReadIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      saveReadWordIds(listId, next);
+      return next;
+    });
+  };
+  const markRangeRead = (read) => {
+    setReadIds((prev) => {
+      const next = new Set(prev);
+      visible.forEach((w) => {
+        if (read) next.add(w.id);
+        else next.delete(w.id);
+      });
+      saveReadWordIds(listId, next);
+      return next;
+    });
+  };
+  const readCountInRange = visible.filter((w) => readIds.has(w.id)).length;
+  const readCountTotal = filtered.filter((w) => readIds.has(w.id)).length;
 
   const autoplayItems = filtered.map((w) => ({ id: w.id, text: w.en, code: "en" }));
   const { registerRef } = useAutoplayOnScroll(autoplayEnabled, autoplayItems);
@@ -14825,7 +14882,8 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
   // همون تب) هایلایت و بهش اسکرول می‌شه. jumpTarget ={ id, token } از
   // PhrasebookMain میاد؛ token فقط برای این‌که هر لانگ‌پرسِ تازه (حتی روی
   // همون لغتِ قبلی) یه افکتِ جدید بشه. اول باید مطمئن بشیم لغتِ موردنظر
-  // توی صفحه‌بندیِ فعلی (visibleCount) بارگذاری شده، وگرنه هنوز رندر نشده.
+  // توی بازه‌ی فعلی (rangeFrom..rangeTo) قرار داره، وگرنه هنوز رندر نشده —
+  // پس در صورتِ نیاز، بازه رو طوری تنظیم می‌کنیم که خودِ همون لغت را دربر بگیره.
   const [justJumpedId, setJustJumpedId] = useState(null);
   useEffect(() => {
     if (!jumpTarget || jumpTarget.id == null) return;
@@ -14833,15 +14891,12 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
     if (idx === -1) return; // با این فیلتر/جستجو، این لغت دیده نمی‌شه
     // نکته‌ی مهم: onJumpToOrigin معمولاً هم‌زمان با تنظیمِ jumpTarget، جستجو
     // و فیلترِ سطح رو هم پاک می‌کنه (setQuery("")/setLevelFilter("all")) تا
-    // چیزی لغتِ موردنظر رو قایم نکنه. اون تغییر، افکتِ بالاتر
-    // («setVisibleCount(WORDS_PAGE_SIZE)» رویِ تغییرِ q/levelFilter) رو هم
-    // هم‌زمان (توی همون batch) فعال می‌کنه. اگه اینجا با یه مقدارِ ثابت
-    // set می‌شد، بسته به ترتیبِ اجرا ممکن بود همون ریست (به صفحه‌ی اول)
-    // آخر سر برنده بشه و ردیفِ موردنظر (که پایین‌ترِ صفحه‌ی اوله) اصلاً
-    // رندر نشه — پس هایلایت/اسکرول هیچ‌وقت گره‌ی DOMش رو پیدا نمی‌کرد. با
-    // functional updater، همیشه رویِ آخرین مقدارِ صف‌شده حساب می‌کنیم، پس
-    // این ریستِ هم‌زمان دیگه نمی‌تونه رویِ گسترشِ لازم رو بپوشونه.
-    setVisibleCount((prev) => Math.max(prev, Math.min(idx + WORDS_PAGE_SIZE, filtered.length)));
+    // چیزی لغتِ موردنظر رو قایم نکنه. اون تغییر، افکتِ بالاتر (ریستِ بازه
+    // رویِ تغییرِ q/levelFilter) رو هم هم‌زمان (توی همون batch) فعال می‌کنه.
+    // با functional updater روی رنج، همیشه رویِ آخرین مقدارِ صف‌شده حساب
+    // می‌کنیم، پس این ریستِ هم‌زمان دیگه نمی‌تونه رویِ گسترشِ لازم رو بپوشونه.
+    setRangeFrom((prev) => (idx + 1 < prev ? 1 : prev));
+    setRangeTo((prev) => Math.max(prev, Math.min(idx + 1, filtered.length)));
     setJustJumpedId(jumpTarget.id);
     const t = setTimeout(() => setJustJumpedId(null), 2200);
     return () => clearTimeout(t);
@@ -14853,7 +14908,7 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
     if (node && node.scrollIntoView) {
       node.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  }, [justJumpedId, visibleCount]);
+  }, [justJumpedId, rangeFrom, rangeTo]);
 
   // -------------------------------------------------------------------------
   // «خواندنِ پیوسته‌ی ترجمه‌ها» — طبق درخواست، همون سیستمِ بالا (fullText +
@@ -14940,7 +14995,61 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
 
   return (
     <div className="flex flex-col gap-2">
-      {visible.map((w) => (
+      {/* کنترلِ بازه‌ی نمایش («از # تا #») + وضعیتِ خوانده‌شده — چون تعدادِ
+          لغات این لیست زیاده، به‌جای اسکرولِ بی‌نهایت، کاربر خودش مشخص
+          می‌کنه کدوم بازه رو ببینه. */}
+      <div
+        className="flex flex-col gap-2 p-3 rounded-lg"
+        style={{ backgroundColor: colors.paperDark, border: `1px solid ${colors.cardBorder}`, fontFamily: uiLang === "en" ? fontLatin : fontFa }}
+      >
+        <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl" }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: colors.ink }}>{uiLang === "en" ? "Words" : "لغات"}</span>
+          <input
+            type="number"
+            min={1}
+            max={filtered.length}
+            value={rangeFrom}
+            onChange={(e) => applyRangeFrom(e.target.value)}
+            style={{ width: 64, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
+          />
+          <span style={{ fontSize: 13, color: colors.inkSoft }}>{uiLang === "en" ? "to" : "تا"}</span>
+          <input
+            type="number"
+            min={1}
+            max={filtered.length}
+            value={rangeTo}
+            onChange={(e) => applyRangeTo(e.target.value)}
+            style={{ width: 64, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
+          />
+          <span style={{ fontSize: 12, color: colors.inkSoft }}>
+            {uiLang === "en" ? `of ${filtered.length}` : `از مجموع ${filtered.length.toLocaleString("fa-IR")}`}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl" }}>
+          <span style={{ fontSize: 12, color: translationColor, fontWeight: 700 }}>
+            {uiLang === "en"
+              ? `Read: ${readCountInRange}/${visible.length} in range · ${readCountTotal}/${filtered.length} total`
+              : `خوانده‌شده: ${readCountInRange.toLocaleString("fa-IR")} از ${visible.length.toLocaleString("fa-IR")} در این بازه · ${readCountTotal.toLocaleString("fa-IR")} از ${filtered.length.toLocaleString("fa-IR")} کل`}
+          </span>
+          <button
+            type="button"
+            onClick={() => markRangeRead(true)}
+            style={{ fontSize: 11, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "2px 8px" }}
+          >
+            {uiLang === "en" ? "Mark range read" : "علامت‌گذاری همه به خوانده‌شده"}
+          </button>
+          <button
+            type="button"
+            onClick={() => markRangeRead(false)}
+            style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "2px 8px" }}
+          >
+            {uiLang === "en" ? "Clear range" : "پاک‌کردن علامت این بازه"}
+          </button>
+        </div>
+      </div>
+      {visible.map((w) => {
+        const isRead = readIds.has(w.id);
+        return (
         <div
           key={w.id}
           ref={(el) => {
@@ -14950,12 +15059,30 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
           className="flex items-center justify-between p-3 rounded-lg"
           style={{
             position: "relative",
-            backgroundColor: "white",
+            backgroundColor: isRead ? "#F2FBF6" : "white",
             border: `1px solid ${highlightBg(highlightColor, justJumpedId === w.id, colors.cardBorder)}`,
             boxShadow: justJumpedId === w.id && highlightColor !== "none" ? `0 0 0 2px ${highlightColor || READ_MARKER_COLOR}` : "none",
-            transition: "border-color 0.4s ease, box-shadow 0.4s ease",
+            transition: "border-color 0.4s ease, box-shadow 0.4s ease, background-color 0.3s ease",
           }}
         >
+          <button
+            onClick={() => toggleWordRead(w.id)}
+            aria-label={uiLang === "en" ? "Toggle read" : "علامت‌زدن به‌عنوان خوانده‌شده"}
+            style={{
+              marginLeft: 4,
+              flexShrink: 0,
+              width: 20,
+              height: 20,
+              borderRadius: "50%",
+              border: `2px solid ${isRead ? colors.teal : colors.cardBorder}`,
+              backgroundColor: isRead ? colors.teal : "transparent",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {isRead && <Check size={13} color="white" strokeWidth={3} />}
+          </button>
           <button onClick={() => toggleWordFavorite(w.id)} aria-label={tr("addToFavoritesAria", uiLang)} style={{ marginLeft: 4, flexShrink: 0 }}>
             <Star size={20} color={colors.gold} fill={wordFavorites.has(w.id) ? colors.gold : "none"} />
           </button>
@@ -15078,8 +15205,8 @@ function WordList({ words, wordFavorites, toggleWordFavorite, query, levelFilter
             <WordExamples word={w.en} langCode="en" meaningNative={w.fa} nativeLang={nativeLang} targetLangs={effectiveDisplayLangs} aiSettings={aiSettings} />
           </div>
         </div>
-      ))}
-      {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
+        );
+      })}
     </div>
   );
 }
