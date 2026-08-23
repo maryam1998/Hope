@@ -443,7 +443,15 @@ function useStoryUserAudio(storyKey, allSentences) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [manualIndex, setManualIndex] = useState(0); // اشاره‌گرِ دستیِ خط، فقط با دکمه‌ی قبل/بعد عوض می‌شه
+  // وضعیتِ ذخیره‌سازیِ فایلِ آپلودی — تا وقتی روی IndexedDB نوشته می‌شه
+  // (که برایِ فایل‌های صوتیِ حجیم/طولانی ممکنه یه لحظه طول بکشه)، دکمه‌ی
+  // آپلود باید غیرفعال/در حالِ بارگذاری نشون داده بشه، وگرنه کاربر حسِ
+  // «هنگ‌کردن» می‌کنه چون هیچ فیدبکی نمی‌بینه.
+  const [audioSaving, setAudioSaving] = useState(false);
+  const [audioSaveError, setAudioSaveError] = useState("");
   const objectUrlRef = useRef(null);
+  // آخرین currentTime‌ای که واقعاً به state گزارش شده — برای throttleِ زیر.
+  const lastReportedTimeRef = useRef(0);
 
   // بارگذاریِ اولیه از IndexedDB وقتی storyKey عوض می‌شه
   useEffect(() => {
@@ -453,6 +461,8 @@ function useStoryUserAudio(storyKey, allSentences) {
     setCurrentTime(0);
     setDuration(0);
     setManualIndex(0);
+    setAudioSaveError("");
+    lastReportedTimeRef.current = 0;
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current);
       objectUrlRef.current = null;
@@ -472,27 +482,55 @@ function useStoryUserAudio(storyKey, allSentences) {
   useEffect(() => {
     const el = audioElRef.current;
     if (!el) return;
-    const onTime = () => setCurrentTime(el.currentTime || 0);
+    // نکته‌ی مهمِ کارایی: این هوک داخلِ StoryBuilder صدا زده می‌شه — یعنی
+    // کامپوننتی که کلِ متنِ داستان (پاراگراف‌ها، جمله‌های قابل‌کلیک) رو هم
+    // رندر می‌کنه. رویدادِ «timeupdate» مرورگرها رو معمولاً چندین‌بار در
+    // ثانیه صدا می‌زنن؛ اگه هر بار state رو آپدیت کنیم، کلِ StoryBuilder
+    // (با همه‌ی اون متنِ سنگین) هم چندین‌بار در ثانیه دوباره رندر می‌شه —
+    // دقیقاً همون چیزی که با فایل‌های صوتیِ طولانی (که مدتِ بیشتری در حالِ
+    // پخش می‌مونن) باعثِ کند/هنگ‌شدنِ محسوس می‌شه. برای همین، currentTime رو
+    // فقط وقتی به state می‌بریم که حداقل نیم‌ثانیه از آخرین آپدیت گذشته
+    // باشه — برایِ نوارِ پیشرفت/نمایشِ زمان کاملاً کافیه، ولی تعدادِ
+    // رندرها رو ۴-۸ برابر کم می‌کنه.
+    const onTime = () => {
+      const t = el.currentTime || 0;
+      if (Math.abs(t - lastReportedTimeRef.current) >= 0.5) {
+        lastReportedTimeRef.current = t;
+        setCurrentTime(t);
+      }
+    };
+    // بعدِ توقف/پایان/جابه‌جاییِ دستیِ نوار، همیشه دقیق‌ترین زمان رو فوراً
+    // نشون بده (بدونِ صبر برایِ آستانه‌ی نیم‌ثانیه‌ایِ بالا) — وگرنه بعدِ
+    // pause، نوارِ پیشرفت ممکنه تا نیم‌ثانیه عقب‌تر از جاییِ واقعیِ توقف بمونه.
+    const syncTimeNow = () => {
+      const t = el.currentTime || 0;
+      lastReportedTimeRef.current = t;
+      setCurrentTime(t);
+    };
     const onDur = () => setDuration(el.duration || 0);
     const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
-    const onEnd = () => setIsPlaying(false);
+    const onPause = () => { setIsPlaying(false); syncTimeNow(); };
+    const onEnd = () => { setIsPlaying(false); syncTimeNow(); };
+    const onSeeked = () => syncTimeNow();
     el.addEventListener("timeupdate", onTime);
     el.addEventListener("loadedmetadata", onDur);
     el.addEventListener("play", onPlay);
     el.addEventListener("pause", onPause);
     el.addEventListener("ended", onEnd);
+    el.addEventListener("seeked", onSeeked);
     return () => {
       el.removeEventListener("timeupdate", onTime);
       el.removeEventListener("loadedmetadata", onDur);
       el.removeEventListener("play", onPlay);
       el.removeEventListener("pause", onPause);
       el.removeEventListener("ended", onEnd);
+      el.removeEventListener("seeked", onSeeked);
     };
   }, []);
 
   async function uploadFile(file) {
     if (!storyKey || !file) return;
+    setAudioSaveError("");
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     const url = URL.createObjectURL(file);
     objectUrlRef.current = url;
@@ -502,7 +540,20 @@ function useStoryUserAudio(storyKey, allSentences) {
     }
     setManualIndex(0);
     setHasAudio(true);
-    await saveStoryAudioRecord(storyKey, { blob: file, savedAt: Date.now() });
+    // نوشتنِ خودِ فایل روی IndexedDB (که برایِ فایل‌های صوتیِ حجیم ممکنه
+    // چندصدمیلی‌ثانیه طول بکشه) رو به‌عنوانِ «در حالِ ذخیره» علامت می‌زنیم
+    // تا دکمه‌ی آپلود در همون لحظه غیرفعال/چرخان بشه — کاربر می‌فهمه داره
+    // کاری انجام می‌شه، به‌جای اینکه حس کنه برنامه هنگ کرده. اگه ذخیره
+    // شکست بخوره (مثلاً حجمِ فایل بیشتر از ظرفیتِ مجازِ مرورگر بود)، خطا
+    // رو نشون می‌دیم — قبلاً این خطا کاملاً بی‌صدا بلعیده می‌شد و کاربر
+    // فکر می‌کرد صداش ذخیره شده، ولی با رفرشِ بعدی گم می‌شد.
+    setAudioSaving(true);
+    try {
+      const ok = await saveStoryAudioRecord(storyKey, { blob: file, savedAt: Date.now() });
+      if (!ok) setAudioSaveError("ذخیره‌ی این فایلِ صوتی ناموفق بود — شاید حجمش زیاد بود؛ فایلِ کوچیک‌تری امتحان کن");
+    } finally {
+      setAudioSaving(false);
+    }
   }
 
   function play() { audioElRef.current?.play().catch(() => {}); }
@@ -523,6 +574,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     if (audioElRef.current) audioElRef.current.removeAttribute("src");
     setHasAudio(false);
     setManualIndex(0);
+    setAudioSaveError("");
     if (storyKey) await deleteStoryAudioRecord(storyKey);
   }
 
@@ -540,6 +592,8 @@ function useStoryUserAudio(storyKey, allSentences) {
     duration,
     manualIndex,
     activeSentence,
+    audioSaving,
+    audioSaveError,
     uploadFile,
     play,
     pause,
@@ -549,6 +603,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     removeAudio,
   };
 }
+
 
 async function getTranslationCacheCount() {
   try {
@@ -7654,7 +7709,7 @@ function enforceSentenceSplit(paragraphs) {
 // UserAudioProgressTrack همون‌جا رندر می‌شن.
 function StoryUserAudioBar({ userAudio }) {
   const fileInputRef = useRef(null);
-  const { hasAudio, uploadFile, removeAudio } = userAudio;
+  const { hasAudio, uploadFile, removeAudio, audioSaving, audioSaveError } = userAudio;
 
   const boxStyle = {
     border: `1px solid ${colors.cardBorder}`,
@@ -7668,14 +7723,19 @@ function StoryUserAudioBar({ userAudio }) {
     <div style={boxStyle}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <span style={{ fontSize: 12, color: colors.inkSoft }}>
-          {hasAudio ? "صوتِ من (آپلودی) وصل شده" : "صوتِ خودت رو برای این داستان آپلود کن"}
+          {audioSaving
+            ? "در حالِ ذخیره‌ی فایلِ صوتی..."
+            : hasAudio
+            ? "صوتِ من (آپلودی) وصل شده"
+            : "صوتِ خودت رو برای این داستان آپلود کن"}
         </span>
 
-        {!hasAudio ? (
+        {!hasAudio || audioSaving ? (
           <>
             <input
               ref={fileInputRef}
               type="file"
+              accept="audio/*"
               style={{ display: "none" }}
               onChange={(e) => {
                 const f = e.target.files?.[0];
@@ -7684,10 +7744,12 @@ function StoryUserAudioBar({ userAudio }) {
               }}
             />
             <button
-              onClick={() => fileInputRef.current?.click()}
-              style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.cardBorder}`, background: "white", fontSize: 13 }}
+              onClick={() => !audioSaving && fileInputRef.current?.click()}
+              disabled={audioSaving}
+              style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.cardBorder}`, background: "white", fontSize: 13, opacity: audioSaving ? 0.6 : 1, display: "flex", alignItems: "center", gap: 6 }}
             >
-              آپلود صوت
+              {audioSaving && <Loader2 size={14} className="spin" />}
+              {audioSaving ? "در حالِ آپلود..." : "آپلود صوت"}
             </button>
           </>
         ) : (
@@ -7699,6 +7761,9 @@ function StoryUserAudioBar({ userAudio }) {
           </button>
         )}
       </div>
+      {audioSaveError && (
+        <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{audioSaveError}</p>
+      )}
     </div>
   );
 }
@@ -8686,6 +8751,16 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
 
     e.preventDefault();
     if (selectedWords.includes(w)) return;
+    // اگه چیزی که پیست شده از قبل همون زبونِ داستانه (مثلاً کاربر داره یه
+    // داستانِ انگلیسی می‌سازه و یه عبارتِ انگلیسی پیست می‌کنه)، نیازی به
+    // تماس با سرویسِ ترجمه نیست — همون لحظه، بدونِ تأخیرِ شبکه اضافه می‌شه.
+    if (detectPastedTextLanguage(w) === storyLang) {
+      setSelectedWords((prev) => [...prev, w]);
+      ensureSavedStoryWord(w, storyLang);
+      setTranslateNote(`«${w}» به داستان‌ساز اضافه شد`);
+      setTimeout(() => setTranslateNote(""), 3000);
+      return;
+    }
     setWordTranslating(true);
     try {
       const res = await translateFree(w, storyLang, "auto", aiSettings);
@@ -8717,6 +8792,15 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     if (!w) return;
     setCustomWord("");
     setTranslateNote("");
+    // همون میان‌بر: اگه متنِ واردشده از قبل همون زبونِ داستانه، بدونِ زدن به
+    // سرویسِ ترجمه (که تأخیرِ شبکه داره) مستقیم اضافه می‌شه.
+    if (detectPastedTextLanguage(w) === storyLang) {
+      if (!selectedWords.includes(w)) {
+        setSelectedWords((prev) => [...prev, w]);
+        ensureSavedStoryWord(w, storyLang);
+      }
+      return;
+    }
     setWordTranslating(true);
     try {
       // The user can type the word in ANY language (usually their native
@@ -12560,8 +12644,28 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     // (خودِ targetOrder هنوز داره ذخیره می‌شه — پایین‌تر توی همون افکتِ ذخیره —
     // فقط دیگه اینجا خودکار روی صفحه اعمال نمی‌شه.)
     if (Array.isArray(saved.langPickerOrder) && saved.langPickerOrder.length) setLangPickerOrder(saved.langPickerOrder);
-    if (Array.isArray(saved.favorites)) setFavorites(new Set(saved.favorites));
-    if (Array.isArray(saved.wordFavorites)) setWordFavorites(new Set(saved.wordFavorites));
+    // نکته‌ی مهم: اینا هم مثلِ savedStories/savedStoryWords باید موقعِ merge
+    // (یعنی وقتی این «saved» از نسخه‌ی ابریه، نه اولین لودِ محلی) با چیزی که
+    // همین الان روی صفحه‌ست ادغام (union) بشن، نه جایگزینش بشن — قبلاً چون
+    // بدونِ توجه به merge مستقیم setFavorites(new Set(saved.favorites))
+    // صدا زده می‌شد، اگه یه ستاره‌ی تازه هنوز به ابر sync نشده بود (مثلاً
+    // کاربر بلافاصله بعدِ ستاره‌زدن برنامه رو بسته بود)، نسخه‌ی قدیمی‌ترِ
+    // ابری که چند لحظه بعد می‌رسید کاملاً جایگزینش می‌کرد و همون ستاره‌ی
+    // تازه انگار «با هر بار وارد شدن حذف می‌شد».
+    if (Array.isArray(saved.favorites)) {
+      if (merge) {
+        setFavorites((prev) => new Set([...prev, ...saved.favorites]));
+      } else {
+        setFavorites(new Set(saved.favorites));
+      }
+    }
+    if (Array.isArray(saved.wordFavorites)) {
+      if (merge) {
+        setWordFavorites((prev) => new Set([...prev, ...saved.wordFavorites]));
+      } else {
+        setWordFavorites(new Set(saved.wordFavorites));
+      }
+    }
     if (saved.boxes) setBoxes((prev) => ({ ...prev, ...saved.boxes }));
     if (saved.wordStats) setWordStats(saved.wordStats);
     if (saved.savedStories) {
