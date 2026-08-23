@@ -2625,6 +2625,22 @@ const speechController = (() => {
         if (!forceOnlineForLang) {
           status = "idle";
           notify();
+          // 🔎 تشخیصِ موقت: چون کاربر نمی‌تونه رویِ گوشیِ خودش کنسول باز کنه،
+          // به‌جای اینکه فقط بی‌صدا برگردیم، دقیقاً همون فهرستی که خودِ
+          // مرورگر برای این زبون دیده رو (تعداد کل صداها + هر کدوم که با
+          // پیشوندِ زبون شروع می‌شه) با alert روی خودِ صفحه نشون می‌دیم —
+          // این خط بعد از پیداکردنِ علتِ اصلی باید حذف بشه.
+          try {
+            const allVoices = hasSynthesis ? window.speechSynthesis.getVoices() : [];
+            const matching = allVoices.filter((v) => v.lang && v.lang.toLowerCase().startsWith(baseLang));
+            alert(
+              `[تشخیص] زبان: ${code} (${baseLang})\n` +
+              `تعداد کل صداهای گزارش‌شده توسط مرورگر: ${allVoices.length}\n` +
+              `صداهای منطبق با «${baseLang}»: ${matching.length}\n` +
+              (matching.length ? matching.map((v) => `- ${v.name} | ${v.lang}`).join("\n") : "(هیچ‌کدوم)") +
+              (allVoices.length ? `\n\nنمونه‌ای از کلِ زبان‌های گزارش‌شده:\n${allVoices.slice(0, 8).map((v) => v.lang).join(", ")}` : "")
+            );
+          } catch (diagErr) {}
           return "no-local-voice";
         }
 
