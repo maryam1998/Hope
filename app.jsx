@@ -885,13 +885,24 @@ async function translateFree(text, targetLang, sourceLang = "auto", aiSettings =
   // کش نبود — کارِ واقعیِ شبکه‌ای وارد صفِ سراسری می‌شه (نه بلافاصله اجرا)
   // تا سقفِ هم‌زمانی رعایت بشه؛ و کلِ این کار زیرِ یه سقفِ زمانیِ سخت قرار
   // می‌گیره تا رابط کاربری هیچ‌وقت بی‌نهایت منتظر نمونه.
-  const networkPromise = queueTranslateJob(() =>
-    translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify)
-  );
-  const timeoutPromise = new Promise((resolve) => {
-    setTimeout(() => resolve(text), TRANSLATE_HARD_TIMEOUT_MS);
+  //
+  // 🐛 رفعِ باگ: قبلاً این سقفِ ۱۵ ثانیه‌ای از همون لحظه‌ی صداکردنِ
+  // translateFree شروع می‌شد — یعنی شاملِ زمانِ انتظار توی صفِ سراسری
+  // (GLOBAL_TRANSLATE_CONCURRENCY=3) هم می‌شد. وقتی یه سناریو با چندین
+  // خط هم‌زمان باز می‌شد، خط‌های اول زود اجرا می‌شدن و درست ترجمه
+  // می‌شدن، ولی خط‌های ته صف (چون باید منتظرِ آزادشدنِ نوبت می‌موندن)
+  // قبل از این‌که اصلاً شروع به اجرا بشن، سقفِ ۱۵ ثانیه‌شون تموم می‌شد و
+  // بدونِ ترجمه (متنِ انگلیسیِ خام) نمایش داده می‌شدن — دقیقاً همون چیزی
+  // که تو اسکرین‌شاتِ کاربر افتاده بود. حالا این ریسِ ۱۵ ثانیه‌ای فقط از
+  // لحظه‌ای شروع می‌شه که کار واقعاً از صف بیرون اومده و اجراش شروع شده؛
+  // انتظار توی صف دیگه از این سقف کم نمی‌کنه.
+  return queueTranslateJob(() => {
+    const networkPromise = translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify);
+    const timeoutPromise = new Promise((resolve) => {
+      setTimeout(() => resolve(text), TRANSLATE_HARD_TIMEOUT_MS);
+    });
+    return Promise.race([networkPromise, timeoutPromise]);
   });
-  return Promise.race([networkPromise, timeoutPromise]);
 }
 
 async function translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify) {
@@ -2340,7 +2351,19 @@ const speechController = (() => {
     utter.volume = muted ? 0 : 1;
 
     const bestVoice = getBestVoice(locale);
-    if (bestVoice) utter.voice = bestVoice;
+    if (bestVoice) {
+      utter.voice = bestVoice;
+      // 🐛 رفعِ باگ «عربی سریع استاپ می‌شه، بدون صدا»: قبلاً utter.lang همیشه
+      // همون رشته‌ی هاردکدشده‌ی خودمون (مثلاً "ar-SA") می‌موند، حتی وقتی
+      // صدایی که واقعاً پیدا و ست کردیم (bestVoice) با تگِ دیگه‌ای معرفی شده
+      // بود (مثلاً "ar-EG" یا فقط "ar" یا "ar-XA" — بسته به گوشی/موتورِ TTS).
+      // بعضی موتورهای TTS اندروید (به‌خصوص روی برخی گوشی‌ها/رام‌های سفارشی)
+      // وقتی utter.lang دقیقاً با تگِ یه صدای نصب‌شده یکی نباشه، بلافاصله با
+      // خطای «زبان پشتیبانی نمی‌شه» پخش رو متوقف می‌کنن — حتی اگه utter.voice
+      // درست ست شده باشه. با اکو کردنِ دقیقِ همون تگی که خودِ صدا معرفی کرده،
+      // این ناهماهنگی از بین می‌ره.
+      if (bestVoice.lang) utter.lang = bestVoice.lang;
+    }
 
     utter.onend = () => {
       if (status !== "playing") return;
@@ -2396,6 +2419,7 @@ const speechController = (() => {
         expectingCancel = false;
         return;
       }
+      console.warn(`TTS speak failed — lang: ${utter.lang}, voice: ${utter.voice ? utter.voice.name : "(none)"}, error: ${e && e.error}`);
       status = "idle";
       notify();
     };
