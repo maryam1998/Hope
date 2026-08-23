@@ -1,7 +1,6 @@
-// DailyConversationsTab.jsx
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { ChevronDown } from "lucide-react";
-var TOPIC_META_LIST = [
+import { ChevronDown, Check } from "lucide-react";
+const TOPIC_META_LIST = [
   ["Greetings and Small Talk", "\u0627\u062D\u0648\u0627\u0644\u200C\u067E\u0631\u0633\u06CC \u0648 \u06AF\u0641\u062A\u06AF\u0648\u06CC \u06A9\u0648\u062A\u0627\u0647", "\u{1F44B}"],
   ["Introducing People", "\u0645\u0639\u0631\u0641\u06CC \u0627\u0641\u0631\u0627\u062F", "\u{1F91D}"],
   ["Visiting an Old Friend", "\u062F\u06CC\u062F\u0627\u0631 \u062F\u0648\u0633\u062A \u0642\u062F\u06CC\u0645\u06CC", "\u{1F3E0}"],
@@ -47,9 +46,9 @@ var TOPIC_META_LIST = [
   ["Future Plans and Dreams", "\u0628\u0631\u0646\u0627\u0645\u0647\u200C\u0647\u0627\u06CC \u0622\u06CC\u0646\u062F\u0647 \u0648 \u0631\u0648\u06CC\u0627\u0647\u0627", "\u{1F305}"],
   ["Memories and Past Experiences", "\u062E\u0627\u0637\u0631\u0627\u062A \u0648 \u062A\u062C\u0631\u0628\u06CC\u0627\u062A \u06AF\u0630\u0634\u062A\u0647", "\u{1F570}\uFE0F"]
 ];
-var TOPIC_META = {};
+const TOPIC_META = {};
 TOPIC_META_LIST.forEach(([en, fa, icon]) => TOPIC_META[en] = { fa, icon });
-var UI_STRINGS = {
+const UI_STRINGS = {
   fa: {
     search: "\u062C\u0633\u062A\u062C\u0648\u06CC \u0645\u0648\u0636\u0648\u0639 \u06CC\u0627 \u0645\u06A9\u0627\u0644\u0645\u0647...",
     comingSoon: "\u0628\u0647\u200C\u0632\u0648\u062F\u06CC \u0627\u0636\u0627\u0641\u0647 \u0645\u06CC\u200C\u0634\u0647",
@@ -67,7 +66,7 @@ var UI_STRINGS = {
     backToTopics: "Back to topics"
   }
 };
-var colors = {
+const colors = {
   paper: "var(--c-paper)",
   paperDark: "var(--c-paperDark)",
   ink: "var(--c-ink)",
@@ -78,12 +77,12 @@ var colors = {
   rose: "var(--c-rose)",
   cardBorder: "var(--c-cardBorder)"
 };
-var mainTextColor = "#0B1220";
-var translationColor = "#0F5C34";
-var READ_MARKER_COLOR = "#FFD54F";
-var fontFa = "var(--font-fa)";
-var fontLatin = "var(--font-latin)";
-var TTS_LOCALE_MINI = {
+const mainTextColor = "#0B1220";
+const translationColor = "#0F5C34";
+const READ_MARKER_COLOR = "#FFD54F";
+const fontFa = "var(--font-fa)";
+const fontLatin = "var(--font-latin)";
+const TTS_LOCALE_MINI = {
   fa: "fa-IR",
   en: "en-US",
   de: "de-DE",
@@ -100,14 +99,14 @@ var TTS_LOCALE_MINI = {
   ga: "ga-IE",
   uk: "uk-UA"
 };
-function TopicCard({ meta, hasData, onClick, uiLang }) {
+function TopicCard({ meta, hasData, onClick, uiLang, isRead, onToggleRead, readDoneColor }) {
   const label = uiLang === "fa" ? meta.fa : meta.en;
   return /* @__PURE__ */ React.createElement(
-    "button",
+    "div",
     {
-      onClick,
       dir: uiLang === "fa" ? "rtl" : "ltr",
       style: {
+        position: "relative",
         display: "flex",
         flexDirection: "column",
         alignItems: "flex-start",
@@ -121,8 +120,31 @@ function TopicCard({ meta, hasData, onClick, uiLang }) {
         minHeight: 90
       }
     },
-    /* @__PURE__ */ React.createElement("span", { style: { fontSize: 24, lineHeight: 1 } }, meta.icon),
-    /* @__PURE__ */ React.createElement("span", { style: { fontFamily: uiLang === "fa" ? fontFa : fontLatin, fontSize: 13, fontWeight: 700, color: colors.ink, lineHeight: 1.4 } }, label)
+    /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: (ev) => {
+          ev.stopPropagation();
+          onToggleRead && onToggleRead();
+        },
+        "aria-label": uiLang === "fa" ? "\u0639\u0644\u0627\u0645\u062A\u200C\u0632\u062F\u0646 \u0628\u0647\u200C\u0639\u0646\u0648\u0627\u0646 \u062E\u0648\u0627\u0646\u062F\u0647\u200C\u0634\u062F\u0647" : "Toggle read",
+        style: {
+          position: "absolute",
+          top: 8,
+          [uiLang === "fa" ? "left" : "right"]: 8,
+          width: 16,
+          height: 16,
+          borderRadius: "50%",
+          border: `2px solid ${isRead ? readDoneColor : colors.cardBorder}`,
+          backgroundColor: isRead ? readDoneColor : "transparent",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center"
+        }
+      },
+      isRead && /* @__PURE__ */ React.createElement(Check, { size: 10, color: "white", strokeWidth: 3 })
+    ),
+    /* @__PURE__ */ React.createElement("button", { onClick, style: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, width: "100%" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 24, lineHeight: 1 } }, meta.icon), /* @__PURE__ */ React.createElement("span", { style: { fontFamily: uiLang === "fa" ? fontFa : fontLatin, fontSize: 13, fontWeight: 700, color: colors.ink, lineHeight: 1.4 } }, label))
   );
 }
 function LineTranslation({ text, langCode, variant, i, knownFa, aiSettings, translateFree, SpeakButton, ClickableSentence, nativeLang, nativeLabel, autoScrollActive, highlightColor, fullText, lineOffsets, isActiveLine, onResolved }) {
@@ -323,14 +345,35 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
     })
   ));
 }
-function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine, onResolveTranslation }) {
+function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine, onResolveTranslation, isRead, onToggleRead, readDoneColor }) {
   const filterFn = (arr) => levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr;
   const speakerA = filterFn(sc.speakerA);
   const speakerB = filterFn(sc.speakerB);
   if (levelFilter && levelFilter !== "all" && speakerA.length === 0 && speakerB.length === 0) return null;
-  return /* @__PURE__ */ React.createElement("div", { style: { border: `1px solid ${colors.cardBorder}`, borderRadius: 14, marginBottom: 10, overflow: "hidden", backgroundColor: "white" } }, /* @__PURE__ */ React.createElement("button", { onClick: onToggle, style: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 15px", textAlign: "right" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: fontFa, fontWeight: 700, fontSize: 14, color: colors.ink } }, sc.scenario), sc.context && !isOpen && /* @__PURE__ */ React.createElement("div", { style: { fontFamily: fontFa, fontSize: 11.5, color: colors.inkSoft, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, sc.context)), /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, color: colors.teal, style: { transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0, marginRight: 8 } })), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "0 15px 15px" } }, sc.context && /* @__PURE__ */ React.createElement("div", { style: { fontFamily: fontFa, fontSize: 12, color: colors.inkSoft, marginBottom: 4 } }, sc.context), /* @__PURE__ */ React.createElement(ConversationBox, { items: speakerA, variant: "hear", label: t.youHear, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine: isOpen ? activeLine : null, registerLineRef: isOpen ? registerLineRef : void 0, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine: isOpen ? activeTranslationLine : null, onResolveTranslation }), /* @__PURE__ */ React.createElement(ConversationBox, { items: speakerB, variant: "say", label: t.youSay, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine: isOpen ? activeLine : null, registerLineRef: isOpen ? registerLineRef : void 0, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine: isOpen ? activeTranslationLine : null, onResolveTranslation })));
+  return /* @__PURE__ */ React.createElement("div", { style: { border: `1px solid ${colors.cardBorder}`, borderRadius: 14, marginBottom: 10, overflow: "hidden", backgroundColor: "white" } }, /* @__PURE__ */ React.createElement("button", { onClick: onToggle, style: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 15px", textAlign: "right" } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center", style: { display: "flex", alignItems: "center", gap: 8, flex: 1 } }, /* @__PURE__ */ React.createElement(
+    "span",
+    {
+      onClick: (ev) => {
+        ev.stopPropagation();
+        onToggleRead && onToggleRead();
+      },
+      "aria-label": t.toggleRead || "Toggle read",
+      style: {
+        flexShrink: 0,
+        width: 16,
+        height: 16,
+        borderRadius: "50%",
+        border: `2px solid ${isRead ? readDoneColor : colors.cardBorder}`,
+        backgroundColor: isRead ? readDoneColor : "transparent",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center"
+      }
+    },
+    isRead && /* @__PURE__ */ React.createElement(Check, { size: 10, color: "white", strokeWidth: 3 })
+  ), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontFamily: fontFa, fontWeight: 700, fontSize: 14, color: colors.ink } }, sc.scenario), sc.context && !isOpen && /* @__PURE__ */ React.createElement("div", { style: { fontFamily: fontFa, fontSize: 11.5, color: colors.inkSoft, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, sc.context))), /* @__PURE__ */ React.createElement(ChevronDown, { size: 18, color: colors.teal, style: { transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0, marginRight: 8 } })), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "0 15px 15px" } }, sc.context && /* @__PURE__ */ React.createElement("div", { style: { fontFamily: fontFa, fontSize: 12, color: colors.inkSoft, marginBottom: 4 } }, sc.context), /* @__PURE__ */ React.createElement(ConversationBox, { items: speakerA, variant: "hear", label: t.youHear, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine: isOpen ? activeLine : null, registerLineRef: isOpen ? registerLineRef : void 0, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine: isOpen ? activeTranslationLine : null, onResolveTranslation }), /* @__PURE__ */ React.createElement(ConversationBox, { items: speakerB, variant: "say", label: t.youSay, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine: isOpen ? activeLine : null, registerLineRef: isOpen ? registerLineRef : void 0, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine: isOpen ? activeTranslationLine : null, onResolveTranslation })));
 }
-var lastConversationsNav = { topic: null, scenario: null };
+let lastConversationsNav = { topic: null, scenario: null };
 function DailyConversationsTab({
   data,
   query,
@@ -347,7 +390,11 @@ function DailyConversationsTab({
   speechController,
   onFullTextChange,
   autoScrollActive,
-  highlightColor
+  highlightColor,
+  loadReadWordIds,
+  saveReadWordIds,
+  wordsPageSize,
+  readDoneColor
 }) {
   const uiLang = uiLangProp || (nativeLang === "fa" ? "fa" : "en");
   const [activeTopic, setActiveTopic] = useState(() => lastConversationsNav.topic);
@@ -391,6 +438,39 @@ function DailyConversationsTab({
       if (val && val.toLowerCase().includes(q)) return true;
     }
     return false;
+  };
+  const [topicReadIds, setTopicReadIds] = useState(() => loadReadWordIds("dailyConvTopics"));
+  const toggleTopicRead = (en) => {
+    setTopicReadIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(en)) next.delete(en);
+      else next.add(en);
+      saveReadWordIds("dailyConvTopics", next);
+      return next;
+    });
+  };
+  const markTopicRangeRead = (items, read) => {
+    setTopicReadIds((prev) => {
+      const next = new Set(prev);
+      items.forEach((m) => {
+        if (read) next.add(m.en);
+        else next.delete(m.en);
+      });
+      saveReadWordIds("dailyConvTopics", next);
+      return next;
+    });
+  };
+  const [topicRangeInput, setTopicRangeInput] = useState({ from: "", to: "" });
+  const [scenarioReadIds, setScenarioReadIds] = useState(() => loadReadWordIds("dailyConvScenarios"));
+  const toggleScenarioRead = (topicEn, i) => {
+    const id = `${topicEn}::${i}`;
+    setScenarioReadIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      saveReadWordIds("dailyConvScenarios", next);
+      return next;
+    });
   };
   const filteredMeta = useMemo(() => {
     const all = TOPIC_META_LIST.map(([en, fa, icon]) => ({ en, fa, icon }));
@@ -573,19 +653,87 @@ function DailyConversationsTab({
       }
     ))));
   }
-  return /* @__PURE__ */ React.createElement("div", null, !activeTopic && /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 } }, filteredMeta.map((m) => /* @__PURE__ */ React.createElement(
-    TopicCard,
-    {
-      key: m.en,
-      meta: m,
-      uiLang,
-      hasData: !!dataByTopic[m.en],
-      onClick: () => {
-        setActiveTopic(m.en);
-        setOpenScenario(0);
+  return /* @__PURE__ */ React.createElement("div", null, !activeTopic && (() => {
+    const total = filteredMeta.length;
+    const defaultTo = Math.min(total, wordsPageSize) || total || 1;
+    const parsedFrom = parseInt(topicRangeInput.from, 10);
+    const parsedTo = parseInt(topicRangeInput.to, 10);
+    const effFrom = Number.isNaN(parsedFrom) ? 1 : parsedFrom;
+    const effTo = Number.isNaN(parsedTo) ? defaultTo : parsedTo;
+    const clampedFrom = Math.min(Math.max(1, effFrom), Math.max(total, 1));
+    const clampedTo = Math.min(Math.max(clampedFrom, effTo), total || clampedFrom);
+    const visibleMeta = filteredMeta.slice(clampedFrom - 1, clampedTo);
+    const readCountInRange = visibleMeta.filter((m) => topicReadIds.has(m.en)).length;
+    const readCountTotal = filteredMeta.filter((m) => topicReadIds.has(m.en)).length;
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, total > 0 && /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        className: "flex flex-col gap-2 p-3 rounded-lg",
+        style: { backgroundColor: colors.paperDark, border: `1px solid ${colors.cardBorder}`, marginBottom: 10 }
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap", style: { direction: uiLang === "fa" ? "rtl" : "ltr" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: colors.ink, fontFamily: uiLang === "fa" ? fontFa : fontLatin } }, uiLang === "fa" ? "\u0645\u0648\u0636\u0648\u0639\u200C\u0647\u0627" : "Topics"), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "number",
+          min: 1,
+          max: total,
+          value: topicRangeInput.from,
+          placeholder: "1",
+          onChange: (ev) => setTopicRangeInput((prev) => ({ ...prev, from: ev.target.value })),
+          onBlur: () => {
+            if (topicRangeInput.from !== "") setTopicRangeInput((prev) => ({ ...prev, from: String(clampedFrom) }));
+          },
+          style: { width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }
+        }
+      ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, color: colors.inkSoft } }, uiLang === "fa" ? "\u062A\u0627" : "to"), /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "number",
+          min: 1,
+          max: total,
+          value: topicRangeInput.to,
+          placeholder: String(defaultTo),
+          onChange: (ev) => setTopicRangeInput((prev) => ({ ...prev, to: ev.target.value })),
+          onBlur: () => {
+            if (topicRangeInput.to !== "") setTopicRangeInput((prev) => ({ ...prev, to: String(clampedTo) }));
+          },
+          style: { width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }
+        }
+      ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: colors.inkSoft } }, uiLang === "fa" ? `\u0627\u0632 \u0645\u062C\u0645\u0648\u0639 ${total.toLocaleString("fa-IR")}` : `of ${total}`)),
+      /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap", style: { direction: uiLang === "fa" ? "rtl" : "ltr" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12, color: colors.teal, fontWeight: 700 } }, uiLang === "fa" ? `\u062E\u0648\u0627\u0646\u062F\u0647\u200C\u0634\u062F\u0647: ${readCountInRange.toLocaleString("fa-IR")} \u0627\u0632 ${visibleMeta.length.toLocaleString("fa-IR")} \u062F\u0631 \u0627\u06CC\u0646 \u0628\u0627\u0632\u0647 \xB7 ${readCountTotal.toLocaleString("fa-IR")} \u0627\u0632 ${total.toLocaleString("fa-IR")} \u06A9\u0644` : `Read: ${readCountInRange}/${visibleMeta.length} in range \xB7 ${readCountTotal}/${total} total`), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          onClick: () => markTopicRangeRead(visibleMeta, true),
+          style: { fontSize: 11, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "2px 8px" }
+        },
+        uiLang === "fa" ? "\u0639\u0644\u0627\u0645\u062A\u200C\u06AF\u0630\u0627\u0631\u06CC \u0647\u0645\u0647 \u0628\u0647 \u062E\u0648\u0627\u0646\u062F\u0647\u200C\u0634\u062F\u0647" : "Mark range read"
+      ), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          onClick: () => markTopicRangeRead(visibleMeta, false),
+          style: { fontSize: 11, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "2px 8px" }
+        },
+        uiLang === "fa" ? "\u067E\u0627\u06A9\u200C\u06A9\u0631\u062F\u0646 \u0639\u0644\u0627\u0645\u062A \u0627\u06CC\u0646 \u0628\u0627\u0632\u0647" : "Clear range"
+      ))
+    ), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 } }, visibleMeta.map((m) => /* @__PURE__ */ React.createElement(
+      TopicCard,
+      {
+        key: m.en,
+        meta: m,
+        uiLang,
+        hasData: !!dataByTopic[m.en],
+        isRead: topicReadIds.has(m.en),
+        onToggleRead: () => toggleTopicRead(m.en),
+        readDoneColor,
+        onClick: () => {
+          setActiveTopic(m.en);
+          setOpenScenario(0);
+        }
       }
-    }
-  )), filteredMeta.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { gridColumn: "1 / -1", textAlign: "center", color: colors.inkSoft, padding: 30, fontSize: 13.5, fontFamily: fontFa } }, t.noResults)), activeTopic && /* @__PURE__ */ React.createElement("div", { style: { paddingTop: 6 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setActiveTopic(null), style: { display: "flex", alignItems: "center", gap: 6, color: colors.teal, fontSize: 13, fontWeight: 700, fontFamily: uiLang === "fa" ? fontFa : fontLatin, marginBottom: 14 } }, "\u2190 ", t.backToTopics), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 22 } }, TOPIC_META[activeTopic]?.icon), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: 16, color: colors.ink, fontFamily: uiLang === "fa" ? fontFa : fontLatin } }, uiLang === "fa" ? TOPIC_META[activeTopic]?.fa : activeTopic)), activeTopicData ? activeTopicData.scenarios.map((sc, i) => /* @__PURE__ */ React.createElement(
+    )), filteredMeta.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { gridColumn: "1 / -1", textAlign: "center", color: colors.inkSoft, padding: 30, fontSize: 13.5, fontFamily: fontFa } }, t.noResults)));
+  })(), activeTopic && /* @__PURE__ */ React.createElement("div", { style: { paddingTop: 6 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setActiveTopic(null), style: { display: "flex", alignItems: "center", gap: 6, color: colors.teal, fontSize: 13, fontWeight: 700, fontFamily: uiLang === "fa" ? fontFa : fontLatin, marginBottom: 14 } }, "\u2190 ", t.backToTopics), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 14 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 22 } }, TOPIC_META[activeTopic]?.icon), /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 800, fontSize: 16, color: colors.ink, fontFamily: uiLang === "fa" ? fontFa : fontLatin } }, uiLang === "fa" ? TOPIC_META[activeTopic]?.fa : activeTopic)), activeTopicData ? activeTopicData.scenarios.map((sc, i) => /* @__PURE__ */ React.createElement(
     ScenarioAccordionItem,
     {
       key: i,
@@ -594,6 +742,9 @@ function DailyConversationsTab({
       levelFilter,
       isOpen: openScenario === i,
       onToggle: () => setOpenScenario(openScenario === i ? null : i),
+      isRead: scenarioReadIds.has(`${activeTopic}::${i}`),
+      onToggleRead: () => toggleScenarioRead(activeTopic, i),
+      readDoneColor,
       nativeLang,
       nativeLabel,
       aiSettings,
