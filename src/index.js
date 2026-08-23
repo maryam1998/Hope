@@ -239,6 +239,11 @@ async function fetchGeminiTtsAudio(text, voice, env) {
   if (!key) throw new Error("GEMINI_API_KEY not set");
   const model = env.GEMINI_TTS_MODEL || GEMINI_TTS_MODEL_DEFAULT;
   const sanitized = String(text).slice(0, 2000);
+  // اگه متن با علامتِ سؤال تموم بشه (خیلی از جمله‌های فریزبوک این‌طورن)،
+  // مدل ممکنه فکر کنه داری ازش سؤال می‌پرسی و به‌جای خوندنش، بخواد جوابش
+  // رو بده — دقیقاً همون خطای «Model tried to generate text» که قبلاً
+  // برای عربی گرفتی. برای جلوگیری از این، صریح می‌گیم فقط بخونه، جواب نده.
+  const ttsPrompt = `TTS the following text exactly as written, in its own language. Do not answer it, do not add anything, just read it aloud verbatim: ${sanitized}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
@@ -248,7 +253,7 @@ async function fetchGeminiTtsAudio(text, voice, env) {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": key },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: sanitized }] }],
+        contents: [{ parts: [{ text: ttsPrompt }] }],
         generationConfig: {
           responseModalities: ["AUDIO"],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
@@ -265,8 +270,25 @@ async function fetchGeminiTtsAudio(text, voice, env) {
   const data = await safeJson(r);
   if (!r.ok) throw new Error(data?.error?.message || `gemini-tts HTTP ${r.status}`);
 
-  const base64Pcm = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-  if (!base64Pcm) throw new Error("gemini-tts: no audio returned");
+  const candidate = data?.candidates?.[0];
+  const base64Pcm = candidate?.content?.parts?.[0]?.inlineData?.data;
+  if (!base64Pcm) {
+    // برای فهمیدنِ دلیلِ واقعی (متن به‌جای صدا، فیلترِ ایمنی، بلاکِ
+    // ریجن که به‌صورتِ candidate خالی/finishReason خودشو نشون می‌ده، یا هر
+    // چیزِ دیگه) کل جزئیاتِ مربوط رو تو پیامِ خطا می‌ذاریم.
+    const textPart = candidate?.content?.parts?.[0]?.text;
+    const finishReason = candidate?.finishReason;
+    const blockReason = data?.promptFeedback?.blockReason;
+    const details = [
+      finishReason ? `finishReason=${finishReason}` : null,
+      blockReason ? `blockReason=${blockReason}` : null,
+      textPart ? `returned-text="${String(textPart).slice(0, 120)}"` : null,
+      !candidate ? `raw=${JSON.stringify(data).slice(0, 300)}` : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    throw new Error(`gemini-tts: no audio returned${details ? ` (${details})` : ""}`);
+  }
 
   const pcmBytes = base64ToUint8Array(base64Pcm);
   return pcmToWav(pcmBytes, { sampleRate: 24000, numChannels: 1, bitsPerSample: 16 });
