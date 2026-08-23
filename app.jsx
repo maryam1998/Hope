@@ -1737,10 +1737,22 @@ const TTS_LOCALE = {
   uk: "uk-UA",
 };
 
+// نامِ صداهای پیش‌ساخته‌ی Gemini (Google AI Studio) — فقط برای فارسی و
+// عربی استفاده می‌شن، چون خوانشِ Edge/Azure برای این دو زبون مشکل داشت
+// (لهجه/تلفظِ ضعیف). Gemini خودش زبون رو از رویِ متن تشخیص می‌ده، این
+// اسم‌ها صرفاً «تیمبر»ِ صدان، نه یه لوکیلِ زبونی؛ برای هر دو زبون یه صدای
+// واحد و شفاف انتخاب شده. لیستِ کاملِ صداها:
+// https://ai.google.dev/gemini-api/docs/speech-generation
+const GEMINI_TTS_VOICE = {
+  fa: "Kore",
+  ar: "Kore",
+};
+
 // نامِ صداهای Neural مایکروسافت (Edge Read Aloud / Azure) برای مسیرِ
 // آنلاینِ جایگزین — این سرویس برخلافِ Google-Translate-TTS/StreamElements
 // برای همه‌ی این زبون‌ها (از جمله فارسی/عربی/ایتالیایی/هندی/کره‌ای/روسی/
-// ژاپنی که قبلاً بی‌صدا شکست می‌خوردن) صدای واقعی داره.
+// ژاپنی که قبلاً بی‌صدا شکست می‌خوردن) صدای واقعی داره. برای فارسی/عربی
+// حالا به‌عنوانِ پشتیبانِ Gemini (بالا) نگه داشته شده، نه مسیرِ اصلی.
 const EDGE_TTS_VOICE = {
   fa: "fa-IR-DilaraNeural",
   en: "en-US-AriaNeural",
@@ -2026,19 +2038,30 @@ const speechController = (() => {
   // وب‌سوکت/GEC-token توی خودِ اپ.
   // -------------------------------------------------------------------
 
-  // فهرستِ سرویس‌های آنلاینِ جایگزین برای یه تکه‌متن، به‌ترتیبِ اولویت:
-  // اول پراکسیِ Edge/Azureِ خودمون (پوششِ کاملِ همه‌ی زبون‌ها از جمله فارسی
-  // و عربی، که Google-Translate-TTS اصلاً پشتیبانی‌شون نمی‌کنه)، بعد
-  // Google-Translate-TTS و StreamElements به‌عنوانِ پشتیبان اگه به هر
-  // دلیلی خودِ Worker دردسترس نبود.
-  // برای فارسی/عربی، Google-Translate-TTS (۴۰۴ می‌ده) و StreamElements
-  // (۴۰۱ می‌ده) اصلاً کار نمی‌کنن — امتحان‌کردن‌شون فقط باعثِ تأخیر و یه
-  // خطای اضافه توی کنسول می‌شه، برای همین فقط پراکسیِ Edge رو برمی‌گردونیم.
+  // فهرستِ سرویس‌های آنلاینِ جایگزین برای یه تکه‌متن، به‌ترتیبِ اولویت.
+  //
+  // برای فارسی/عربی: چون خوانشِ Edge/Azure برای این دو زبون مشکل داشت،
+  // حالا اول سراغِ Gemini (Google AI Studio) می‌ریم — از طریقِ مسیرِ جدیدِ
+  // بک‌اند /api/tts-gemini (باید جداگانه تو Worker اضافه بشه؛ کدش رو
+  // جدا فرستادم). اگه Gemini به هر دلیلی (سهمیه/خطا/عدمِ دسترسی) شکست
+  // بخوره، به‌عنوانِ پشتیبان به همون پراکسیِ Edge/Azureِ قبلی برمی‌گردیم —
+  // نه Google-Translate-TTS/StreamElements، چون این دو تا اصلاً فارسی/
+  // عربی رو پشتیبانی نمی‌کنن (به ترتیب ۴۰۴ و ۴۰۱ می‌دن).
+  //
+  // برای بقیه‌ی زبون‌ها هیچ تغییری نکرده: اول پراکسیِ Edge/Azureِ خودمون،
+  // بعد Google-Translate-TTS و StreamElements به‌عنوانِ پشتیبان.
   function onlineTtsProviders(chunkText, langCode) {
-    const voice = EDGE_TTS_VOICE[langCode] || EDGE_TTS_VOICE.en;
     const q = encodeURIComponent(sanitizeForTTS(chunkText));
+    const voice = EDGE_TTS_VOICE[langCode] || EDGE_TTS_VOICE.en;
     const edgeProxy = { kind: "url", url: `${DEFAULT_BACKEND_URL}/api/tts?voice=${encodeURIComponent(voice)}&text=${q}` };
-    if (langCode === "fa" || langCode === "ar") return [edgeProxy];
+    if (langCode === "fa" || langCode === "ar") {
+      const geminiVoice = GEMINI_TTS_VOICE[langCode] || "Kore";
+      const geminiProxy = {
+        kind: "url",
+        url: `${DEFAULT_BACKEND_URL}/api/tts-gemini?voice=${encodeURIComponent(geminiVoice)}&lang=${langCode}&text=${q}`,
+      };
+      return [geminiProxy, edgeProxy];
+    }
     const googleTranslate = { kind: "url", url: `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}` };
     const streamElements = { kind: "url", url: `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}` };
     return [edgeProxy, googleTranslate, streamElements];
