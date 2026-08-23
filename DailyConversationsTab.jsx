@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Check } from "lucide-react";
 
 /* =============================================================================
    نگاشت موضوع → (اسم فارسی، آیکون). کلید دقیقاً همون رشته‌ی topic توی
@@ -122,13 +122,13 @@ const TTS_LOCALE_MINI = {
   uk: "uk-UA",
 };
 
-function TopicCard({ meta, hasData, onClick, uiLang }) {
+function TopicCard({ meta, hasData, onClick, uiLang, isRead, onToggleRead }) {
   const label = uiLang === "fa" ? meta.fa : meta.en;
   return (
-    <button
-      onClick={onClick}
+    <div
       dir={uiLang === "fa" ? "rtl" : "ltr"}
       style={{
+        position: "relative",
         display: "flex",
         flexDirection: "column",
         alignItems: "flex-start",
@@ -142,11 +142,37 @@ function TopicCard({ meta, hasData, onClick, uiLang }) {
         minHeight: 90,
       }}
     >
-      <span style={{ fontSize: 24, lineHeight: 1 }}>{meta.icon}</span>
-      <span style={{ fontFamily: uiLang === "fa" ? fontFa : fontLatin, fontSize: 13, fontWeight: 700, color: colors.ink, lineHeight: 1.4 }}>
-        {label}
-      </span>
-    </button>
+      {/* دایره‌ی خوانده‌شده — روی خودِ کارت، جدا از کلیکِ بازکردنِ موضوع، تا
+          کاربر بتونه بدونِ بازکردنِ موضوع هم پیشرفتش رو علامت بزنه. */}
+      <button
+        onClick={(ev) => {
+          ev.stopPropagation();
+          onToggleRead && onToggleRead();
+        }}
+        aria-label={uiLang === "fa" ? "علامت‌زدن به‌عنوان خوانده‌شده" : "Toggle read"}
+        style={{
+          position: "absolute",
+          top: 8,
+          [uiLang === "fa" ? "left" : "right"]: 8,
+          width: 16,
+          height: 16,
+          borderRadius: "50%",
+          border: `2px solid ${isRead ? READ_DONE_COLOR : colors.cardBorder}`,
+          backgroundColor: isRead ? READ_DONE_COLOR : "transparent",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {isRead && <Check size={10} color="white" strokeWidth={3} />}
+      </button>
+      <button onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, width: "100%" }}>
+        <span style={{ fontSize: 24, lineHeight: 1 }}>{meta.icon}</span>
+        <span style={{ fontFamily: uiLang === "fa" ? fontFa : fontLatin, fontSize: 13, fontWeight: 700, color: colors.ink, lineHeight: 1.4 }}>
+          {label}
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -406,7 +432,7 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
   );
 }
 
-function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine, onResolveTranslation }) {
+function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine, onResolveTranslation, isRead, onToggleRead }) {
   const filterFn = (arr) => (levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr);
   const speakerA = filterFn(sc.speakerA);
   const speakerB = filterFn(sc.speakerB);
@@ -415,13 +441,35 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
   return (
     <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, marginBottom: 10, overflow: "hidden", backgroundColor: "white" }}>
       <button onClick={onToggle} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 15px", textAlign: "right" }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontFamily: fontFa, fontWeight: 700, fontSize: 14, color: colors.ink }}>{sc.scenario}</div>
-          {sc.context && !isOpen && (
-            <div style={{ fontFamily: fontFa, fontSize: 11.5, color: colors.inkSoft, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {sc.context}
-            </div>
-          )}
+        <div className="flex items-center" style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+          <span
+            onClick={(ev) => {
+              ev.stopPropagation();
+              onToggleRead && onToggleRead();
+            }}
+            aria-label={t.toggleRead || "Toggle read"}
+            style={{
+              flexShrink: 0,
+              width: 16,
+              height: 16,
+              borderRadius: "50%",
+              border: `2px solid ${isRead ? READ_DONE_COLOR : colors.cardBorder}`,
+              backgroundColor: isRead ? READ_DONE_COLOR : "transparent",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {isRead && <Check size={10} color="white" strokeWidth={3} />}
+          </span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: fontFa, fontWeight: 700, fontSize: 14, color: colors.ink }}>{sc.scenario}</div>
+            {sc.context && !isOpen && (
+              <div style={{ fontFamily: fontFa, fontSize: 11.5, color: colors.inkSoft, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {sc.context}
+              </div>
+            )}
+          </div>
         </div>
         <ChevronDown size={18} color={colors.teal} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0, marginRight: 8 }} />
       </button>
@@ -522,6 +570,47 @@ export default function DailyConversationsTab({
       if (val && val.toLowerCase().includes(q)) return true;
     }
     return false;
+  };
+
+  // -----------------------------------------------------------------------
+  // بازه‌ی نمایش («از # تا #») + ردیابیِ خوانده‌شده — همون الگویی که تب‌های
+  // لغات/داستان‌ساز/گرامر دارن. اینجا دو سطح جدا ردیابی می‌شه: خودِ
+  // موضوع‌ها (کارت‌های توری بالا) و سناریوهای داخلِ هر موضوع، چون شمارشِ
+  // «خوانده‌شده» باید هر بار زنده از رویِ همین دو Set حساب بشه، نه یه
+  // عددِ ثابت.
+  const [topicReadIds, setTopicReadIds] = useState(() => loadReadWordIds("dailyConvTopics"));
+  const toggleTopicRead = (en) => {
+    setTopicReadIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(en)) next.delete(en);
+      else next.add(en);
+      saveReadWordIds("dailyConvTopics", next);
+      return next;
+    });
+  };
+  const markTopicRangeRead = (items, read) => {
+    setTopicReadIds((prev) => {
+      const next = new Set(prev);
+      items.forEach((m) => {
+        if (read) next.add(m.en);
+        else next.delete(m.en);
+      });
+      saveReadWordIds("dailyConvTopics", next);
+      return next;
+    });
+  };
+  const [topicRangeInput, setTopicRangeInput] = useState({ from: "", to: "" });
+
+  const [scenarioReadIds, setScenarioReadIds] = useState(() => loadReadWordIds("dailyConvScenarios"));
+  const toggleScenarioRead = (topicEn, i) => {
+    const id = `${topicEn}::${i}`;
+    setScenarioReadIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      saveReadWordIds("dailyConvScenarios", next);
+      return next;
+    });
   };
 
   const filteredMeta = useMemo(() => {
@@ -779,25 +868,103 @@ export default function DailyConversationsTab({
   return (
     <div>
       {/* شبکه‌ی کارت‌های موضوعی */}
-      {!activeTopic && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-          {filteredMeta.map((m) => (
-            <TopicCard
-              key={m.en}
-              meta={m}
-              uiLang={uiLang}
-              hasData={!!dataByTopic[m.en]}
-              onClick={() => {
-                setActiveTopic(m.en);
-                setOpenScenario(0);
-              }}
-            />
-          ))}
-          {filteredMeta.length === 0 && (
-            <div style={{ gridColumn: "1 / -1", textAlign: "center", color: colors.inkSoft, padding: 30, fontSize: 13.5, fontFamily: fontFa }}>{t.noResults}</div>
-          )}
-        </div>
-      )}
+      {!activeTopic && (() => {
+        const total = filteredMeta.length;
+        const defaultTo = Math.min(total, WORDS_PAGE_SIZE) || total || 1;
+        const parsedFrom = parseInt(topicRangeInput.from, 10);
+        const parsedTo = parseInt(topicRangeInput.to, 10);
+        const effFrom = Number.isNaN(parsedFrom) ? 1 : parsedFrom;
+        const effTo = Number.isNaN(parsedTo) ? defaultTo : parsedTo;
+        const clampedFrom = Math.min(Math.max(1, effFrom), Math.max(total, 1));
+        const clampedTo = Math.min(Math.max(clampedFrom, effTo), total || clampedFrom);
+        const visibleMeta = filteredMeta.slice(clampedFrom - 1, clampedTo);
+        const readCountInRange = visibleMeta.filter((m) => topicReadIds.has(m.en)).length;
+        const readCountTotal = filteredMeta.filter((m) => topicReadIds.has(m.en)).length;
+        return (
+          <>
+            {total > 0 && (
+              <div
+                className="flex flex-col gap-2 p-3 rounded-lg"
+                style={{ backgroundColor: colors.paperDark, border: `1px solid ${colors.cardBorder}`, marginBottom: 10 }}
+              >
+                <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "fa" ? "rtl" : "ltr" }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: colors.ink, fontFamily: uiLang === "fa" ? fontFa : fontLatin }}>
+                    {uiLang === "fa" ? "موضوع‌ها" : "Topics"}
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={total}
+                    value={topicRangeInput.from}
+                    placeholder="1"
+                    onChange={(ev) => setTopicRangeInput((prev) => ({ ...prev, from: ev.target.value }))}
+                    onBlur={() => {
+                      if (topicRangeInput.from !== "") setTopicRangeInput((prev) => ({ ...prev, from: String(clampedFrom) }));
+                    }}
+                    style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
+                  />
+                  <span style={{ fontSize: 13, color: colors.inkSoft }}>{uiLang === "fa" ? "تا" : "to"}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={total}
+                    value={topicRangeInput.to}
+                    placeholder={String(defaultTo)}
+                    onChange={(ev) => setTopicRangeInput((prev) => ({ ...prev, to: ev.target.value }))}
+                    onBlur={() => {
+                      if (topicRangeInput.to !== "") setTopicRangeInput((prev) => ({ ...prev, to: String(clampedTo) }));
+                    }}
+                    style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
+                  />
+                  <span style={{ fontSize: 12, color: colors.inkSoft }}>
+                    {uiLang === "fa" ? `از مجموع ${total.toLocaleString("fa-IR")}` : `of ${total}`}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "fa" ? "rtl" : "ltr" }}>
+                  <span style={{ fontSize: 12, color: colors.teal, fontWeight: 700 }}>
+                    {uiLang === "fa"
+                      ? `خوانده‌شده: ${readCountInRange.toLocaleString("fa-IR")} از ${visibleMeta.length.toLocaleString("fa-IR")} در این بازه · ${readCountTotal.toLocaleString("fa-IR")} از ${total.toLocaleString("fa-IR")} کل`
+                      : `Read: ${readCountInRange}/${visibleMeta.length} in range · ${readCountTotal}/${total} total`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => markTopicRangeRead(visibleMeta, true)}
+                    style={{ fontSize: 11, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "2px 8px" }}
+                  >
+                    {uiLang === "fa" ? "علامت‌گذاری همه به خوانده‌شده" : "Mark range read"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => markTopicRangeRead(visibleMeta, false)}
+                    style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "2px 8px" }}
+                  >
+                    {uiLang === "fa" ? "پاک‌کردن علامت این بازه" : "Clear range"}
+                  </button>
+                </div>
+              </div>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+              {visibleMeta.map((m) => (
+                <TopicCard
+                  key={m.en}
+                  meta={m}
+                  uiLang={uiLang}
+                  hasData={!!dataByTopic[m.en]}
+                  isRead={topicReadIds.has(m.en)}
+                  onToggleRead={() => toggleTopicRead(m.en)}
+                  onClick={() => {
+                    setActiveTopic(m.en);
+                    setOpenScenario(0);
+                  }}
+                />
+              ))}
+              {filteredMeta.length === 0 && (
+                <div style={{ gridColumn: "1 / -1", textAlign: "center", color: colors.inkSoft, padding: 30, fontSize: 13.5, fontFamily: fontFa }}>{t.noResults}</div>
+              )}
+            </div>
+          </>
+        );
+      })()}
 
       {/* آکاردئون سناریوهای موضوع انتخاب‌شده */}
       {activeTopic && (
@@ -822,6 +989,8 @@ export default function DailyConversationsTab({
                 levelFilter={levelFilter}
                 isOpen={openScenario === i}
                 onToggle={() => setOpenScenario(openScenario === i ? null : i)}
+                isRead={scenarioReadIds.has(`${activeTopic}::${i}`)}
+                onToggleRead={() => toggleScenarioRead(activeTopic, i)}
                 nativeLang={nativeLang}
                 nativeLabel={nativeLabel}
                 aiSettings={aiSettings}
