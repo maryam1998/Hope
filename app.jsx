@@ -1040,6 +1040,11 @@ const translationColor = "#0F5C34";
 // رنگِ ثابتِ «ماژیک هایلایتِ خواندن» — این دیگه فقط یه فال‌بکه؛ رنگِ واقعی
 // از appPrefs.highlightColor (که کاربر از تنظیمات انتخاب می‌کنه) میاد.
 const READ_MARKER_COLOR = "#FFD54F";
+// رنگ ملایم‌تر برای نشانگر «خوانده‌شده» (دایره‌ی کنار هر واژه) — به‌جای
+// colors.teal اشباع‌شده که با تکرار زیاد توی لیست‌های بلند چشم رو اذیت
+// می‌کرد؛ این یه سبزِ خاکستری کم‌اشباع‌تره که هنوز به‌عنوانِ «تکمیل‌شده»
+// خونده می‌شه ولی نور/کنتراستِ کمتری داره.
+const READ_DONE_COLOR = "#7FA396";
 // پالتِ رنگ‌های کم‌رنگ/بی‌حال (pastel) که کاربر می‌تونه به‌عنوانِ رنگِ
 // هایلایتِ خواندن ازش انتخاب کنه — دقیقاً همون طیفی که خودِ کاربر
 // به‌عنوانِ نمونه فرستاد (زردِ کم‌رنگ، هلویی، نارنجیِ ملایم، صورتی‌مرجانی،
@@ -13586,7 +13591,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 // ---------------------------------------------------------------------------
 // Phrase list (used for both "all conversation " and "favorites")
 // ---------------------------------------------------------------------------
-function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleFavorite, emptyText, query, levelFilter, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, highlightColor, uiLang }) {
+const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleFavorite, emptyText, query, levelFilter, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, highlightColor, uiLang }) {
   const q = (query || "").trim().toLowerCase();
   let filtered = levelFilter && levelFilter !== "all" ? conversation .filter((p) => p.level === levelFilter) : conversation ;
   filtered = q
@@ -13866,12 +13871,12 @@ function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleF
       ))}
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Vocabulary & news words — click a word to reveal meaning + part of speech
 // ---------------------------------------------------------------------------
-function VocabList({ words, nativeLang, targetLangs, levelFilter, aiSettings, autoplayEnabled }) {
+const VocabList = React.memo(function VocabList({ words, nativeLang, targetLangs, levelFilter, aiSettings, autoplayEnabled }) {
   const [openIds, setOpenIds] = useState(new Set());
 
   const toggleOpen = (id) => {
@@ -13965,7 +13970,7 @@ function VocabList({ words, nativeLang, targetLangs, levelFilter, aiSettings, au
       })}
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // یک مدیرِ سراسریِ «انتخابِ متن → افزودن به داستان» برای کل نرم‌افزار.
@@ -14687,7 +14692,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
 // به کتابخونه‌ی جدید).
 const WORDS_PAGE_SIZE = 60;
 
-function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor, jumpTarget, uiLang }) {
+const WordList = React.memo(function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor, jumpTarget, uiLang }) {
   // زبان‌هایی که باید زیرِ هر لغت ترجمه‌شون نشون داده بشه: همون زبان‌های
   // مقصدی که کاربر بالای صفحه انتخاب/مرتب کرده (targetLangs)، منهای خودِ
   // انگلیسی (چون انگلیسی همون سرلغته که بالا نشون داده می‌شه و تکرارش
@@ -15107,8 +15112,8 @@ function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, lev
               width: 20,
               height: 20,
               borderRadius: "50%",
-              border: `2px solid ${isRead ? colors.teal : colors.cardBorder}`,
-              backgroundColor: isRead ? colors.teal : "transparent",
+              border: `2px solid ${isRead ? READ_DONE_COLOR : colors.cardBorder}`,
+              backgroundColor: isRead ? READ_DONE_COLOR : "transparent",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -15242,7 +15247,7 @@ function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, lev
       })}
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // یک ردیف ترجمه‌ی یک لغت به یک زبان مقصد. اگه ترجمه‌اش از قبل معلومه
