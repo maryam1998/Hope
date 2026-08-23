@@ -8456,8 +8456,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // خودِ کاربره؛ هیچ فایلی جایی آپلود نمی‌شه، و نتیجه‌ش هم مثلِ بقیه‌ی
   // منبع‌های لغت فقط تو localStorage (روی همین گوشی) ذخیره می‌شه، نه تو
   // Supabase — پس نیازی به ارتقاءِ پلن نداره.
-  const PDF_MAX_BYTES = 8 * 1024 * 1024; // ۸ مگابایت — سقفِ حجمِ فایل، برای اینکه پردازش تو مرورگرِ موبایل کند/سنگین نشه
-  const PDF_MAX_PAGES = 80; // بعد از این تعداد صفحه، بقیه رو نادیده می‌گیریم — کافیه چون این بخش برای «فهرستِ لغت» طراحی شده نه کتابِ کامل
+  const PDF_MAX_BYTES = 500 * 1024 * 1024; // ۵۰۰ مگابایت
   const PDF_MAX_CHARS = 20000; // سقفِ کاراکتر، برای اینکه حجمِ localStorage (که مشترکِ همه‌چیزِ اپه) پر نشه
 
   const handlePdfUpload = async (e) => {
@@ -8466,7 +8465,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     if (!file) return;
     setPdfError("");
     if (file.size > PDF_MAX_BYTES) {
-      setPdfError(`حجمِ فایل بیشتر از ${Math.round(PDF_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه — یه PDF کوچیک‌تر امتحان کن`);
+      setPdfError(`حجمِ فایل بیشتر از ${Math.round(PDF_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه`);
       return;
     }
     setPdfBusy(true);
@@ -8478,7 +8477,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
       const buf = await file.arrayBuffer();
       const doc = await pdfjsLib.getDocument({ data: buf }).promise;
-      const pageCount = Math.min(doc.numPages, PDF_MAX_PAGES);
+      const pageCount = doc.numPages;
       let lines = [];
       for (let i = 1; i <= pageCount; i++) {
         const page = await doc.getPage(i);
@@ -9182,10 +9181,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   // پایین (که به paragraphs/currentStoryId/questions وصله) بدونِ هیچ
   // تغییری کار می‌کنه. کاربر بعداً خودش با پاپ‌آپِ لغت تصمیم می‌گیره کدوم
   // لغت‌ها رو «ذخیره برای داستانِ بعدی» یا «افزودن به جعبه‌ی لایتنر» کنه.
-  const PDF_READ_MAX_BYTES = 8 * 1024 * 1024;
-  const PDF_READ_MAX_PAGES = 300; // کتابِ کامل هم پوشش داده می‌شه؛ سقفِ واقعیِ حجمِ متن رو PDF_READ_MAX_SENTENCES کنترل می‌کنه (نه تعدادِ صفحه به‌تنهایی)
+  const PDF_READ_MAX_BYTES = 500 * 1024 * 1024; // ۵۰۰ مگابایت
   const PDF_READ_SENTENCES_PER_PARAGRAPH = 5; // استخراجِ PDF معمولاً مرزِ پاراگرافِ واقعی رو حفظ نمی‌کنه، پس خودمون هر ۵ جمله رو یه «پاراگراف» حساب می‌کنیم تا خوانا بمونه
-  const PDF_READ_MAX_SENTENCES = 2000; // سقفِ کلی — فراتر از این برای موبایل/سرویسِ ترجمه‌ی رایگان زیادی سنگین می‌شه (با ۳۰۰ صفحه هماهنگ شده؛ لازم شد می‌تونی این عدد رو دوباره کم/زیاد کنی)
+  const PDF_READ_MAX_SENTENCES = 2000; // سقفِ کلی — فراتر از این برای موبایل/سرویسِ ترجمه‌ی رایگان زیادی سنگین می‌شه (لازم شد می‌تونی این عدد رو دوباره کم/زیاد کنی)
 
   const handlePdfImportForReading = async (e) => {
     const file = e.target.files?.[0];
@@ -9193,7 +9191,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     if (!file) return;
     setPdfReadError("");
     if (file.size > PDF_READ_MAX_BYTES) {
-      setPdfReadError(`حجمِ فایل بیشتر از ${Math.round(PDF_READ_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه — یه PDF کوچیک‌تر امتحان کن (حداکثر ${PDF_READ_MAX_PAGES} صفحه هم پردازش می‌شه)`);
+      setPdfReadError(`حجمِ فایل بیشتر از ${Math.round(PDF_READ_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه`);
       return;
     }
     setPdfReadBusy(true);
@@ -9202,7 +9200,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
       const buf = await file.arrayBuffer();
       const doc = await pdfjsLib.getDocument({ data: buf }).promise;
-      const pageCount = Math.min(doc.numPages, PDF_READ_MAX_PAGES);
+      const pageCount = doc.numPages;
       let allSentences = [];
       for (let i = 1; i <= pageCount; i++) {
         const page = await doc.getPage(i);
@@ -9211,7 +9209,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         allSentences.push(...splitTextIntoSentenceStrings(pageText));
         if (allSentences.length > PDF_READ_MAX_SENTENCES) break;
       }
-      let truncated = doc.numPages > pageCount;
+      let truncated = false;
       if (allSentences.length > PDF_READ_MAX_SENTENCES) {
         allSentences = allSentences.slice(0, PDF_READ_MAX_SENTENCES);
         truncated = true;
@@ -9954,7 +9952,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfReadError}</p>
         )}
         <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
-          به‌جای ساختِ داستان با هوش‌مصنوعی، متنِ خودِ PDF رو با همین سیستمِ خوانش (ترجمه، هایلایت، صدا) نشون می‌ده — بدونِ نیاز به انتخابِ لغت. تا {PDF_READ_MAX_PAGES} صفحه پشتیبانی می‌شه؛ اگه متن خیلی زیاد باشه، فقط بخشِ اولش آماده‌ی خوانش می‌شه.
+          به‌جای ساختِ داستان با هوش‌مصنوعی، متنِ خودِ PDF رو با همین سیستمِ خوانش (ترجمه، هایلایت، صدا) نشون می‌ده — بدونِ نیاز به انتخابِ لغت.
         </p>
 
         <div style={{ textAlign: "start" }}>
