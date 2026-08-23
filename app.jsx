@@ -885,24 +885,13 @@ async function translateFree(text, targetLang, sourceLang = "auto", aiSettings =
   // کش نبود — کارِ واقعیِ شبکه‌ای وارد صفِ سراسری می‌شه (نه بلافاصله اجرا)
   // تا سقفِ هم‌زمانی رعایت بشه؛ و کلِ این کار زیرِ یه سقفِ زمانیِ سخت قرار
   // می‌گیره تا رابط کاربری هیچ‌وقت بی‌نهایت منتظر نمونه.
-  //
-  // 🐛 رفعِ باگ: قبلاً این سقفِ ۱۵ ثانیه‌ای از همون لحظه‌ی صداکردنِ
-  // translateFree شروع می‌شد — یعنی شاملِ زمانِ انتظار توی صفِ سراسری
-  // (GLOBAL_TRANSLATE_CONCURRENCY=3) هم می‌شد. وقتی یه سناریو با چندین
-  // خط هم‌زمان باز می‌شد، خط‌های اول زود اجرا می‌شدن و درست ترجمه
-  // می‌شدن، ولی خط‌های ته صف (چون باید منتظرِ آزادشدنِ نوبت می‌موندن)
-  // قبل از این‌که اصلاً شروع به اجرا بشن، سقفِ ۱۵ ثانیه‌شون تموم می‌شد و
-  // بدونِ ترجمه (متنِ انگلیسیِ خام) نمایش داده می‌شدن — دقیقاً همون چیزی
-  // که تو اسکرین‌شاتِ کاربر افتاده بود. حالا این ریسِ ۱۵ ثانیه‌ای فقط از
-  // لحظه‌ای شروع می‌شه که کار واقعاً از صف بیرون اومده و اجراش شروع شده؛
-  // انتظار توی صف دیگه از این سقف کم نمی‌کنه.
-  return queueTranslateJob(() => {
-    const networkPromise = translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify);
-    const timeoutPromise = new Promise((resolve) => {
-      setTimeout(() => resolve(text), TRANSLATE_HARD_TIMEOUT_MS);
-    });
-    return Promise.race([networkPromise, timeoutPromise]);
+  const networkPromise = queueTranslateJob(() =>
+    translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify)
+  );
+  const timeoutPromise = new Promise((resolve) => {
+    setTimeout(() => resolve(text), TRANSLATE_HARD_TIMEOUT_MS);
   });
+  return Promise.race([networkPromise, timeoutPromise]);
 }
 
 async function translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify) {
@@ -1737,22 +1726,10 @@ const TTS_LOCALE = {
   uk: "uk-UA",
 };
 
-// نامِ صداهای پیش‌ساخته‌ی Gemini (Google AI Studio) — فقط برای فارسی و
-// عربی استفاده می‌شن، چون خوانشِ Edge/Azure برای این دو زبون مشکل داشت
-// (لهجه/تلفظِ ضعیف). Gemini خودش زبون رو از رویِ متن تشخیص می‌ده، این
-// اسم‌ها صرفاً «تیمبر»ِ صدان، نه یه لوکیلِ زبونی؛ برای هر دو زبون یه صدای
-// واحد و شفاف انتخاب شده. لیستِ کاملِ صداها:
-// https://ai.google.dev/gemini-api/docs/speech-generation
-const GEMINI_TTS_VOICE = {
-  fa: "Kore",
-  ar: "Kore",
-};
-
 // نامِ صداهای Neural مایکروسافت (Edge Read Aloud / Azure) برای مسیرِ
 // آنلاینِ جایگزین — این سرویس برخلافِ Google-Translate-TTS/StreamElements
 // برای همه‌ی این زبون‌ها (از جمله فارسی/عربی/ایتالیایی/هندی/کره‌ای/روسی/
-// ژاپنی که قبلاً بی‌صدا شکست می‌خوردن) صدای واقعی داره. برای فارسی/عربی
-// حالا به‌عنوانِ پشتیبانِ Gemini (بالا) نگه داشته شده، نه مسیرِ اصلی.
+// ژاپنی که قبلاً بی‌صدا شکست می‌خوردن) صدای واقعی داره.
 const EDGE_TTS_VOICE = {
   fa: "fa-IR-DilaraNeural",
   en: "en-US-AriaNeural",
@@ -1968,30 +1945,9 @@ const speechController = (() => {
     }
   }
 
-  // -------------------------------------------------------------------
-  // رفعِ باگِ اصلیِ «هیچ صدایی پخش نمی‌شه»: روی کروم/اندروید، اگه بلافاصله
-  // بعد از speechSynthesis.cancel() (همون خط پایین‌تر، وقتی forceRestart
-  // true‌ست) در همون tick یه speak() جدید صدا زده بشه، مرورگر ظاهراً وضعیتِ
-  // «در حالِ پخش» رو نگه می‌داره (utter نه onerror می‌ده نه onend) ولی
-  // عملاً هیچ صدایی از خروجی نمیاد — یه باگِ شناخته‌شده و قدیمیِ خودِ Web
-  // Speech API که فقط با یه فاصله‌ی کوچیک بینِ cancel() و speak() بعدی حل
-  // می‌شه. برای همین speak() واقعی رو به یه تابعِ جدا (startUtterance)
-  // منتقل کردیم و وقتی forceRestart لازم بوده، صداکردنش رو کمی (۸۰ میلی‌
-  // ثانیه) به تعویق می‌ندازیم؛ pendingSpeakTimer هم مطمئن می‌شه اگه قبل از
-  // رسیدنِ اون تایمر یه speakChunk دیگه صدا زده بشه (مثلاً کاربر سریع چند
-  // بار پشتِ‌سرِهم دکمه رو زد)، نسخه‌ی کهنه‌تر اجرا نشه.
-  let pendingSpeakTimer = null;
-  function clearPendingSpeakTimer() {
-    if (pendingSpeakTimer) {
-      clearTimeout(pendingSpeakTimer);
-      pendingSpeakTimer = null;
-    }
-  }
-
   function cancelSpeech() {
     expectingCancel = true;
     clearGapTimer();
-    clearPendingSpeakTimer();
     try {
       window.speechSynthesis.cancel();
     } catch (e) {}
@@ -2038,30 +1994,19 @@ const speechController = (() => {
   // وب‌سوکت/GEC-token توی خودِ اپ.
   // -------------------------------------------------------------------
 
-  // فهرستِ سرویس‌های آنلاینِ جایگزین برای یه تکه‌متن، به‌ترتیبِ اولویت.
-  //
-  // برای فارسی/عربی: چون خوانشِ Edge/Azure برای این دو زبون مشکل داشت،
-  // حالا اول سراغِ Gemini (Google AI Studio) می‌ریم — از طریقِ مسیرِ جدیدِ
-  // بک‌اند /api/tts-gemini (باید جداگانه تو Worker اضافه بشه؛ کدش رو
-  // جدا فرستادم). اگه Gemini به هر دلیلی (سهمیه/خطا/عدمِ دسترسی) شکست
-  // بخوره، به‌عنوانِ پشتیبان به همون پراکسیِ Edge/Azureِ قبلی برمی‌گردیم —
-  // نه Google-Translate-TTS/StreamElements، چون این دو تا اصلاً فارسی/
-  // عربی رو پشتیبانی نمی‌کنن (به ترتیب ۴۰۴ و ۴۰۱ می‌دن).
-  //
-  // برای بقیه‌ی زبون‌ها هیچ تغییری نکرده: اول پراکسیِ Edge/Azureِ خودمون،
-  // بعد Google-Translate-TTS و StreamElements به‌عنوانِ پشتیبان.
+  // فهرستِ سرویس‌های آنلاینِ جایگزین برای یه تکه‌متن، به‌ترتیبِ اولویت:
+  // اول پراکسیِ Edge/Azureِ خودمون (پوششِ کاملِ همه‌ی زبون‌ها از جمله فارسی
+  // و عربی، که Google-Translate-TTS اصلاً پشتیبانی‌شون نمی‌کنه)، بعد
+  // Google-Translate-TTS و StreamElements به‌عنوانِ پشتیبان اگه به هر
+  // دلیلی خودِ Worker دردسترس نبود.
+  // برای فارسی/عربی، Google-Translate-TTS (۴۰۴ می‌ده) و StreamElements
+  // (۴۰۱ می‌ده) اصلاً کار نمی‌کنن — امتحان‌کردن‌شون فقط باعثِ تأخیر و یه
+  // خطای اضافه توی کنسول می‌شه، برای همین فقط پراکسیِ Edge رو برمی‌گردونیم.
   function onlineTtsProviders(chunkText, langCode) {
-    const q = encodeURIComponent(sanitizeForTTS(chunkText));
     const voice = EDGE_TTS_VOICE[langCode] || EDGE_TTS_VOICE.en;
+    const q = encodeURIComponent(sanitizeForTTS(chunkText));
     const edgeProxy = { kind: "url", url: `${DEFAULT_BACKEND_URL}/api/tts?voice=${encodeURIComponent(voice)}&text=${q}` };
-    if (langCode === "fa" || langCode === "ar") {
-      const geminiVoice = GEMINI_TTS_VOICE[langCode] || "Kore";
-      const geminiProxy = {
-        kind: "url",
-        url: `${DEFAULT_BACKEND_URL}/api/tts-gemini?voice=${encodeURIComponent(geminiVoice)}&lang=${langCode}&text=${q}`,
-      };
-      return [geminiProxy, edgeProxy];
-    }
+    if (langCode === "fa" || langCode === "ar") return [edgeProxy];
     const googleTranslate = { kind: "url", url: `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${q}` };
     const streamElements = { kind: "url", url: `https://api.streamelements.com/kappa/v2/speech?voice=${langCode}&text=${q}` };
     return [edgeProxy, googleTranslate, streamElements];
@@ -2359,34 +2304,19 @@ const speechController = (() => {
     }
 
     clearGapTimer();
-    clearPendingSpeakTimer();
-    const needsCancelFirst = forceRestart;
-    if (needsCancelFirst) cancelSpeech();
+    if (forceRestart) cancelSpeech();
     chunkIndex = idx;
     if (!isRepeatContinuation) chunkRepeatsDone = 0;
     status = "playing";
     notify();
 
-    function startUtterance() {
     const utter = new SpeechSynthesisUtterance(sanitizeForTTS(chunks[idx].text));
     utter.lang = locale;
     utter.rate = engineRate(rate);
     utter.volume = muted ? 0 : 1;
 
     const bestVoice = getBestVoice(locale);
-    if (bestVoice) {
-      utter.voice = bestVoice;
-      // 🐛 رفعِ باگ «عربی سریع استاپ می‌شه، بدون صدا»: قبلاً utter.lang همیشه
-      // همون رشته‌ی هاردکدشده‌ی خودمون (مثلاً "ar-SA") می‌موند، حتی وقتی
-      // صدایی که واقعاً پیدا و ست کردیم (bestVoice) با تگِ دیگه‌ای معرفی شده
-      // بود (مثلاً "ar-EG" یا فقط "ar" یا "ar-XA" — بسته به گوشی/موتورِ TTS).
-      // بعضی موتورهای TTS اندروید (به‌خصوص روی برخی گوشی‌ها/رام‌های سفارشی)
-      // وقتی utter.lang دقیقاً با تگِ یه صدای نصب‌شده یکی نباشه، بلافاصله با
-      // خطای «زبان پشتیبانی نمی‌شه» پخش رو متوقف می‌کنن — حتی اگه utter.voice
-      // درست ست شده باشه. با اکو کردنِ دقیقِ همون تگی که خودِ صدا معرفی کرده،
-      // این ناهماهنگی از بین می‌ره.
-      if (bestVoice.lang) utter.lang = bestVoice.lang;
-    }
+    if (bestVoice) utter.voice = bestVoice;
 
     utter.onend = () => {
       if (status !== "playing") return;
@@ -2442,22 +2372,11 @@ const speechController = (() => {
         expectingCancel = false;
         return;
       }
-      console.warn(`TTS speak failed — lang: ${utter.lang}, voice: ${utter.voice ? utter.voice.name : "(none)"}, error: ${e && e.error}`);
       status = "idle";
       notify();
     };
 
     window.speechSynthesis.speak(utter);
-    }
-
-    if (needsCancelFirst) {
-      pendingSpeakTimer = setTimeout(() => {
-        pendingSpeakTimer = null;
-        startUtterance();
-      }, 80);
-    } else {
-      startUtterance();
-    }
   }
 
   // این آبجکت به یه نامِ ثابت (controller) نگه داشته می‌شه، نه فقط return
@@ -2510,16 +2429,14 @@ const speechController = (() => {
         const hasSynthesis = "speechSynthesis" in window;
 
         let newLocale = TTS_LOCALE[code] || "en-US";
-        // فارسی و عربی: اول همون TTS خودِ گوشی امتحان می‌شه (سریع، بدونِ
-        // اینترنت) — دقیقاً مثلِ همه‌ی زبون‌های دیگه. فقط اگه گوشی واقعاً
-        // صدایی برای این دو زبون نداشت، به‌جای خطا، فوراً به سرویسِ آنلاینِ
-        // رایگان (Gemini TTS → HF-TTS/Edge) سوییچ می‌کنیم — تا کاربر
-        // معطلِ سکوت/خطا نمونه.
-        // همه‌ی زبون‌های دیگه (انگلیسی، آلمانی، ...): فقط و فقط از TTS
-        // خودِ گوشی — اگه صدایی نصب نداشته باشن، دیگه خودکار سراغِ اینترنت
-        // نمی‌ریم.
-        const ONLINE_FALLBACK_LANGS = new Set(["fa", "ar"]);
-        const allowOnlineFallback = ONLINE_FALLBACK_LANGS.has(code);
+        // فارسی و عربی: طبقِ تصمیمِ صریحِ کاربر، این دو زبون همیشه از سرویسِ
+        // آنلاینِ رایگان (Edge/Azure ...) خونده می‌شن، نه از TTS خودِ گوشی —
+        // چون کیفیت/وجودِ صدای محلی برای این دو زبون رو نمی‌شه مطمئن بود.
+        // همه‌ی زبون‌های دیگه برعکس: فقط و فقط از TTS خودِ گوشی (بدونِ
+        // نیاز به اینترنت) — حتی اگه گوشی صدایی براشون نصب نداشته باشه،
+        // دیگه به‌صورتِ خودکار سراغِ سرویسِ آنلاین نمی‌ریم.
+        const ONLINE_ONLY_LANGS = new Set(["fa", "ar"]);
+        const forceOnlineForLang = ONLINE_ONLY_LANGS.has(code);
 
         const newKey = `${newLocale}::${text}`;
 
@@ -2621,7 +2538,7 @@ const speechController = (() => {
         // فهرست هنوز کلاً خالیه (یعنی وضعیتش نامعلومه، نه قطعاً «نداره»)،
         // مسیرِ محلی رو امتحان می‌کنیم؛ فقط وقتی فهرست واقعاً لود شده و
         // مطمئنیم صدایی برای این زبون نیست، خطای no-local-voice می‌دیم.
-        if (hasSynthesis && (hasVoice || voices.length === 0)) {
+        if (!forceOnlineForLang && hasSynthesis && (hasVoice || voices.length === 0)) {
           mode = "local";
           stopOnlineAudio();
           fullText = text;
@@ -2637,22 +2554,18 @@ const speechController = (() => {
           return "ok";
         }
 
-        // اینجا یعنی گوشی صدای محلی برای این زبون نداشت.
-        // فارسی/عربی: فوراً (بدونِ خطا/پاپ‌آپ) به سرویسِ آنلاین سوییچ
-        // می‌کنیم — پایین‌تر.
-        // بقیه‌ی زبون‌ها: طبقِ خواستِ کاربر («فقط TTS گوشی») خودکار سراغِ
-        // اینترنت نمی‌ریم؛ فقط وضعیت رو idle می‌کنیم، بدونِ هیچ alert/
-        // پاپ‌آپی (که قبلاً برای دیباگ گذاشته شده بود و کاربر گفت شلوغ و
-        // مزاحمه).
-        if (!allowOnlineFallback) {
+        // اگه زبون جزوِ فارسی/عربی نبود و گوشی هم صدایی براش نداشت، دیگه
+        // خودکار سراغِ اینترنت نمی‌ریم (طبقِ خواستِ کاربر: «فقط TTS گوشی،
+        // بدونِ نیاز به اینترنت» برای همه‌ی زبون‌ها غیر از فارسی/عربی) —
+        // به‌جاش یه خطای روشن نشون می‌دیم که کاربر صدای اون زبون رو از
+        // تنظیماتِ گوشی نصب کنه.
+        if (!forceOnlineForLang) {
           status = "idle";
-          ttsError = key;
           notify();
           return "no-local-voice";
         }
 
-        // مسیر آنلاینِ رایگان — فقط برای فارسی و عربی، وقتی گوشی صدای
-        // محلی نداشت
+        // مسیر آنلاینِ رایگان — فقط برای فارسی/عربی
         cancelSpeech();
         const onlineLang = code === "zh" ? "zh-CN" : code;
         speakOnline(text, onlineLang, effectiveStartOffset, forceSingle, forceLoop);
