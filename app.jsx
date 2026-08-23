@@ -8001,7 +8001,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // همون الگو، برای «وارد کردنِ PDF برای خوانش» (جدا از PDFِ بالا که فقط
   // برای منبعِ لغته) — این‌یکی متنِ کامل رو می‌ذاره تو سیستمِ خوانش.
   const [pdfReadBusy, setPdfReadBusy] = useState(false);
-  const [pdfReadProgress, setPdfReadProgress] = useState("");
   const [pdfReadError, setPdfReadError] = useState("");
   const pdfReadInputRef = useRef(null);
   // پیست‌کردنِ مستقیمِ متن/داستان برای خوانش — همون مسیرِ «وارد کردنِ PDF
@@ -8024,13 +8023,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [translatingAll, setTranslatingAll] = useState(false);
   const [vocabQuery, setVocabQuery] = useState("");
   const [paragraphs, setParagraphs] = useState([]); // [{ sentences: [{text, t:{lang:text}}] }]
-  // نمایش/ترجمه‌ی تدریجی: به‌جای رندر و صف‌کردنِ ترجمه‌ی همه‌ی پاراگراف‌ها
-  // یه‌جا (که برای داستان‌های خیلی بلند — مثلاً از PDF — هم DOM رو سنگین
-  // می‌کنه و هم صدها/هزاران درخواستِ ترجمه رو یه‌جا صف می‌کنه و کاربر تا
-  // آخرِ کل کار هیچی نمی‌بینه)، فقط این تعداد پاراگرافِ اول رندر/ترجمه
-  // می‌شه؛ با دکمه‌ی «نمایش بیشتر» جلو می‌ره.
-  const PARAGRAPH_PAGE_SIZE = 15;
-  const [visibleParagraphCount, setVisibleParagraphCount] = useState(PARAGRAPH_PAGE_SIZE);
   // شناسه‌ی داستانِ ذخیره‌شده‌ای که همین الان روی صفحه‌ست (اگه از «داستان‌های
   // ذخیره‌شده» باز شده باشه یا تازه ذخیره شده باشه)؛ برای داستانِ تازه‌ساخته‌
   // شده‌ای که هنوز ذخیره نشده، null می‌مونه. با هر لغتی که از وسطِ همین
@@ -8070,34 +8062,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // Sort byِ سیستم (جدیدترین/قدیمی‌ترین تاریخ، نام A→Z/Z→A، و تعدادِ
   // کلمات کم/زیاد به‌جای اندازه‌ی فایل).
   const [savedStoriesSort, setSavedStoriesSort] = useState("newest");
-  // -----------------------------------------------------------------------
-  // بازه‌ی نمایش («از # تا #») + ردیابیِ خوانده‌شده روی لیستِ داستان‌های
-  // ذخیره‌شده — همون الگویِ WordList/SavedWordsPanel، اینجا واحدِ لیست
-  // خودِ داستان‌هاست (نه لغات تکی). شمارنده‌ها هر بار از رویِ readIds و
-  // لیستِ فعلی (فیلترشده/مرتب‌شده) دوباره محاسبه می‌شن، نه عددِ ثابت.
-  const STORY_LIST_ID = "storyBuilder";
-  const [savedStoryReadIds, setSavedStoryReadIds] = useState(() => loadReadWordIds(STORY_LIST_ID));
-  const toggleSavedStoryRead = (id) => {
-    setSavedStoryReadIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      saveReadWordIds(STORY_LIST_ID, next);
-      return next;
-    });
-  };
-  const markStoryRangeRead = (items, read) => {
-    setSavedStoryReadIds((prev) => {
-      const next = new Set(prev);
-      items.forEach((s) => {
-        if (read) next.add(s.id);
-        else next.delete(s.id);
-      });
-      saveReadWordIds(STORY_LIST_ID, next);
-      return next;
-    });
-  };
-  const [savedStoryRangeInput, setSavedStoryRangeInput] = useState({ from: "", to: "" });
   // نقشه‌ی id-ِ داستانِ ذخیره‌شده → آیا صوتِ آپلودیِ کاربر داره یا نه؛ فقط
   // برای نشون‌دادنِ آیکونِ 🎵 کنارِ کارتِ داستان‌های ذخیره‌شده استفاده می‌شه.
   // چون صوت با کلیدِ متن (نه idِ داستان) توی IndexedDB ذخیره می‌شه، اینجا
@@ -8527,9 +8491,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
           .map((s) => s.trim())
           .filter(Boolean)
           .forEach((s) => lines.push(s));
-        if (i % 3 === 0 || i === pageCount) {
-          await new Promise((resolve) => setTimeout(resolve, 0)); // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — بدونِ این، فایل‌های بزرگ UI رو قفل نشون می‌دن
-        }
         if (lines.join("\n").length > PDF_MAX_CHARS) break;
       }
       let text = lines.join("\n");
@@ -8668,29 +8629,24 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // بدون نیاز به ساختن دوباره‌ی داستان.
   useEffect(() => {
     if (!paragraphs.length || !translationLangs.length) return;
-    // 🔥 فقط پاراگراف‌های فعلاً نمایش‌داده‌شده رو ترجمه می‌کنیم (نه کلِ
-    // داستان یه‌جا) — هماهنگ با «نمایش تدریجی» بالا. با هر بار «نمایش
-    // بیشتر»، این افکت دوباره اجرا می‌شه و فقط جمله‌های تازه‌نمایان‌شده
-    // (که هنوز `s.t` ندارن) صف می‌شن؛ جمله‌های قبلی که ترجمه شدن، با چکِ
-    // «in» زیر، دوباره صف نمی‌شن.
-    const visibleParagraphs = paragraphs.slice(0, visibleParagraphCount);
     // نکته: چک با «in» (وجودِ کلید)، نه truthiness — چون اگه یه جمله متنِ
     // خالی داشته باشه، ترجمه‌ش هم می‌تونه رشته‌ی خالی برگرده؛ اگه اینجا با
     // truthiness چک می‌کردیم، همچین جمله‌ای همیشه «هنوز ترجمه نشده» حساب
     // می‌شد و این افکت هر بار دوباره اجرا می‌شد — یه حلقه‌ی بی‌پایان که کل
     // اپ رو کند/قفل می‌کرد.
     const missingLangs = translationLangs.filter((code) =>
-      visibleParagraphs.some((p) => (p.sentences || []).some((s) => !s.t || !(code in s.t)))
+      paragraphs.some((p) => (p.sentences || []).some((s) => !s.t || !(code in s.t)))
     );
     if (!missingLangs.length) return;
     let cancelled = false;
     (async () => {
-      // همه‌ی جمله‌های پاراگراف‌های نمایان (× همه‌ی زبان‌های ناقص) رو تو یه
+      // همه‌ی جمله‌های همه‌ی پاراگراف‌ها (× همه‌ی زبان‌های ناقص) رو تو یه
       // لیستِ تخت جمع می‌کنیم و با سقفِ هم‌زمانیِ محدود اجرا می‌کنیم — نه
       // یک‌جا برای همه (که برای متن‌های طولانی باعثِ rate-limit/ترجمه‌ی
-      // ناقص می‌شد).
+      // ناقص می‌شد). ترتیبِ نتیجه با runWithConcurrencyLimit حفظ می‌شه، پس
+      // نگاشتِ برگشت به pIdx/sIdx امن‌ه.
       const jobs = [];
-      visibleParagraphs.forEach((p, pIdx) => {
+      paragraphs.forEach((p, pIdx) => {
         (p.sentences || []).forEach((s, sIdx) => {
           missingLangs.forEach((code) => {
             if (s.t && code in s.t) return;
@@ -8699,46 +8655,34 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
         });
       });
       if (!jobs.length) return;
-      // به‌جای صبر برای تمومِ کلِ jobs و یه setParagraphs در آخر (که باعث
-      // می‌شد کاربر تا آخرِ کارِ صدها/هزاران درخواست هیچ ترجمه‌ای نبینه)،
-      // نتیجه‌ی هر جمله همون لحظه که آماده شد به state اضافه می‌شه — پس
-      // ترجمه‌ها تدریجی و زنده روی صفحه ظاهر می‌شن.
-      const applyResult = (job, translated) => {
-        if (cancelled) return;
-        setParagraphs((prevParagraphs) => {
-          const target = prevParagraphs[job.pIdx];
-          const targetSentence = target?.sentences?.[job.sIdx];
-          if (!targetSentence) return prevParagraphs;
-          const updated = [...prevParagraphs];
-          const sentences = [...(target.sentences || [])];
-          sentences[job.sIdx] = { ...targetSentence, t: { ...(targetSentence.t || {}), [job.code]: translated } };
-          updated[job.pIdx] = { ...target, sentences };
-          return updated;
-        });
-      };
-      let nextIndex = 0;
-      async function worker() {
-        while (nextIndex < jobs.length) {
-          if (cancelled) return;
-          const job = jobs[nextIndex++];
-          let translated;
-          try {
-            // forceVerify=true: جمله‌های خودِ داستان مهم‌ترین متنِ اپن —
-            // این‌جا حتی اگه تست‌های رایگان چیزی مشکوک ندیدن هم یه بار
-            // (فقط دفعه‌ی اول، بعدش برای همیشه کش می‌شه) AI بررسیش کنه.
-            translated = await translateFree(job.text, job.code, storyLang, aiSettings, true);
-          } catch (e) {
-            translated = job.text;
-          }
-          applyResult(job, translated);
+      const results = await runWithConcurrencyLimit(jobs, 4, async (job) => {
+        try {
+          // forceVerify=true: جمله‌های خودِ داستان مهم‌ترین متنِ اپن —
+          // این‌جا حتی اگه تست‌های رایگان چیزی مشکوک ندیدن هم یه بار
+          // (فقط دفعه‌ی اول، بعدش برای همیشه کش می‌شه) AI بررسیش کنه.
+          return await translateFree(job.text, job.code, storyLang, aiSettings, true);
+        } catch (e) {
+          return job.text;
         }
-      }
-      await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, worker));
+      });
+      if (cancelled) return;
+      setParagraphs((prevParagraphs) => {
+        const updated = prevParagraphs.map((p) => ({
+          ...p,
+          sentences: (p.sentences || []).map((s) => ({ ...s })),
+        }));
+        jobs.forEach((job, i) => {
+          const sentence = updated[job.pIdx]?.sentences?.[job.sIdx];
+          if (!sentence) return;
+          sentence.t = { ...(sentence.t || {}), [job.code]: results[i] };
+        });
+        return updated;
+      });
     })();
     return () => {
       cancelled = true;
     };
-  }, [translationLangs, paragraphs, storyLang, visibleParagraphCount]);
+  }, [translationLangs, paragraphs, storyLang]);
 
   // طبق درخواستِ کاربر: دیگه پیش‌فرض (بدون جستجو) هیچ چیپ پیشنهادی‌ای از VOCAB
   // نشون داده نمی‌شه — قبلاً همیشه کل VOCAB نشون داده می‌شد که خیلی شلوغ بود.
@@ -9202,7 +9146,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       // یه زبان دیگه هم اضافه/کم کنه) خودش رو به‌روز می‌کنه — نیازی به
       // ساختن دوباره‌ی کل داستان نیست.
       setParagraphs(storyParagraphs);
-      setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
       // داستانِ تازه‌ساخته‌شده هنوز ذخیره نشده — پس هنوز شناسه‌ای نداره؛ اگه
       // قبلاً یه داستانِ ذخیره‌شده‌ی دیگه باز بوده، این‌جا اون ارتباط پاک
       // می‌شه تا لغاتِ تازه‌ذخیره‌شده به اون داستانِ قدیمی نچسبن.
@@ -9264,19 +9207,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         const content = await page.getTextContent();
         const pageText = content.items.map((it) => it.str).join(" ");
         allSentences.push(...splitTextIntoSentenceStrings(pageText));
-        // pdf.js انجامِ getTextContent روی صفحه‌های سنگین رو کاملاً
-        // سینکرون/CPU-heavy انجام می‌ده؛ خودِ await هم همیشه کافی نیست تا
-        // مرورگر فرصتِ رندر/پاسخ‌گویی به لمس پیدا کنه (چون resolve شدنِ
-        // promise یه microtask‌ه، نه یه چرخه‌ی کاملِ event loop). برای
-        // همینه که با حذفِ سقفِ صفحه، فایل‌های بزرگ باعثِ «قفل‌شدنِ» ظاهریِ
-        // صفحه می‌شدن. هر چند صفحه یه‌بار صریحاً به event loop برمی‌گردیم
-        // (setTimeout به‌جایِ Promise.resolve، چون setTimeout یه macrotask
-        // واقعیه و بهِ مرورگر اجازه‌ی رندر/پاسخ به لمس رو می‌ده) تا هم UI
-        // فریز نشه، هم کاربر بفهمه داره کار می‌کنه (نه هنگ کرده).
-        if (i % 3 === 0 || i === pageCount) {
-          setPdfReadProgress(`صفحه‌ی ${i} از ${pageCount}...`);
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        }
         if (allSentences.length > PDF_READ_MAX_SENTENCES) break;
       }
       let truncated = false;
@@ -9300,7 +9230,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
       }
       setParagraphs(storyParagraphs);
-      setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
       setCurrentStoryId(null);
       setQuestions([]);
       setAnswers({});
@@ -9314,7 +9243,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setPdfReadError("خوندنِ این PDF مشکل داشت — فایل ممکنه خراب یا رمزگذاری‌شده باشه");
     } finally {
       setPdfReadBusy(false);
-      setPdfReadProgress("");
     }
   };
 
@@ -9348,7 +9276,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
     }
     setParagraphs(storyParagraphs);
-    setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
     setCurrentStoryId(null);
     setQuestions([]);
     setAnswers({});
@@ -9456,7 +9383,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
       }
       setParagraphs(storyParagraphs);
-      setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
       setCurrentStoryId(null);
       setQuestions([]);
       setAnswers({});
@@ -9505,7 +9431,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setContentType(entry.contentType || "general");
     setSelectedWords(entry.selectedWords);
     setParagraphs(entry.paragraphs);
-    setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
     setQuestions(entry.questions || []);
     setAnswers({});
     setSubmitted(false);
@@ -9595,88 +9520,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 </p>
               );
             }
-            const totalCount = groups.reduce((sum, [, list]) => sum + list.length, 0);
-            const defaultTo = Math.min(totalCount, WORDS_PAGE_SIZE) || totalCount || 1;
-            const parsedFrom = parseInt(savedStoryRangeInput.from, 10);
-            const parsedTo = parseInt(savedStoryRangeInput.to, 10);
-            const effFrom = Number.isNaN(parsedFrom) ? 1 : parsedFrom;
-            const effTo = Number.isNaN(parsedTo) ? defaultTo : parsedTo;
-            const clampedFrom = Math.min(Math.max(1, effFrom), Math.max(totalCount, 1));
-            const clampedTo = Math.min(Math.max(clampedFrom, effTo), totalCount || clampedFrom);
-            let seen = 0;
-            const rangedGroups = groups.map(([lv, list]) => {
-              const groupStart = seen;
-              seen += list.length;
-              const from = Math.max(clampedFrom - 1 - groupStart, 0);
-              const to = Math.max(clampedTo - groupStart, 0);
-              return [lv, list.slice(from, to)];
-            });
-            const visibleTotal = rangedGroups.reduce((sum, [, list]) => sum + list.length, 0);
-            const readCountInRange = rangedGroups.reduce(
-              (sum, [, list]) => sum + list.filter((s) => savedStoryReadIds.has(s.id)).length,
-              0
-            );
-            const readCountTotal = groups.reduce(
-              (sum, [, list]) => sum + list.filter((s) => savedStoryReadIds.has(s.id)).length,
-              0
-            );
-            const allInRangeFlat = rangedGroups.flatMap(([, list]) => list);
-            return (
-              <>
-                <div
-                  className="flex flex-col gap-2 p-3 rounded-lg"
-                  style={{ backgroundColor: colors.paperDark, border: `1px solid ${colors.cardBorder}` }}
-                >
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span style={{ fontSize: 13, fontWeight: 700, color: colors.ink }}>داستان‌ها</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={totalCount}
-                      value={savedStoryRangeInput.from}
-                      placeholder="1"
-                      onChange={(ev) => setSavedStoryRangeInput((prev) => ({ ...prev, from: ev.target.value }))}
-                      onBlur={() => {
-                        if (savedStoryRangeInput.from !== "") setSavedStoryRangeInput((prev) => ({ ...prev, from: String(clampedFrom) }));
-                      }}
-                      style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
-                    />
-                    <span style={{ fontSize: 13, color: colors.inkSoft }}>تا</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={totalCount}
-                      value={savedStoryRangeInput.to}
-                      placeholder={String(defaultTo)}
-                      onChange={(ev) => setSavedStoryRangeInput((prev) => ({ ...prev, to: ev.target.value }))}
-                      onBlur={() => {
-                        if (savedStoryRangeInput.to !== "") setSavedStoryRangeInput((prev) => ({ ...prev, to: String(clampedTo) }));
-                      }}
-                      style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
-                    />
-                    <span style={{ fontSize: 12, color: colors.inkSoft }}>از مجموع {totalCount.toLocaleString("fa-IR")}</span>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span style={{ fontSize: 12, color: colors.teal, fontWeight: 700 }}>
-                      خوانده‌شده: {readCountInRange.toLocaleString("fa-IR")} از {visibleTotal.toLocaleString("fa-IR")} در این بازه · {readCountTotal.toLocaleString("fa-IR")} از {totalCount.toLocaleString("fa-IR")} کل
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => markStoryRangeRead(allInRangeFlat, true)}
-                      style={{ fontSize: 11, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "2px 8px" }}
-                    >
-                      علامت‌گذاری همه به خوانده‌شده
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => markStoryRangeRead(allInRangeFlat, false)}
-                      style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "2px 8px" }}
-                    >
-                      پاک‌کردن علامت این بازه
-                    </button>
-                  </div>
-                </div>
-                {rangedGroups.map(([lv, list]) => (
+            return groups.map(([lv, list]) => (
               <div key={lv} className="flex flex-col gap-2">
                 {list.map((s) => (
                   <div
@@ -9721,24 +9565,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                         )}
                         <p style={{ fontSize: 12, color: colors.inkSoft }}>{s.selectedWords.join("، ")}</p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => toggleSavedStoryRead(s.id)}
-                          aria-label="علامت‌زدن به‌عنوان خوانده‌شده"
-                          style={{
-                            flexShrink: 0,
-                            width: 20,
-                            height: 20,
-                            borderRadius: "50%",
-                            border: `2px solid ${savedStoryReadIds.has(s.id) ? READ_DONE_COLOR : colors.cardBorder}`,
-                            backgroundColor: savedStoryReadIds.has(s.id) ? READ_DONE_COLOR : "transparent",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          {savedStoryReadIds.has(s.id) && <Check size={13} color="white" strokeWidth={3} />}
-                        </button>
+                      <div className="flex gap-2">
                         <button
                           onClick={() => openSavedStory(s)}
                           style={{ fontSize: 12, color: colors.teal, textDecoration: "underline" }}
@@ -9753,9 +9580,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                   </div>
                 ))}
               </div>
-                ))}
-              </>
-            );
+            ));
           })()}
         </div>
       ) : (
@@ -10121,7 +9946,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           }}
         >
           {pdfReadBusy ? <Loader2 size={16} className="spin" /> : <span>📖</span>}
-          {pdfReadBusy ? (pdfReadProgress || "در حال خوندنِ PDF...") : "به‌جاش یه PDF برای خوانش وارد کن"}
+          {pdfReadBusy ? "در حال خوندنِ PDF..." : "به‌جاش یه PDF برای خوانش وارد کن"}
         </button>
         {pdfReadError && (
           <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfReadError}</p>
@@ -10342,7 +10167,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           )}
 
           <div className="flex flex-col gap-5">
-            {paragraphs.slice(0, visibleParagraphCount).map((p, pi) => {
+            {paragraphs.map((p, pi) => {
               const paragraphText = (p.sentences || []).map((s) => s?.text || "").join(" ");
               const showTranslations = granularity !== "none" && translationLangs.length > 0;
               return (
@@ -10638,26 +10463,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             })}
           </div>
 
-          {visibleParagraphCount < paragraphs.length && (
-            <button
-              type="button"
-              onClick={() => setVisibleParagraphCount((n) => n + PARAGRAPH_PAGE_SIZE)}
-              className="flex items-center justify-center gap-2"
-              style={{
-                width: "100%",
-                marginTop: 10,
-                border: `1px dashed ${colors.cardBorder}`,
-                borderRadius: 12,
-                padding: "10px 14px",
-                fontWeight: 700,
-                fontSize: 13,
-                color: colors.teal,
-              }}
-            >
-              نمایش بیشتر ({paragraphs.length - visibleParagraphCount} پاراگرافِ دیگه)
-            </button>
-          )}
-
           <div className="flex flex-wrap gap-2 mt-4" style={{ borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 10 }}>
             {selectedWords.map((w) => (
               <span key={w} style={{ fontSize: 11, color: colors.inkSoft, backgroundColor: colors.paper, borderRadius: 10, padding: "3px 8px" }}>
@@ -10869,57 +10674,6 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
     });
   };
 
-  // -----------------------------------------------------------------------
-  // بازه‌ی نمایش («از # تا #») + ردیابیِ خوانده‌شده — دقیقاً همون الگویی که
-  // WordList برای لغات/واژگان/اسلنگ/علاقه‌مندی‌ها داره، اینجا هم به‌ازای هر
-  // زبان (چون لیستِ هر زبان جدا رندر می‌شه). چون خودِ کلمه بینِ زبون‌های
-  // مختلف ممکنه تکراری باشه، id رو با کدِ زبان ترکیب می‌کنیم؛ همه‌ی زبون‌ها
-  // زیرِ یه listId مشترک («savedWords») ذخیره می‌شن، چون یه انبارِ واحده،
-  // نه چند تبِ جدا.
-  const SAVED_WORDS_LIST_ID = "savedWords";
-  const [readIds, setReadIds] = useState(() => loadReadWordIds(SAVED_WORDS_LIST_ID));
-  const savedWordReadId = (code, word) => `${code}::${word}`;
-  const toggleSavedWordRead = (code, word) => {
-    setReadIds((prev) => {
-      const next = new Set(prev);
-      const id = savedWordReadId(code, word);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      saveReadWordIds(SAVED_WORDS_LIST_ID, next);
-      return next;
-    });
-  };
-  const markSavedRangeRead = (code, items, read) => {
-    setReadIds((prev) => {
-      const next = new Set(prev);
-      items.forEach((e) => {
-        const id = savedWordReadId(code, e.word);
-        if (read) next.add(id);
-        else next.delete(id);
-      });
-      saveReadWordIds(SAVED_WORDS_LIST_ID, next);
-      return next;
-    });
-  };
-  // ورودی‌های بازه به‌ازای هر زبان جدا نگه داشته می‌شن (رشته، نه عدد — به
-  // همون دلیلی که WordList توضیح داده: تایپ‌کردن نباید فوراً به بازه‌ی
-  // پیش‌فرض برگرده).
-  const [savedRangeInputs, setSavedRangeInputs] = useState({});
-  const getSavedRange = (code, total) => {
-    const cur = savedRangeInputs[code] || {};
-    const defaultTo = Math.min(total, WORDS_PAGE_SIZE) || total || 1;
-    const parsedFrom = parseInt(cur.from, 10);
-    const parsedTo = parseInt(cur.to, 10);
-    const effFrom = Number.isNaN(parsedFrom) ? 1 : parsedFrom;
-    const effTo = Number.isNaN(parsedTo) ? defaultTo : parsedTo;
-    const clampedFrom = Math.min(Math.max(1, effFrom), Math.max(total, 1));
-    const clampedTo = Math.min(Math.max(clampedFrom, effTo), total || clampedFrom);
-    return { fromInput: cur.from ?? "", toInput: cur.to ?? "", defaultTo, clampedFrom, clampedTo };
-  };
-  const setSavedRangeInput = (code, field, value) => {
-    setSavedRangeInputs((prev) => ({ ...prev, [code]: { ...prev[code], [field]: value } }));
-  };
-
   const normalizedQuery = query.trim().toLowerCase();
   const matchesQuery = (e) => {
     if (!normalizedQuery) return true;
@@ -11123,11 +10877,6 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
         langCodes.map((code) => {
           const label = uiLang === "en" ? englishLangName(code) : LANGUAGES.find((l) => l.code === code)?.label || code;
           const pickedSet = picked[code] || new Set();
-          const groupWords = byLang[code];
-          const range = getSavedRange(code, groupWords.length);
-          const visibleGroupWords = groupWords.slice(range.clampedFrom - 1, range.clampedTo);
-          const readCountInRange = visibleGroupWords.filter((e) => readIds.has(savedWordReadId(code, e.word))).length;
-          const readCountTotal = groupWords.filter((e) => readIds.has(savedWordReadId(code, e.word))).length;
           return (
             <div
               key={code}
@@ -11135,20 +10884,10 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
             >
               <div className="flex items-center justify-between mb-2">
                 <p style={{ fontWeight: 700 }}>
-                  {label} ({groupWords.length})
+                  {label} ({byLang[code].length})
                 </p>
                 <button
-                  onClick={() => {
-                    // با فرستادنِ این لغات به داستان‌ساز، خودکار «خوانده‌شده»
-                    // (یعنی «باهاش داستان ساختم») علامت می‌خورن — کاربر لازم
-                    // نیست جدا یکی‌یکی تیک بزنه تا بفهمه کدوما رو قبلاً برده.
-                    markSavedRangeRead(
-                      code,
-                      groupWords.filter((e) => pickedSet.has(e.word)),
-                      true
-                    );
-                    onJumpToStory(code, Array.from(pickedSet));
-                  }}
+                  onClick={() => onJumpToStory(code, Array.from(pickedSet))}
                   disabled={pickedSet.size === 0}
                   className="flex items-center gap-1"
                   style={{
@@ -11162,71 +10901,9 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                   {pickedSet.size ? trf("addNWordsToStory", uiLang, { n: pickedSet.size }) : tr("addToStoryBuilder", uiLang)}
                 </button>
               </div>
-
-              {/* بازه‌ی نمایش + وضعیتِ خوانده‌شده — فقط وقتی لیستِ این زبان
-                  به‌اندازه‌ی کافی بزرگه لازم می‌شه، ولی برای ساده‌موندنِ
-                  منطق همیشه نشون داده می‌شه (مثلِ WordList). */}
-              <div
-                className="flex flex-col gap-2 p-2 mb-2 rounded-lg"
-                style={{ backgroundColor: colors.paperDark, border: `1px solid ${colors.cardBorder}` }}
-              >
-                <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl" }}>
-                  <input
-                    type="number"
-                    min={1}
-                    max={groupWords.length}
-                    value={range.fromInput}
-                    placeholder="1"
-                    onChange={(ev) => setSavedRangeInput(code, "from", ev.target.value)}
-                    onBlur={() => {
-                      if (range.fromInput !== "") setSavedRangeInput(code, "from", String(range.clampedFrom));
-                    }}
-                    style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 12, textAlign: "center" }}
-                  />
-                  <span style={{ fontSize: 12, color: colors.inkSoft }}>{uiLang === "en" ? "to" : "تا"}</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={groupWords.length}
-                    value={range.toInput}
-                    placeholder={String(range.defaultTo)}
-                    onChange={(ev) => setSavedRangeInput(code, "to", ev.target.value)}
-                    onBlur={() => {
-                      if (range.toInput !== "") setSavedRangeInput(code, "to", String(range.clampedTo));
-                    }}
-                    style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 12, textAlign: "center" }}
-                  />
-                  <span style={{ fontSize: 11, color: colors.inkSoft }}>
-                    {uiLang === "en" ? `of ${groupWords.length}` : `از مجموع ${groupWords.length.toLocaleString("fa-IR")}`}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl" }}>
-                  <span style={{ fontSize: 11, color: colors.teal, fontWeight: 700 }}>
-                    {uiLang === "en"
-                      ? `Read: ${readCountInRange}/${visibleGroupWords.length} in range · ${readCountTotal}/${groupWords.length} total`
-                      : `خوانده‌شده: ${readCountInRange.toLocaleString("fa-IR")} از ${visibleGroupWords.length.toLocaleString("fa-IR")} در این بازه · ${readCountTotal.toLocaleString("fa-IR")} از ${groupWords.length.toLocaleString("fa-IR")} کل`}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => markSavedRangeRead(code, visibleGroupWords, true)}
-                    style={{ fontSize: 10, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "2px 6px" }}
-                  >
-                    {uiLang === "en" ? "Mark range read" : "علامت‌گذاری همه به خوانده‌شده"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => markSavedRangeRead(code, visibleGroupWords, false)}
-                    style={{ fontSize: 10, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "2px 6px" }}
-                  >
-                    {uiLang === "en" ? "Clear range" : "پاک‌کردن علامت این بازه"}
-                  </button>
-                </div>
-              </div>
-
               <div className="flex flex-wrap gap-2">
-                {visibleGroupWords.map((e) => {
+                {byLang[code].map((e) => {
                   const isPicked = pickedSet.has(e.word);
-                  const isRead = readIds.has(savedWordReadId(code, e.word));
                   // معادلِ این لغت به هر زبونی غیر از خودِ زبونِ مبدا —
                   // زبان مادری اول، بعد هر زبان مقصدِ دیگه‌ای که کاربر
                   // بالای صفحه فعال کرده، به همون ترتیب.
@@ -11270,39 +10947,19 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                       }}
                     >
                       <div className="flex items-center justify-between gap-2" style={{ direction: "ltr" }}>
-                        <span className="flex items-center gap-1" style={{ minWidth: 0 }}>
-                          <button
-                            onClick={() => toggleSavedWordRead(code, e.word)}
-                            aria-label={uiLang === "en" ? "Toggle read" : "علامت‌زدن به‌عنوان خوانده‌شده"}
-                            data-jump-exclude="1"
-                            style={{
-                              flexShrink: 0,
-                              width: 16,
-                              height: 16,
-                              borderRadius: "50%",
-                              border: `2px solid ${isRead ? READ_DONE_COLOR : colors.cardBorder}`,
-                              backgroundColor: isRead ? READ_DONE_COLOR : "transparent",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            {isRead && <Check size={10} color="white" strokeWidth={3} />}
-                          </button>
-                          <button
-                            onClick={() => togglePick(code, e.word)}
-                            dir="auto"
-                            style={{
-                              fontWeight: 700,
-                              fontSize: 13,
-                              color: colors.ink,
-                              textAlign: "start",
-                              overflowWrap: "break-word",
-                            }}
-                          >
-                            {e.word}
-                          </button>
-                        </span>
+                        <button
+                          onClick={() => togglePick(code, e.word)}
+                          dir="auto"
+                          style={{
+                            fontWeight: 700,
+                            fontSize: 13,
+                            color: colors.ink,
+                            textAlign: "start",
+                            overflowWrap: "break-word",
+                          }}
+                        >
+                          {e.word}
+                        </button>
                         <span className="flex items-center gap-1" style={{ flexShrink: 0 }} data-jump-exclude="1">
                           <SpeakButton text={e.word} code={code} color={colors.gold} />
                           <button
@@ -11432,34 +11089,6 @@ function GrammarPanel({
     setNoteSelectMode(false);
     setSelectedNoteIds(new Set());
   }
-  // -----------------------------------------------------------------------
-  // بازه‌ی نمایش («از # تا #») + ردیابیِ خوانده‌شده روی یادداشت‌های گرامری —
-  // همون الگوی WordList، ولی گروه‌بندیِ بر اساسِ تاریخ (noteGroups) دست‌نخورده
-  // می‌مونه: بازه رو رویِ ترتیبِ کلیِ notes حساب می‌کنیم، بعد هر گروهِ تاریخ
-  // فقط یادداشت‌هایی که توی همون بازه‌ان رو نشون می‌ده.
-  const GRAMMAR_NOTES_LIST_ID = "grammarNotes";
-  const [noteReadIds, setNoteReadIds] = useState(() => loadReadWordIds(GRAMMAR_NOTES_LIST_ID));
-  const toggleNoteRead = (id) => {
-    setNoteReadIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      saveReadWordIds(GRAMMAR_NOTES_LIST_ID, next);
-      return next;
-    });
-  };
-  const markNoteRangeRead = (items, read) => {
-    setNoteReadIds((prev) => {
-      const next = new Set(prev);
-      items.forEach((n) => {
-        if (read) next.add(n.id);
-        else next.delete(n.id);
-      });
-      saveReadWordIds(GRAMMAR_NOTES_LIST_ID, next);
-      return next;
-    });
-  };
-  const [noteRangeInput, setNoteRangeInput] = useState({ from: "", to: "" });
   function deleteSelectedNotes() {
     if (!selectedNoteIds.size) return;
     if (!window.confirm((nativeLang === "fa") ? `${selectedNoteIds.size} یادداشتِ انتخاب‌شده پاک بشه؟` : `Delete ${selectedNoteIds.size} selected notes?`)) return;
@@ -12053,101 +11682,7 @@ function GrammarPanel({
             </div>
           </div>
         )}
-        {(() => {
-          if (!notes.length) return null;
-          const indexById = new Map(notes.map((n, idx) => [n.id, idx]));
-          const defaultTo = Math.min(notes.length, WORDS_PAGE_SIZE) || notes.length || 1;
-          const parsedFrom = parseInt(noteRangeInput.from, 10);
-          const parsedTo = parseInt(noteRangeInput.to, 10);
-          const effFrom = Number.isNaN(parsedFrom) ? 1 : parsedFrom;
-          const effTo = Number.isNaN(parsedTo) ? defaultTo : parsedTo;
-          const clampedFrom = Math.min(Math.max(1, effFrom), Math.max(notes.length, 1));
-          const clampedTo = Math.min(Math.max(clampedFrom, effTo), notes.length || clampedFrom);
-          const inRange = (n) => {
-            const idx = indexById.get(n.id);
-            return idx != null && idx >= clampedFrom - 1 && idx < clampedTo;
-          };
-          const rangedGroups = noteGroups
-            .map((group) => ({ ...group, items: group.items.filter(inRange) }))
-            .filter((group) => group.items.length > 0);
-          const visibleTotal = rangedGroups.reduce((sum, g) => sum + g.items.length, 0);
-          const readCountInRange = rangedGroups.reduce((sum, g) => sum + g.items.filter((n) => noteReadIds.has(n.id)).length, 0);
-          const readCountTotal = notes.filter((n) => noteReadIds.has(n.id)).length;
-          const allInRangeFlat = rangedGroups.flatMap((g) => g.items);
-          return (
-            <div
-              className="flex flex-col gap-2 p-3 rounded-lg"
-              style={{ backgroundColor: colors.paperDark, border: `1px solid ${colors.cardBorder}` }}
-            >
-              <div className="flex items-center gap-2 flex-wrap">
-                <span style={{ fontSize: 13, fontWeight: 700, color: colors.ink }}>یادداشت‌ها</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={notes.length}
-                  value={noteRangeInput.from}
-                  placeholder="1"
-                  onChange={(ev) => setNoteRangeInput((prev) => ({ ...prev, from: ev.target.value }))}
-                  onBlur={() => {
-                    if (noteRangeInput.from !== "") setNoteRangeInput((prev) => ({ ...prev, from: String(clampedFrom) }));
-                  }}
-                  style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
-                />
-                <span style={{ fontSize: 13, color: colors.inkSoft }}>تا</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={notes.length}
-                  value={noteRangeInput.to}
-                  placeholder={String(defaultTo)}
-                  onChange={(ev) => setNoteRangeInput((prev) => ({ ...prev, to: ev.target.value }))}
-                  onBlur={() => {
-                    if (noteRangeInput.to !== "") setNoteRangeInput((prev) => ({ ...prev, to: String(clampedTo) }));
-                  }}
-                  style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
-                />
-                <span style={{ fontSize: 12, color: colors.inkSoft }}>از مجموع {notes.length.toLocaleString("fa-IR")}</span>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span style={{ fontSize: 12, color: colors.teal, fontWeight: 700 }}>
-                  خوانده‌شده: {readCountInRange.toLocaleString("fa-IR")} از {visibleTotal.toLocaleString("fa-IR")} در این بازه · {readCountTotal.toLocaleString("fa-IR")} از {notes.length.toLocaleString("fa-IR")} کل
-                </span>
-                <button
-                  type="button"
-                  onClick={() => markNoteRangeRead(allInRangeFlat, true)}
-                  style={{ fontSize: 11, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "2px 8px" }}
-                >
-                  علامت‌گذاری همه به خوانده‌شده
-                </button>
-                <button
-                  type="button"
-                  onClick={() => markNoteRangeRead(allInRangeFlat, false)}
-                  style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "2px 8px" }}
-                >
-                  پاک‌کردن علامت این بازه
-                </button>
-              </div>
-            </div>
-          );
-        })()}
-        {(() => {
-          if (!notes.length) return null;
-          const indexById = new Map(notes.map((n, idx) => [n.id, idx]));
-          const defaultTo = Math.min(notes.length, WORDS_PAGE_SIZE) || notes.length || 1;
-          const parsedFrom = parseInt(noteRangeInput.from, 10);
-          const parsedTo = parseInt(noteRangeInput.to, 10);
-          const effFrom = Number.isNaN(parsedFrom) ? 1 : parsedFrom;
-          const effTo = Number.isNaN(parsedTo) ? defaultTo : parsedTo;
-          const clampedFrom = Math.min(Math.max(1, effFrom), Math.max(notes.length, 1));
-          const clampedTo = Math.min(Math.max(clampedFrom, effTo), notes.length || clampedFrom);
-          const inRange = (n) => {
-            const idx = indexById.get(n.id);
-            return idx != null && idx >= clampedFrom - 1 && idx < clampedTo;
-          };
-          return noteGroups
-            .map((group) => ({ ...group, items: group.items.filter(inRange) }))
-            .filter((group) => group.items.length > 0);
-        })().map((group) => {
+        {noteGroups.map((group) => {
           const groupAllSelected = noteSelectMode && group.items.every((n) => selectedNoteIds.has(n.id));
           return (
             <div key={group.label} className="flex flex-col gap-2">
@@ -12204,26 +11739,6 @@ function GrammarPanel({
                       </div>
                       {!noteSelectMode && (
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleNoteRead(n.id);
-                            }}
-                            aria-label="علامت‌زدن به‌عنوان خوانده‌شده"
-                            style={{
-                              flexShrink: 0,
-                              width: 16,
-                              height: 16,
-                              borderRadius: "50%",
-                              border: `2px solid ${noteReadIds.has(n.id) ? READ_DONE_COLOR : colors.cardBorder}`,
-                              backgroundColor: noteReadIds.has(n.id) ? READ_DONE_COLOR : "transparent",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            {noteReadIds.has(n.id) && <Check size={10} color="white" strokeWidth={3} />}
-                          </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -13633,10 +13148,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     onFullTextChange={setDailyPlayerText}
     autoScrollActive={tab === "conversations"}
     highlightColor={appPrefs.highlightColor}
-    loadReadWordIds={loadReadWordIds}
-    saveReadWordIds={saveReadWordIds}
-    wordsPageSize={WORDS_PAGE_SIZE}
-    readDoneColor={READ_DONE_COLOR}
   />
 )}
 
