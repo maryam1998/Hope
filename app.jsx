@@ -14713,9 +14713,18 @@ function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, lev
     });
   }, []);
 
-  let filtered = levelFilter && levelFilter !== "all" ? words.filter((w) => w.level === levelFilter) : words;
-  filtered = q
-    ? filtered.filter((w) => {
+  // فیلترِ سطح/جستجو رو با useMemo محاسبه می‌کنیم — نه رویِ هر رندر از نو —
+  // چون این لیست‌ها (مخصوصاً اسلنگ) می‌تونن چند هزار ردیف داشته باشن؛
+  // محاسبه‌ی دوباره‌ش رویِ هر رندر (مثلاً هر بار که کاربر تویِ بازه‌ی
+  // «از # تا #» یه رقم تایپ می‌کنه) همون چیزی بود که برنامه رو کند/هنگ
+  // می‌کرد. displayLangsKey به‌جای خودِ آرایه‌ی effectiveDisplayLangs تویِ
+  // وابستگی‌ها میاد چون اون آرایه هر رندر یه رفرنسِ تازه‌ست (حتی با محتوایِ
+  // یکسان) و می‌ذاشت memo هیچ‌وقت واقعاً کار نکنه.
+  const displayLangsKey = effectiveDisplayLangs.map((l) => l.code).join(",");
+  const filtered = useMemo(() => {
+    let list = levelFilter && levelFilter !== "all" ? words.filter((w) => w.level === levelFilter) : words;
+    if (q) {
+      list = list.filter((w) => {
         if (w.t) {
           return Object.values(w.t).some((v) => typeof v === "string" && v.toLowerCase().includes(q));
         }
@@ -14731,32 +14740,36 @@ function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, lev
           const cached = loadWordTranslation(w.en, l.code);
           return cached && cached.toLowerCase().includes(q);
         });
-      })
-    : filtered;
+      });
+    }
+    return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [words, levelFilter, q, wordTranslationValues, displayLangsKey]);
 
   // به‌جای اسکرولِ بی‌نهایت، چون تعدادِ لغات خیلی زیاده، کاربر یه بازه‌ی
   // عددی («از # تا #») مشخص می‌کنه و فقط همون بخش از لیست رندر می‌شه.
-  // با هر تغییر جستجو/سطح/لیست، بازه دوباره از همون قسمتِ اول شروع می‌شه.
-  const [rangeFrom, setRangeFrom] = useState(1);
-  const [rangeTo, setRangeTo] = useState(Math.min(filtered.length, WORDS_PAGE_SIZE) || 1);
+  // ورودی‌ها رو به‌صورتِ رشته (نه عدد) نگه می‌داریم و پیش‌فرض خالی‌ان — اگه
+  // مستقیم به عددِ ثابتِ ۱ ست بشن، همین که کاربر فیلد رو خالی کنه تا عددِ
+  // جدید تایپ کنه، فوراً دوباره ۱ می‌شه و اصلاً نمی‌شه چیزی توش تایپ کرد
+  // (باگی که قبلاً باعث می‌شد ستونِ «تا» همیشه رویِ ۱ بمونه). محدودکردنِ
+  // مقدار به بازه‌ی معتبر فقط موقعِ خروج از فیلد (onBlur) انجام می‌شه، نه
+  // حینِ تایپ.
+  const [rangeFromInput, setRangeFromInput] = useState("");
+  const [rangeToInput, setRangeToInput] = useState("");
   useEffect(() => {
-    setRangeFrom(1);
-    setRangeTo(Math.min(filtered.length, WORDS_PAGE_SIZE) || 1);
+    setRangeFromInput("");
+    setRangeToInput("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, levelFilter, words]);
 
-  const clampedFrom = Math.min(Math.max(1, rangeFrom || 1), Math.max(filtered.length, 1));
-  const clampedTo = Math.min(Math.max(clampedFrom, rangeTo || clampedFrom), filtered.length || clampedFrom);
+  const defaultRangeTo = Math.min(filtered.length, WORDS_PAGE_SIZE) || filtered.length || 1;
+  const parsedFrom = parseInt(rangeFromInput, 10);
+  const parsedTo = parseInt(rangeToInput, 10);
+  const effFrom = Number.isNaN(parsedFrom) ? 1 : parsedFrom;
+  const effTo = Number.isNaN(parsedTo) ? defaultRangeTo : parsedTo;
+  const clampedFrom = Math.min(Math.max(1, effFrom), Math.max(filtered.length, 1));
+  const clampedTo = Math.min(Math.max(clampedFrom, effTo), filtered.length || clampedFrom);
   const visible = filtered.slice(clampedFrom - 1, clampedTo);
-
-  const applyRangeFrom = (val) => {
-    const n = parseInt(val, 10);
-    setRangeFrom(Number.isNaN(n) ? 1 : n);
-  };
-  const applyRangeTo = (val) => {
-    const n = parseInt(val, 10);
-    setRangeTo(Number.isNaN(n) ? clampedFrom : n);
-  };
 
   // -----------------------------------------------------------------------
   // ردیابیِ خوانده‌شده/خوانده‌نشده — به ازای همین تب (listId) روی دستگاه
@@ -14786,39 +14799,43 @@ function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, lev
     });
   };
   const readCountInRange = visible.filter((w) => readIds.has(w.id)).length;
-  const readCountTotal = filtered.filter((w) => readIds.has(w.id)).length;
+  // این یکی رویِ کلِ لیستِ فیلترشده حساب می‌شه (نه فقط بازه‌ی دیده‌شده)، پس
+  // با useMemo فقط وقتی filtered یا readIds واقعاً عوض بشن دوباره محاسبه
+  // می‌شه — نه رویِ هر رندر (مثلاً هر تایپ تویِ فیلدهای بازه).
+  const readCountTotal = useMemo(() => filtered.filter((w) => readIds.has(w.id)).length, [filtered, readIds]);
 
-  const autoplayItems = filtered.map((w) => ({ id: w.id, text: w.en, code: "en" }));
+  const autoplayItems = visible.map((w) => ({ id: w.id, text: w.en, code: "en" }));
   const { registerRef } = useAutoplayOnScroll(autoplayEnabled, autoplayItems);
 
   // متنِ کاملِ «خواندنِ همه‌ی این لیست» — همون الگویی که داستان‌ساز و
-  // مکالمات روزمره دارن، اینجا هم برای لیستِ لغات. کلِ لیستِ فیلترشده
-  // (نه فقط چیزی که تا الان اسکرول شده) خونده می‌شه؛ هرچی پخش جلوتر بره،
-  // صفحه با اسکرولِ خودکار پایین‌تر می‌ره و همون IntersectionObserver
-  // بالا خودش بخش‌های بعدی رو لود می‌کنه.
+  // مکالمات روزمره دارن، اینجا هم برای لیستِ لغات. فقط همون بازه‌ی
+  // انتخاب‌شده (از # تا #) خونده می‌شه، نه کلِ لیستِ فیلترشده — هم چون
+  // منطقی‌تره (کاربر همون بازه رو می‌بینه)، هم چون ساختنِ این متن برایِ
+  // کلِ لیست (که می‌تونه چند هزار لغت باشه) رویِ هر رندر محاسبه می‌شد و
+  // خودش یکی از عواملِ اصلیِ کندی/هنگِ صفحه بود.
   //
   // نکته‌ی مهم: برخلافِ داستان‌ساز/مکالمات (که خط‌هاشون خودشون نقطه‌ی پایانِ
   // جمله دارن و همین باعث می‌شه speechController هر خط رو یه «جمله»ی
   // جدا و مستقل حساب کنه)، این‌جا فقط کلمه‌های تک‌افتاده‌ی بدونِ علامتِ
   // نگارشی پشتِ‌سرِ‌همن. speechController اگه یه بلوکِ متنِ بدونِ نقطه رو
-  // خیلی طولانی ببینه (که کلِ این لیست قطعاً هست)، مجبور می‌شه به‌صورتِ
-  // اضطراری هر ۴۰ کلمه رو یه‌جا تو یه chunk بریزه (MAX_WORDS_PER_CHUNK) —
-  // یعنی هایلایت/اسکرول فقط هر ۴۰ کلمه یه‌بار به‌روز می‌شد، و چون این ۴۰
-  // کلمه همه با هم توی یه نفس (یه Utterance) خونده می‌شدن، برای کاربر
-  // مثلِ این بود که کلمه‌ها خیلی سریع و بدونِ هیچ هایلایتِ قابلِ‌دنبال‌کردنی
-  // رد می‌شن. برای همین این‌جا بینِ هر کلمه یه نقطه می‌ذاریم — این‌جوری
-  // خودِ همون منطقِ تقسیمِ جمله‌ایِ speechController هر کلمه رو یه جمله‌ی
-  // مستقل حساب می‌کنه: هم چانک/آفست دقیقاً روی همون کلمه می‌ایسته (هایلایتِ
-  // لحظه‌به‌لحظه‌ی هر کلمه)، هم بینِ دو کلمه همون مکثِ طبیعیِ بینِ‌جمله‌ای
-  // (sentenceGapMs) میفته که سرعتِ خوندن رو قابلِ‌دنبال‌کردن می‌کنه.
-  const fullText = filtered.map((w) => w.en).join(". ") + (filtered.length ? "." : "");
+  // خیلی طولانی ببینه، مجبور می‌شه به‌صورتِ اضطراری هر ۴۰ کلمه رو یه‌جا تو
+  // یه chunk بریزه (MAX_WORDS_PER_CHUNK) — یعنی هایلایت/اسکرول فقط هر ۴۰
+  // کلمه یه‌بار به‌روز می‌شد، و چون این ۴۰ کلمه همه با هم توی یه نفس (یه
+  // Utterance) خونده می‌شدن، برای کاربر مثلِ این بود که کلمه‌ها خیلی سریع
+  // و بدونِ هیچ هایلایتِ قابلِ‌دنبال‌کردنی رد می‌شن. برای همین این‌جا بینِ
+  // هر کلمه یه نقطه می‌ذاریم — این‌جوری خودِ همون منطقِ تقسیمِ جمله‌ایِ
+  // speechController هر کلمه رو یه جمله‌ی مستقل حساب می‌کنه: هم چانک/آفست
+  // دقیقاً روی همون کلمه می‌ایسته (هایلایتِ لحظه‌به‌لحظه‌ی هر کلمه)، هم بینِ
+  // دو کلمه همون مکثِ طبیعیِ بینِ‌جمله‌ای (sentenceGapMs) میفته که سرعتِ
+  // خوندن رو قابلِ‌دنبال‌کردن می‌کنه.
+  const fullText = visible.map((w) => w.en).join(". ") + (visible.length ? "." : "");
   const wordOffsets = useMemo(() => {
     let offset = 0;
-    return filtered.map((w, idx) => {
+    return visible.map((w, idx) => {
       const start = offset;
       offset += w.en.length;
       const end = offset;
-      offset += idx < filtered.length - 1 ? 2 : 1; // "." یا ". " بینِ کلمه‌ها
+      offset += idx < visible.length - 1 ? 2 : 1; // "." یا ". " بینِ کلمه‌ها
       return { id: w.id, start, end };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -14895,8 +14912,16 @@ function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, lev
     // رویِ تغییرِ q/levelFilter) رو هم هم‌زمان (توی همون batch) فعال می‌کنه.
     // با functional updater روی رنج، همیشه رویِ آخرین مقدارِ صف‌شده حساب
     // می‌کنیم، پس این ریستِ هم‌زمان دیگه نمی‌تونه رویِ گسترشِ لازم رو بپوشونه.
-    setRangeFrom((prev) => (idx + 1 < prev ? 1 : prev));
-    setRangeTo((prev) => Math.max(prev, Math.min(idx + 1, filtered.length)));
+    setRangeFromInput((prev) => {
+      const prevNum = parseInt(prev, 10);
+      const effPrev = Number.isNaN(prevNum) ? 1 : prevNum;
+      return idx + 1 < effPrev ? "1" : prev;
+    });
+    setRangeToInput((prev) => {
+      const prevNum = parseInt(prev, 10);
+      const effPrev = Number.isNaN(prevNum) ? Math.min(filtered.length, WORDS_PAGE_SIZE) || filtered.length || 1 : prevNum;
+      return String(Math.max(effPrev, Math.min(idx + 1, filtered.length)));
+    });
     setJustJumpedId(jumpTarget.id);
     const t = setTimeout(() => setJustJumpedId(null), 2200);
     return () => clearTimeout(t);
@@ -14908,7 +14933,7 @@ function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, lev
     if (node && node.scrollIntoView) {
       node.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  }, [justJumpedId, rangeFrom, rangeTo]);
+  }, [justJumpedId, rangeFromInput, rangeToInput]);
 
   // -------------------------------------------------------------------------
   // «خواندنِ پیوسته‌ی ترجمه‌ها» — طبق درخواست، همون سیستمِ بالا (fullText +
@@ -14935,7 +14960,7 @@ function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, lev
       // فقط هر ۴۰ لغت یه‌بار به‌روز می‌شه (تو لیست‌های کوتاه‌تر از ۴۰ اصلاً
       // انگار کاری نمی‌کنه). با گذاشتنِ «.» بینِ لغت‌ها، هر ترجمه دقیقاً مثلِ
       // خودِ لغتِ انگلیسی یه جمله‌ی مستقل حساب می‌شه.
-      const entries = filtered.filter((w) => langMap[w.id]);
+      const entries = visible.filter((w) => langMap[w.id]);
       let offset = 0;
       const parts = [];
       const offsets = [];
@@ -14951,7 +14976,7 @@ function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, lev
     });
     return info;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveDisplayLangs, wordTranslationValues, filtered]);
+  }, [effectiveDisplayLangs, wordTranslationValues, visible]);
 
   // لغت/زبانی که همین الان، در حینِ پخشِ پیوسته‌ی ترجمه‌های یک زبان، داره
   // خونده می‌شه — {code, id} | null.
@@ -15008,8 +15033,12 @@ function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, lev
             type="number"
             min={1}
             max={filtered.length}
-            value={rangeFrom}
-            onChange={(e) => applyRangeFrom(e.target.value)}
+            value={rangeFromInput}
+            placeholder="1"
+            onChange={(e) => setRangeFromInput(e.target.value)}
+            onBlur={() => {
+              if (rangeFromInput !== "") setRangeFromInput(String(clampedFrom));
+            }}
             style={{ width: 64, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
           />
           <span style={{ fontSize: 13, color: colors.inkSoft }}>{uiLang === "en" ? "to" : "تا"}</span>
@@ -15017,8 +15046,12 @@ function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, lev
             type="number"
             min={1}
             max={filtered.length}
-            value={rangeTo}
-            onChange={(e) => applyRangeTo(e.target.value)}
+            value={rangeToInput}
+            placeholder={String(defaultRangeTo)}
+            onChange={(e) => setRangeToInput(e.target.value)}
+            onBlur={() => {
+              if (rangeToInput !== "") setRangeToInput(String(clampedTo));
+            }}
             style={{ width: 64, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
           />
           <span style={{ fontSize: 12, color: colors.inkSoft }}>
