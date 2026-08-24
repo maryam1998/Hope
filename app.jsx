@@ -8310,6 +8310,85 @@ function enforceSentenceSplit(paragraphs) {
   });
 }
 
+// استخراجِ متنِ یک صفحه‌ی PDF از content.items، طوری که ساختارِ سطربندیِ
+// خودِ صفحه (کجا خط عوض شده، کجا یه پاراگراف/بلوکِ جدا شروع شده) حفظ
+// بشه — نه این‌که همه‌چی با یه space به هم بچسبن و کاملاً یه بلوکِ
+// یک‌دست بشن. این برای اونجاهایی لازمه که بعداً ترجمه هم قراره پاراگراف‌
+// به‌پاراگراف، هم‌شکلِ متنِ اصلی نشون داده بشه (وگرنه کاربر نمی‌فهمه کدوم
+// تکه‌ی ترجمه مالِ کدوم خط/بخشِ اصلیه).
+// pdf.js رویِ هر آیتمِ متنی یک `hasEOL` می‌ده (یعنی «بعدِ این آیتم خط عوض
+// می‌شه»)؛ از همون برای مرزِ خط استفاده می‌کنیم. برای تشخیصِ مرزِ
+// پاراگراف (نه فقط خط)، فاصله‌ی عمودیِ بینِ خط‌ها رو با فاصله‌ی «معمولیِ»
+// بینِ خط‌های همون صفحه مقایسه می‌کنیم — فاصله‌ی به‌مراتب بزرگ‌تر یعنی
+// این‌جا یه بلوکِ تازه (پاراگراف/تیتر/آیتمِ جدا) شروع شده.
+function extractPdfPageTextWithBreaks(content) {
+  const items = content?.items || [];
+  const rawLines = [];
+  let curStr = "";
+  let curY = null;
+  for (const it of items) {
+    if (curY === null && Array.isArray(it.transform)) curY = it.transform[5];
+    curStr += it.str || "";
+    if (it.hasEOL) {
+      rawLines.push({ text: curStr, y: curY });
+      curStr = "";
+      curY = null;
+    }
+  }
+  if (curStr.trim()) rawLines.push({ text: curStr, y: curY });
+  const lines = rawLines.filter((l) => l.text.trim());
+  if (!lines.length) return "";
+
+  const gaps = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i - 1].y != null && lines[i].y != null) {
+      gaps.push(Math.abs(lines[i - 1].y - lines[i].y));
+    }
+  }
+  gaps.sort((a, b) => a - b);
+  const typicalGap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0;
+
+  let out = lines[0].text.trim();
+  for (let i = 1; i < lines.length; i++) {
+    const prev = lines[i - 1];
+    const line = lines[i];
+    const gap = prev.y != null && line.y != null ? Math.abs(prev.y - line.y) : typicalGap;
+    const isParagraphBreak = typicalGap > 0 && gap > typicalGap * 1.5;
+    out += (isParagraphBreak ? "\n\n" : "\n") + line.text.trim();
+  }
+  return out.trim();
+}
+
+// ترجمه‌ی یک متنِ چندپاراگرافه (خروجیِ تابعِ بالا) طوری که مرزِ پاراگراف‌ها
+// (خطِ خالی بینِ بلوک‌ها) عیناً تو ترجمه هم حفظ بشه — هر پاراگراف جدا
+// ترجمه می‌شه و با همون \n\n به‌هم وصل می‌شن، تا کاربر بتونه بلوک‌به‌بلوک
+// متنِ اصلی و ترجمه رو کنارِ هم تطبیق بده.
+async function translatePageTextPreservingParagraphs(pageText, targetLang, aiSettings) {
+  const paragraphs = (pageText || "").split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (!paragraphs.length) return "";
+  const translatedParagraphs = await runWithConcurrencyLimit(paragraphs, GLOBAL_TRANSLATE_CONCURRENCY, async (para) => {
+    const flat = para.replace(/\s*\n\s*/g, " ").trim();
+    if (!flat) return "";
+    const sentences = splitTextIntoSentenceStrings(flat);
+    const groups = [];
+    let cur = "";
+    for (const s of sentences.length ? sentences : [flat]) {
+      if (cur && (cur + " " + s).length > 400) {
+        groups.push(cur);
+        cur = s;
+      } else {
+        cur = cur ? `${cur} ${s}` : s;
+      }
+    }
+    if (cur) groups.push(cur);
+    const translatedGroups = await runWithConcurrencyLimit(groups, GLOBAL_TRANSLATE_CONCURRENCY, (g) =>
+      translateFree(g, targetLang, "auto", aiSettings)
+    );
+    return translatedGroups.join(" ");
+  });
+  return translatedParagraphs.join("\n\n");
+}
+
 // نوارِ کوچکِ صوتِ کاربر برای داستان — بالای متنِ داستان می‌شینه. یه سوییچِ
 // دوحالته (TTS ⇄ صوتِ من) داره؛ اگه هنوز صوتی آپلود نشده فقط دکمه‌ی آپلود
 // نشون می‌ده (هیچ محدودیتی رو فرمتِ فایل نیست). هیچ هایلایت/خوانشِ
@@ -10177,26 +10256,13 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
 
         setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
         const content = await page.getTextContent();
-        const pageText = content.items.map((it) => it.str).join(" ").trim();
-        let translatedText = "";
-        if (pageText) {
-          const sentences = splitTextIntoSentenceStrings(pageText);
-          const groups = [];
-          let cur = "";
-          for (const s of sentences.length ? sentences : [pageText]) {
-            if (cur && (cur + " " + s).length > 400) {
-              groups.push(cur);
-              cur = s;
-            } else {
-              cur = cur ? `${cur} ${s}` : s;
-            }
-          }
-          if (cur) groups.push(cur);
-          const translatedGroups = await runWithConcurrencyLimit(groups, GLOBAL_TRANSLATE_CONCURRENCY, (g) =>
-            translateFree(g, nativeLang || "fa", "auto", aiSettings)
-          );
-          translatedText = translatedGroups.join(" ");
-        }
+        // به‌جای چسبوندنِ همه‌چیز با یه space (که کاملاً مرزِ خط/پاراگرافِ
+        // متنِ اصلی رو گم می‌کرد)، سطربندیِ واقعیِ صفحه حفظ می‌شه — تا
+        // ترجمه هم بشه پاراگراف‌به‌پاراگراف هم‌شکلِ متنِ اصلی نشونش داد.
+        const pageText = extractPdfPageTextWithBreaks(content);
+        const translatedText = pageText
+          ? await translatePageTextPreservingParagraphs(pageText, nativeLang || "fa", aiSettings)
+          : "";
 
         const newPage = {
           pageNum: i,
@@ -10238,6 +10304,10 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   // درخواستِ ترجمه‌ی تازه‌ای؛ فقط عکس‌ها/ترجمه‌های همون‌موقع از IndexedDB
   // خونده می‌شن و به object URL تبدیل می‌شن.
   const openSavedPdfViewDoc = async (doc) => {
+    // این لیست حالا داخلِ پنلِ «داستان‌های ذخیره‌شده»ست؛ برای دیدنِ خودِ
+    // صفحاتِ PDF باید از اون پنل برگردیم به نمای اصلیِ داستان‌ساز — دقیقاً
+    // همون‌طور که بازکردنِ یه داستانِ ذخیره‌شده هم این کار رو می‌کنه.
+    setShowSaved(false);
     pdfViewPages.forEach((p) => {
       try { URL.revokeObjectURL(p.imageUrl); } catch {}
     });
@@ -10543,6 +10613,48 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
 
       {showSaved ? (
         <div className="flex flex-col gap-3">
+          {/* PDFهایی که با «PDF رو با عکسِ اصلی + ترجمه همینجا نشون بده»
+              ذخیره شدن، این‌جا بالای لیستِ داستان‌ها نشون داده می‌شن — نه
+              پایینِ صفحه‌ی اصلیِ داستان‌ساز. */}
+          {pdfViewDocs.length > 0 && (
+            <div style={{ textAlign: "start" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>PDFهای ذخیره‌شده</span>
+              <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+                {pdfViewDocs.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between"
+                    style={{
+                      border: `1px solid ${colors.cardBorder}`,
+                      borderRadius: 10,
+                      padding: "6px 10px",
+                      fontSize: 12,
+                      opacity: pdfViewBusy ? 0.6 : 1,
+                    }}
+                  >
+                    <button
+                      onClick={() => openSavedPdfViewDoc(doc)}
+                      disabled={pdfViewBusy}
+                      style={{ color: colors.ink, fontWeight: 700, textAlign: "start", flex: 1, minWidth: 0 }}
+                    >
+                      {doc.title}
+                      <span style={{ color: colors.inkSoft, fontWeight: 400 }}>
+                        {" "}
+                        — {doc.doneCount === doc.pageCount ? `${doc.pageCount} صفحه` : `${doc.doneCount} از ${doc.pageCount} صفحه`}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => handleDeletePdfViewDoc(doc)}
+                      disabled={pdfViewBusy}
+                      style={{ color: colors.rose, fontSize: 11, textDecoration: "underline", marginInlineStart: 8 }}
+                    >
+                      حذف
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {/* سطح‌ها همیشه توی ردیفِ خودشون، تمام‌عرض و بدون تنگ‌شدن نشون
               داده می‌شن؛ مرتب‌سازی یه ردیفِ جدا زیرشه — قبلاً کنارِ هم
               بودن و دکمه‌ی مرتب‌سازی جای سطح‌ها رو تنگ می‌کرد. */}
@@ -11166,45 +11278,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           خودِ فایل (عکس‌ها/چیدمانِ اصلی) دست‌نخورده می‌مونه و هیچی دانلود نمی‌شه؛ همین که صفحه‌ی اول آماده شد نشونت داده می‌شه و می‌تونی شروع به خوندن کنی — بقیه‌ی صفحات پشتِ‌صحنه ادامه پیدا می‌کنن. نتیجه هم همینجا تو اپ ذخیره می‌مونه، دیگه لازم نیست دوباره آپلودش کنی.
         </p>
 
-        {pdfViewDocs.length > 0 && (
-          <div style={{ marginTop: 12, textAlign: "start" }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>PDFهای ذخیره‌شده</span>
-            <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
-              {pdfViewDocs.map((doc) => (
-                <div
-                  key={doc.id}
-                  className="flex items-center justify-between"
-                  style={{
-                    border: `1px solid ${colors.cardBorder}`,
-                    borderRadius: 10,
-                    padding: "6px 10px",
-                    fontSize: 12,
-                    opacity: pdfViewBusy ? 0.6 : 1,
-                  }}
-                >
-                  <button
-                    onClick={() => openSavedPdfViewDoc(doc)}
-                    disabled={pdfViewBusy}
-                    style={{ color: colors.ink, fontWeight: 700, textAlign: "start", flex: 1, minWidth: 0 }}
-                  >
-                    {doc.title}
-                    <span style={{ color: colors.inkSoft, fontWeight: 400 }}>
-                      {" "}
-                      — {doc.doneCount === doc.pageCount ? `${doc.pageCount} صفحه` : `${doc.doneCount} از ${doc.pageCount} صفحه`}
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => handleDeletePdfViewDoc(doc)}
-                    disabled={pdfViewBusy}
-                    style={{ color: colors.rose, fontSize: 11, textDecoration: "underline", marginInlineStart: 8 }}
-                  >
-                    حذف
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* لیستِ PDFهای ذخیره‌شده از این‌جا برداشته شد — حالا داخلِ پنلِ
+            «داستان‌های ذخیره‌شده» (بالا، گوشه‌ی سمت چپ) نشون داده می‌شه،
+            نه اینجا وسطِ صفحه‌ی اصلیِ داستان‌ساز. */}
 
         {pdfViewPages.length > 0 && (
           <div style={{ marginTop: 12, textAlign: "start" }}>
@@ -11242,6 +11318,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                   color: colors.ink,
                   maxHeight: 480,
                   overflowY: "auto",
+                  whiteSpace: "pre-wrap",
                 }}
               >
                 {pdfViewPages[pdfViewIndex]?.translatedText}
