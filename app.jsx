@@ -9,6 +9,7 @@ import { DAILY_WORDS } from "./DAILY_WORDS.js";
 import { SLANG_WORDS } from "./SLANG_WORDS.js";
 import { DAILY_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
 import DailyConversationsTab from "./DailyConversationsTab.jsx";
+import RangeSliderFilter from "./RangeSliderFilter.jsx";
 
 // ---------------------------------------------------------------------------
 // جستجوی یکپارچه‌ی «یا از دیکشنری جستجو کن...» توی داستان‌ساز — به‌جای
@@ -9649,58 +9650,35 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             const allInRangeFlat = rangedGroups.flatMap(([, list]) => list);
             return (
               <>
-                <div
-                  className="flex flex-col gap-2 p-4"
-                  style={{ background: "#fff", border: `1px solid ${colors.cardBorder}`, borderRadius: 18, boxShadow: "0 10px 24px -12px rgba(18,46,42,.28)" }}
-                >
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span style={{ fontSize: 13, fontWeight: 700, color: colors.ink }}>داستان‌ها</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={totalCount}
-                      value={savedStoryRangeInput.from}
-                      placeholder="1"
-                      onChange={(ev) => setSavedStoryRangeInput((prev) => ({ ...prev, from: ev.target.value }))}
-                      onBlur={() => {
-                        if (savedStoryRangeInput.from !== "") setSavedStoryRangeInput((prev) => ({ ...prev, from: String(clampedFrom) }));
-                      }}
-                      style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
-                    />
-                    <span style={{ fontSize: 13, color: colors.inkSoft }}>تا</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={totalCount}
-                      value={savedStoryRangeInput.to}
-                      placeholder={String(defaultTo)}
-                      onChange={(ev) => setSavedStoryRangeInput((prev) => ({ ...prev, to: ev.target.value }))}
-                      onBlur={() => {
-                        if (savedStoryRangeInput.to !== "") setSavedStoryRangeInput((prev) => ({ ...prev, to: String(clampedTo) }));
-                      }}
-                      style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
-                    />
-                    <span style={{ fontSize: 12, color: colors.inkSoft }}>از مجموع {totalCount.toLocaleString("fa-IR")}</span>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span style={{ fontSize: 12, color: colors.teal, fontWeight: 700 }}>
-                      خوانده‌شده: {readCountInRange.toLocaleString("fa-IR")} از {visibleTotal.toLocaleString("fa-IR")} در این بازه · {readCountTotal.toLocaleString("fa-IR")} از {totalCount.toLocaleString("fa-IR")} کل
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => markStoryRangeRead(allInRangeFlat, true)}
-                      style={{ fontSize: 11, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "2px 8px" }}
-                    >
-                      علامت‌گذاری همه به خوانده‌شده
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => markStoryRangeRead(allInRangeFlat, false)}
-                      style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "2px 8px" }}
-                    >
-                      پاک‌کردن علامت این بازه
-                    </button>
-                  </div>
+                <RangeSliderFilter
+                  min={1}
+                  max={totalCount}
+                  from={clampedFrom}
+                  to={clampedTo}
+                  onFromChange={(val) => setSavedStoryRangeInput((prev) => ({ ...prev, from: val }))}
+                  onToChange={(val) => setSavedStoryRangeInput((prev) => ({ ...prev, to: val }))}
+                  readCount={readCountInRange}
+                  totalInRange={visibleTotal}
+                  readCountTotal={readCountTotal}
+                  label="داستان‌ها"
+                  uiLang="fa"
+                  colors={colors}
+                />
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => markStoryRangeRead(allInRangeFlat, true)}
+                    style={{ fontSize: 11, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "4px 12px", background: "#fff", cursor: "pointer" }}
+                  >
+                    علامت‌گذاری همه به خوانده‌شده
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => markStoryRangeRead(allInRangeFlat, false)}
+                    style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "4px 12px", background: "#fff", cursor: "pointer" }}
+                  >
+                    پاک‌کردن علامت این بازه
+                  </button>
                 </div>
                 {rangedGroups.map(([lv, list]) => (
               <div key={lv} className="flex flex-col gap-2">
@@ -11206,57 +11184,33 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
               {/* بازه‌ی نمایش + وضعیتِ خوانده‌شده — فقط وقتی لیستِ این زبان
                   به‌اندازه‌ی کافی بزرگه لازم می‌شه، ولی برای ساده‌موندنِ
                   منطق همیشه نشون داده می‌شه (مثلِ WordList). */}
-              <div
-                className="flex flex-col gap-2 p-3 mb-2"
-                style={{ background: "#fff", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, boxShadow: "0 10px 24px -12px rgba(18,46,42,.28)" }}
-              >
-                <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl" }}>
-                  <input
-                    type="number"
-                    min={1}
-                    max={groupWords.length}
-                    value={range.fromInput}
-                    placeholder="1"
-                    onChange={(ev) => setSavedRangeInput(code, "from", ev.target.value)}
-                    onBlur={() => {
-                      if (range.fromInput !== "") setSavedRangeInput(code, "from", String(range.clampedFrom));
-                    }}
-                    style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 12, textAlign: "center" }}
-                  />
-                  <span style={{ fontSize: 12, color: colors.inkSoft }}>{uiLang === "en" ? "to" : "تا"}</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={groupWords.length}
-                    value={range.toInput}
-                    placeholder={String(range.defaultTo)}
-                    onChange={(ev) => setSavedRangeInput(code, "to", ev.target.value)}
-                    onBlur={() => {
-                      if (range.toInput !== "") setSavedRangeInput(code, "to", String(range.clampedTo));
-                    }}
-                    style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 12, textAlign: "center" }}
-                  />
-                  <span style={{ fontSize: 11, color: colors.inkSoft }}>
-                    {uiLang === "en" ? `of ${groupWords.length}` : `از مجموع ${groupWords.length.toLocaleString("fa-IR")}`}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl" }}>
-                  <span style={{ fontSize: 11, color: colors.teal, fontWeight: 700 }}>
-                    {uiLang === "en"
-                      ? `Read: ${readCountInRange}/${visibleGroupWords.length} in range · ${readCountTotal}/${groupWords.length} total`
-                      : `خوانده‌شده: ${readCountInRange.toLocaleString("fa-IR")} از ${visibleGroupWords.length.toLocaleString("fa-IR")} در این بازه · ${readCountTotal.toLocaleString("fa-IR")} از ${groupWords.length.toLocaleString("fa-IR")} کل`}
-                  </span>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <RangeSliderFilter
+                  min={1}
+                  max={groupWords.length}
+                  from={range.clampedFrom}
+                  to={range.clampedTo}
+                  onFromChange={(val) => setSavedRangeInput(code, "from", val)}
+                  onToChange={(val) => setSavedRangeInput(code, "to", val)}
+                  readCount={readCountInRange}
+                  totalInRange={visibleGroupWords.length}
+                  readCountTotal={readCountTotal}
+                  label={uiLang === "en" ? "Words" : "کلمات"}
+                  uiLang={uiLang}
+                  colors={colors}
+                />
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button
                     type="button"
                     onClick={() => markSavedRangeRead(code, visibleGroupWords, true)}
-                    style={{ fontSize: 10, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "2px 6px" }}
+                    style={{ fontSize: 10, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "4px 8px", background: "#fff", cursor: "pointer" }}
                   >
                     {uiLang === "en" ? "Mark range read" : "علامت‌گذاری همه به خوانده‌شده"}
                   </button>
                   <button
                     type="button"
                     onClick={() => markSavedRangeRead(code, visibleGroupWords, false)}
-                    style={{ fontSize: 10, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "2px 6px" }}
+                    style={{ fontSize: 10, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "4px 8px", background: "#fff", cursor: "pointer" }}
                   >
                     {uiLang === "en" ? "Clear range" : "پاک‌کردن علامت این بازه"}
                   </button>
@@ -12133,54 +12087,33 @@ function GrammarPanel({
           const readCountTotal = notes.filter((n) => noteReadIds.has(n.id)).length;
           const allInRangeFlat = rangedNoteGroups.flatMap((g) => g.items);
           return (
-            <div
-              className="flex flex-col gap-2 p-4"
-              style={{ background: "#fff", border: `1px solid ${colors.cardBorder}`, borderRadius: 18, boxShadow: "0 10px 24px -12px rgba(18,46,42,.28)" }}
-            >
-              <div className="flex items-center gap-2 flex-wrap">
-                <span style={{ fontSize: 13, fontWeight: 700, color: colors.ink }}>یادداشت‌ها</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={notes.length}
-                  value={noteRangeInput.from}
-                  placeholder="1"
-                  onChange={(ev) => setNoteRangeInput((prev) => ({ ...prev, from: ev.target.value }))}
-                  onBlur={() => {
-                    if (noteRangeInput.from !== "") setNoteRangeInput((prev) => ({ ...prev, from: String(clampedFrom) }));
-                  }}
-                  style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
-                />
-                <span style={{ fontSize: 13, color: colors.inkSoft }}>تا</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={notes.length}
-                  value={noteRangeInput.to}
-                  placeholder={String(defaultTo)}
-                  onChange={(ev) => setNoteRangeInput((prev) => ({ ...prev, to: ev.target.value }))}
-                  onBlur={() => {
-                    if (noteRangeInput.to !== "") setNoteRangeInput((prev) => ({ ...prev, to: String(clampedTo) }));
-                  }}
-                  style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
-                />
-                <span style={{ fontSize: 12, color: colors.inkSoft }}>از مجموع {notes.length.toLocaleString("fa-IR")}</span>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span style={{ fontSize: 12, color: colors.teal, fontWeight: 700 }}>
-                  خوانده‌شده: {readCountInRange.toLocaleString("fa-IR")} از {visibleTotal.toLocaleString("fa-IR")} در این بازه · {readCountTotal.toLocaleString("fa-IR")} از {notes.length.toLocaleString("fa-IR")} کل
-                </span>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <RangeSliderFilter
+                min={1}
+                max={notes.length}
+                from={clampedFrom}
+                to={clampedTo}
+                onFromChange={(val) => setNoteRangeInput((prev) => ({ ...prev, from: val }))}
+                onToChange={(val) => setNoteRangeInput((prev) => ({ ...prev, to: val }))}
+                readCount={readCountInRange}
+                totalInRange={visibleTotal}
+                readCountTotal={readCountTotal}
+                label="یادداشت‌ها"
+                uiLang="fa"
+                colors={colors}
+              />
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button
                   type="button"
                   onClick={() => markNoteRangeRead(allInRangeFlat, true)}
-                  style={{ fontSize: 11, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "2px 8px" }}
+                  style={{ fontSize: 11, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "4px 12px", background: "#fff", cursor: "pointer" }}
                 >
                   علامت‌گذاری همه به خوانده‌شده
                 </button>
                 <button
                   type="button"
                   onClick={() => markNoteRangeRead(allInRangeFlat, false)}
-                  style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "2px 8px" }}
+                  style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "4px 12px", background: "#fff", cursor: "pointer" }}
                 >
                   پاک‌کردن علامت این بازه
                 </button>
@@ -15576,66 +15509,22 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
           لغات این لیست زیاده، به‌جای اسکرولِ بی‌نهایت، کاربر خودش مشخص
           می‌کنه کدوم بازه رو ببینه. همون ظاهرِ progress-card طرحِ مرجع:
           کارتِ سفیدِ گرد با سایه، به‌جای جعبه‌ی تختِ paperDark قبلی. */}
-      <div
-        style={{
-          background: "#fff",
-          border: `1px solid ${colors.cardBorder}`,
-          borderRadius: 18,
-          padding: 16,
-          boxShadow: "0 10px 24px -12px rgba(18,46,42,.28)",
-          fontFamily: uiLang === "en" ? fontLatin : fontFa,
-        }}
-      >
-        <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl", marginBottom: 12 }}>
-          <input
-            type="number"
-            min={1}
-            max={filtered.length}
-            value={rangeFromInput}
-            placeholder="1"
-            onChange={(e) => setRangeFromInput(e.target.value)}
-            onBlur={() => {
-              if (rangeFromInput !== "") setRangeFromInput(String(clampedFrom));
-            }}
-            style={{ width: 44, padding: "4px 4px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, fontWeight: 700, color: colors.teal, textAlign: "center" }}
-          />
-          <span style={{ fontSize: 15, fontWeight: 700, color: colors.teal }}>{uiLang === "en" ? "to" : "تا"}</span>
-          <input
-            type="number"
-            min={1}
-            max={filtered.length}
-            value={rangeToInput}
-            placeholder={String(defaultRangeTo)}
-            onChange={(e) => setRangeToInput(e.target.value)}
-            onBlur={() => {
-              if (rangeToInput !== "") setRangeToInput(String(clampedTo));
-            }}
-            style={{ width: 44, padding: "4px 4px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, fontWeight: 700, color: colors.teal, textAlign: "center" }}
-          />
-          <span style={{ fontSize: 13, color: colors.inkSoft, fontWeight: 600, marginRight: "auto" }}>
-            {uiLang === "en" ? "Words " : "لغات "}
-            <span style={{ fontWeight: 400 }}>{uiLang === "en" ? `of ${filtered.length}` : `از مجموع ${filtered.length.toLocaleString("fa-IR")}`}</span>
-          </span>
-        </div>
-        <div style={{ height: 8, borderRadius: 99, background: colors.paperDark, overflow: "hidden", marginBottom: 12 }}>
-          <div
-            style={{
-              display: "block",
-              height: "100%",
-              width: `${filtered.length ? (readCountTotal / filtered.length) * 100 : 0}%`,
-              background: `linear-gradient(90deg, ${colors.teal}, ${colors.gold})`,
-              transition: "width .3s ease",
-            }}
-          />
-        </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, fontFamily: uiLang === "en" ? fontLatin : fontFa }}>
+        <RangeSliderFilter
+          min={1}
+          max={filtered.length}
+          from={clampedFrom}
+          to={clampedTo}
+          onFromChange={(val) => setRangeFromInput(val)}
+          onToChange={(val) => setRangeToInput(val)}
+          readCount={readCountInRange}
+          totalInRange={visible.length}
+          readCountTotal={readCountTotal}
+          label={uiLang === "en" ? "Dictionary" : "دیکشنری"}
+          uiLang={uiLang}
+          colors={colors}
+        />
         <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl" }}>
-          <span style={{ fontSize: 13, color: "#2E7D6C", fontWeight: 600 }}>
-            {uiLang === "en"
-              ? `Read: ${readCountTotal}/${filtered.length} · ${readCountInRange}/${visible.length} in range`
-              : `خوانده‌شده: ${readCountTotal.toLocaleString("fa-IR")} از ${filtered.length.toLocaleString("fa-IR")} · ${readCountInRange.toLocaleString("fa-IR")} از ${visible.length.toLocaleString("fa-IR")} در این بازه`}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl", marginTop: 12 }}>
           <button
             type="button"
             onClick={() => markRangeRead(true)}
