@@ -8757,24 +8757,32 @@ function getStoryEntryPreview(entry, maxLen) {
   return text.length > limit ? `${text.slice(0, limit).trim()}…` : text;
 }
 
-// مودالِ تمام‌صفحه‌یِ زوم برای عکسِ صفحه‌یِ PDF — پینچ‌زوم (لمسی)، اسکرول‌ویل
-// (دسکتاپ)، دبل‌تپ/دبل‌کلیک، و درگ برای جابه‌جایی وقتی زوم شده.
-function ZoomableImageModal({ src, alt, onClose }) {
+// زومِ درجا (نه تمام‌صفحه) رویِ عکسِ صفحه‌ی PDF — طوری که پنلِ ترجمه‌ی
+// کنارش هم‌زمان دیده بمونه (نه اینکه با بازشدنِ زوم، ترجمه از دید بره).
+// پینچ‌زوم (لمسی)، اسکرول‌ویل (دسکتاپ)، دبل‌تپ/دبل‌کلیک برای زوم/ریست، و
+// درگ برای جابه‌جایی وقتی زوم شده — همه‌ش دقیقاً همون‌جا تویِ باکسِ عکس.
+function ZoomablePdfPageImage({ src, alt }) {
   const [scale, setScale] = useState(1);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const touchRef = useRef({});
   const mouseRef = useRef(null);
   const clampScale = (s) => Math.min(5, Math.max(1, s));
 
-  const resetView = () => { setScale(1); setPos({ x: 0, y: 0 }); };
+  // هر بار عکس (یعنی صفحه) عوض شد، زوم/جابه‌جاییِ قبلی ریست بشه — وگرنه
+  // با ورق‌زدنِ صفحه، صفحه‌ی بعدی هم زوم‌شده و جابه‌جا نشون داده می‌شه.
+  useEffect(() => {
+    setScale(1);
+    setPos({ x: 0, y: 0 });
+  }, [src]);
 
+  const resetView = () => { setScale(1); setPos({ x: 0, y: 0 }); };
   const handleWheel = (e) => {
     e.preventDefault();
     setScale((s) => clampScale(s - e.deltaY * 0.0015));
   };
   const handleDoubleClick = () => {
     if (scale > 1) resetView();
-    else { setScale(2.5); setPos({ x: 0, y: 0 }); }
+    else { setScale(2.2); setPos({ x: 0, y: 0 }); }
   };
   const onTouchStart = (e) => {
     if (e.touches.length === 2) {
@@ -8821,7 +8829,6 @@ function ZoomableImageModal({ src, alt, onClose }) {
 
   return (
     <div
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onWheel={handleWheel}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
@@ -8830,48 +8837,13 @@ function ZoomableImageModal({ src, alt, onClose }) {
       onMouseUp={onMouseUp}
       onMouseLeave={onMouseUp}
       style={{
-        position: "fixed", inset: 0, zIndex: 9999,
-        backgroundColor: "rgba(0,0,0,0.92)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        touchAction: "none", overscrollBehavior: "contain",
+        position: "relative",
+        overflow: "hidden",
+        borderRadius: 10,
+        border: `1px solid ${colors.cardBorder}`,
+        touchAction: "none",
       }}
     >
-      <button
-        onClick={onClose}
-        style={{
-          position: "absolute", top: 14, insetInlineEnd: 14, zIndex: 2,
-          width: 40, height: 40, borderRadius: 999, border: "none",
-          backgroundColor: "rgba(255,255,255,0.15)", color: "#fff",
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}
-      >
-        <X size={22} />
-      </button>
-      <div
-        style={{
-          position: "absolute", bottom: 16, insetInlineStart: "50%", transform: "translateX(-50%)",
-          display: "flex", alignItems: "center", gap: 10, zIndex: 2,
-        }}
-      >
-        <button
-          onClick={() => setScale((s) => clampScale(s - 0.5))}
-          style={{ width: 38, height: 38, borderRadius: 999, border: "none", backgroundColor: "rgba(255,255,255,0.15)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
-        >
-          <ZoomOut size={18} />
-        </button>
-        <button
-          onClick={resetView}
-          style={{ padding: "0 12px", height: 38, borderRadius: 999, border: "none", backgroundColor: "rgba(255,255,255,0.15)", color: "#fff", fontSize: 12, fontWeight: 700 }}
-        >
-          ریست
-        </button>
-        <button
-          onClick={() => setScale((s) => clampScale(s + 0.5))}
-          style={{ width: 38, height: 38, borderRadius: 999, border: "none", backgroundColor: "rgba(255,255,255,0.15)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
-        >
-          <ZoomIn size={18} />
-        </button>
-      </div>
       <img
         src={src}
         alt={alt}
@@ -8879,14 +8851,45 @@ function ZoomableImageModal({ src, alt, onClose }) {
         onDoubleClick={handleDoubleClick}
         onMouseDown={onMouseDown}
         style={{
-          maxWidth: "94vw",
-          maxHeight: "88vh",
+          width: "100%",
+          display: "block",
           transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})`,
+          transformOrigin: "center center",
           cursor: scale > 1 ? "grab" : "zoom-in",
           userSelect: "none",
-          touchAction: "none",
         }}
       />
+      {scale > 1 && (
+        <button
+          onClick={resetView}
+          style={{
+            position: "absolute", top: 6, insetInlineEnd: 6,
+            padding: "3px 10px", borderRadius: 999, border: "none",
+            backgroundColor: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 11, fontWeight: 700,
+          }}
+        >
+          ریست زوم
+        </button>
+      )}
+      <div
+        style={{
+          position: "absolute", bottom: 6, insetInlineStart: "50%", transform: "translateX(-50%)",
+          display: "flex", alignItems: "center", gap: 6,
+        }}
+      >
+        <button
+          onClick={() => setScale((s) => clampScale(s - 0.5))}
+          style={{ width: 28, height: 28, borderRadius: 999, border: "none", backgroundColor: "rgba(0,0,0,0.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <ZoomOut size={14} />
+        </button>
+        <button
+          onClick={() => setScale((s) => clampScale(s + 0.5))}
+          style={{ width: 28, height: 28, borderRadius: 999, border: "none", backgroundColor: "rgba(0,0,0,0.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <ZoomIn size={14} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -8966,7 +8969,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [pdfViewPages, setPdfViewPages] = useState([]); // [{pageNum, imageUrl, width, height, originalText, translatedText}]
   const [pdfViewTitle, setPdfViewTitle] = useState("");
   const [pdfViewIndex, setPdfViewIndex] = useState(0);
-  const [pdfImageZoomOpen, setPdfImageZoomOpen] = useState(false);
   const pdfViewInputRef = useRef(null);
   // شناسه‌ی سندِ جاری (برای ذخیره‌ی صفحه‌به‌صفحه تو IndexedDB حین پردازش)،
   // و لیستِ PDFهایی که قبلاً کامل/ناقص ذخیره شدن — تا کاربر بتونه بدونِ
@@ -11618,11 +11620,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             <div className="flex flex-wrap gap-3" style={{ alignItems: "flex-start" }}>
               <div style={{ flex: "1 1 340px", minWidth: 0 }}>
                 {pdfViewPages[pdfViewIndex]?.imageUrl && (
-                  <img
+                  <ZoomablePdfPageImage
                     src={pdfViewPages[pdfViewIndex].imageUrl}
                     alt={`صفحه‌ی ${pdfViewIndex + 1}`}
-                    onClick={() => setPdfImageZoomOpen(true)}
-                    style={{ width: "100%", borderRadius: 10, border: `1px solid ${colors.cardBorder}`, display: "block", cursor: "zoom-in" }}
                   />
                 )}
               </div>
@@ -11665,13 +11665,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               </button>
             </div>
           </div>
-        )}
-        {pdfImageZoomOpen && pdfViewPages[pdfViewIndex]?.imageUrl && (
-          <ZoomableImageModal
-            src={pdfViewPages[pdfViewIndex].imageUrl}
-            alt={`صفحه‌ی ${pdfViewIndex + 1}`}
-            onClose={() => setPdfImageZoomOpen(false)}
-          />
         )}
 
         <div style={{ textAlign: "start" }}>
