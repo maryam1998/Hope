@@ -5942,6 +5942,24 @@ function ABRepeatButton({ color }) {
           ↻
         </span>
       )}
+      {/* روی موبایل title (تولتیپِ هاور) اصلاً دیده نمی‌شه، برایِ همین بدونِ
+          این برچسبِ همیشه‌-نمایان، هیچ راهی نبود بفهمی A/B کجان یا اصلاً
+          فعاله یا نه. این چیپ همیشه، بدونِ نیاز به لمسِ نگه‌داشته، بالایِ
+          دکمه نشون‌داده می‌شه. */}
+      {ab !== "idle" && (
+        <span
+          style={{
+            position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 4,
+            fontSize: 9, fontWeight: 700, lineHeight: 1.3, whiteSpace: "nowrap",
+            backgroundColor: c, color: "white", borderRadius: 5, padding: "2px 5px",
+            textAlign: "center", pointerEvents: "none",
+          }}
+        >
+          {ab === "waitingB"
+            ? `A: جمله‌ی ${(state.abChunkA ?? 0) + 1}`
+            : `جمله‌ی ${(state.abChunkA ?? 0) + 1} تا ${(state.abChunkB ?? 0) + 1}`}
+        </span>
+      )}
     </button>
   );
 }
@@ -6016,6 +6034,20 @@ function UserAudioABButton({ ua, color }) {
           }}
         >
           ↻
+        </span>
+      )}
+      {/* همون چیپِ همیشه‌-نمایان که برای نسخه‌ی TTS اضافه شد — اینجا به‌جایِ
+          شماره‌ی جمله، زمانِ دقیقِ ثانیه‌ایِ A/B رو نشون می‌ده. */}
+      {ab !== "idle" && (
+        <span
+          style={{
+            position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 4,
+            fontSize: 9, fontWeight: 700, lineHeight: 1.3, whiteSpace: "nowrap",
+            backgroundColor: c, color: "white", borderRadius: 5, padding: "2px 5px",
+            textAlign: "center", pointerEvents: "none",
+          }}
+        >
+          {ab === "waitingB" ? `A: ${fmtShort(ua.abA)}` : `${fmtShort(ua.abA)}–${fmtShort(ua.abB)}`}
         </span>
       )}
     </button>
@@ -8764,21 +8796,34 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   useEffect(() => {
     if (onUserAudioStateChange) {
       onUserAudioStateChange({
-        hasAudio: userAudio.hasAudio,
-        isPlaying: userAudio.isPlaying,
-        currentTime: userAudio.currentTime,
-        duration: userAudio.duration,
+        // این آبجکت قبلاً فقط یه زیرمجموعه‌ی ناقص از فیلدهایِ userAudio رو
+        // می‌فرستاد (hasAudio/isPlaying/currentTime/duration/play/pause/
+        // seek/nextLine/prevLine) — چیزهایی مثلِ markAB، abState، abA، abB
+        // (که دکمه‌ی A-B رویِ پلیرِ سراسری بهشون نیاز داره) اصلاً توش نبودن.
+        // نتیجه: با اپلودِ صوت و زدنِ دکمه‌ی A-B رویِ پلیرِ پایینِ صفحه،
+        // ua.markAB یه تابع نبود (چون اصلاً پاس داده نشده بود) و اپ کرش
+        // می‌کرد. حالا کلِ userAudio رو با spread می‌فرستیم تا هرچی به این
+        // هوک اضافه بشه، خودکار به پلیرِ سراسری هم برسه.
+        ...userAudio,
         playbackMode,
-        play: userAudio.play,
-        pause: userAudio.pause,
-        seek: userAudio.seek,
-        nextLine: userAudio.nextLine,
-        prevLine: userAudio.prevLine,
         setPlaybackMode,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainStoryKey, userAudio.hasAudio, userAudio.isPlaying, userAudio.currentTime, userAudio.duration, playbackMode]);
+  }, [
+    mainStoryKey,
+    userAudio.hasAudio,
+    userAudio.isPlaying,
+    userAudio.currentTime,
+    userAudio.duration,
+    userAudio.abState,
+    userAudio.abA,
+    userAudio.abB,
+    userAudio.manualIndex,
+    userAudio.audioSaving,
+    userAudio.audioSaveError,
+    playbackMode,
+  ]);
 
   useEffect(() => {
     setCollections(loadWordCollections().filter((c) => c.langCode === storyLang));
