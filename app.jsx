@@ -8477,6 +8477,18 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [bilingualPdfProgress, setBilingualPdfProgress] = useState("");
   const [bilingualPdfError, setBilingualPdfError] = useState("");
   const bilingualPdfInputRef = useRef(null);
+  // «نمایشِ PDF همینجا» — حالتِ دومِ بارگذاریِ PDF، برخلافِ «خروجی PDF
+  // دوزبانه» بالا (که یک فایلِ تازه می‌سازه و دانلود می‌کنه)، این‌یکی
+  // چیزی دانلود نمی‌کنه: فایلِ خام رو با عکس‌های خودش همینجا تو
+  // داستان‌ساز، صفحه‌به‌صفحه نشون می‌ده و ترجمه‌ی متنِ همون صفحه رو
+  // درست کنارش/زیرش می‌ذاره (روبروی هم).
+  const [pdfViewBusy, setPdfViewBusy] = useState(false);
+  const [pdfViewProgress, setPdfViewProgress] = useState("");
+  const [pdfViewError, setPdfViewError] = useState("");
+  const [pdfViewPages, setPdfViewPages] = useState([]); // [{pageNum, imageUrl, width, height, originalText, translatedText}]
+  const [pdfViewTitle, setPdfViewTitle] = useState("");
+  const [pdfViewIndex, setPdfViewIndex] = useState(0);
+  const pdfViewInputRef = useRef(null);
   // پیست‌کردنِ مستقیمِ متن/داستان برای خوانش — همون مسیرِ «وارد کردنِ PDF
   // برای خوانش» بالا، فقط منبعِ متن به‌جای فایل، تایپ‌شده/پیست‌شده‌ی خودِ کاربره.
   const [pastedReadingText, setPastedReadingText] = useState("");
@@ -9974,6 +9986,117 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     }
   };
 
+  // «نمایشِ PDF همینجا» — حالتِ دومِ بارگذاریِ PDF. با pdf.js هر صفحه دقیقاً
+  // همون‌جوری که هست (عکس‌ها/چیدمانِ اصلی) به یک عکس رندر می‌شه و به‌صورتِ
+  // blob URL نگه داشته می‌شه (نه دانلود، نه ارسال به سرور)؛ متنِ همون صفحه
+  // هم استخراج و ترجمه می‌شه. نتیجه یک آرایه از صفحه‌هاست که تو خودِ
+  // داستان‌ساز، صفحه‌به‌صفحه با عکسِ اصلی + ترجمه‌ی روبروش نمایش داده می‌شه.
+  const PDF_VIEW_MAX_BYTES = 80 * 1024 * 1024; // ۸۰ مگابایت — رندرِ تصویریِ صفحه‌به‌صفحه سنگین‌تر از استخراجِ صرفِ متنه
+  const PDF_VIEW_MAX_PAGES = 60; // سقفِ صفحات، تا رندر+ترجمه رو موبایل خیلی طول نکشه/قفل نکنه
+  const PDF_VIEW_RENDER_SCALE = 1.6; // کیفیتِ کافی برای خوانا بودنِ متن/عکسِ صفحه، بدونِ حجمِ زیادِ نهایی
+
+  const handlePdfViewImport = async (e) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = "";
+    if (!file) return;
+    setPdfViewError("");
+    if (file.size > PDF_VIEW_MAX_BYTES) {
+      setPdfViewError(`حجمِ فایل بیشتر از ${Math.round(PDF_VIEW_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه`);
+      return;
+    }
+    // قبل از شروعِ فایلِ تازه، عکس‌های صفحه‌ی قبلی رو از حافظه پاک کن.
+    pdfViewPages.forEach((p) => {
+      try { URL.revokeObjectURL(p.imageUrl); } catch {}
+    });
+    setPdfViewPages([]);
+    setPdfViewIndex(0);
+    setPdfViewBusy(true);
+    setPdfViewProgress("در حال آماده‌سازی...");
+    try {
+      const pdfjsLib = await import("pdfjs-dist");
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
+      const buf = await file.arrayBuffer();
+      const srcDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+      const pageCount = Math.min(srcDoc.numPages, PDF_VIEW_MAX_PAGES);
+      const truncated = srcDoc.numPages > PDF_VIEW_MAX_PAGES;
+
+      const canvasToJpgBlob = (canvas) =>
+        new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+
+      const pages = [];
+      for (let i = 1; i <= pageCount; i++) {
+        setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال رندر...`);
+        await new Promise((r) => setTimeout(r, 0)); // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — تا UI قفل نشه
+
+        const page = await srcDoc.getPage(i);
+        const viewport = page.getViewport({ scale: PDF_VIEW_RENDER_SCALE });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.ceil(viewport.width));
+        canvas.height = Math.max(1, Math.ceil(viewport.height));
+        const ctx = canvas.getContext("2d");
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const blob = await canvasToJpgBlob(canvas);
+        const imageUrl = blob ? URL.createObjectURL(blob) : "";
+
+        setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
+        const content = await page.getTextContent();
+        const pageText = content.items.map((it) => it.str).join(" ").trim();
+        let translatedText = "";
+        if (pageText) {
+          const sentences = splitTextIntoSentenceStrings(pageText);
+          const groups = [];
+          let cur = "";
+          for (const s of sentences.length ? sentences : [pageText]) {
+            if (cur && (cur + " " + s).length > 400) {
+              groups.push(cur);
+              cur = s;
+            } else {
+              cur = cur ? `${cur} ${s}` : s;
+            }
+          }
+          if (cur) groups.push(cur);
+          const translatedGroups = await runWithConcurrencyLimit(groups, GLOBAL_TRANSLATE_CONCURRENCY, (g) =>
+            translateFree(g, nativeLang || "fa", "auto", aiSettings)
+          );
+          translatedText = translatedGroups.join(" ");
+        }
+
+        pages.push({
+          pageNum: i,
+          imageUrl,
+          width: canvas.width,
+          height: canvas.height,
+          originalText: pageText,
+          translatedText: translatedText || "متنی برای ترجمه در این صفحه پیدا نشد.",
+        });
+      }
+
+      setPdfViewPages(pages);
+      setPdfViewTitle(file.name.replace(/\.pdf$/i, ""));
+      setPdfViewError(
+        truncated
+          ? `توجه: چون فایل بیشتر از ${PDF_VIEW_MAX_PAGES} صفحه بود، فقط ${PDF_VIEW_MAX_PAGES} صفحه‌ی اول بارگذاری شد`
+          : ""
+      );
+    } catch (err) {
+      console.error(err);
+      setPdfViewError("بازکردنِ این PDF مشکل داشت — فایل ممکنه خراب یا رمزگذاری‌شده باشه");
+    } finally {
+      setPdfViewBusy(false);
+      setPdfViewProgress("");
+    }
+  };
+
+  const closePdfView = () => {
+    pdfViewPages.forEach((p) => {
+      try { URL.revokeObjectURL(p.imageUrl); } catch {}
+    });
+    setPdfViewPages([]);
+    setPdfViewIndex(0);
+    setPdfViewTitle("");
+    setPdfViewError("");
+  };
+
   // متنِ پیست‌شده (بدون PDF، بدون AI) رو دقیقاً با همون منطقِ بالا
   // (تقسیم به جمله → گروه‌بندیِ هر ۵ جمله در یک پاراگراف) وارد سیستمِ
   // خوانش می‌کنه — رایگان و آنیه چون هیچ درخواستی به AI زده نمی‌شه.
@@ -10809,6 +10932,96 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
           خودِ فایل (عکس‌ها/چیدمانِ اصلی) دست‌نخورده می‌مونه؛ یک PDFِ تازه دانلود می‌شه که بعدِ هر صفحه‌ی اصلی، یک صفحه‌ی «ترجمه» روبروش اضافه شده — همه‌چیز محلی، روی خودِ گوشی/مرورگر ساخته می‌شه.
         </p>
+
+        <input
+          ref={pdfViewInputRef}
+          type="file"
+          accept="application/pdf"
+          onChange={handlePdfViewImport}
+          style={{ display: "none" }}
+        />
+        <button
+          onClick={() => pdfViewInputRef.current?.click()}
+          disabled={pdfViewBusy}
+          className="flex items-center justify-center gap-2"
+          style={{
+            width: "100%",
+            border: `1px dashed ${colors.teal}`,
+            borderRadius: 14,
+            padding: "10px 16px",
+            fontWeight: 700,
+            fontSize: 13,
+            color: colors.teal,
+            opacity: pdfViewBusy ? 0.6 : 1,
+            marginTop: 10,
+          }}
+        >
+          {pdfViewBusy ? <Loader2 size={16} className="spin" /> : <span>📑</span>}
+          {pdfViewBusy ? (pdfViewProgress || "در حال بارگذاریِ PDF...") : "PDF رو با عکسِ اصلی + ترجمه همینجا نشون بده"}
+        </button>
+        {pdfViewError && (
+          <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfViewError}</p>
+        )}
+        <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
+          خودِ فایل (عکس‌ها/چیدمانِ اصلی) دست‌نخورده می‌مونه و هیچی دانلود نمی‌شه؛ هر صفحه همینجا نشون داده می‌شه و ترجمه‌ی متنش درست کنارش/زیرش میاد.
+        </p>
+
+        {pdfViewPages.length > 0 && (
+          <div style={{ marginTop: 12, textAlign: "start" }}>
+            <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>
+                {pdfViewTitle} — صفحه‌ی {pdfViewIndex + 1} از {pdfViewPages.length}
+              </span>
+              <button onClick={closePdfView} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
+                بستن
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-3" style={{ alignItems: "flex-start" }}>
+              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+                {pdfViewPages[pdfViewIndex]?.imageUrl && (
+                  <img
+                    src={pdfViewPages[pdfViewIndex].imageUrl}
+                    alt={`صفحه‌ی ${pdfViewIndex + 1}`}
+                    style={{ width: "100%", borderRadius: 10, border: `1px solid ${colors.cardBorder}`, display: "block" }}
+                  />
+                )}
+              </div>
+              <div
+                dir="auto"
+                style={{
+                  flex: "1 1 260px",
+                  minWidth: 0,
+                  backgroundColor: colors.goldSoft,
+                  borderRadius: 10,
+                  padding: 10,
+                  fontSize: 13,
+                  lineHeight: 1.9,
+                  color: colors.ink,
+                  maxHeight: 480,
+                  overflowY: "auto",
+                }}
+              >
+                {pdfViewPages[pdfViewIndex]?.translatedText}
+              </div>
+            </div>
+            <div className="flex items-center justify-between" style={{ marginTop: 8 }}>
+              <button
+                onClick={() => setPdfViewIndex((i) => Math.max(0, i - 1))}
+                disabled={pdfViewIndex === 0}
+                style={{ fontSize: 12, fontWeight: 700, color: colors.teal, opacity: pdfViewIndex === 0 ? 0.4 : 1 }}
+              >
+                ◀ صفحه‌ی قبل
+              </button>
+              <button
+                onClick={() => setPdfViewIndex((i) => Math.min(pdfViewPages.length - 1, i + 1))}
+                disabled={pdfViewIndex === pdfViewPages.length - 1}
+                style={{ fontSize: 12, fontWeight: 700, color: colors.teal, opacity: pdfViewIndex === pdfViewPages.length - 1 ? 0.4 : 1 }}
+              >
+                صفحه‌ی بعد ▶
+              </button>
+            </div>
+          </div>
+        )}
 
         <div style={{ textAlign: "start" }}>
           <button
