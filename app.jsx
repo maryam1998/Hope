@@ -1051,6 +1051,14 @@ const READ_DONE_COLOR = "#7FA396";
 // گفت چشم رو اذیت می‌کنه؛ این یه طلاییِ کم‌رنگه که خودِ کاربر از بینِ چند
 // گزینه انتخاب کرد.
 const READ_DONE_BG = "#FBF2DF";
+// گرادیانتِ طلاییِ «خوانده‌شده» — طبق درخواستِ کاربر، همون افکتِ بصریِ
+// کارت‌های تبِ مکالمات (language-app-home.html: .card.done) حالا توی همه‌ی
+// تب‌های دیگه هم (لغات، اخبار، اسلنگ، داستان‌های ذخیره‌شده، یادداشت‌های
+// گرامر) برای ردیف/کارتِ خوانده‌شده استفاده می‌شه، به‌جای رنگِ تختِ
+// READ_DONE_BG بالا.
+const READ_DONE_GRADIENT = "linear-gradient(145deg, #FCEACB 0%, #F6D69C 55%, #F0C583 100%)";
+const READ_DONE_BORDER = "#E3B96E";
+const READ_DONE_SHADOW = "0 4px 14px -6px rgba(201,154,46,.45)";
 // پالتِ رنگ‌های کم‌رنگ/بی‌حال (pastel) که کاربر می‌تونه به‌عنوانِ رنگِ
 // هایلایتِ خواندن ازش انتخاب کنه — دقیقاً همون طیفی که خودِ کاربر
 // به‌عنوانِ نمونه فرستاد (زردِ کم‌رنگ، هلویی، نارنجیِ ملایم، صورتی‌مرجانی،
@@ -9701,11 +9709,12 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                     key={s.id}
                     style={{
                       position: "relative",
-                      backgroundColor: savedStoryReadIds.has(s.id) ? READ_DONE_BG : "white",
-                      border: `1px solid ${colors.cardBorder}`,
+                      background: savedStoryReadIds.has(s.id) ? READ_DONE_GRADIENT : "white",
+                      border: `1px solid ${savedStoryReadIds.has(s.id) ? READ_DONE_BORDER : colors.cardBorder}`,
                       borderRadius: 14,
                       padding: 14,
                       paddingTop: s.savedAt ? 26 : 14,
+                      boxShadow: savedStoryReadIds.has(s.id) ? READ_DONE_SHADOW : "none",
                     }}
                   >
                     {s.savedAt && (
@@ -9745,8 +9754,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                             width: 20,
                             height: 20,
                             borderRadius: "50%",
-                            border: `2px solid ${savedStoryReadIds.has(s.id) ? READ_DONE_COLOR : colors.cardBorder}`,
-                            backgroundColor: savedStoryReadIds.has(s.id) ? READ_DONE_COLOR : "transparent",
+                            border: savedStoryReadIds.has(s.id) ? `1.6px solid ${READ_DONE_BORDER}` : `1.6px dashed ${colors.cardBorder}`,
+                            background: savedStoryReadIds.has(s.id) ? `linear-gradient(135deg, ${colors.gold}, ${READ_DONE_BORDER})` : "transparent",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
@@ -11291,8 +11300,9 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                         minWidth: 110,
                         maxWidth: 210,
                         borderRadius: 14,
-                        border: `1px solid ${isPicked ? colors.gold : colors.cardBorder}`,
-                        backgroundColor: isPicked ? colors.goldSoft : isRead ? READ_DONE_BG : colors.paper,
+                        border: `1px solid ${isPicked ? colors.gold : isRead ? READ_DONE_BORDER : colors.cardBorder}`,
+                        background: isPicked ? colors.goldSoft : isRead ? READ_DONE_GRADIENT : colors.paper,
+                        boxShadow: !isPicked && isRead ? READ_DONE_SHADOW : "none",
                         padding: "7px 10px",
                         touchAction: "pan-y",
                         WebkitUserSelect: "none",
@@ -11338,8 +11348,8 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                               width: 20,
                               height: 20,
                               borderRadius: "50%",
-                              border: `2px solid ${isRead ? READ_DONE_COLOR : colors.cardBorder}`,
-                              backgroundColor: isRead ? READ_DONE_COLOR : "transparent",
+                              border: isRead ? `1.6px solid ${READ_DONE_BORDER}` : `1.6px dashed ${colors.cardBorder}`,
+                              background: isRead ? `linear-gradient(135deg, ${colors.gold}, ${READ_DONE_BORDER})` : "transparent",
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
@@ -12204,10 +12214,11 @@ function GrammarPanel({
                     key={n.id}
                     ref={(el) => (noteElsRef.current[n.id] = el)}
                     style={{
-                      backgroundColor: noteReadIds.has(n.id) ? READ_DONE_BG : "white",
-                      border: `1px solid ${isSelected ? colors.gold : colors.cardBorder}`,
+                      background: noteReadIds.has(n.id) ? READ_DONE_GRADIENT : "white",
+                      border: `1px solid ${isSelected ? colors.gold : noteReadIds.has(n.id) ? READ_DONE_BORDER : colors.cardBorder}`,
                       borderRadius: 14,
                       padding: 12,
+                      boxShadow: noteReadIds.has(n.id) ? READ_DONE_SHADOW : "none",
                     }}
                   >
                     <div
@@ -12231,8 +12242,8 @@ function GrammarPanel({
                               width: 20,
                               height: 20,
                               borderRadius: "50%",
-                              border: `2px solid ${noteReadIds.has(n.id) ? READ_DONE_COLOR : colors.cardBorder}`,
-                              backgroundColor: noteReadIds.has(n.id) ? READ_DONE_COLOR : "transparent",
+                              border: noteReadIds.has(n.id) ? `1.6px solid ${READ_DONE_BORDER}` : `1.6px dashed ${colors.cardBorder}`,
+                              background: noteReadIds.has(n.id) ? `linear-gradient(135deg, ${colors.gold}, ${READ_DONE_BORDER})` : "transparent",
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
@@ -15654,9 +15665,14 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
           style={{
             position: "relative",
             borderRadius: 14,
-            backgroundColor: isRead ? READ_DONE_BG : "white",
-            border: `1px solid ${highlightBg(highlightColor, justJumpedId === w.id, colors.cardBorder)}`,
-            boxShadow: justJumpedId === w.id && highlightColor !== "none" ? `0 0 0 2px ${highlightColor || READ_MARKER_COLOR}` : "none",
+            background: isRead ? READ_DONE_GRADIENT : "white",
+            border: `1px solid ${highlightBg(highlightColor, justJumpedId === w.id, isRead ? READ_DONE_BORDER : colors.cardBorder)}`,
+            boxShadow:
+              justJumpedId === w.id && highlightColor !== "none"
+                ? `0 0 0 2px ${highlightColor || READ_MARKER_COLOR}`
+                : isRead
+                ? READ_DONE_SHADOW
+                : "none",
             transition: "border-color 0.4s ease, box-shadow 0.4s ease, background-color 0.3s ease",
           }}
         >
@@ -15669,8 +15685,8 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
               width: 20,
               height: 20,
               borderRadius: "50%",
-              border: `2px solid ${isRead ? READ_DONE_COLOR : colors.cardBorder}`,
-              backgroundColor: isRead ? READ_DONE_COLOR : "transparent",
+              border: isRead ? `1.6px solid ${READ_DONE_BORDER}` : `1.6px dashed ${colors.cardBorder}`,
+              background: isRead ? `linear-gradient(135deg, ${colors.gold}, ${READ_DONE_BORDER})` : "transparent",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",

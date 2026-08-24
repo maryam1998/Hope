@@ -98,6 +98,12 @@ const translationColor = "#0F5C34";
 // همون دلیلی که colors/mainTextColor بالا محلی تعریف شدن) تا هایلایتِ
 // جمله‌ی درحالِ‌خواندن، توی همه‌ی تب‌ها دقیقاً یک رنگ باشه.
 const READ_MARKER_COLOR = "#FFD54F";
+// گرادیانتِ طلاییِ «خوانده‌شده» — همون افکتِ .card.done توی
+// language-app-home.html، اینجا هم برای هدرِ سناریوهای بازشونده استفاده
+// می‌شه تا با بقیه‌ی جاهای اپ یکسان باشه.
+const READ_DONE_GRADIENT = "linear-gradient(145deg, #FCEACB 0%, #F6D69C 55%, #F0C583 100%)";
+const READ_DONE_BORDER = "#E3B96E";
+const READ_DONE_SHADOW = "0 4px 14px -6px rgba(201,154,46,.45)";
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
 // نسخه‌ی محلیِ نگاشتِ لوکالِ TTS — عیناً همون چیزی که app.jsx داره (برای
@@ -144,13 +150,11 @@ function TopicCard({ meta, index, hasData, onClick, uiLang, isRead, onToggleRead
         borderRadius: 16,
         textAlign: "center",
         cursor: "pointer",
-        border: `1px solid ${isRead ? "#E3B96E" : colors.cardBorder}`,
+        border: `1px solid ${isRead ? READ_DONE_BORDER : colors.cardBorder}`,
         // کارتِ «خوانده‌شده» گرادیانتِ طلاییِ ملایم می‌گیره، دقیقاً مثل
         // .card.done توی طرحِ مرجع؛ کارتِ معمولی سفیدِ ساده.
-        background: isRead
-          ? "linear-gradient(145deg, #FCEACB 0%, #F6D69C 55%, #F0C583 100%)"
-          : "#fff",
-        boxShadow: isRead ? "0 4px 14px -6px rgba(201,154,46,.45)" : "none",
+        background: isRead ? READ_DONE_GRADIENT : "#fff",
+        boxShadow: isRead ? READ_DONE_SHADOW : "none",
         opacity: hasData ? 1 : 0.55,
         minHeight: 96,
         transition: "transform .15s ease, box-shadow .15s ease",
@@ -466,7 +470,16 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
   if (levelFilter && levelFilter !== "all" && speakerA.length === 0 && speakerB.length === 0) return null;
 
   return (
-    <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, marginBottom: 10, overflow: "hidden", backgroundColor: isRead ? readDoneBg : "white" }}>
+    <div
+      style={{
+        border: `1px solid ${isRead ? READ_DONE_BORDER : colors.cardBorder}`,
+        borderRadius: 14,
+        marginBottom: 10,
+        overflow: "hidden",
+        background: isRead ? READ_DONE_GRADIENT : "white",
+        boxShadow: isRead ? READ_DONE_SHADOW : "none",
+      }}
+    >
       <button onClick={onToggle} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 15px", textAlign: "right" }}>
         <div className="flex items-center" style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
           <span
@@ -480,8 +493,8 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
               width: 20,
               height: 20,
               borderRadius: "50%",
-              border: `2px solid ${isRead ? readDoneColor : colors.cardBorder}`,
-              backgroundColor: isRead ? readDoneColor : "transparent",
+              border: isRead ? `1.6px solid ${readDoneColor || READ_DONE_BORDER}` : "1.6px dashed #C8BE95",
+              background: isRead ? `linear-gradient(135deg, ${colors.gold}, ${readDoneColor || READ_DONE_BORDER})` : "transparent",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -492,7 +505,7 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: fontFa, fontWeight: 700, fontSize: 14, color: colors.ink }}>{sc.scenario}</div>
             {sc.context && !isOpen && (
-              <div style={{ fontFamily: fontFa, fontSize: 11.5, color: colors.inkSoft, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <div style={{ fontFamily: fontFa, fontSize: 11.5, color: isRead ? colors.ink : colors.inkSoft, opacity: isRead ? 0.75 : 1, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {sc.context}
               </div>
             )}
