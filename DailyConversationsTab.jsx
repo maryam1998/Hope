@@ -122,30 +122,43 @@ const TTS_LOCALE_MINI = {
   uk: "uk-UA",
 };
 
-function TopicCard({ meta, hasData, onClick, uiLang, isRead, onToggleRead, readDoneColor, readDoneBg }) {
+// پالتِ رنگِ پس‌زمینه‌ی دایره‌ی آیکون — همون چهار رنگِ ملایمِ طرحِ اصلی
+// (language-app-home.html)، به‌ترتیب بین کارت‌ها می‌چرخه تا شبکه یکنواخت
+// نباشه، دقیقاً مثل نسخه‌ی مرجع.
+const TOPIC_BADGE_COLORS = ["#EAF4F1", "#FBF0DA", "#F3ECFB", "#FBE9E4"];
+
+function TopicCard({ meta, index, hasData, onClick, uiLang, isRead, onToggleRead, readDoneColor, readDoneBg }) {
   const label = uiLang === "fa" ? meta.fa : meta.en;
+  const badgeColor = TOPIC_BADGE_COLORS[(index || 0) % TOPIC_BADGE_COLORS.length];
   return (
     <div
       dir={uiLang === "fa" ? "rtl" : "ltr"}
+      onClick={onClick}
       style={{
         position: "relative",
         display: "flex",
         flexDirection: "column",
-        alignItems: "flex-start",
-        gap: 6,
-        padding: "14px 12px 12px",
-        borderRadius: 14,
-        textAlign: uiLang === "fa" ? "right" : "left",
-        border: `1px solid ${colors.cardBorder}`,
-        backgroundColor: isRead ? readDoneBg : "white",
+        alignItems: "center",
+        gap: 8,
+        padding: "14px 8px 12px",
+        borderRadius: 16,
+        textAlign: "center",
+        cursor: "pointer",
+        border: `1px solid ${isRead ? "#E3B96E" : colors.cardBorder}`,
+        // کارتِ «خوانده‌شده» گرادیانتِ طلاییِ ملایم می‌گیره، دقیقاً مثل
+        // .card.done توی طرحِ مرجع؛ کارتِ معمولی سفیدِ ساده.
+        background: isRead
+          ? "linear-gradient(145deg, #FCEACB 0%, #F6D69C 55%, #F0C583 100%)"
+          : "#fff",
+        boxShadow: isRead ? "0 4px 14px -6px rgba(201,154,46,.45)" : "none",
         opacity: hasData ? 1 : 0.55,
-        minHeight: 90,
+        minHeight: 96,
+        transition: "transform .15s ease, box-shadow .15s ease",
       }}
     >
-      {/* دایره‌ی خوانده‌شده — روی خودِ کارت، جدا از کلیکِ بازکردنِ موضوع، تا
-          کاربر بتونه بدونِ بازکردنِ موضوع هم پیشرفتش رو علامت بزنه. همیشه
-          سمتِ راستِ کارت (چه فارسی چه انگلیسی) — قبلاً برای فارسی به‌اشتباه
-          سمتِ چپ می‌رفت، اینجا با ternary درست‌شده تا با بقیه‌ی تب‌ها یکسان باشه. */}
+      {/* دایره‌ی خوانده‌شده — گوشه‌ی بالا سمتِ خلافِ جهتِ متن (مثلِ
+          bookmark-ring مرجع)، خط‌چین وقتی خونده‌نشده، طلایی و توپر با تیکِ
+          سفید وقتی خونده‌شده. */}
       <button
         onClick={(ev) => {
           ev.stopPropagation();
@@ -159,21 +172,33 @@ function TopicCard({ meta, hasData, onClick, uiLang, isRead, onToggleRead, readD
           width: 20,
           height: 20,
           borderRadius: "50%",
-          border: `2px solid ${isRead ? readDoneColor : colors.cardBorder}`,
-          backgroundColor: isRead ? readDoneColor : "transparent",
+          border: isRead ? `1.6px solid ${readDoneColor || "#B4841E"}` : "1.6px dashed #C8BE95",
+          background: isRead ? `linear-gradient(135deg, ${colors.gold}, ${readDoneColor || "#B4841E"})` : "#fff",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        {isRead && <Check size={13} color="white" strokeWidth={3} />}
+        {isRead && <Check size={11} color="#fff" strokeWidth={3} />}
       </button>
-      <button onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, width: "100%" }}>
-        <span style={{ fontSize: 24, lineHeight: 1 }}>{meta.icon}</span>
-        <span style={{ fontFamily: uiLang === "fa" ? fontFa : fontLatin, fontSize: 13, fontWeight: 700, color: colors.ink, lineHeight: 1.4 }}>
-          {label}
-        </span>
-      </button>
+      <span
+        style={{
+          width: 46,
+          height: 46,
+          borderRadius: "50%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 21,
+          lineHeight: 1,
+          background: isRead ? "rgba(255,255,255,.55)" : badgeColor,
+        }}
+      >
+        {meta.icon}
+      </span>
+      <span style={{ fontFamily: uiLang === "fa" ? fontFa : fontLatin, fontSize: 12.3, fontWeight: 600, color: colors.ink, lineHeight: 1.55 }}>
+        {label}
+      </span>
     </div>
   );
 }
@@ -889,72 +914,124 @@ export default function DailyConversationsTab({
         const readCountTotal = filteredMeta.filter((m) => topicReadIds.has(m.en)).length;
         return (
           <>
-            {total > 0 && (
-              <div
-                className="flex flex-col gap-2 p-3 rounded-lg"
-                style={{ backgroundColor: colors.paperDark, border: `1px solid ${colors.cardBorder}`, marginBottom: 10 }}
-              >
-                <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "fa" ? "rtl" : "ltr" }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: colors.ink, fontFamily: uiLang === "fa" ? fontFa : fontLatin }}>
-                    {uiLang === "fa" ? "موضوع‌ها" : "Topics"}
-                  </span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={total}
-                    value={topicRangeInput.from}
-                    placeholder="1"
-                    onChange={(ev) => setTopicRangeInput((prev) => ({ ...prev, from: ev.target.value }))}
-                    onBlur={() => {
-                      if (topicRangeInput.from !== "") setTopicRangeInput((prev) => ({ ...prev, from: String(clampedFrom) }));
-                    }}
-                    style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
-                  />
-                  <span style={{ fontSize: 13, color: colors.inkSoft }}>{uiLang === "fa" ? "تا" : "to"}</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={total}
-                    value={topicRangeInput.to}
-                    placeholder={String(defaultTo)}
-                    onChange={(ev) => setTopicRangeInput((prev) => ({ ...prev, to: ev.target.value }))}
-                    onBlur={() => {
-                      if (topicRangeInput.to !== "") setTopicRangeInput((prev) => ({ ...prev, to: String(clampedTo) }));
-                    }}
-                    style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
-                  />
-                  <span style={{ fontSize: 12, color: colors.inkSoft }}>
-                    {uiLang === "fa" ? `از مجموع ${total.toLocaleString("fa-IR")}` : `of ${total}`}
-                  </span>
+            {total > 0 && (() => {
+              const pct = total ? (readCountTotal / total) * 100 : 0;
+              return (
+                <div
+                  style={{
+                    background: "#fff",
+                    border: `1px solid ${colors.cardBorder}`,
+                    borderRadius: 18,
+                    padding: 16,
+                    marginBottom: 18,
+                    boxShadow: "0 10px 24px -12px rgba(18,46,42,.28)",
+                  }}
+                >
+                  {/* ردیفِ بازه («۱ تا ۴۰ / از مجموعِ ۴۰») — دقیقاً همون
+                      .progress-top طرحِ مرجع، با این تفاوت که عدد‌ها اینجا
+                      قابلِ‌ویرایشن (کاربر می‌تونه بازه‌ی نمایش رو خودش تنظیم کنه). */}
+                  <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "fa" ? "rtl" : "ltr", marginBottom: 12 }}>
+                    <input
+                      type="number"
+                      min={1}
+                      max={total}
+                      value={topicRangeInput.from}
+                      placeholder="1"
+                      onChange={(ev) => setTopicRangeInput((prev) => ({ ...prev, from: ev.target.value }))}
+                      onBlur={() => {
+                        if (topicRangeInput.from !== "") setTopicRangeInput((prev) => ({ ...prev, from: String(clampedFrom) }));
+                      }}
+                      style={{ width: 44, padding: "4px 4px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, fontWeight: 700, color: colors.teal, textAlign: "center" }}
+                    />
+                    <span style={{ fontSize: 15, fontWeight: 700, color: colors.teal }}>{uiLang === "fa" ? "تا" : "to"}</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={total}
+                      value={topicRangeInput.to}
+                      placeholder={String(defaultTo)}
+                      onChange={(ev) => setTopicRangeInput((prev) => ({ ...prev, to: ev.target.value }))}
+                      onBlur={() => {
+                        if (topicRangeInput.to !== "") setTopicRangeInput((prev) => ({ ...prev, to: String(clampedTo) }));
+                      }}
+                      style={{ width: 44, padding: "4px 4px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, fontWeight: 700, color: colors.teal, textAlign: "center" }}
+                    />
+                    <span style={{ fontSize: 13, color: colors.inkSoft, fontWeight: 600, marginRight: "auto" }}>
+                      {uiLang === "fa" ? "موضوع‌ها " : "Topics "}
+                      <span style={{ fontWeight: 400 }}>{uiLang === "fa" ? `از مجموع ${total.toLocaleString("fa-IR")}` : `of ${total}`}</span>
+                    </span>
+                  </div>
+
+                  {/* نوارِ پیشرفتِ کلیِ همه‌ی موضوع‌ها — گرادیانتِ سبز→طلایی،
+                      دقیقاً مثلِ .progress-meter i طرحِ مرجع. */}
+                  <div style={{ height: 8, borderRadius: 99, background: colors.paperDark, overflow: "hidden", marginBottom: 12 }}>
+                    <div
+                      style={{
+                        display: "block",
+                        height: "100%",
+                        width: `${pct}%`,
+                        background: `linear-gradient(90deg, ${colors.teal}, ${colors.gold})`,
+                        transition: "width .3s ease",
+                      }}
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "fa" ? "rtl" : "ltr" }}>
+                    <span style={{ fontSize: 13, color: "#2E7D6C", fontWeight: 600 }}>
+                      {uiLang === "fa"
+                        ? `خوانده‌شده: ${readCountTotal.toLocaleString("fa-IR")} از ${total.toLocaleString("fa-IR")} · ${readCountInRange.toLocaleString("fa-IR")} از ${visibleMeta.length.toLocaleString("fa-IR")} در این بازه`
+                        : `Read: ${readCountTotal}/${total} · ${readCountInRange}/${visibleMeta.length} in range`}
+                    </span>
+                  </div>
+
+                  {/* دکمه‌های عمل — دقیقاً همون .btn-ghost / .btn-ghost.mark-all
+                      طرحِ مرجع (سبزِ کم‌رنگ برای «همه به خوانده‌شده»، کِرمِ
+                      خنثی برای «پاک‌کردن»). */}
+                  <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "fa" ? "rtl" : "ltr", marginTop: 12 }}>
+                    <button
+                      type="button"
+                      onClick={() => markTopicRangeRead(visibleMeta, true)}
+                      style={{
+                        fontFamily: uiLang === "fa" ? fontFa : fontLatin,
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        padding: "8px 12px",
+                        borderRadius: 11,
+                        border: "1px solid #CFE6DF",
+                        background: "#EAF4F1",
+                        color: colors.teal,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {uiLang === "fa" ? "علامت‌گذاری همه به خوانده‌شده" : "Mark range read"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => markTopicRangeRead(visibleMeta, false)}
+                      style={{
+                        fontFamily: uiLang === "fa" ? fontFa : fontLatin,
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        padding: "8px 12px",
+                        borderRadius: 11,
+                        border: `1px solid ${colors.cardBorder}`,
+                        background: colors.paper,
+                        color: colors.teal,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {uiLang === "fa" ? "پاک‌کردن علامت این بازه" : "Clear range"}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "fa" ? "rtl" : "ltr" }}>
-                  <span style={{ fontSize: 12, color: colors.teal, fontWeight: 700 }}>
-                    {uiLang === "fa"
-                      ? `خوانده‌شده: ${readCountInRange.toLocaleString("fa-IR")} از ${visibleMeta.length.toLocaleString("fa-IR")} در این بازه · ${readCountTotal.toLocaleString("fa-IR")} از ${total.toLocaleString("fa-IR")} کل`
-                      : `Read: ${readCountInRange}/${visibleMeta.length} in range · ${readCountTotal}/${total} total`}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => markTopicRangeRead(visibleMeta, true)}
-                    style={{ fontSize: 11, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "2px 8px" }}
-                  >
-                    {uiLang === "fa" ? "علامت‌گذاری همه به خوانده‌شده" : "Mark range read"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => markTopicRangeRead(visibleMeta, false)}
-                    style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "2px 8px" }}
-                  >
-                    {uiLang === "fa" ? "پاک‌کردن علامت این بازه" : "Clear range"}
-                  </button>
-                </div>
-              </div>
-            )}
+              );
+            })()}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-              {visibleMeta.map((m) => (
+              {visibleMeta.map((m, i) => (
                 <TopicCard
                   key={m.en}
                   meta={m}
+                  index={i}
                   uiLang={uiLang}
                   hasData={!!dataByTopic[m.en]}
                   isRead={topicReadIds.has(m.en)}

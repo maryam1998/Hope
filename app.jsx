@@ -4514,20 +4514,22 @@ function LangStamp({ lang, active, onClick, disabled }) {
       disabled={disabled}
       style={{
         fontFamily: fontFa,
-        width: 44,
-        height: 44,
+        width: 52,
+        height: 52,
         borderRadius: "50%",
-        border: `2px dashed ${active ? colors.gold : colors.cardBorder}`,
-        backgroundColor: active ? colors.gold : "transparent",
-        color: active ? colors.paper : colors.inkSoft,
+        border: active ? `1.6px solid ${colors.gold}` : `1.6px dashed ${colors.cardBorder}`,
+        background: active ? `linear-gradient(135deg, ${colors.gold}, ${colors.goldSoft})` : "transparent",
+        color: active ? colors.ink : colors.inkSoft,
         fontWeight: 700,
-        fontSize: 11,
+        fontSize: 12.5,
+        letterSpacing: 0.3,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.3 : 1,
+        boxShadow: active ? "0 6px 16px -4px rgba(201,154,46,.55)" : "none",
         transition: "background-color 0.15s, border-color 0.15s",
       }}
       aria-pressed={active}
@@ -5370,16 +5372,21 @@ function TabButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyP
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium"
+      className="flex items-center gap-1.5 justify-center rounded-full"
       style={{
         fontFamily: fontFamilyProp || fontFa,
-        backgroundColor: active ? colors.ink : "transparent",
+        fontSize: 13,
+        fontWeight: 600,
+        padding: "11px 16px",
+        // غیرفعال: کِرمِ تیره‌ترِ همون طرحِ مرجع؛ فعال: سبزِ تیره‌ی هدر —
+        // دقیقاً همون جفت‌رنگِ .tab / .tab.active توی language-app-home.html
+        backgroundColor: active ? colors.ink : colors.paperDark,
         color: active ? colors.paper : colors.inkSoft,
         border: `1px solid ${active ? colors.ink : colors.cardBorder}`,
         whiteSpace: "nowrap",
       }}
     >
-      <Icon size={16} />
+      <Icon size={15} />
       {label}
     </button>
   );
@@ -6127,8 +6134,9 @@ function PlayerProgressTrack({ color }) {
     const el = trackRef.current;
     if (!el) return 0;
     const rect = el.getBoundingClientRect();
-    // dir="rtl": سمتِ راستِ نوار = صفر درصد، چپ = صد درصد
-    const pct = ((rect.right - clientX) / rect.width) * 100;
+    // پخش همیشه از چپ به راست پیش می‌ره (استانداردِ جهانیِ پلیرهای صوتی،
+    // مستقل از راست‌به‌چپ بودنِ متن/رابط): سمتِ چپِ نوار = صفر درصد، راست = صد درصد
+    const pct = ((clientX - rect.left) / rect.width) * 100;
     return Math.min(100, Math.max(0, pct));
   }
   function idxFromPct(pct) {
@@ -6214,12 +6222,14 @@ function PlayerProgressTrack({ color }) {
             {meta.slice(1).map((m, i) => (
               <div
                 key={i}
-                style={{ position: "absolute", top: 0, width: 2, height: 4, background: "rgba(28,37,65,.3)", right: `${(m.start / fullLen) * 100}%` }}
+                style={{ position: "absolute", top: 0, width: 2, height: 4, background: "rgba(28,37,65,.3)", left: `${(m.start / fullLen) * 100}%` }}
               />
             ))}
           </div>
         )}
-        <div style={{ position: "absolute", right: 0, height: 4, borderRadius: 2, background: c, width: `${shownPct}%` }} />
+        {/* پخش از چپ به راست پیش می‌ره: بخشِ پرشده از سمتِ چپِ نوار شروع
+            می‌شه و با پیشرفتِ خواندن به سمتِ راست بزرگ‌تر می‌شه. */}
+        <div style={{ position: "absolute", left: 0, height: 4, borderRadius: 2, background: c, width: `${shownPct}%` }} />
         <div
           style={{
             position: "absolute",
@@ -6229,8 +6239,8 @@ function PlayerProgressTrack({ color }) {
             background: c,
             border: `2px solid ${colors.paper}`,
             boxShadow: "0 1px 4px rgba(28,37,65,.35)",
-            right: `${shownPct}%`,
-            transform: "translateX(50%)",
+            left: `${shownPct}%`,
+            transform: "translateX(-50%)",
           }}
         />
       </div>
@@ -7130,11 +7140,11 @@ function LevelFilterRow({ levelFilter, setLevelFilter, uiLang }) {
         onClick={() => setLevelFilter("all")}
         style={{
           fontFamily: uiLang === "en" ? fontLatin : fontFa,
-          fontSize: 12,
+          fontSize: 13,
           fontWeight: 600,
-          padding: "4px 12px",
-          borderRadius: 14,
-          border: `1px solid ${colors.cardBorder}`,
+          padding: "9px 16px",
+          borderRadius: 999,
+          border: `1px solid ${levelFilter === "all" ? colors.ink : colors.cardBorder}`,
           backgroundColor: levelFilter === "all" ? colors.ink : "white",
           color: levelFilter === "all" ? colors.paper : colors.inkSoft,
           flexShrink: 0,
@@ -7148,11 +7158,11 @@ function LevelFilterRow({ levelFilter, setLevelFilter, uiLang }) {
           onClick={() => setLevelFilter(lvl)}
           style={{
             fontFamily: fontLatin,
-            fontSize: 12,
-            fontWeight: 700,
-            padding: "4px 12px",
-            borderRadius: 14,
-            border: `1px solid ${colors.cardBorder}`,
+            fontSize: 13,
+            fontWeight: 600,
+            padding: "9px 16px",
+            borderRadius: 999,
+            border: `1px solid ${levelFilter === lvl ? colors.ink : colors.cardBorder}`,
             backgroundColor: levelFilter === lvl ? colors.ink : "white",
             color: levelFilter === lvl ? colors.paper : colors.inkSoft,
             flexShrink: 0,
@@ -7890,7 +7900,9 @@ function UserAudioProgressTrack({ ua, color }) {
         value={currentTime || 0}
         onChange={(e) => hasAudio && seek(Number(e.target.value))}
         disabled={!hasAudio}
-        style={{ flex: 1, accentColor: color, opacity: hasAudio ? 1 : 0.5 }}
+        // پخش همیشه چپ‌به‌راست پیش می‌ره؛ بدونِ direction:ltr صریح، اینپوتِ
+        // native داخلِ صفحه‌ی dir="rtl" برعکس (راست‌به‌چپ) پر می‌شد.
+        style={{ flex: 1, accentColor: color, opacity: hasAudio ? 1 : 0.5, direction: "ltr" }}
       />
       <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 34, textAlign: "left" }}>{fmtTime(duration)}</span>
     </div>
@@ -9630,8 +9642,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             return (
               <>
                 <div
-                  className="flex flex-col gap-2 p-3 rounded-lg"
-                  style={{ backgroundColor: colors.paperDark, border: `1px solid ${colors.cardBorder}` }}
+                  className="flex flex-col gap-2 p-4"
+                  style={{ background: "#fff", border: `1px solid ${colors.cardBorder}`, borderRadius: 18, boxShadow: "0 10px 24px -12px rgba(18,46,42,.28)" }}
                 >
                   <div className="flex items-center gap-2 flex-wrap">
                     <span style={{ fontSize: 13, fontWeight: 700, color: colors.ink }}>داستان‌ها</span>
@@ -11186,8 +11198,8 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                   به‌اندازه‌ی کافی بزرگه لازم می‌شه، ولی برای ساده‌موندنِ
                   منطق همیشه نشون داده می‌شه (مثلِ WordList). */}
               <div
-                className="flex flex-col gap-2 p-2 mb-2 rounded-lg"
-                style={{ backgroundColor: colors.paperDark, border: `1px solid ${colors.cardBorder}` }}
+                className="flex flex-col gap-2 p-3 mb-2"
+                style={{ background: "#fff", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, boxShadow: "0 10px 24px -12px rgba(18,46,42,.28)" }}
               >
                 <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl" }}>
                   <input
@@ -12112,8 +12124,8 @@ function GrammarPanel({
           const allInRangeFlat = rangedNoteGroups.flatMap((g) => g.items);
           return (
             <div
-              className="flex flex-col gap-2 p-3 rounded-lg"
-              style={{ backgroundColor: colors.paperDark, border: `1px solid ${colors.cardBorder}` }}
+              className="flex flex-col gap-2 p-4"
+              style={{ background: "#fff", border: `1px solid ${colors.cardBorder}`, borderRadius: 18, boxShadow: "0 10px 24px -12px rgba(18,46,42,.28)" }}
             >
               <div className="flex items-center gap-2 flex-wrap">
                 <span style={{ fontSize: 13, fontWeight: 700, color: colors.ink }}>یادداشت‌ها</span>
@@ -12378,6 +12390,8 @@ function GrammarPanel({
             backgroundColor: colors.paperDark,
             border: `1px solid ${PRACTICE_PANEL_BORDER}`,
             borderTop: `1px solid ${PRACTICE_PANEL_BORDER}`,
+            borderTopLeftRadius: 16,
+            borderTopRightRadius: 16,
             boxShadow: "0 -4px 14px rgba(28,37,65,0.12)",
             transform: `translate3d(${practiceLiveMoveOffset.x}px, ${practiceLiveMoveOffset.y}px, 0)`,
             transition:
@@ -13496,28 +13510,33 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         @keyframes pb-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
 
-      {/* Header */}
+      {/* Header — همون گرادیانتِ ملایمِ سبزِ تیره‌ی طرحِ مرجع (radial highlight +
+          linear teal-900→teal-950) به‌جای رنگِ تخت، تا حسِ عمق/نرمیِ همون
+          هدر رو داشته باشه. */}
       <header
-        style={{ backgroundColor: colors.teal, color: colors.paper }}
+        style={{
+          background: `radial-gradient(120% 140% at 15% -10%, rgba(255,255,255,.07), transparent 55%), linear-gradient(165deg, ${colors.teal} 0%, ${colors.ink} 78%)`,
+          color: colors.paper,
+        }}
         className="px-4 pt-6 pb-5"
       >
         <div className="flex items-center justify-end mb-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             {user?.picture ? (
-              <img src={user.picture} alt="" style={{ width: 26, height: 26, borderRadius: "50%" }} />
+              <img src={user.picture} alt="" style={{ width: 34, height: 34, borderRadius: "50%" }} />
             ) : (
               <div
                 style={{
-                  width: 26,
-                  height: 26,
+                  width: 34,
+                  height: 34,
                   borderRadius: "50%",
-                  background: colors.gold,
+                  background: `linear-gradient(135deg, ${colors.gold}, ${colors.goldSoft})`,
                   color: colors.ink,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: 12,
-                  fontWeight: 800,
+                  fontSize: 14,
+                  fontWeight: 700,
                 }}
               >
                 {(user?.name || user?.email || "?").trim().charAt(0).toUpperCase()}
@@ -13526,14 +13545,15 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             <SettingsMenu appPrefs={appPrefs} setAppPrefs={setAppPrefs} user={user} onLogout={onLogout} aiSettings={aiSettings} />
           </div>
         </div>
-        <p style={{ color: colors.goldSoft, fontSize: 13 }}>
+        <p style={{ color: colors.paper, opacity: 0.85, fontSize: 13.5 }}>
           از {nativeLabel} به {targetLabel} · {user?.name || user?.email}
         </p>
 
         {/* Language pickers */}
         <div className="mt-4">
-          <p style={{ fontSize: 12, color: colors.paperDark, marginBottom: 6 }}>
-            زبان مادری (برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)
+          <p style={{ fontSize: 13.5, color: colors.paper, opacity: 0.85, marginBottom: 10, lineHeight: 1.9 }}>
+            زبان مادری{" "}
+            <b style={{ color: colors.gold, fontWeight: 600 }}>(برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)</b>
           </p>
           <DraggableLangRow
             order={langPickerOrder}
@@ -13545,8 +13565,12 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             isActive={(code) => code === nativeLang}
             onClick={(code) => setNativeLang(code)}
           />
-          <p style={{ fontSize: 12, color: colors.paperDark, margin: "10px 0 6px" }}>
-            زبان‌های مقصد (چند تا رو می‌تونی هم‌زمان انتخاب کنی — برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)
+          <div style={{ height: 1, background: "rgba(255,255,255,.14)", margin: "18px 0 14px" }} />
+          <p style={{ fontSize: 13.5, color: colors.paper, opacity: 0.85, marginBottom: 10, lineHeight: 1.9 }}>
+            زبان‌های مقصد{" "}
+            <b style={{ color: colors.gold, fontWeight: 600 }}>
+              (چند تا رو می‌تونی هم‌زمان انتخاب کنی — برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)
+            </b>
           </p>
           <DraggableLangRow
             order={langPickerOrder}
@@ -13603,10 +13627,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "slang") && (
         <div className="px-4 pt-3">
           <div
-            className="flex items-center gap-2 px-3"
-            style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 20, height: 40 }}
+            className="flex items-center gap-2 px-4"
+            style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, height: 48 }}
           >
-            <Search size={16} color={colors.inkSoft} />
+            <Search size={17} color={colors.inkSoft} />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -15539,13 +15563,19 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
     <div className="flex flex-col gap-2">
       {/* کنترلِ بازه‌ی نمایش («از # تا #») + وضعیتِ خوانده‌شده — چون تعدادِ
           لغات این لیست زیاده، به‌جای اسکرولِ بی‌نهایت، کاربر خودش مشخص
-          می‌کنه کدوم بازه رو ببینه. */}
+          می‌کنه کدوم بازه رو ببینه. همون ظاهرِ progress-card طرحِ مرجع:
+          کارتِ سفیدِ گرد با سایه، به‌جای جعبه‌ی تختِ paperDark قبلی. */}
       <div
-        className="flex flex-col gap-2 p-3 rounded-lg"
-        style={{ backgroundColor: colors.paperDark, border: `1px solid ${colors.cardBorder}`, fontFamily: uiLang === "en" ? fontLatin : fontFa }}
+        style={{
+          background: "#fff",
+          border: `1px solid ${colors.cardBorder}`,
+          borderRadius: 18,
+          padding: 16,
+          boxShadow: "0 10px 24px -12px rgba(18,46,42,.28)",
+          fontFamily: uiLang === "en" ? fontLatin : fontFa,
+        }}
       >
-        <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl" }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: colors.ink }}>{uiLang === "en" ? "Words" : "لغات"}</span>
+        <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl", marginBottom: 12 }}>
           <input
             type="number"
             min={1}
@@ -15556,9 +15586,9 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
             onBlur={() => {
               if (rangeFromInput !== "") setRangeFromInput(String(clampedFrom));
             }}
-            style={{ width: 64, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
+            style={{ width: 44, padding: "4px 4px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, fontWeight: 700, color: colors.teal, textAlign: "center" }}
           />
-          <span style={{ fontSize: 13, color: colors.inkSoft }}>{uiLang === "en" ? "to" : "تا"}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: colors.teal }}>{uiLang === "en" ? "to" : "تا"}</span>
           <input
             type="number"
             min={1}
@@ -15569,29 +15599,43 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
             onBlur={() => {
               if (rangeToInput !== "") setRangeToInput(String(clampedTo));
             }}
-            style={{ width: 64, padding: "4px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, textAlign: "center" }}
+            style={{ width: 44, padding: "4px 4px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, fontWeight: 700, color: colors.teal, textAlign: "center" }}
           />
-          <span style={{ fontSize: 12, color: colors.inkSoft }}>
-            {uiLang === "en" ? `of ${filtered.length}` : `از مجموع ${filtered.length.toLocaleString("fa-IR")}`}
+          <span style={{ fontSize: 13, color: colors.inkSoft, fontWeight: 600, marginRight: "auto" }}>
+            {uiLang === "en" ? "Words " : "لغات "}
+            <span style={{ fontWeight: 400 }}>{uiLang === "en" ? `of ${filtered.length}` : `از مجموع ${filtered.length.toLocaleString("fa-IR")}`}</span>
           </span>
         </div>
+        <div style={{ height: 8, borderRadius: 99, background: colors.paperDark, overflow: "hidden", marginBottom: 12 }}>
+          <div
+            style={{
+              display: "block",
+              height: "100%",
+              width: `${filtered.length ? (readCountTotal / filtered.length) * 100 : 0}%`,
+              background: `linear-gradient(90deg, ${colors.teal}, ${colors.gold})`,
+              transition: "width .3s ease",
+            }}
+          />
+        </div>
         <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl" }}>
-          <span style={{ fontSize: 12, color: translationColor, fontWeight: 700 }}>
+          <span style={{ fontSize: 13, color: "#2E7D6C", fontWeight: 600 }}>
             {uiLang === "en"
-              ? `Read: ${readCountInRange}/${visible.length} in range · ${readCountTotal}/${filtered.length} total`
-              : `خوانده‌شده: ${readCountInRange.toLocaleString("fa-IR")} از ${visible.length.toLocaleString("fa-IR")} در این بازه · ${readCountTotal.toLocaleString("fa-IR")} از ${filtered.length.toLocaleString("fa-IR")} کل`}
+              ? `Read: ${readCountTotal}/${filtered.length} · ${readCountInRange}/${visible.length} in range`
+              : `خوانده‌شده: ${readCountTotal.toLocaleString("fa-IR")} از ${filtered.length.toLocaleString("fa-IR")} · ${readCountInRange.toLocaleString("fa-IR")} از ${visible.length.toLocaleString("fa-IR")} در این بازه`}
           </span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl", marginTop: 12 }}>
           <button
             type="button"
             onClick={() => markRangeRead(true)}
-            style={{ fontSize: 11, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "2px 8px" }}
+            style={{ fontSize: 12.5, fontWeight: 600, padding: "8px 12px", borderRadius: 11, border: "1px solid #CFE6DF", background: "#EAF4F1", color: colors.teal, cursor: "pointer" }}
           >
             {uiLang === "en" ? "Mark range read" : "علامت‌گذاری همه به خوانده‌شده"}
           </button>
           <button
             type="button"
             onClick={() => markRangeRead(false)}
-            style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "2px 8px" }}
+            style={{ fontSize: 12.5, fontWeight: 600, padding: "8px 12px", borderRadius: 11, border: `1px solid ${colors.cardBorder}`, background: colors.paper, color: colors.teal, cursor: "pointer" }}
           >
             {uiLang === "en" ? "Clear range" : "پاک‌کردن علامت این بازه"}
           </button>
@@ -15606,9 +15650,10 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
             registerRef(w.id)(el);
             registerListRef(w.id)(el);
           }}
-          className="flex items-center justify-between p-3 rounded-lg"
+          className="flex items-center justify-between p-3"
           style={{
             position: "relative",
+            borderRadius: 14,
             backgroundColor: isRead ? READ_DONE_BG : "white",
             border: `1px solid ${highlightBg(highlightColor, justJumpedId === w.id, colors.cardBorder)}`,
             boxShadow: justJumpedId === w.id && highlightColor !== "none" ? `0 0 0 2px ${highlightColor || READ_MARKER_COLOR}` : "none",
