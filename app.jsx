@@ -8466,6 +8466,17 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [pdfReadProgress, setPdfReadProgress] = useState("");
   const [pdfReadError, setPdfReadError] = useState("");
   const pdfReadInputRef = useRef(null);
+  // خروجیِ «PDF دوزبانه» — برخلافِ دوتای بالا (که فقط متنِ PDF رو
+  // استخراج می‌کنن)، این‌یکی خودِ فایل رو دست‌نخورده نگه می‌داره: هر صفحه‌ی
+  // اصلی (با عکس/چیدمانِ خودش) دقیقاً همون‌جوری که هست به‌صورتِ عکس رندر
+  // و در یک PDFِ خروجیِ جدید embed می‌شه، و بلافاصله بعدش یک صفحه‌ی
+  // «روبرو» با ترجمه‌ی همون متن اضافه می‌شه — پس چیزی از فایلِ اصلی
+  // (عکس‌ها/فرمت) گم نمی‌شه، فقط یک PDFِ تازه با متن+ترجمه ساخته و دانلود
+  // می‌شه (فایلِ اصلیِ کاربر جایی آپلود/تغییر داده نمی‌شه).
+  const [bilingualPdfBusy, setBilingualPdfBusy] = useState(false);
+  const [bilingualPdfProgress, setBilingualPdfProgress] = useState("");
+  const [bilingualPdfError, setBilingualPdfError] = useState("");
+  const bilingualPdfInputRef = useRef(null);
   // پیست‌کردنِ مستقیمِ متن/داستان برای خوانش — همون مسیرِ «وارد کردنِ PDF
   // برای خوانش» بالا، فقط منبعِ متن به‌جای فایل، تایپ‌شده/پیست‌شده‌ی خودِ کاربره.
   const [pastedReadingText, setPastedReadingText] = useState("");
@@ -9793,6 +9804,176 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     }
   };
 
+  // «خروجی PDF دوزبانه» — فایلِ خامِ PDF (عکس‌ها/چیدمانِ اصلی) دست‌نخورده
+  // می‌مونه: هر صفحه با pdf.js دقیقاً همون‌جوری که هست به یک عکس رندر و
+  // در یک PDFِ خروجیِ تازه گذاشته می‌شه، و بلافاصله بعدش یک صفحه‌ی
+  // «روبرو»ی ترجمه اضافه می‌شه (متنِ همون صفحه، ترجمه‌شده). چون کشیدنِ
+  // مستقیمِ متنِ فارسی/عربی با pdf-lib شکلِ حروف رو به‌هم نمی‌چسبونه (بدونِ
+  // text-shaping بدشکل درمیاد)، ترجمه رو هم با canvas (fillText خودِ
+  // مرورگر که shaping/جهتِ RTL رو کامل بلده) می‌کِشیم و مثلِ صفحه‌ی اصلی،
+  // به‌صورتِ عکس embed می‌کنیم — نتیجه یک PDFِ واحد با متنِ اصلی و ترجمه‌ی
+  // روبروی هم، برای هر صفحه.
+  const BILINGUAL_PDF_MAX_BYTES = 80 * 1024 * 1024; // ۸۰ مگابایت — رندرِ تصویریِ صفحه‌به‌صفحه از استخراجِ صرفِ متن سنگین‌تره
+  const BILINGUAL_PDF_MAX_PAGES = 60; // سقفِ صفحات، تا رندر+ترجمه رو موبایل خیلی طول نکشه/قفل نکنه
+  const BILINGUAL_PDF_RENDER_SCALE = 1.6; // کیفیتِ کافی برای خوانا بودنِ متن/عکسِ صفحه، بدونِ حجمِ زیادِ نهایی
+
+  const handleBilingualPdfExport = async (e) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = "";
+    if (!file) return;
+    setBilingualPdfError("");
+    if (file.size > BILINGUAL_PDF_MAX_BYTES) {
+      setBilingualPdfError(`حجمِ فایل بیشتر از ${Math.round(BILINGUAL_PDF_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه`);
+      return;
+    }
+    setBilingualPdfBusy(true);
+    setBilingualPdfProgress("در حال آماده‌سازی...");
+    try {
+      const [pdfjsLib, pdfLib] = await Promise.all([import("pdfjs-dist"), import("pdf-lib")]);
+      const { PDFDocument } = pdfLib;
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
+      const buf = await file.arrayBuffer();
+      const srcDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+      const pageCount = Math.min(srcDoc.numPages, BILINGUAL_PDF_MAX_PAGES);
+      const truncated = srcDoc.numPages > BILINGUAL_PDF_MAX_PAGES;
+
+      // مطمئن شو فونتِ فارسیِ خودِ اپ قبل از رسم روی canvas لود شده —
+      // وگرنه ممکنه اولین صفحات با فونتِ پیش‌فرضِ سیستم (زشت/بی‌ربط) کشیده بشن.
+      try {
+        await document.fonts.load("bold 26px Vazirmatn");
+        await document.fonts.load("22px Vazirmatn");
+        await document.fonts.ready;
+      } catch {}
+
+      const outDoc = await PDFDocument.create();
+      const isRtl = /^(fa|ar|ur|he|ps|ku)/i.test(nativeLang || "");
+
+      const canvasToJpgBytes = (canvas) =>
+        new Promise((resolve) => {
+          canvas.toBlob(
+            (b) => (b ? b.arrayBuffer().then(resolve) : resolve(null)),
+            "image/jpeg",
+            0.85
+          );
+        });
+
+      for (let i = 1; i <= pageCount; i++) {
+        setBilingualPdfProgress(`صفحه‌ی ${i} از ${pageCount}: رندرِ صفحه‌ی اصلی...`);
+        await new Promise((r) => setTimeout(r, 0)); // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — تا UI قفل نشه
+
+        const page = await srcDoc.getPage(i);
+        const viewport = page.getViewport({ scale: BILINGUAL_PDF_RENDER_SCALE });
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = Math.max(1, Math.ceil(viewport.width));
+        pageCanvas.height = Math.max(1, Math.ceil(viewport.height));
+        const pageCtx = pageCanvas.getContext("2d");
+        await page.render({ canvasContext: pageCtx, viewport }).promise;
+        const pageBytes = await canvasToJpgBytes(pageCanvas);
+        if (pageBytes) {
+          const pageImg = await outDoc.embedJpg(pageBytes);
+          const outPage1 = outDoc.addPage([pageCanvas.width, pageCanvas.height]);
+          outPage1.drawImage(pageImg, { x: 0, y: 0, width: pageCanvas.width, height: pageCanvas.height });
+        }
+
+        // متنِ همین صفحه رو دربیار و ترجمه کن
+        setBilingualPdfProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
+        const content = await page.getTextContent();
+        const pageText = content.items.map((it) => it.str).join(" ").trim();
+        let translatedText = "";
+        if (pageText) {
+          const sentences = splitTextIntoSentenceStrings(pageText);
+          // سرویس‌های رایگانِ ترجمه سقفِ طولِ متن دارن — جمله‌ها رو تو
+          // گروه‌های چندصدکاراکتری دسته می‌کنیم، هر گروه یه درخواستِ جدا.
+          const groups = [];
+          let cur = "";
+          for (const s of sentences.length ? sentences : [pageText]) {
+            if (cur && (cur + " " + s).length > 400) {
+              groups.push(cur);
+              cur = s;
+            } else {
+              cur = cur ? `${cur} ${s}` : s;
+            }
+          }
+          if (cur) groups.push(cur);
+          const translatedGroups = await runWithConcurrencyLimit(groups, GLOBAL_TRANSLATE_CONCURRENCY, (g) =>
+            translateFree(g, nativeLang || "fa", "auto", aiSettings)
+          );
+          translatedText = translatedGroups.join(" ");
+        }
+
+        // صفحه‌ی «روبرو»ی ترجمه — به‌صورتِ عکسِ متنی (canvas)، دقیقاً به
+        // همون اندازه‌ی صفحه‌ی اصلی، تا نظمِ صفحه‌به‌صفحه‌ی PDF حفظ بشه.
+        const txCanvas = document.createElement("canvas");
+        txCanvas.width = pageCanvas.width;
+        txCanvas.height = pageCanvas.height;
+        const txCtx = txCanvas.getContext("2d");
+        txCtx.fillStyle = "#fdfbf5";
+        txCtx.fillRect(0, 0, txCanvas.width, txCanvas.height);
+        txCtx.direction = isRtl ? "rtl" : "ltr";
+        txCtx.textBaseline = "top";
+        txCtx.textAlign = isRtl ? "right" : "left";
+        const margin = Math.round(txCanvas.width * 0.06);
+        const maxWidth = txCanvas.width - margin * 2;
+        const startX = isRtl ? txCanvas.width - margin : margin;
+        let y = margin;
+
+        txCtx.fillStyle = "#8a6d1f";
+        txCtx.font = `bold 26px Vazirmatn, Tahoma, sans-serif`;
+        txCtx.fillText(`ترجمه — صفحه‌ی ${i}`, startX, y);
+        y += 46;
+
+        txCtx.fillStyle = "#242018";
+        const fontSizePx = 21;
+        const lineHeight = Math.round(fontSizePx * 1.7);
+        txCtx.font = `${fontSizePx}px Vazirmatn, Tahoma, sans-serif`;
+        const words = (translatedText || "متنی برای ترجمه در این صفحه پیدا نشد.").split(/\s+/).filter(Boolean);
+        let line = "";
+        for (const w of words) {
+          const test = line ? `${line} ${w}` : w;
+          if (line && txCtx.measureText(test).width > maxWidth) {
+            if (y > txCanvas.height - margin - lineHeight) { line = ""; break; } // دیگه جا نیست — بقیه‌ی ترجمه‌ی این صفحه truncate می‌شه
+            txCtx.fillText(line, startX, y);
+            y += lineHeight;
+            line = w;
+          } else {
+            line = test;
+          }
+        }
+        if (line && y <= txCanvas.height - margin) txCtx.fillText(line, startX, y);
+
+        const txBytes = await canvasToJpgBytes(txCanvas);
+        if (txBytes) {
+          const txImg = await outDoc.embedJpg(txBytes);
+          const outPage2 = outDoc.addPage([txCanvas.width, txCanvas.height]);
+          outPage2.drawImage(txImg, { x: 0, y: 0, width: txCanvas.width, height: txCanvas.height });
+        }
+      }
+
+      const outBytes = await outDoc.save();
+      const blob = new Blob([outBytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${file.name.replace(/\.pdf$/i, "")} - دوزبانه.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+
+      setBilingualPdfError(
+        truncated
+          ? `توجه: چون فایل بیشتر از ${BILINGUAL_PDF_MAX_PAGES} صفحه بود، فقط ${BILINGUAL_PDF_MAX_PAGES} صفحه‌ی اول پردازش و دانلود شد`
+          : ""
+      );
+    } catch (err) {
+      console.error(err);
+      setBilingualPdfError("ساختِ PDFِ دوزبانه مشکل داشت — فایل ممکنه خراب باشه یا حجم/تعدادِ صفحاتش برای مرورگر زیاد باشه");
+    } finally {
+      setBilingualPdfBusy(false);
+      setBilingualPdfProgress("");
+    }
+  };
+
   // متنِ پیست‌شده (بدون PDF، بدون AI) رو دقیقاً با همون منطقِ بالا
   // (تقسیم به جمله → گروه‌بندیِ هر ۵ جمله در یک پاراگراف) وارد سیستمِ
   // خوانش می‌کنه — رایگان و آنیه چون هیچ درخواستی به AI زده نمی‌شه.
@@ -10594,6 +10775,39 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         )}
         <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
           به‌جای ساختِ داستان با هوش‌مصنوعی، متنِ خودِ PDF رو با همین سیستمِ خوانش (ترجمه، هایلایت، صدا) نشون می‌ده — بدونِ نیاز به انتخابِ لغت.
+        </p>
+
+        <input
+          ref={bilingualPdfInputRef}
+          type="file"
+          accept="application/pdf"
+          onChange={handleBilingualPdfExport}
+          style={{ display: "none" }}
+        />
+        <button
+          onClick={() => bilingualPdfInputRef.current?.click()}
+          disabled={bilingualPdfBusy}
+          className="flex items-center justify-center gap-2"
+          style={{
+            width: "100%",
+            border: `1px dashed ${colors.gold}`,
+            borderRadius: 14,
+            padding: "10px 16px",
+            fontWeight: 700,
+            fontSize: 13,
+            color: colors.gold,
+            opacity: bilingualPdfBusy ? 0.6 : 1,
+            marginTop: 10,
+          }}
+        >
+          {bilingualPdfBusy ? <Loader2 size={16} className="spin" /> : <span>🖼️</span>}
+          {bilingualPdfBusy ? (bilingualPdfProgress || "در حال ساختِ PDFِ دوزبانه...") : "دانلودِ همین PDF با عکس‌های اصلی + ترجمه"}
+        </button>
+        {bilingualPdfError && (
+          <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{bilingualPdfError}</p>
+        )}
+        <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
+          خودِ فایل (عکس‌ها/چیدمانِ اصلی) دست‌نخورده می‌مونه؛ یک PDFِ تازه دانلود می‌شه که بعدِ هر صفحه‌ی اصلی، یک صفحه‌ی «ترجمه» روبروش اضافه شده — همه‌چیز محلی، روی خودِ گوشی/مرورگر ساخته می‌شه.
         </p>
 
         <div style={{ textAlign: "start" }}>
