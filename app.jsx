@@ -1094,8 +1094,8 @@ function highlightBg(highlightColor, isActive, inactiveValue) {
 const APP_THEMES = {
   vintage: {
     label: { fa: "کلاسیک (پیش‌فرض)", en: "Classic (default)" },
-    swatch: "#B8862B",
-    values: { paper: "#F1E8D6", paperDark: "#E4D8BE", ink: "#1C2541", inkSoft: "#3A4566", gold: "#B8862B", goldSoft: "#DDBB77", teal: "#2F6F62", rose: "#9E3B3B", cardBorder: "#C9BB98" },
+    swatch: "#C99A2E",
+    values: { paper: "#EFE6C9", paperDark: "#E6DAB2", ink: "#1E2A26", inkSoft: "#4B5551", gold: "#C99A2E", goldSoft: "#E3C77E", teal: "#1B4640", rose: "#9E3B3B", cardBorder: "#E7DEC1" },
   },
   ocean: {
     label: { fa: "اقیانوسی", en: "Ocean" },
@@ -13498,7 +13498,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
       {/* Header */}
       <header
-        style={{ backgroundColor: colors.ink, color: colors.paper }}
+        style={{ backgroundColor: colors.teal, color: colors.paper }}
         className="px-4 pt-6 pb-5"
       >
         <div className="flex items-center justify-end mb-1">
@@ -16517,7 +16517,7 @@ function LoginScreen({ onAuthenticated, uiLang = "fa" }) {
               padding: "12px 16px",
               borderRadius: 999,
               border: "none",
-              background: colors.ink,
+              background: colors.teal,
               color: colors.paper,
               fontFamily: loginFont,
               fontWeight: 700,
