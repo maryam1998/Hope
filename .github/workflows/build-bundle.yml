@@ -1,8 +1,9 @@
-# این ورک‌فلو به‌صورتِ خودکار، هر بار که یکی از فایل‌های سورس (app.jsx، یا
-# هر کدوم از فایل‌های داده مثل SLANG_WORDS.js) عوض بشه و push بشه، دوباره
-# app.bundle.min.js رو با esbuild می‌سازه و همون فایلِ ساخته‌شده رو خودش
-# commit می‌کنه. یعنی از این به بعد فقط کافیه فایلِ سورس رو ویرایش و push
-# کنی — دیگه لازم نیست خودت (یا من) دستی باندل رو بسازی و آپلود کنی.
+# این ورک‌فلو به‌صورتِ خودکار، هر بار که یکی از فایل‌های سورس (app.jsx،
+# RangeSliderFilter.jsx، DailyConversationsTab.jsx، یا هر کدوم از فایل‌های
+# داده مثل SLANG_WORDS.js) عوض بشه و push بشه، دوباره app.bundle.min.js رو
+# با esbuild می‌سازه و همون فایلِ ساخته‌شده رو خودش commit می‌کنه. یعنی از
+# این به بعد فقط کافیه فایلِ سورس رو ویرایش و push کنی — دیگه لازم نیست
+# خودت (یا من) دستی باندل رو بسازی و آپلود کنی.
 #
 # نصب: این فایل رو دقیقاً تو مسیرِ .github/workflows/build-bundle.yml تو
 # ریشه‌ی ریپازیتوری بذار (پوشه‌ی .github باید کنارِ app.jsx باشه).
@@ -14,6 +15,7 @@ on:
     branches: [main]
     paths:
       - "app.jsx"
+      - "RangeSliderFilter.jsx"
       - "DailyConversationsTab.jsx"
       - "VOCAB.js"
       - "WORDS_AZ.js"
