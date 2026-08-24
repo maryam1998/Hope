@@ -4551,9 +4551,14 @@ function LangStamp({ lang, active, onClick, disabled }) {
         width: 52,
         height: 52,
         borderRadius: "50%",
-        border: active ? `1.6px solid ${colors.gold}` : `1.6px dashed ${colors.cardBorder}`,
-        background: active ? `linear-gradient(135deg, ${colors.gold}, ${colors.goldSoft})` : "transparent",
-        color: active ? colors.ink : colors.inkSoft,
+        // این مهر همیشه روی پس‌زمینه‌ی تیره‌ی هدر (گرادیانتِ teal→ink) رندر
+        // می‌شه، نه روی کارتِ روشنِ صفحه — برای همین حالتِ غیرفعالش باید از
+        // رنگ‌های ثابتِ خودِ هدر (نه colors.inkSoft/colors.cardBorder که
+        // برای متنِ روی زمینه‌ی روشن طراحی شدن) استفاده کنه. مقادیر دقیقاً
+        // از موکاپِ طراحی (language-app-home.html) گرفته شده.
+        border: active ? `1.6px solid ${colors.gold}` : "1.6px dashed rgba(233,226,200,.4)",
+        background: active ? `linear-gradient(135deg, ${colors.gold}, ${colors.goldSoft})` : "rgba(255,255,255,.03)",
+        color: active ? colors.ink : "#CFE3DC",
         fontWeight: 700,
         fontSize: 12.5,
         letterSpacing: 0.3,
@@ -5399,6 +5404,36 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
 
       <OfflineWordsModal open={offlineModalOpen} onClose={() => setOfflineModalOpen(false)} aiSettings={aiSettings} />
     </div>
+  );
+}
+
+// ردیفِ سه‌تا تبِ اصلی (مکالمات روزمره، داستان‌ساز، لغات ذخیره‌شده) که —
+// دقیقاً طبقِ موکاپِ طراحی (language-app-home.html، کلاسِ .tab/.tab.active —
+// دیگه توی نوارِ جداگانه‌ی زیرِ هدر (که پس‌زمینه‌ی روشنِ colors.paperDark
+// داره) نیستن، بلکه خودِ هدر (روی گرادیانتِ تیره‌ش) رندر می‌شن: هر سه با
+// عرضِ مساوی (flex:1)، غیرفعال = پیلِ کِرم‌رنگ با متنِ تیره، فعال = پیلِ
+// هم‌رنگِ خودِ هدر (تقریباً محو می‌شه توی پس‌زمینه، دقیقاً همون افکتِ موکاپ).
+function HeaderPrimaryTabButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyProp }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center justify-center rounded-full"
+      style={{
+        flex: 1,
+        gap: 6,
+        fontFamily: fontFamilyProp || fontFa,
+        fontSize: 13,
+        fontWeight: 600,
+        padding: "11px 6px",
+        backgroundColor: active ? colors.ink : "#E6DAB2",
+        color: active ? "#F3EFDD" : "#5C5637",
+        border: `1px solid ${active ? colors.ink : "#E7DEC1"}`,
+        whiteSpace: "nowrap",
+      }}
+    >
+      <Icon size={15} />
+      {label}
+    </button>
   );
 }
 
@@ -13580,13 +13615,18 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             </>
           )}
         </div>
+
+        {/* سه تبِ اصلی — داخلِ خودِ هدر، رویِ همون گرادیانتِ تیره؛ طبقِ
+            موکاپ، درست زیرِ زبان‌های مقصد. */}
+        <div className="flex gap-2" style={{ marginTop: 16 }}>
+          <HeaderPrimaryTabButton label={tr("tabConversations", appPrefs.uiLang)} icon={MessageCircle} active={tab === "conversations"} onClick={() => setTab("conversations")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+          <HeaderPrimaryTabButton label={tr("tabStory", appPrefs.uiLang)} icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+          <HeaderPrimaryTabButton label={tr("tabSaved", appPrefs.uiLang)} icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        </div>
       </header>
 
       {/* Tabs */}
       <nav className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ backgroundColor: colors.paperDark }}>
-        <TabButton label={tr("tabConversations", appPrefs.uiLang)} icon={MessageCircle} active={tab === "conversations"} onClick={() => setTab("conversations")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabStory", appPrefs.uiLang)} icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabSaved", appPrefs.uiLang)} icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabGrammar", appPrefs.uiLang)} icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabWords", appPrefs.uiLang)} icon={Layers} active={tab === "words"} onClick={() => setTab("words")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabFavorites", appPrefs.uiLang)} icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
