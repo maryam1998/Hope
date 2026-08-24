@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -2278,7 +2278,7 @@ const speechController = (() => {
       lastOffsetByKey.set(key, chunks[chunkIndex].start);
     }
     listeners.forEach((cb) =>
-      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, ttsError, muted })
+      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, ttsError, muted, abState, abChunkA, abChunkB })
     );
   }
 
@@ -5874,12 +5874,12 @@ function RepeatButton({ color }) {
         background: "none",
         border: "none",
         cursor: "pointer",
-        padding: 2,
+        padding: 6,
         color: active ? c : colors.cardBorder,
         opacity: active ? 1 : 0.6,
       }}
     >
-      <Repeat size={15} />
+      <Repeat size={19} />
       {label && (
         <span
           style={{
@@ -6214,12 +6214,12 @@ function RestartButton({ color, startText, startCode }) {
         background: "none",
         border: "none",
         cursor: disabled ? "default" : "pointer",
-        padding: 2,
+        padding: 6,
         color: disabled ? colors.cardBorder : c,
         opacity: disabled ? 0.4 : 1,
       }}
     >
-      <RotateCcw size={15} />
+      <RotateCcw size={19} />
     </button>
   );
 }
@@ -6289,19 +6289,24 @@ function MainPlayButton({ startText, startCode, resolveStartOffset, color, size 
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          width: btnSize + 14,
-          height: btnSize + 14,
+          width: btnSize + 18,
+          height: btnSize + 18,
           borderRadius: "50%",
-          background: "none",
+          background: disabled ? colors.cardBorder : c,
           border: "none",
           cursor: disabled ? "default" : "pointer",
-          color: disabled ? colors.cardBorder : c,
+          color: colors.paper,
           opacity: disabled ? 0.45 : 1,
           flexShrink: 0,
           padding: 0,
+          boxShadow: disabled ? "none" : "0 2px 6px rgba(28,37,65,0.22)",
         }}
       >
-        {isPlaying ? <Pause size={btnSize} /> : <PlayCircle size={btnSize} />}
+        {isPlaying ? (
+          <Pause size={Math.round(btnSize * 0.56)} fill={colors.paper} />
+        ) : (
+          <Play size={Math.round(btnSize * 0.56)} fill={colors.paper} style={{ marginInlineStart: 2 }} />
+        )}
       </button>
       {errorMsg && (
         <span
@@ -6323,6 +6328,18 @@ function MainPlayButton({ startText, startCode, resolveStartOffset, color, size 
         </span>
       )}
     </span>
+  );
+}
+// آیکونِ سه‌گوشِ خطی-سبک («کلاسیک») برایِ دکمه‌های عقب/جلوی پلیر — به‌جایِ
+// آیکونِ SkipBack/SkipForwardِ پیش‌فرضِ lucide (که یه خط/بار کنارِ مثلث
+// داره، شبیهِ «برو ترکِ بعدی»)، اینجا فقط یه مثلثِ توخالیِ ساده می‌کشیم؛
+// دقیقاً شبیهِ دکمه‌های پلیرهایِ قدیمی/کلاسیک.
+function ClassicTriangleIcon({ direction = "right", size = 20, color = "currentColor" }) {
+  const points = direction === "right" ? "7,4 20,12 7,20" : "17,4 4,12 17,20";
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <polygon points={points} stroke={color} strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
   );
 }
 // دکمه‌های «جمله‌ی قبل / جمله‌ی بعد» — تو نوارِ کنترلِ پلیرِ جدید، کنارِ دکمه‌ی
@@ -6356,14 +6373,14 @@ function ChunkNavButton({ direction, color }) {
         cursor: disabled ? "default" : "pointer",
         color: disabled ? colors.cardBorder : c,
         opacity: disabled ? 0.45 : 1,
-        padding: 6,
+        padding: 8,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,
       }}
     >
-      {direction === "prev" ? <SkipBack size={20} /> : <SkipForward size={20} />}
+      <ClassicTriangleIcon direction={direction === "prev" ? "left" : "right"} size={22} color={disabled ? colors.cardBorder : c} />
     </button>
   );
 }
@@ -6503,13 +6520,13 @@ function MyVoiceRecorder({ color }) {
           border: "none",
           cursor: "pointer",
           color: recording ? colors.rose : c,
-          padding: 3,
+          padding: 6,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        {recording ? <Square size={15} fill={colors.rose} /> : <Mic size={15} />}
+        {recording ? <Square size={19} fill={colors.rose} /> : <Mic size={19} />}
       </button>
     </div>
   );
@@ -8271,9 +8288,10 @@ function UserAudioMainPlayButton({ ua, color }) {
         width: 44, height: 44, borderRadius: 999, border: "none",
         background: color, color: "white", display: "flex", alignItems: "center",
         justifyContent: "center", flexShrink: 0, opacity: hasAudio ? 1 : 0.5,
+        boxShadow: hasAudio ? "0 2px 6px rgba(28,37,65,0.22)" : "none",
       }}
     >
-      {isPlaying ? <Pause size={22} /> : <PlayCircle size={24} />}
+      {isPlaying ? <Pause size={20} fill="white" /> : <Play size={20} fill="white" style={{ marginInlineStart: 2 }} />}
     </button>
   );
 }
@@ -8287,9 +8305,9 @@ function UserAudioChunkNavButton({ direction, ua, color }) {
       onClick={() => { if (!hasAudio) return; direction === "prev" ? prevLine() : nextLine(); }}
       title={direction === "prev" ? "جمله‌ی قبل" : "جمله‌ی بعد"}
       disabled={!hasAudio}
-      style={{ background: "none", border: "none", cursor: hasAudio ? "pointer" : "default", color, padding: 6, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: hasAudio ? 1 : 0.5 }}
+      style={{ background: "none", border: "none", cursor: hasAudio ? "pointer" : "default", color, padding: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: hasAudio ? 1 : 0.5 }}
     >
-      {direction === "prev" ? <SkipBack size={20} /> : <SkipForward size={20} />}
+      <ClassicTriangleIcon direction={direction === "prev" ? "left" : "right"} size={22} color={color} />
     </button>
   );
 }
@@ -14378,7 +14396,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               space-between پخش می‌شن رویِ کلِ عرضِ پلیر تا فضایِ خالیِ
               کنارها هدر نره، ولی خودِ آیکون‌ها هم زیادی به هم نچسبن. */}
           <div className="px-3" style={{ paddingTop: 2, paddingBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ marginInlineStart: 16 }}>
+            <div style={{ marginInlineStart: 18 }}>
               <MyVoiceRecorder color={colors.rose} />
             </div>
             <MuteButton color={colors.gold} />
@@ -14422,13 +14440,14 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                 border: "none",
                 cursor: "pointer",
                 color: opacityPopoverOpen ? colors.gold : colors.inkSoft,
-                padding: 4,
+                padding: 7,
+                marginInlineEnd: 16,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <Blend size={15} />
+              <Blend size={19} />
             </button>
           </div>
           {/* ردیفِ سرتاسریِ تنظیمِ شفافیت — دقیقاً در کفِ پلیر، زیرِ ردیفِ
