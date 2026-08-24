@@ -453,6 +453,11 @@ function useStoryUserAudio(storyKey, allSentences) {
   const objectUrlRef = useRef(null);
   // آخرین currentTime‌ای که واقعاً به state گزارش شده — برای throttleِ زیر.
   const lastReportedTimeRef = useRef(0);
+  // چندبار، بعدِ اولین پخش، صوتِ آپلودی رو دوباره از اول تکرار کرده‌ایم —
+  // برای اینکه دکمه‌ی «تکرارِ سراسری» (که تا قبل از این فقط رویِ TTS اثر
+  // داشت) رویِ صوتِ آپلودیِ کاربر هم کار کنه. با هر پخشِ تازه (play()) یا
+  // عوض‌شدنِ داستان صفر می‌شه.
+  const repeatsDoneRef = useRef(0);
 
   // بارگذاریِ اولیه از IndexedDB وقتی storyKey عوض می‌شه
   useEffect(() => {
@@ -464,6 +469,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     setManualIndex(0);
     setAudioSaveError("");
     lastReportedTimeRef.current = 0;
+    repeatsDoneRef.current = 0;
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current);
       objectUrlRef.current = null;
@@ -511,7 +517,23 @@ function useStoryUserAudio(storyKey, allSentences) {
     const onDur = () => setDuration(el.duration || 0);
     const onPlay = () => setIsPlaying(true);
     const onPause = () => { setIsPlaying(false); syncTimeNow(); };
-    const onEnd = () => { setIsPlaying(false); syncTimeNow(); };
+    // دکمه‌ی «تکرارِ سراسری» (RepeatButton) یه تنظیمِ مشترک روی
+    // speechController نگه می‌داره که قبلاً فقط رویِ پخشِ TTS اثر داشت؛
+    // همون تنظیم رو اینجا هم می‌خونیم تا با تمومِ‌شدنِ صوتِ آپلودیِ کاربر،
+    // اگه تکرار روشن باشه، دوباره از اول پخش بشه — دقیقاً همون رفتاری که
+    // کاربر از زدنِ دکمه‌ی تکرار انتظار داره.
+    const onEnd = () => {
+      const rs = speechController.getState().globalRepeatSetting;
+      const remaining = rs === "inf" ? Infinity : Math.max(0, (Number(rs) || 0) - 1);
+      if (remaining > repeatsDoneRef.current && audioElRef.current) {
+        repeatsDoneRef.current += 1;
+        audioElRef.current.currentTime = 0;
+        audioElRef.current.play().catch(() => {});
+        return;
+      }
+      setIsPlaying(false);
+      syncTimeNow();
+    };
     const onSeeked = () => syncTimeNow();
     el.addEventListener("timeupdate", onTime);
     el.addEventListener("loadedmetadata", onDur);
@@ -557,7 +579,10 @@ function useStoryUserAudio(storyKey, allSentences) {
     }
   }
 
-  function play() { audioElRef.current?.play().catch(() => {}); }
+  // پخشِ دستی/تازه (با زدنِ دکمه‌ی پخش) همیشه شمارشگرِ تکرار رو صفر می‌کنه —
+  // وگرنه اگه کاربر وسطِ یه چرخه‌ی تکرار دستی pause/play بزنه، شمارشِ
+  // تکرارهای قبلی باقی می‌موند و زودتر از موعد قطع می‌شد.
+  function play() { repeatsDoneRef.current = 0; audioElRef.current?.play().catch(() => {}); }
   function pause() { audioElRef.current?.pause(); }
   function seek(t) { if (audioElRef.current) audioElRef.current.currentTime = t; }
 
@@ -7899,7 +7924,18 @@ function UserAudioProgressTrack({ ua, color }) {
     return toFaDigits(`${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`);
   }
   return (
-    <div className="px-4 flex items-center gap-2" style={{ paddingTop: 6 }}>
+    <div
+      className="px-4 flex items-center gap-2"
+      style={{ paddingTop: 6 }}
+      // نوارِ پخشِ سراسریِ پایینِ صفحه (playerBarRef) خودش روی onTouchStart/
+      // onTouchMove یه لانگ‌پرسِ کلی سوار کرده (برای پرش به تبِ در حالِ
+      // پخش)؛ این هندلرها روی خودِ عنصرِ والد نصب شدن و باعث می‌شدن کشیدنِ
+      // این اسلایدر با انگشت درست کار نکنه — دقیقاً همون مشکلی که برای
+      // اسلایدرِ شفافیتِ پلیر هم پیش اومده بود و اونجا با همین ترفند حل شد.
+      // با stopPropagation جلوی رسیدنِ لمس/کلیک به هندلرِ والد رو می‌گیریم.
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+    >
       <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 34 }}>{fmtTime(currentTime)}</span>
       <input
         type="range"
@@ -7911,7 +7947,7 @@ function UserAudioProgressTrack({ ua, color }) {
         disabled={!hasAudio}
         // پخش همیشه چپ‌به‌راست پیش می‌ره؛ بدونِ direction:ltr صریح، اینپوتِ
         // native داخلِ صفحه‌ی dir="rtl" برعکس (راست‌به‌چپ) پر می‌شد.
-        style={{ flex: 1, accentColor: color, opacity: hasAudio ? 1 : 0.5, direction: "ltr" }}
+        style={{ flex: 1, accentColor: color, opacity: hasAudio ? 1 : 0.5, direction: "ltr", touchAction: "pan-x" }}
       />
       <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 34, textAlign: "left" }}>{fmtTime(duration)}</span>
     </div>
