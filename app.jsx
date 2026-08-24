@@ -2821,6 +2821,12 @@ const speechController = (() => {
     getChunksMeta() {
       return chunks.map((c) => ({ start: c.start, end: c.end }));
     },
+    // متنِ خودِ جمله‌یِ idx‌ام — برایِ نشون‌دادنِ A/B رویِ دکمه‌ی تکرارِ بازه
+    // به‌جایِ یه شماره‌ی انتزاعی (که کاربر باید حدس بزنه کدوم جمله‌ست)؛
+    // حالا خودِ متنِ جمله (کوتاه‌شده) نشون داده می‌شه.
+    getChunkText(idx) {
+      return (chunks[idx] && chunks[idx].text) || "";
+    },
     getFullTextLength() {
       return fullText.length;
     },
@@ -5890,12 +5896,22 @@ function ABRepeatButton({ color }) {
     speechController.markAB();
   };
 
+  // به‌جایِ شماره‌ی خامِ جمله (که کاربر هیچ‌جوره نمی‌دونه کدوم جمله‌ست، مگه
+  // بره بشمره)، خودِ متنِ همون جمله رو (کوتاه‌شده) نشون می‌دیم — دقیقاً همون
+  // شفافیتی که نسخه‌ی صوتِ آپلودی با نمایشِ زمان داره.
+  const truncateAB = (s, n) => {
+    if (!s) return "";
+    const t = s.trim();
+    return t.length > n ? `${t.slice(0, n).trim()}…` : t;
+  };
+  const chunkPreview = (idx, n) => truncateAB(speechController.getChunkText(idx), n);
+
   const title =
     ab === "idle"
       ? "تکرارِ یه بازه‌ی دلخواه — بزن تا نقطه‌ی A ثبت بشه"
       : ab === "waitingB"
-      ? "نقطه‌ی A ثبت شد — حالا رویِ جمله‌ی موردنظر برایِ B بزن"
-      : `تکرارِ جمله‌های ${(state.abChunkA ?? 0) + 1} تا ${(state.abChunkB ?? 0) + 1} — بزن تا پاک بشه`;
+      ? `نقطه‌ی A: «${chunkPreview(state.abChunkA, 30)}» — حالا رویِ جمله‌ی موردنظر برایِ B بزن`
+      : `تکرارِ «${chunkPreview(state.abChunkA, 20)}» تا «${chunkPreview(state.abChunkB, 20)}» — بزن تا پاک بشه`;
 
   return (
     <button
@@ -5956,8 +5972,8 @@ function ABRepeatButton({ color }) {
           }}
         >
           {ab === "waitingB"
-            ? `A: جمله‌ی ${(state.abChunkA ?? 0) + 1}`
-            : `جمله‌ی ${(state.abChunkA ?? 0) + 1} تا ${(state.abChunkB ?? 0) + 1}`}
+            ? `A: «${chunkPreview(state.abChunkA, 12)}»`
+            : `«${chunkPreview(state.abChunkA, 9)}»→«${chunkPreview(state.abChunkB, 9)}»`}
         </span>
       )}
     </button>
