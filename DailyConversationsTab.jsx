@@ -122,7 +122,7 @@ const TTS_LOCALE_MINI = {
   uk: "uk-UA",
 };
 
-function TopicCard({ meta, hasData, onClick, uiLang, isRead, onToggleRead, readDoneColor }) {
+function TopicCard({ meta, hasData, onClick, uiLang, isRead, onToggleRead, readDoneColor, readDoneBg }) {
   const label = uiLang === "fa" ? meta.fa : meta.en;
   return (
     <div
@@ -137,13 +137,15 @@ function TopicCard({ meta, hasData, onClick, uiLang, isRead, onToggleRead, readD
         borderRadius: 14,
         textAlign: uiLang === "fa" ? "right" : "left",
         border: `1px solid ${colors.cardBorder}`,
-        backgroundColor: "white",
+        backgroundColor: isRead ? readDoneBg : "white",
         opacity: hasData ? 1 : 0.55,
         minHeight: 90,
       }}
     >
       {/* دایره‌ی خوانده‌شده — روی خودِ کارت، جدا از کلیکِ بازکردنِ موضوع، تا
-          کاربر بتونه بدونِ بازکردنِ موضوع هم پیشرفتش رو علامت بزنه. */}
+          کاربر بتونه بدونِ بازکردنِ موضوع هم پیشرفتش رو علامت بزنه. همیشه
+          سمتِ راستِ کارت (چه فارسی چه انگلیسی) — قبلاً برای فارسی به‌اشتباه
+          سمتِ چپ می‌رفت، اینجا با ternary درست‌شده تا با بقیه‌ی تب‌ها یکسان باشه. */}
       <button
         onClick={(ev) => {
           ev.stopPropagation();
@@ -153,9 +155,9 @@ function TopicCard({ meta, hasData, onClick, uiLang, isRead, onToggleRead, readD
         style={{
           position: "absolute",
           top: 8,
-          [uiLang === "fa" ? "left" : "right"]: 8,
-          width: 16,
-          height: 16,
+          [uiLang === "fa" ? "right" : "left"]: 8,
+          width: 20,
+          height: 20,
           borderRadius: "50%",
           border: `2px solid ${isRead ? readDoneColor : colors.cardBorder}`,
           backgroundColor: isRead ? readDoneColor : "transparent",
@@ -164,7 +166,7 @@ function TopicCard({ meta, hasData, onClick, uiLang, isRead, onToggleRead, readD
           justifyContent: "center",
         }}
       >
-        {isRead && <Check size={10} color="white" strokeWidth={3} />}
+        {isRead && <Check size={13} color="white" strokeWidth={3} />}
       </button>
       <button onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, width: "100%" }}>
         <span style={{ fontSize: 24, lineHeight: 1 }}>{meta.icon}</span>
@@ -432,14 +434,14 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
   );
 }
 
-function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine, onResolveTranslation, isRead, onToggleRead, readDoneColor }) {
+function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine, onResolveTranslation, isRead, onToggleRead, readDoneColor, readDoneBg }) {
   const filterFn = (arr) => (levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr);
   const speakerA = filterFn(sc.speakerA);
   const speakerB = filterFn(sc.speakerB);
   if (levelFilter && levelFilter !== "all" && speakerA.length === 0 && speakerB.length === 0) return null;
 
   return (
-    <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, marginBottom: 10, overflow: "hidden", backgroundColor: "white" }}>
+    <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, marginBottom: 10, overflow: "hidden", backgroundColor: isRead ? readDoneBg : "white" }}>
       <button onClick={onToggle} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 15px", textAlign: "right" }}>
         <div className="flex items-center" style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
           <span
@@ -450,8 +452,8 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
             aria-label={t.toggleRead || "Toggle read"}
             style={{
               flexShrink: 0,
-              width: 16,
-              height: 16,
+              width: 20,
+              height: 20,
               borderRadius: "50%",
               border: `2px solid ${isRead ? readDoneColor : colors.cardBorder}`,
               backgroundColor: isRead ? readDoneColor : "transparent",
@@ -460,7 +462,7 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
               justifyContent: "center",
             }}
           >
-            {isRead && <Check size={10} color="white" strokeWidth={3} />}
+            {isRead && <Check size={13} color="white" strokeWidth={3} />}
           </span>
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: fontFa, fontWeight: 700, fontSize: 14, color: colors.ink }}>{sc.scenario}</div>
@@ -514,6 +516,7 @@ export default function DailyConversationsTab({
   saveReadWordIds,
   wordsPageSize,
   readDoneColor,
+  readDoneBg,
 }) {
   const uiLang = uiLangProp || (nativeLang === "fa" ? "fa" : "en");
   const [activeTopic, setActiveTopic] = useState(() => lastConversationsNav.topic);
@@ -957,6 +960,7 @@ export default function DailyConversationsTab({
                   isRead={topicReadIds.has(m.en)}
                   onToggleRead={() => toggleTopicRead(m.en)}
                   readDoneColor={readDoneColor}
+                  readDoneBg={readDoneBg}
                   onClick={() => {
                     setActiveTopic(m.en);
                     setOpenScenario(0);
@@ -997,6 +1001,7 @@ export default function DailyConversationsTab({
                 isRead={scenarioReadIds.has(`${activeTopic}::${i}`)}
                 onToggleRead={() => toggleScenarioRead(activeTopic, i)}
                 readDoneColor={readDoneColor}
+                readDoneBg={readDoneBg}
                 nativeLang={nativeLang}
                 nativeLabel={nativeLabel}
                 aiSettings={aiSettings}

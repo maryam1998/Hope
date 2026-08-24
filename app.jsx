@@ -1045,6 +1045,12 @@ const READ_MARKER_COLOR = "#FFD54F";
 // می‌کرد؛ این یه سبزِ خاکستری کم‌اشباع‌تره که هنوز به‌عنوانِ «تکمیل‌شده»
 // خونده می‌شه ولی نور/کنتراستِ کمتری داره.
 const READ_DONE_COLOR = "#7FA396";
+// رنگِ زمینه‌ی یکسان‌شده‌ی کارت/ردیفِ «خوانده‌شده» در همه‌ی تب‌ها (لغات،
+// اخبار، اسلنگ، علاقه‌مندی‌ها، مکالمه‌ی روزمره، داستان‌های ذخیره‌شده،
+// یادداشت‌های گرامر) — قبلاً یه سبزِ خیلی کم‌رنگ (#F2FBF6) بود که کاربر
+// گفت چشم رو اذیت می‌کنه؛ این یه طلاییِ کم‌رنگه که خودِ کاربر از بینِ چند
+// گزینه انتخاب کرد.
+const READ_DONE_BG = "#FBF2DF";
 // پالتِ رنگ‌های کم‌رنگ/بی‌حال (pastel) که کاربر می‌تونه به‌عنوانِ رنگِ
 // هایلایتِ خواندن ازش انتخاب کنه — دقیقاً همون طیفی که خودِ کاربر
 // به‌عنوانِ نمونه فرستاد (زردِ کم‌رنگ، هلویی، نارنجیِ ملایم، صورتی‌مرجانی،
@@ -9681,7 +9687,14 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 {list.map((s) => (
                   <div
                     key={s.id}
-                    style={{ position: "relative", backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 14, paddingTop: s.savedAt ? 26 : 14 }}
+                    style={{
+                      position: "relative",
+                      backgroundColor: savedStoryReadIds.has(s.id) ? READ_DONE_BG : "white",
+                      border: `1px solid ${colors.cardBorder}`,
+                      borderRadius: 14,
+                      padding: 14,
+                      paddingTop: s.savedAt ? 26 : 14,
+                    }}
                   >
                     {s.savedAt && (
                       <p
@@ -9707,20 +9720,10 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                       </p>
                     )}
                     <div className="flex items-center justify-between">
-                      <div>
-                        <p style={{ fontWeight: 700, fontSize: 13 }}>
-                          {savedStoriesAudioMap[s.id] && (
-                            <span title="صوتِ آپلودی داره" style={{ marginLeft: 6 }}>🎵</span>
-                          )}
-                          {LANGUAGES.find((l) => l.code === s.storyLang)?.label} · {s.storyLevel} ·{" "}
-                          {CONTENT_TYPES.find((c) => c.key === s.contentType)?.label || "عمومی"} ·{" "}
-                          {STORY_LENGTHS.find((l) => l.key === s.storyLength)?.label || "متوسط"}
-                        </p>
-                        {getStoryEntryPreview(s) && (
-                          <p style={{ fontSize: 12, color: colors.ink, marginTop: 2 }}>{getStoryEntryPreview(s)}</p>
-                        )}
-                        <p style={{ fontSize: 12, color: colors.inkSoft }}>{s.selectedWords.join("، ")}</p>
-                      </div>
+                      {/* دایره‌ی خوانده‌شده کنارِ عنوان، همیشه اولین عضوِ ردیف —
+                          تا در چیدمانِ راست‌به‌چپ دقیقاً سمتِ راستِ کارت بیفته،
+                          یکسان با بقیه‌ی تب‌ها (قبلاً توی گروهِ دومِ دکمه‌ها
+                          بود و سمتِ چپ در میومد). */}
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => toggleSavedStoryRead(s.id)}
@@ -9739,6 +9742,22 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                         >
                           {savedStoryReadIds.has(s.id) && <Check size={13} color="white" strokeWidth={3} />}
                         </button>
+                        <div>
+                          <p style={{ fontWeight: 700, fontSize: 13 }}>
+                            {savedStoriesAudioMap[s.id] && (
+                              <span title="صوتِ آپلودی داره" style={{ marginLeft: 6 }}>🎵</span>
+                            )}
+                            {LANGUAGES.find((l) => l.code === s.storyLang)?.label} · {s.storyLevel} ·{" "}
+                            {CONTENT_TYPES.find((c) => c.key === s.contentType)?.label || "عمومی"} ·{" "}
+                            {STORY_LENGTHS.find((l) => l.key === s.storyLength)?.label || "متوسط"}
+                          </p>
+                          {getStoryEntryPreview(s) && (
+                            <p style={{ fontSize: 12, color: colors.ink, marginTop: 2 }}>{getStoryEntryPreview(s)}</p>
+                          )}
+                          <p style={{ fontSize: 12, color: colors.inkSoft }}>{s.selectedWords.join("، ")}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
                         <button
                           onClick={() => openSavedStory(s)}
                           style={{ fontSize: 12, color: colors.teal, textDecoration: "underline" }}
@@ -11261,7 +11280,7 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                         maxWidth: 210,
                         borderRadius: 14,
                         border: `1px solid ${isPicked ? colors.gold : colors.cardBorder}`,
-                        backgroundColor: isPicked ? colors.goldSoft : colors.paper,
+                        backgroundColor: isPicked ? colors.goldSoft : isRead ? READ_DONE_BG : colors.paper,
                         padding: "7px 10px",
                         touchAction: "pan-y",
                         WebkitUserSelect: "none",
@@ -11269,26 +11288,12 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                         WebkitTouchCallout: "none",
                       }}
                     >
+                      {/* این ردیف عمداً direction: ltr داره (توضیح بالا)، پس دایره‌ی
+                          خوانده‌شده رو در گروهِ دومِ همین ردیف، به‌عنوانِ آخرین
+                          عضو گذاشتیم — تا فیزیکاً سمتِ راستِ کارت بیفته، یکسان
+                          با بقیه‌ی تب‌ها (قبلاً اول-ردیف بود و زیرِ ltr سمتِ چپ در میومد). */}
                       <div className="flex items-center justify-between gap-2" style={{ direction: "ltr" }}>
                         <span className="flex items-center gap-1" style={{ minWidth: 0 }}>
-                          <button
-                            onClick={() => toggleSavedWordRead(code, e.word)}
-                            aria-label={uiLang === "en" ? "Toggle read" : "علامت‌زدن به‌عنوان خوانده‌شده"}
-                            data-jump-exclude="1"
-                            style={{
-                              flexShrink: 0,
-                              width: 16,
-                              height: 16,
-                              borderRadius: "50%",
-                              border: `2px solid ${isRead ? READ_DONE_COLOR : colors.cardBorder}`,
-                              backgroundColor: isRead ? READ_DONE_COLOR : "transparent",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            {isRead && <Check size={10} color="white" strokeWidth={3} />}
-                          </button>
                           <button
                             onClick={() => togglePick(code, e.word)}
                             dir="auto"
@@ -11311,6 +11316,24 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                             title={tr("deletePermanently", uiLang)}
                           >
                             <X size={12} />
+                          </button>
+                          <button
+                            onClick={() => toggleSavedWordRead(code, e.word)}
+                            aria-label={uiLang === "en" ? "Toggle read" : "علامت‌زدن به‌عنوان خوانده‌شده"}
+                            data-jump-exclude="1"
+                            style={{
+                              flexShrink: 0,
+                              width: 20,
+                              height: 20,
+                              borderRadius: "50%",
+                              border: `2px solid ${isRead ? READ_DONE_COLOR : colors.cardBorder}`,
+                              backgroundColor: isRead ? READ_DONE_COLOR : "transparent",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            {isRead && <Check size={13} color="white" strokeWidth={3} />}
                           </button>
                         </span>
                       </div>
@@ -12169,7 +12192,7 @@ function GrammarPanel({
                     key={n.id}
                     ref={(el) => (noteElsRef.current[n.id] = el)}
                     style={{
-                      backgroundColor: "white",
+                      backgroundColor: noteReadIds.has(n.id) ? READ_DONE_BG : "white",
                       border: `1px solid ${isSelected ? colors.gold : colors.cardBorder}`,
                       borderRadius: 14,
                       padding: 12,
@@ -12181,6 +12204,31 @@ function GrammarPanel({
                       style={{ cursor: "pointer" }}
                     >
                       <div className="flex items-center gap-2">
+                        {/* دایره‌ی خوانده‌شده همیشه اولین عضوِ این گروه — تا
+                            سمتِ راستِ کارت بمونه، یکسان با بقیه‌ی تب‌ها (قبلاً
+                            توی گروهِ دومِ دکمه‌ها، سمتِ چپ بود). */}
+                        {!noteSelectMode && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleNoteRead(n.id);
+                            }}
+                            aria-label="علامت‌زدن به‌عنوان خوانده‌شده"
+                            style={{
+                              flexShrink: 0,
+                              width: 20,
+                              height: 20,
+                              borderRadius: "50%",
+                              border: `2px solid ${noteReadIds.has(n.id) ? READ_DONE_COLOR : colors.cardBorder}`,
+                              backgroundColor: noteReadIds.has(n.id) ? READ_DONE_COLOR : "transparent",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            {noteReadIds.has(n.id) && <Check size={13} color="white" strokeWidth={3} />}
+                          </button>
+                        )}
                         {noteSelectMode ? (
                           <span style={{ color: isSelected ? colors.gold : colors.inkSoft, display: "flex" }}>
                             {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
@@ -12200,26 +12248,6 @@ function GrammarPanel({
                       </div>
                       {!noteSelectMode && (
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleNoteRead(n.id);
-                            }}
-                            aria-label="علامت‌زدن به‌عنوان خوانده‌شده"
-                            style={{
-                              flexShrink: 0,
-                              width: 16,
-                              height: 16,
-                              borderRadius: "50%",
-                              border: `2px solid ${noteReadIds.has(n.id) ? READ_DONE_COLOR : colors.cardBorder}`,
-                              backgroundColor: noteReadIds.has(n.id) ? READ_DONE_COLOR : "transparent",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            {noteReadIds.has(n.id) && <Check size={10} color="white" strokeWidth={3} />}
-                          </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -13633,6 +13661,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
     saveReadWordIds={saveReadWordIds}
     wordsPageSize={WORDS_PAGE_SIZE}
     readDoneColor={READ_DONE_COLOR}
+    readDoneBg={READ_DONE_BG}
   />
 )}
 
@@ -15580,7 +15609,7 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
           className="flex items-center justify-between p-3 rounded-lg"
           style={{
             position: "relative",
-            backgroundColor: isRead ? "#F2FBF6" : "white",
+            backgroundColor: isRead ? READ_DONE_BG : "white",
             border: `1px solid ${highlightBg(highlightColor, justJumpedId === w.id, colors.cardBorder)}`,
             boxShadow: justJumpedId === w.id && highlightColor !== "none" ? `0 0 0 2px ${highlightColor || READ_MARKER_COLOR}` : "none",
             transition: "border-color 0.4s ease, box-shadow 0.4s ease, background-color 0.3s ease",
