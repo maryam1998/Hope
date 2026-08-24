@@ -458,6 +458,52 @@ function useStoryUserAudio(storyKey, allSentences) {
   // داشت) رویِ صوتِ آپلودیِ کاربر هم کار کنه. با هر پخشِ تازه (play()) یا
   // عوض‌شدنِ داستان صفر می‌شه.
   const repeatsDoneRef = useRef(0);
+  // --- تکرارِ A-B رویِ صوتِ آپلودیِ کاربر --------------------------------
+  // برخلافِ TTS (که چانک/جمله‌ایه)، اینجا صوت پیوسته‌ست، پس A و B دقیقاً
+  // زمان (currentTime، به‌ثانیه) هستن — دقیقاً همون مکانیزمی که توی
+  // پروتوتایپِ HTML تست شد. abState: "idle" -> "waitingB" -> "looping".
+  // Ref هم نگه می‌داریم چون onTime پایین‌تر داخلِ یه useEffect با
+  // dependency آرایِ خالیه و به مقدارِ همیشه‌به‌روزِ state دسترسی نداره.
+  const [abState, setAbState] = useState("idle");
+  const [abA, setAbA] = useState(null);
+  const [abB, setAbB] = useState(null);
+  const abStateRef = useRef("idle");
+  const abARef = useRef(null);
+  const abBRef = useRef(null);
+
+  function markAB() {
+    const t = audioElRef.current?.currentTime ?? 0;
+    if (abStateRef.current === "idle") {
+      abARef.current = t;
+      abStateRef.current = "waitingB";
+      setAbA(t);
+      setAbState("waitingB");
+    } else if (abStateRef.current === "waitingB") {
+      let a = abARef.current, b = t;
+      if (b <= a) { b = a; a = t; }
+      abARef.current = a;
+      abBRef.current = b;
+      abStateRef.current = "looping";
+      setAbA(a);
+      setAbB(b);
+      setAbState("looping");
+    } else {
+      abARef.current = null;
+      abBRef.current = null;
+      abStateRef.current = "idle";
+      setAbA(null);
+      setAbB(null);
+      setAbState("idle");
+    }
+  }
+  function clearAB() {
+    abARef.current = null;
+    abBRef.current = null;
+    abStateRef.current = "idle";
+    setAbA(null);
+    setAbB(null);
+    setAbState("idle");
+  }
 
   // بارگذاریِ اولیه از IndexedDB وقتی storyKey عوض می‌شه
   useEffect(() => {
@@ -470,6 +516,12 @@ function useStoryUserAudio(storyKey, allSentences) {
     setAudioSaveError("");
     lastReportedTimeRef.current = 0;
     repeatsDoneRef.current = 0;
+    abARef.current = null;
+    abBRef.current = null;
+    abStateRef.current = "idle";
+    setAbA(null);
+    setAbB(null);
+    setAbState("idle");
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current);
       objectUrlRef.current = null;
@@ -501,6 +553,15 @@ function useStoryUserAudio(storyKey, allSentences) {
     // رندرها رو ۴-۸ برابر کم می‌کنه.
     const onTime = () => {
       const t = el.currentTime || 0;
+      // مکانیزمِ تکرارِ A-B: وقتی هر دو نقطه ثبت شده باشن، محدوده رو
+      // نمی‌ذاریم رد بشه — دقیقاً همون چک‌کردنِ ساده‌ی «رسیدیم به B یا از
+      // A عقب‌تریم» که توی پروتوتایپ جواب داد.
+      if (abStateRef.current === "looping" && abARef.current !== null && abBRef.current !== null) {
+        if (t >= abBRef.current || t < abARef.current - 0.05) {
+          el.currentTime = abARef.current;
+          return;
+        }
+      }
       if (Math.abs(t - lastReportedTimeRef.current) >= 0.5) {
         lastReportedTimeRef.current = t;
         setCurrentTime(t);
@@ -563,6 +624,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     }
     setManualIndex(0);
     setHasAudio(true);
+    clearAB();
     // نوشتنِ خودِ فایل روی IndexedDB (که برایِ فایل‌های صوتیِ حجیم ممکنه
     // چندصدمیلی‌ثانیه طول بکشه) رو به‌عنوانِ «در حالِ ذخیره» علامت می‌زنیم
     // تا دکمه‌ی آپلود در همون لحظه غیرفعال/چرخان بشه — کاربر می‌فهمه داره
@@ -627,6 +689,11 @@ function useStoryUserAudio(storyKey, allSentences) {
     nextLine,
     prevLine,
     removeAudio,
+    abState,
+    abA,
+    abB,
+    markAB,
+    clearAB,
   };
 }
 
@@ -1934,6 +2001,16 @@ const speechController = (() => {
   // می‌کنه، چون چانک‌بندیِ اونجا (onlineChunks) بر اساسِ طولِ کاراکتر
   // نیست بر اساسِ مرزِ جمله، پس با مرزِ خط/جمله یکی نیست.
   let chunkRepeatsDone = 0;
+  // --- تکرارِ A-B (بازه‌ی دلخواهِ بینِ دو جمله، با دکمه‌ی گردِ A-B رویِ
+  // پلیر) --------------------------------------------------------------
+  // چون پخشِ TTS پیوسته نیست (هر جمله یه utterance جداست، نه یه فایلِ
+  // صوتیِ یکپارچه با currentTime)، اینجا A و B به‌جایِ زمان، شماره‌ی
+  // جمله (chunkIndex) هستن — یعنی «از جمله‌ی X تا جمله‌ی Y رو تکرار کن».
+  // abState: "idle" (بدونِ بازه) -> "waitingB" (A ثبت شده، منتظرِ B) ->
+  // "looping" (هر دو ثبت شدن، بعد از رسیدن به آخرِ جمله‌ی B برمی‌گرده به A).
+  let abState = "idle";
+  let abChunkA = null;
+  let abChunkB = null;
   // اگه تکرارِ سراسری رو «بی‌نهایت» بذاری، طبقِ همون توضیحِ بالا («همین جمله
   // رو N بار بخون، بعد برو جمله‌ی بعد») باید یه جایی این N تموم بشه وگرنه
   // پخش برای همیشه رو همون جمله‌ی اول گیر می‌کنه و هیچ‌وقت به جمله‌های
@@ -2419,9 +2496,15 @@ const speechController = (() => {
         }
       }
 
+      // اگه تکرارِ A-B روشنه و همین‌الان جمله‌ی B تمام شد، به‌جایِ رفتن سراغِ
+      // جمله‌ی بعد، برمی‌گردیم سرِ جمله‌ی A — همون مکانیزمِ لوپی که قبلاً
+      // برایِ صوتِ آپلودی (useStoryUserAudio) ساختیم، اینجا بر حسبِ
+      // شماره‌ی جمله به‌جایِ ثانیه.
+      const nextIdx =
+        abState === "looping" && abChunkB !== null && idx === abChunkB ? abChunkA : chunkIndex + 1;
       gapTimer = setTimeout(() => {
         gapTimer = null;
-        speakChunk(chunkIndex + 1, false, false);
+        speakChunk(nextIdx, false, false);
       }, gap);
     };
     utter.onerror = (e) => {
@@ -2446,7 +2529,36 @@ const speechController = (() => {
       return () => listeners.delete(cb);
     },
     getState() {
-      return { key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, muted };
+      return { key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, muted, abState, abChunkA, abChunkB };
+    },
+    // دکمه‌ی گردِ A-B رویِ پلیر همینِ یه تابع رو صدا می‌زنه؛ خودش وضعیتِ
+    // فعلی رو می‌چرخونه: idle -> waitingB -> looping -> idle.
+    markAB() {
+      if (!chunks.length) return abState;
+      if (abState === "idle") {
+        abChunkA = chunkIndex;
+        abState = "waitingB";
+      } else if (abState === "waitingB") {
+        if (chunkIndex < abChunkA) {
+          abChunkB = abChunkA;
+          abChunkA = chunkIndex;
+        } else {
+          abChunkB = chunkIndex;
+        }
+        abState = "looping";
+      } else {
+        abChunkA = null;
+        abChunkB = null;
+        abState = "idle";
+      }
+      notify();
+      return abState;
+    },
+    clearAB() {
+      abChunkA = null;
+      abChunkB = null;
+      abState = "idle";
+      notify();
     },
     // آفستِ کاراکتریِ شروعِ جمله‌ای که همین الان (یا آخرین‌بار) در حال
     // پخشه — فقط برای «ادامه‌ی پخش از همون‌جا» وقتی متنِ در حال پخش عوض
@@ -2554,6 +2666,11 @@ const speechController = (() => {
           };
         }
 
+        // متنِ کاملاً جدیدیه (نه ادامه/مکثِ همون قبلی) — بازه‌ی A-B که
+        // مالِ متنِ قبلی بود دیگه معنی نداره، پاکش می‌کنیم.
+        abChunkA = null;
+        abChunkB = null;
+        abState = "idle";
         // متن جدید — شمارنده‌ی تکرار از روی تنظیم سراسری تازه می‌شه
         const voices = hasSynthesis ? window.speechSynthesis.getVoices() : [];
         const baseLang = newLocale.split("-")[0].toLowerCase();
@@ -2656,6 +2773,9 @@ const speechController = (() => {
       singleShot = false;
       loopWholeText = false;
       chunkRepeatsDone = 0;
+      abState = "idle";
+      abChunkA = null;
+      abChunkB = null;
       notify();
     },
     getRate() {
@@ -5745,6 +5865,157 @@ function RepeatButton({ color }) {
           }}
         >
           {label}
+        </span>
+      )}
+    </button>
+  );
+}
+// دکمه‌ی A-B — تکرارِ یه بازه‌ی دلخواه بینِ دو جمله، رویِ متنِ TTSِ در حالِ
+// پخش. کلاسیک، شبیهِ پلیرهایِ قدیمی: بارِ اول جایِ فعلی رو نقطه‌ی A
+// می‌کنه، بارِ دوم نقطه‌ی B — از همون‌جا پخش بینِ A و B تکرار می‌شه. بارِ
+// سوم پاک می‌کنه. چون TTS جمله‌به‌جمله‌ست (نه یه فایلِ صوتیِ پیوسته)، A و B
+// اینجا شماره‌یِ جمله‌ن (خودِ speechController.markAB این رو مدیریت می‌کنه).
+function ABRepeatButton({ color }) {
+  const [state, setState] = useState(() => speechController.getState());
+  useEffect(() => speechController.subscribe(setState), []);
+
+  const isActive = state.status !== "idle" && !!state.key;
+  const disabled = !isActive;
+  const c = color || colors.gold;
+  const ab = state.abState || "idle";
+
+  const handleClick = (e) => {
+    e.stopPropagation();
+    if (disabled) return;
+    speechController.markAB();
+  };
+
+  const title =
+    ab === "idle"
+      ? "تکرارِ یه بازه‌ی دلخواه — بزن تا نقطه‌ی A ثبت بشه"
+      : ab === "waitingB"
+      ? "نقطه‌ی A ثبت شد — حالا رویِ جمله‌ی موردنظر برایِ B بزن"
+      : `تکرارِ جمله‌های ${(state.abChunkA ?? 0) + 1} تا ${(state.abChunkB ?? 0) + 1} — بزن تا پاک بشه`;
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={disabled}
+      aria-label="تکرار بازه A-B"
+      title={title}
+      style={{
+        position: "relative",
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "none",
+        border: "none",
+        cursor: disabled ? "default" : "pointer",
+        padding: 2,
+        fontFamily: "inherit",
+        fontWeight: 800,
+        fontSize: 11,
+        letterSpacing: -0.5,
+        color: disabled ? colors.cardBorder : ab === "idle" ? colors.inkSoft : c,
+        opacity: disabled ? 0.4 : ab === "idle" ? 0.75 : 1,
+      }}
+    >
+      A-B
+      {ab === "waitingB" && (
+        <span
+          style={{
+            position: "absolute", top: -5, right: -7, fontSize: 9, fontWeight: 700, lineHeight: 1,
+            backgroundColor: c, color: "white", borderRadius: 6, padding: "1px 3px", minWidth: 10, textAlign: "center",
+          }}
+        >
+          A
+        </span>
+      )}
+      {ab === "looping" && (
+        <span
+          style={{
+            position: "absolute", top: -5, right: -7, fontSize: 9, fontWeight: 700, lineHeight: 1,
+            backgroundColor: c, color: "white", borderRadius: 6, padding: "1px 3px", minWidth: 10, textAlign: "center",
+          }}
+        >
+          ↻
+        </span>
+      )}
+    </button>
+  );
+}
+// همینِ دکمه‌ی A-B، نسخه‌ی صوتِ آپلودیِ کاربر — دقیقاً همون سه‌حالته
+// (idle -> waitingB -> looping)، ولی چون اینجا صدا پیوسته‌ست (نه
+// جمله‌به‌جمله‌ی TTS)، A و B زمانِ دقیقِ ثانیه‌ای‌ان — همون چیزی که توی
+// پروتوتایپِ HTML امتحان شد. منطقش داخلِ useStoryUserAudio (markAB) است.
+function UserAudioABButton({ ua, color }) {
+  const disabled = !ua.hasAudio;
+  const c = color || colors.gold;
+  const ab = ua.abState || "idle";
+
+  const handleClick = (e) => {
+    e.stopPropagation();
+    if (disabled) return;
+    ua.markAB();
+  };
+
+  const fmtShort = (t) => {
+    if (t === null || t === undefined || !isFinite(t)) return "";
+    const m = Math.floor(t / 60), s = Math.floor(t % 60);
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
+
+  const title =
+    ab === "idle"
+      ? "تکرارِ یه بازه‌ی دلخواه — بزن تا نقطه‌ی A ثبت بشه"
+      : ab === "waitingB"
+      ? `نقطه‌ی A: ${fmtShort(ua.abA)} — حالا نقطه‌ی B رو بزن`
+      : `تکرارِ ${fmtShort(ua.abA)} تا ${fmtShort(ua.abB)} — بزن تا پاک بشه`;
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={disabled}
+      aria-label="تکرار بازه A-B"
+      title={title}
+      style={{
+        position: "relative",
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "none",
+        border: "none",
+        cursor: disabled ? "default" : "pointer",
+        padding: 2,
+        fontFamily: "inherit",
+        fontWeight: 800,
+        fontSize: 11,
+        letterSpacing: -0.5,
+        color: disabled ? colors.cardBorder : ab === "idle" ? colors.inkSoft : c,
+        opacity: disabled ? 0.4 : ab === "idle" ? 0.75 : 1,
+      }}
+    >
+      A-B
+      {ab === "waitingB" && (
+        <span
+          style={{
+            position: "absolute", top: -5, right: -7, fontSize: 9, fontWeight: 700, lineHeight: 1,
+            backgroundColor: c, color: "white", borderRadius: 6, padding: "1px 3px", minWidth: 10, textAlign: "center",
+          }}
+        >
+          A
+        </span>
+      )}
+      {ab === "looping" && (
+        <span
+          style={{
+            position: "absolute", top: -5, right: -7, fontSize: 9, fontWeight: 700, lineHeight: 1,
+            backgroundColor: c, color: "white", borderRadius: 6, padding: "1px 3px", minWidth: 10, textAlign: "center",
+          }}
+        >
+          ↻
         </span>
       )}
     </button>
@@ -14025,6 +14296,11 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             <MuteButton color={colors.gold} />
             <RepeatButton color={colors.gold} />
             <RestartButton color={colors.gold} startText={activeTabAudio?.text} startCode={activeTabAudio?.code} />
+            {isStoryUserAudioMode ? (
+              <UserAudioABButton ua={storyUserAudio} color={colors.gold} />
+            ) : (
+              <ABRepeatButton color={colors.gold} />
+            )}
             {isStoryUserAudioMode ? (
               <UserAudioChunkNavButton direction="next" ua={storyUserAudio} color={colors.ink} />
             ) : (
