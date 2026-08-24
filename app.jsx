@@ -2158,6 +2158,27 @@ const speechController = (() => {
     }
   }
 
+  // بازه‌ی A-B رو برایِ مسیرِ آنلاین هم اعمال می‌کنه — قبلاً این مسیر
+  // (که فقط فارسی/عربی، یا وقتی گوشی صدایِ محلی نداره ازش استفاده می‌شه)
+  // اصلاً abState رو چک نمی‌کرد و همیشه idx+1 می‌رفت، پس روی این زبون‌ها
+  // دکمه‌ی A-B هیچ اثری نداشت. چون تکه‌بندیِ آنلاین (onlineChunks) با
+  // تکه‌بندیِ جمله‌ایِ abChunkA/abChunkB (که رویِ chunks حساب می‌شن) یکی
+  // نیست، اینجا با chunkIndexForOffset یه تخمینِ «این idx آنلاین معادلِ
+  // کدوم جمله‌ست» می‌زنیم؛ وقتی به جمله‌یِ B یا بعدترش رسیدیم، به‌جایِ
+  // idx+1 برمی‌گردیم به نزدیک‌ترین idx آنلاینِ معادلِ شروعِ جمله‌ی A.
+  function nextOnlineIdx(idx) {
+    const fallback = idx + 1;
+    if (abState !== "looping" || abChunkB === null || abChunkA === null) return fallback;
+    if (!onlineChunks.length || !fullText.length) return fallback;
+    const approxChunk = chunkIndexForOffset(
+      Math.min(fullText.length - 1, Math.floor((fallback / Math.max(onlineChunks.length, 1)) * fullText.length))
+    );
+    if (approxChunk < abChunkB) return fallback;
+    const aStart = chunks[abChunkA] ? chunks[abChunkA].start : 0;
+    const frac = Math.min(Math.max(aStart / fullText.length, 0), 1);
+    return Math.min(onlineChunks.length - 1, Math.max(0, Math.floor(frac * onlineChunks.length)));
+  }
+
   function playOnlineChunkUrls(providers, providerIndex, idx) {
     if (providerIndex >= providers.length) {
       if (!onlineAnyAudioPlayed) {
@@ -2172,7 +2193,7 @@ const speechController = (() => {
         notify();
         return;
       }
-      playOnlineChunk(idx + 1);
+      playOnlineChunk(nextOnlineIdx(idx));
       return;
     }
     const provider = providers[providerIndex];
@@ -2189,7 +2210,7 @@ const speechController = (() => {
     };
     audio.onended = () => {
       if (status !== "playing") return;
-      playOnlineChunk(idx + 1);
+      playOnlineChunk(nextOnlineIdx(idx));
     };
     audio.onerror = () => {
       goNext();
@@ -2202,6 +2223,12 @@ const speechController = (() => {
 
   function playOnlineChunk(idx) {
     if (idx >= onlineChunks.length) {
+      if (abState === "looping" && abChunkA !== null && fullText.length) {
+        const aStart = chunks[abChunkA] ? chunks[abChunkA].start : 0;
+        const frac = Math.min(Math.max(aStart / fullText.length, 0), 1);
+        playOnlineChunk(Math.min(onlineChunks.length - 1, Math.max(0, Math.floor(frac * onlineChunks.length))));
+        return;
+      }
       if (!singleShot && globalRepeatSetting === "inf") {
         playOnlineChunk(0);
         return;
