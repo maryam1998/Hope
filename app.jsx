@@ -222,6 +222,114 @@ async function deleteStoryAudioRecord(storyKey) {
   } catch {}
 }
 
+// ============================================================
+// ذخیره‌سازیِ دائمیِ «نمایشِ PDF» (عکسِ اصلیِ هر صفحه + ترجمه) در
+// IndexedDBِ خودِ گوشی/مرورگر — تا کاربر مجبور نباشه هر بار که اپ رو
+// می‌بنده/رفرش می‌کنه، دوباره همون فایل رو آپلود و ترجمه کنه. هر صفحه
+// به‌صورتِ جدا ذخیره می‌شه (نه یک رکوردِ بزرگِ شاملِ همه‌ی صفحات)، دقیقاً
+// برای این‌که بشه صفحه‌به‌صفحه که آماده شد فوراً سِیوش کرد — بدونِ صبر
+// برای پردازشِ کلِ فایل — و موقعِ باز کردنِ دوباره هم لازم نیست همه‌چیز
+// یک‌جا تو حافظه بیاد.
+// ============================================================
+const PDF_VIEW_DB_NAME = "pdf-view-documents";
+const PDF_VIEW_META_STORE = "meta"; // { id, title, pageCount, doneCount, createdAt }
+const PDF_VIEW_PAGE_STORE = "pages"; // key: `${docId}::${pageNum}` -> { pageNum, imageBlob, width, height, originalText, translatedText }
+
+function openPdfViewDB() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") { reject(new Error("indexeddb-unavailable")); return; }
+    const req = indexedDB.open(PDF_VIEW_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(PDF_VIEW_META_STORE)) {
+        db.createObjectStore(PDF_VIEW_META_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(PDF_VIEW_PAGE_STORE)) {
+        db.createObjectStore(PDF_VIEW_PAGE_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function savePdfViewMeta(meta) {
+  try {
+    const db = await openPdfViewDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(PDF_VIEW_META_STORE, "readwrite");
+      tx.objectStore(PDF_VIEW_META_STORE).put(meta);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function savePdfViewPage(docId, page) {
+  try {
+    const db = await openPdfViewDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(PDF_VIEW_PAGE_STORE, "readwrite");
+      tx.objectStore(PDF_VIEW_PAGE_STORE).put(page, `${docId}::${page.pageNum}`);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function listPdfViewDocs() {
+  try {
+    const db = await openPdfViewDB();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(PDF_VIEW_META_STORE, "readonly");
+      const req = tx.objectStore(PDF_VIEW_META_STORE).getAll();
+      req.onsuccess = () => resolve((req.result || []).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
+      req.onerror = () => resolve([]);
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function loadPdfViewPages(docId, pageCount) {
+  try {
+    const db = await openPdfViewDB();
+    const pages = [];
+    for (let i = 1; i <= pageCount; i++) {
+      const page = await new Promise((resolve) => {
+        const tx = db.transaction(PDF_VIEW_PAGE_STORE, "readonly");
+        const req = tx.objectStore(PDF_VIEW_PAGE_STORE).get(`${docId}::${i}`);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      });
+      if (page) pages.push(page);
+    }
+    return pages;
+  } catch {
+    return [];
+  }
+}
+
+async function deletePdfViewDoc(docId, pageCount) {
+  try {
+    const db = await openPdfViewDB();
+    await new Promise((resolve) => {
+      const tx = db.transaction([PDF_VIEW_META_STORE, PDF_VIEW_PAGE_STORE], "readwrite");
+      tx.objectStore(PDF_VIEW_META_STORE).delete(docId);
+      const pageStore = tx.objectStore(PDF_VIEW_PAGE_STORE);
+      for (let i = 1; i <= pageCount; i++) pageStore.delete(`${docId}::${i}`);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch {}
+}
+
 // هوکِ مدیریتِ صوتِ کاربر برای یک داستانِ مشخص (storyKey پایدار — معمولاً
 // mainStoryKey). یک <audio> واقعی رو کنترل می‌کنه — بدونِ هیچ محدودیتی
 // رو فرمتِ فایل. هیچ هایلایت/خوانشِ خودکاری بر اساسِ زمانِ صدا انجام
@@ -8489,6 +8597,20 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [pdfViewTitle, setPdfViewTitle] = useState("");
   const [pdfViewIndex, setPdfViewIndex] = useState(0);
   const pdfViewInputRef = useRef(null);
+  // شناسه‌ی سندِ جاری (برای ذخیره‌ی صفحه‌به‌صفحه تو IndexedDB حین پردازش)،
+  // و لیستِ PDFهایی که قبلاً کامل/ناقص ذخیره شدن — تا کاربر بتونه بدونِ
+  // آپلود و ترجمه‌ی دوباره، از لیست بازشون کنه.
+  const [pdfViewDocId, setPdfViewDocId] = useState(null);
+  const [pdfViewDocs, setPdfViewDocs] = useState([]);
+
+  const refreshPdfViewDocs = useCallback(async () => {
+    setPdfViewDocs(await listPdfViewDocs());
+  }, []);
+
+  // اولین باری که این تب باز می‌شه، لیستِ PDFهای ذخیره‌شده رو بیار.
+  useEffect(() => {
+    refreshPdfViewDocs();
+  }, [refreshPdfViewDocs]);
   // پیست‌کردنِ مستقیمِ متن/داستان برای خوانش — همون مسیرِ «وارد کردنِ PDF
   // برای خوانش» بالا، فقط منبعِ متن به‌جای فایل، تایپ‌شده/پیست‌شده‌ی خودِ کاربره.
   const [pastedReadingText, setPastedReadingText] = useState("");
@@ -10012,6 +10134,13 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setPdfViewIndex(0);
     setPdfViewBusy(true);
     setPdfViewProgress("در حال آماده‌سازی...");
+    // شناسه‌ی تازه برای این سند — همین از همین الان تو IndexedDB ثبت می‌شه
+    // و صفحه‌به‌صفحه که آماده می‌شن بهش اضافه می‌شن، تا اگه کاربر وسطِ کار
+    // هم اپ رو ببنده، صفحاتِ تا اون‌جا پردازش‌شده از دست نره.
+    const docId = `pdf-${Date.now()}`;
+    const docTitle = file.name.replace(/\.pdf$/i, "");
+    setPdfViewDocId(docId);
+    setPdfViewTitle(docTitle);
     try {
       const pdfjsLib = await import("pdfjs-dist");
       pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
@@ -10020,10 +10149,18 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       const pageCount = Math.min(srcDoc.numPages, PDF_VIEW_MAX_PAGES);
       const truncated = srcDoc.numPages > PDF_VIEW_MAX_PAGES;
 
+      await savePdfViewMeta({
+        id: docId,
+        title: docTitle,
+        pageCount,
+        doneCount: 0,
+        createdAt: Date.now(),
+      });
+      await refreshPdfViewDocs();
+
       const canvasToJpgBlob = (canvas) =>
         new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
 
-      const pages = [];
       for (let i = 1; i <= pageCount; i++) {
         setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال رندر...`);
         await new Promise((r) => setTimeout(r, 0)); // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — تا UI قفل نشه
@@ -10035,8 +10172,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         canvas.height = Math.max(1, Math.ceil(viewport.height));
         const ctx = canvas.getContext("2d");
         await page.render({ canvasContext: ctx, viewport }).promise;
-        const blob = await canvasToJpgBlob(canvas);
-        const imageUrl = blob ? URL.createObjectURL(blob) : "";
+        const imageBlob = await canvasToJpgBlob(canvas);
+        const imageUrl = imageBlob ? URL.createObjectURL(imageBlob) : "";
 
         setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
         const content = await page.getTextContent();
@@ -10061,23 +10198,33 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           translatedText = translatedGroups.join(" ");
         }
 
-        pages.push({
+        const newPage = {
           pageNum: i,
           imageUrl,
           width: canvas.width,
           height: canvas.height,
           originalText: pageText,
           translatedText: translatedText || "متنی برای ترجمه در این صفحه پیدا نشد.",
-        });
+        };
+
+        // بلافاصله همین صفحه رو نشون بده — کاربر منتظرِ کلِ فایل نمی‌مونه،
+        // از همون صفحه‌ی اول می‌تونه شروع به خوندن کنه، بقیه پشتِ‌صحنه
+        // پردازش می‌شن. صفحه‌ی اول هم که آماده شد، خودکار باز می‌شه.
+        setPdfViewPages((prev) => [...prev, newPage]);
+        if (i === 1) setPdfViewIndex(0);
+
+        // ذخیره‌ی همین صفحه تو IndexedDB (عکس به‌صورتِ Blob، نه URL موقت) —
+        // تا حتی اگه پردازشِ صفحاتِ بعدی قطع بشه، همین‌قدر برای همیشه می‌مونه.
+        savePdfViewPage(docId, { ...newPage, imageUrl: undefined, imageBlob });
+        savePdfViewMeta({ id: docId, title: docTitle, pageCount, doneCount: i, createdAt: Date.now() });
       }
 
-      setPdfViewPages(pages);
-      setPdfViewTitle(file.name.replace(/\.pdf$/i, ""));
       setPdfViewError(
         truncated
           ? `توجه: چون فایل بیشتر از ${PDF_VIEW_MAX_PAGES} صفحه بود، فقط ${PDF_VIEW_MAX_PAGES} صفحه‌ی اول بارگذاری شد`
           : ""
       );
+      refreshPdfViewDocs();
     } catch (err) {
       console.error(err);
       setPdfViewError("بازکردنِ این PDF مشکل داشت — فایل ممکنه خراب یا رمزگذاری‌شده باشه");
@@ -10087,6 +10234,55 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     }
   };
 
+  // بازکردنِ یه PDFِ قبلاً ذخیره‌شده از لیست — بدونِ آپلودِ دوباره یا هیچ
+  // درخواستِ ترجمه‌ی تازه‌ای؛ فقط عکس‌ها/ترجمه‌های همون‌موقع از IndexedDB
+  // خونده می‌شن و به object URL تبدیل می‌شن.
+  const openSavedPdfViewDoc = async (doc) => {
+    pdfViewPages.forEach((p) => {
+      try { URL.revokeObjectURL(p.imageUrl); } catch {}
+    });
+    setPdfViewPages([]);
+    setPdfViewIndex(0);
+    setPdfViewError("");
+    setPdfViewBusy(true);
+    setPdfViewProgress("در حال بازکردنِ PDFِ ذخیره‌شده...");
+    try {
+      const storedPages = await loadPdfViewPages(doc.id, doc.pageCount);
+      const pages = storedPages
+        .sort((a, b) => a.pageNum - b.pageNum)
+        .map((p) => ({ ...p, imageUrl: p.imageBlob ? URL.createObjectURL(p.imageBlob) : "" }));
+      setPdfViewPages(pages);
+      setPdfViewTitle(doc.title);
+      setPdfViewDocId(doc.id);
+      setPdfViewIndex(0);
+      if (doc.doneCount < doc.pageCount) {
+        setPdfViewError(
+          `توجه: دفعه‌ی قبل فقط ${doc.doneCount} صفحه از ${doc.pageCount} صفحه پردازش شده بود؛ برای بقیه دوباره فایل رو آپلود کن`
+        );
+      }
+    } catch (err) {
+      console.error(err);
+      setPdfViewError("بازکردنِ این PDFِ ذخیره‌شده مشکل داشت");
+    } finally {
+      setPdfViewBusy(false);
+      setPdfViewProgress("");
+    }
+  };
+
+  const handleDeletePdfViewDoc = async (doc) => {
+    await deletePdfViewDoc(doc.id, doc.pageCount);
+    if (pdfViewDocId === doc.id) {
+      pdfViewPages.forEach((p) => {
+        try { URL.revokeObjectURL(p.imageUrl); } catch {}
+      });
+      setPdfViewPages([]);
+      setPdfViewIndex(0);
+      setPdfViewTitle("");
+      setPdfViewDocId(null);
+    }
+    refreshPdfViewDocs();
+  };
+
   const closePdfView = () => {
     pdfViewPages.forEach((p) => {
       try { URL.revokeObjectURL(p.imageUrl); } catch {}
@@ -10094,7 +10290,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setPdfViewPages([]);
     setPdfViewIndex(0);
     setPdfViewTitle("");
+    setPdfViewDocId(null);
     setPdfViewError("");
+    // توجه: بستنِ نمایش، سندِ ذخیره‌شده رو پاک نمی‌کنه — هنوز تو لیستِ
+    // «PDFهای ذخیره‌شده» پایینِ همین بخش هست و بعداً بدونِ آپلودِ دوباره
+    // قابلِ بازکردنه.
   };
 
   // متنِ پیست‌شده (بدون PDF، بدون AI) رو دقیقاً با همون منطقِ بالا
@@ -10963,14 +11163,57 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfViewError}</p>
         )}
         <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
-          خودِ فایل (عکس‌ها/چیدمانِ اصلی) دست‌نخورده می‌مونه و هیچی دانلود نمی‌شه؛ هر صفحه همینجا نشون داده می‌شه و ترجمه‌ی متنش درست کنارش/زیرش میاد.
+          خودِ فایل (عکس‌ها/چیدمانِ اصلی) دست‌نخورده می‌مونه و هیچی دانلود نمی‌شه؛ همین که صفحه‌ی اول آماده شد نشونت داده می‌شه و می‌تونی شروع به خوندن کنی — بقیه‌ی صفحات پشتِ‌صحنه ادامه پیدا می‌کنن. نتیجه هم همینجا تو اپ ذخیره می‌مونه، دیگه لازم نیست دوباره آپلودش کنی.
         </p>
+
+        {pdfViewDocs.length > 0 && (
+          <div style={{ marginTop: 12, textAlign: "start" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>PDFهای ذخیره‌شده</span>
+            <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+              {pdfViewDocs.map((doc) => (
+                <div
+                  key={doc.id}
+                  className="flex items-center justify-between"
+                  style={{
+                    border: `1px solid ${colors.cardBorder}`,
+                    borderRadius: 10,
+                    padding: "6px 10px",
+                    fontSize: 12,
+                    opacity: pdfViewBusy ? 0.6 : 1,
+                  }}
+                >
+                  <button
+                    onClick={() => openSavedPdfViewDoc(doc)}
+                    disabled={pdfViewBusy}
+                    style={{ color: colors.ink, fontWeight: 700, textAlign: "start", flex: 1, minWidth: 0 }}
+                  >
+                    {doc.title}
+                    <span style={{ color: colors.inkSoft, fontWeight: 400 }}>
+                      {" "}
+                      — {doc.doneCount === doc.pageCount ? `${doc.pageCount} صفحه` : `${doc.doneCount} از ${doc.pageCount} صفحه`}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => handleDeletePdfViewDoc(doc)}
+                    disabled={pdfViewBusy}
+                    style={{ color: colors.rose, fontSize: 11, textDecoration: "underline", marginInlineStart: 8 }}
+                  >
+                    حذف
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {pdfViewPages.length > 0 && (
           <div style={{ marginTop: 12, textAlign: "start" }}>
             <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>
                 {pdfViewTitle} — صفحه‌ی {pdfViewIndex + 1} از {pdfViewPages.length}
+                {pdfViewBusy && pdfViewDocId && (
+                  <span style={{ color: colors.inkSoft, fontWeight: 400 }}> (بقیه‌ی صفحات در حالِ پردازش...)</span>
+                )}
               </span>
               <button onClick={closePdfView} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
                 بستن
