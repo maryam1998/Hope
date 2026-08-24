@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic, ZoomIn, ZoomOut } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -8310,6 +8310,86 @@ function enforceSentenceSplit(paragraphs) {
   });
 }
 
+// pdf.js فاصله‌ی بینِ دو کلمه رو همیشه به‌عنوانِ یه کاراکترِ space تو
+// «str» نمی‌ده — خیلی وقت‌ها دو کلمه‌ی کنارِ هم دو «آیتمِ» جدا هستن و
+// خودِ فاصله فقط تو مختصاتِ x بینِ‌شون وجود داره. بدونِ این تابع، این دو
+// کلمه بدونِ فاصله به‌هم می‌چسبن. اینجا فاصله‌ی افقیِ بینِ پایانِ آیتمِ قبلی
+// و شروعِ آیتمِ بعدی رو با اندازه‌ی فونت مقایسه می‌کنیم: فاصله‌ی معمولیِ
+// یه کلمه یه space می‌شه، فاصله‌ی خیلی بزرگ‌تر (ستونِ جدا/تب/جدول) چندتا
+// space می‌شه — تا چیدمانِ فاصله‌دارِ خودِ PDF تا حدِ امکان حفظ بشه.
+function buildPdfLineFromItems(items) {
+  let str = "";
+  let endX = null;
+  for (const it of items) {
+    const tr = it.transform;
+    const x = Array.isArray(tr) ? tr[4] : null;
+    const fontH = Array.isArray(tr) ? Math.abs(tr[3]) || Math.abs(tr[0]) || 10 : 10;
+    const s = it.str || "";
+    if (endX != null && x != null && s) {
+      const gap = x - endX;
+      if (gap > fontH * 2.2) str += "   ";
+      else if (gap > fontH * 0.12 && !/\s$/.test(str) && !/^\s/.test(s)) str += " ";
+    }
+    str += s;
+    if (Array.isArray(tr)) {
+      const w = typeof it.width === "number" ? it.width : s.length * fontH * 0.5;
+      endX = tr[4] + w;
+    }
+  }
+  return str;
+}
+
+// خطی که خودش یه آیتمِ لیستِ‌شماره‌دار/ردیفِ‌جدول/شماره‌یِ تنهاست (نه بخشی
+// از یه جمله‌ی پیوسته) — این خط‌ها نباید رویِ نقطه‌یِ داخلیِ خودشون
+// («۱.»، «2)») بشکنن یا با خطِ بعدی قاطی بشن، باید عیناً و با همون
+// فاصله‌بندیِ خودشون یه واحدِ جدا بمونن.
+const LIST_OR_ROW_LINE_RE = /^\s*(?:[\u06F0-\u06F9\d]+[.\)\-:]|[•\-–—*])\s*\S/;
+
+// خطوطِ خامِ استخراج‌شده (هر خط دست‌نخورده و با فاصله‌بندیِ خودش) رو به
+// واحدهای نهایی تبدیل می‌کنه: خطوطِ لیست/ردیف/شماره عیناً نگه داشته
+// می‌شن (نه ادغام، نه شکستنِ داخلی)، خطوطِ معمولیِ متن به‌هم می‌چسبن و طبقِ
+// روالِ قبلی رویِ علامتِ‌پایانِ‌جمله می‌شکنن.
+function linesToSentenceStrings(lines) {
+  const out = [];
+  let proseBuf = [];
+  const flushProse = () => {
+    if (proseBuf.length) {
+      out.push(...splitTextIntoSentenceStrings(proseBuf.join(" ")));
+      proseBuf = [];
+    }
+  };
+  for (const raw of lines) {
+    const line = (raw || "").trim();
+    if (!line) continue;
+    if (LIST_OR_ROW_LINE_RE.test(line)) {
+      flushProse();
+      out.push(line);
+    } else {
+      proseBuf.push(line);
+    }
+  }
+  flushProse();
+  return out;
+}
+
+// استخراجِ صفحه‌ی PDF به لیستِ خط‌های خام (هر خط با فاصله‌بندیِ خودش، طبقِ
+// buildPdfLineFromItems) — برای «وارد کردنِ PDF برای خوانش» که فقط متن
+// لازم داره (نه مختصات).
+function extractPdfPageLines(content) {
+  const items = content?.items || [];
+  const lines = [];
+  let curItems = [];
+  for (const it of items) {
+    curItems.push(it);
+    if (it.hasEOL) {
+      lines.push(buildPdfLineFromItems(curItems));
+      curItems = [];
+    }
+  }
+  if (curItems.length) lines.push(buildPdfLineFromItems(curItems));
+  return lines.filter((l) => l.trim());
+}
+
 // استخراجِ ساختارِ پاراگراف‌بندیِ یک صفحه‌ی PDF از content.items — هر
 // پاراگراف/بلوکِ متنی جدا (بر اساسِ فاصله‌ی عمودیِ خط‌ها، دقیقاً هم‌شکلِ
 // چیدمانِ خودِ صفحه) با متنش و مختصاتِ (x,y) شروعش برگردونده می‌شه. این
@@ -8324,7 +8404,7 @@ function enforceSentenceSplit(paragraphs) {
 function extractPdfPageParagraphs(content) {
   const items = content?.items || [];
   const rawLines = [];
-  let curStr = "";
+  let curItems = [];
   let curX = null;
   let curY = null;
   for (const it of items) {
@@ -8332,15 +8412,15 @@ function extractPdfPageParagraphs(content) {
       curX = it.transform[4];
       curY = it.transform[5];
     }
-    curStr += it.str || "";
+    curItems.push(it);
     if (it.hasEOL) {
-      rawLines.push({ text: curStr, x: curX, y: curY });
-      curStr = "";
+      rawLines.push({ text: buildPdfLineFromItems(curItems), x: curX, y: curY });
+      curItems = [];
       curX = null;
       curY = null;
     }
   }
-  if (curStr.trim()) rawLines.push({ text: curStr, x: curX, y: curY });
+  if (curItems.length) rawLines.push({ text: buildPdfLineFromItems(curItems), x: curX, y: curY });
   const lines = rawLines.filter((l) => l.text.trim());
   if (!lines.length) return [];
 
@@ -8376,24 +8456,52 @@ function extractPdfPageParagraphs(content) {
 // برای شماره‌گذاریِ هم‌شکل با نشانگرهای رویِ عکس).
 async function translateParagraphsList(paragraphTexts, targetLang, aiSettings) {
   return runWithConcurrencyLimit(paragraphTexts || [], GLOBAL_TRANSLATE_CONCURRENCY, async (para) => {
-    const flat = (para || "").replace(/\s*\n\s*/g, " ").trim();
-    if (!flat) return "";
-    const sentences = splitTextIntoSentenceStrings(flat);
-    const groups = [];
-    let cur = "";
-    for (const s of sentences.length ? sentences : [flat]) {
-      if (cur && (cur + " " + s).length > 400) {
-        groups.push(cur);
-        cur = s;
+    const rawLines = (para || "").split("\n").map((l) => l.trim()).filter(Boolean);
+    if (!rawLines.length) return "";
+    // خطوطی که خودشون یه آیتمِ لیست/ردیف/شماره‌ن (مثلِ LIST_OR_ROW_LINE_RE)
+    // جدا نگه داشته می‌شن — نه با بقیه‌ی متن قاطی می‌شن قبل از ترجمه، نه تو
+    // خروجی به هم می‌چسبن؛ همون‌جوری زیرِ هم می‌مونن. بقیه‌ی خط‌ها (نثرِ
+    // پیوسته) طبقِ روالِ قبلی به‌هم می‌چسبن و رویِ جمله می‌شکنن.
+    const blocks = [];
+    let proseBuf = [];
+    const flushProse = () => {
+      if (proseBuf.length) {
+        blocks.push({ isRow: false, text: proseBuf.join(" ") });
+        proseBuf = [];
+      }
+    };
+    for (const line of rawLines) {
+      if (LIST_OR_ROW_LINE_RE.test(line)) {
+        flushProse();
+        blocks.push({ isRow: true, text: line });
       } else {
-        cur = cur ? `${cur} ${s}` : s;
+        proseBuf.push(line);
       }
     }
-    if (cur) groups.push(cur);
-    const translatedGroups = await runWithConcurrencyLimit(groups, GLOBAL_TRANSLATE_CONCURRENCY, (g) =>
-      translateFree(g, targetLang, "auto", aiSettings)
-    );
-    return translatedGroups.join(" ");
+    flushProse();
+
+    const translatedBlocks = await runWithConcurrencyLimit(blocks, GLOBAL_TRANSLATE_CONCURRENCY, async (block) => {
+      if (block.isRow) {
+        return translateFree(block.text, targetLang, "auto", aiSettings);
+      }
+      const sentences = splitTextIntoSentenceStrings(block.text);
+      const groups = [];
+      let cur = "";
+      for (const s of sentences.length ? sentences : [block.text]) {
+        if (cur && (cur + " " + s).length > 400) {
+          groups.push(cur);
+          cur = s;
+        } else {
+          cur = cur ? `${cur} ${s}` : s;
+        }
+      }
+      if (cur) groups.push(cur);
+      const translatedGroups = await runWithConcurrencyLimit(groups, GLOBAL_TRANSLATE_CONCURRENCY, (g) =>
+        translateFree(g, targetLang, "auto", aiSettings)
+      );
+      return translatedGroups.join(" ");
+    });
+    return translatedBlocks.join("\n");
   });
 }
 
@@ -8649,6 +8757,140 @@ function getStoryEntryPreview(entry, maxLen) {
   return text.length > limit ? `${text.slice(0, limit).trim()}…` : text;
 }
 
+// مودالِ تمام‌صفحه‌یِ زوم برای عکسِ صفحه‌یِ PDF — پینچ‌زوم (لمسی)، اسکرول‌ویل
+// (دسکتاپ)، دبل‌تپ/دبل‌کلیک، و درگ برای جابه‌جایی وقتی زوم شده.
+function ZoomableImageModal({ src, alt, onClose }) {
+  const [scale, setScale] = useState(1);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const touchRef = useRef({});
+  const mouseRef = useRef(null);
+  const clampScale = (s) => Math.min(5, Math.max(1, s));
+
+  const resetView = () => { setScale(1); setPos({ x: 0, y: 0 }); };
+
+  const handleWheel = (e) => {
+    e.preventDefault();
+    setScale((s) => clampScale(s - e.deltaY * 0.0015));
+  };
+  const handleDoubleClick = () => {
+    if (scale > 1) resetView();
+    else { setScale(2.5); setPos({ x: 0, y: 0 }); }
+  };
+  const onTouchStart = (e) => {
+    if (e.touches.length === 2) {
+      const [a, b] = e.touches;
+      touchRef.current = {
+        pinchStartDist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+        pinchStartScale: scale,
+      };
+    } else if (e.touches.length === 1) {
+      touchRef.current = {
+        panStartX: e.touches[0].clientX,
+        panStartY: e.touches[0].clientY,
+        posStartX: pos.x,
+        posStartY: pos.y,
+      };
+    }
+  };
+  const onTouchMove = (e) => {
+    if (e.touches.length === 2 && touchRef.current.pinchStartDist) {
+      e.preventDefault();
+      const [a, b] = e.touches;
+      const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      setScale(clampScale(touchRef.current.pinchStartScale * (dist / touchRef.current.pinchStartDist)));
+    } else if (e.touches.length === 1 && touchRef.current.panStartX != null && scale > 1) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - touchRef.current.panStartX;
+      const dy = e.touches[0].clientY - touchRef.current.panStartY;
+      setPos({ x: touchRef.current.posStartX + dx, y: touchRef.current.posStartY + dy });
+    }
+  };
+  const onTouchEnd = () => { touchRef.current = {}; };
+  const onMouseDown = (e) => {
+    if (scale <= 1) return;
+    mouseRef.current = { startX: e.clientX, startY: e.clientY, posStartX: pos.x, posStartY: pos.y };
+  };
+  const onMouseMove = (e) => {
+    if (!mouseRef.current) return;
+    setPos({
+      x: mouseRef.current.posStartX + (e.clientX - mouseRef.current.startX),
+      y: mouseRef.current.posStartY + (e.clientY - mouseRef.current.startY),
+    });
+  };
+  const onMouseUp = () => { mouseRef.current = null; };
+
+  return (
+    <div
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onWheel={handleWheel}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+      onMouseLeave={onMouseUp}
+      style={{
+        position: "fixed", inset: 0, zIndex: 9999,
+        backgroundColor: "rgba(0,0,0,0.92)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        touchAction: "none", overscrollBehavior: "contain",
+      }}
+    >
+      <button
+        onClick={onClose}
+        style={{
+          position: "absolute", top: 14, insetInlineEnd: 14, zIndex: 2,
+          width: 40, height: 40, borderRadius: 999, border: "none",
+          backgroundColor: "rgba(255,255,255,0.15)", color: "#fff",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        <X size={22} />
+      </button>
+      <div
+        style={{
+          position: "absolute", bottom: 16, insetInlineStart: "50%", transform: "translateX(-50%)",
+          display: "flex", alignItems: "center", gap: 10, zIndex: 2,
+        }}
+      >
+        <button
+          onClick={() => setScale((s) => clampScale(s - 0.5))}
+          style={{ width: 38, height: 38, borderRadius: 999, border: "none", backgroundColor: "rgba(255,255,255,0.15)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <ZoomOut size={18} />
+        </button>
+        <button
+          onClick={resetView}
+          style={{ padding: "0 12px", height: 38, borderRadius: 999, border: "none", backgroundColor: "rgba(255,255,255,0.15)", color: "#fff", fontSize: 12, fontWeight: 700 }}
+        >
+          ریست
+        </button>
+        <button
+          onClick={() => setScale((s) => clampScale(s + 0.5))}
+          style={{ width: 38, height: 38, borderRadius: 999, border: "none", backgroundColor: "rgba(255,255,255,0.15)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <ZoomIn size={18} />
+        </button>
+      </div>
+      <img
+        src={src}
+        alt={alt}
+        draggable={false}
+        onDoubleClick={handleDoubleClick}
+        onMouseDown={onMouseDown}
+        style={{
+          maxWidth: "94vw",
+          maxHeight: "88vh",
+          transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})`,
+          cursor: scale > 1 ? "grab" : "zoom-in",
+          userSelect: "none",
+          touchAction: "none",
+        }}
+      />
+    </div>
+  );
+}
+
 function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, onUserAudioStateChange, autoScrollActive, calendarSystem, highlightColor, uid, uiLang }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
@@ -8660,6 +8902,11 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const defaultStoryLang =
     (targetOrder || []).find((c) => storyLangOptions.includes(c)) || storyLangOptions[0] || "en";
   const [storyLang, setStoryLang] = useState(defaultStoryLang);
+  // تنظیماتِ سراسریِ اندازه/بولدِ متنِ زبانِ مقصد (همون تنظیماتی که رویِ
+  // ClickableSentence هم اثر می‌ذاره) — پنلِ ترجمه‌ی PDF عکس‌دار (پایین‌تر)
+  // قبلاً به این تنظیمات وصل نبود و اندازه/بولدش ثابت بود؛ الان با همین
+  // هوک زنده گوش می‌ده تا از تبِ تنظیمات قابلِ تغییر باشه.
+  const pdfViewTargetTextPrefs = useTargetTextPrefs();
   // اگه کاربر بالای صفحه زبان‌های مقصد رو عوض کنه (مثلاً از انگلیسی به
   // هندی)، storyLang باید خودش رو با انتخاب جدید هماهنگ کنه — قبلاً فقط
   // یه‌بار موقع mount مقداردهی می‌شد و بعدش «قفل» می‌موند رو همون زبون اول،
@@ -8719,6 +8966,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [pdfViewPages, setPdfViewPages] = useState([]); // [{pageNum, imageUrl, width, height, originalText, translatedText}]
   const [pdfViewTitle, setPdfViewTitle] = useState("");
   const [pdfViewIndex, setPdfViewIndex] = useState(0);
+  const [pdfImageZoomOpen, setPdfImageZoomOpen] = useState(false);
   const pdfViewInputRef = useRef(null);
   // شناسه‌ی سندِ جاری (برای ذخیره‌ی صفحه‌به‌صفحه تو IndexedDB حین پردازش)،
   // و لیستِ PDFهایی که قبلاً کامل/ناقص ذخیره شدن — تا کاربر بتونه بدونِ
@@ -10005,8 +10253,12 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       for (let i = 1; i <= pageCount; i++) {
         const page = await doc.getPage(i);
         const content = await page.getTextContent();
-        const pageText = content.items.map((it) => it.str).join(" ");
-        allSentences.push(...splitTextIntoSentenceStrings(pageText));
+        // به‌جایِ چسبوندنِ کورکورانه‌ی همه‌ی آیتم‌ها با یه space (که فاصله‌ی
+        // واقعیِ PDF رو گم می‌کنه و شماره‌ی لیست/ردیفِ جدول رو با متنِ بعدی
+        // قاطی می‌کنه)، خط‌به‌خط با فاصله‌بندیِ خودِ صفحه استخراج می‌کنیم و
+        // خط‌های لیست/ردیف رو دست‌نخورده نگه می‌داریم.
+        const pageLines = extractPdfPageLines(content);
+        allSentences.push(...linesToSentenceStrings(pageLines));
         // pdf.js انجامِ getTextContent روی صفحه‌های سنگین رو کاملاً
         // سینکرون/CPU-heavy انجام می‌ده؛ خودِ await هم همیشه کافی نیست تا
         // مرورگر فرصتِ رندر/پاسخ‌گویی به لمس پیدا کنه (چون resolve شدنِ
@@ -11364,12 +11616,13 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               </button>
             </div>
             <div className="flex flex-wrap gap-3" style={{ alignItems: "flex-start" }}>
-              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+              <div style={{ flex: "1 1 340px", minWidth: 0 }}>
                 {pdfViewPages[pdfViewIndex]?.imageUrl && (
                   <img
                     src={pdfViewPages[pdfViewIndex].imageUrl}
                     alt={`صفحه‌ی ${pdfViewIndex + 1}`}
-                    style={{ width: "100%", borderRadius: 10, border: `1px solid ${colors.cardBorder}`, display: "block" }}
+                    onClick={() => setPdfImageZoomOpen(true)}
+                    style={{ width: "100%", borderRadius: 10, border: `1px solid ${colors.cardBorder}`, display: "block", cursor: "zoom-in" }}
                   />
                 )}
               </div>
@@ -11381,7 +11634,10 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                   backgroundColor: colors.goldSoft,
                   borderRadius: 10,
                   padding: 10,
-                  fontSize: 13,
+                  fontFamily: RTL_LANGS.includes(nativeLang || "fa") ? fontFa : fontLatin,
+                  fontWeight:
+                    pdfViewTargetTextPrefs.bold === "both" || pdfViewTargetTextPrefs.bold === "translation" ? 700 : 400,
+                  fontSize: Math.round(13 * ((pdfViewTargetTextPrefs.scale || 100) / 100)),
                   lineHeight: 1.9,
                   color: colors.ink,
                   maxHeight: 480,
@@ -11409,6 +11665,13 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               </button>
             </div>
           </div>
+        )}
+        {pdfImageZoomOpen && pdfViewPages[pdfViewIndex]?.imageUrl && (
+          <ZoomableImageModal
+            src={pdfViewPages[pdfViewIndex].imageUrl}
+            alt={`صفحه‌ی ${pdfViewIndex + 1}`}
+            onClose={() => setPdfImageZoomOpen(false)}
+          />
         )}
 
         <div style={{ textAlign: "start" }}>
