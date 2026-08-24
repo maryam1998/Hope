@@ -53,6 +53,7 @@ jobs:
             --external:firebase/auth \
             --external:firebase/firestore \
             --external:pdfjs-dist \
+            --external:pdf-lib \
             --outfile=app.bundle.min.js
 
       # هر بار که باندل عوض بشه، مرورگرهایی که sw.js رو قبلاً نصب کردن باید
