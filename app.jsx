@@ -15180,6 +15180,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             autoScrollActive={tab === "vocabInUse"}
             highlightColor={appPrefs.highlightColor}
             jumpTarget={wordJumpTarget}
+            defaultPageSize={VOCAB_IN_USE_WORDS.length}
           />
         )}
 
@@ -16702,7 +16703,14 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
 // به کتابخونه‌ی جدید).
 const WORDS_PAGE_SIZE = 60;
 
-const WordList = React.memo(function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor, jumpTarget, uiLang }) {
+const WordList = React.memo(function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor, jumpTarget, uiLang, defaultPageSize }) {
+  // بازه‌ی پیش‌فرضِ نمایش برای این لیستِ خاص. بیشترِ تب‌ها (لغات، اخبار،
+  // اسلنگ) چیزی پاس نمی‌دن و همون WORDS_PAGE_SIZE (۶۰ تا) امنِ قبلی رو
+  // می‌گیرن — چون این تب‌ها می‌تونن چند هزار ردیف داشته باشن و رندرِ همه‌شون
+  // با هم برنامه رو هنگ می‌کنه. تبِ «Vocabulary in Use» چون تعدادش محدوده
+  // (چندهزار نه، بلکه چندصد لغت)، defaultPageSize={VOCAB_IN_USE_WORDS.length}
+  // رو پاس می‌ده تا از همون اول همه‌ی لغاتش دیده بشن.
+  const effectivePageSize = defaultPageSize || WORDS_PAGE_SIZE;
   // زبان‌هایی که باید زیرِ هر لغت ترجمه‌شون نشون داده بشه: همون زبان‌های
   // مقصدی که کاربر بالای صفحه انتخاب/مرتب کرده (targetLangs)، منهای خودِ
   // انگلیسی (چون انگلیسی همون سرلغته که بالا نشون داده می‌شه و تکرارش
@@ -16777,7 +16785,7 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, levelFilter, words]);
 
-  const defaultRangeTo = Math.min(filtered.length, WORDS_PAGE_SIZE) || filtered.length || 1;
+  const defaultRangeTo = Math.min(filtered.length, effectivePageSize) || filtered.length || 1;
   const parsedFrom = parseInt(rangeFromInput, 10);
   const parsedTo = parseInt(rangeToInput, 10);
   const effFrom = Number.isNaN(parsedFrom) ? 1 : parsedFrom;
@@ -16934,7 +16942,7 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
     });
     setRangeToInput((prev) => {
       const prevNum = parseInt(prev, 10);
-      const effPrev = Number.isNaN(prevNum) ? Math.min(filtered.length, WORDS_PAGE_SIZE) || filtered.length || 1 : prevNum;
+      const effPrev = Number.isNaN(prevNum) ? Math.min(filtered.length, effectivePageSize) || filtered.length || 1 : prevNum;
       return String(Math.max(effPrev, Math.min(idx + 1, filtered.length)));
     });
     setJustJumpedId(jumpTarget.id);
@@ -17232,6 +17240,50 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
                 );
               })}
             </div>
+            {/* مثال/کالوکیشنِ خودِ دیتا (فقط لغاتی که این فیلدها رو دارن،
+                مثلِ تبِ «Vocabulary in Use» — بقیه‌ی لیست‌ها این فیلد رو
+                ندارن، پس این بخش خودکار مخفی می‌مونه). این جدا از
+                WordExamples پایینه که مثالِ زنده با AI می‌سازه؛ اینجا
+                همون مثال/کالوکیشنِ ثابتِ نویسنده‌ی کتابه. */}
+            {(w.collocation || w.example) && (
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: "6px 10px",
+                  background: colors.paperDark,
+                  borderRadius: 8,
+                  borderInlineStart: `3px solid ${colors.teal}`,
+                }}
+              >
+                {w.collocation && (
+                  <p
+                    style={{
+                      margin: 0,
+                      fontFamily: fontLatin,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: colors.teal,
+                    }}
+                  >
+                    {w.collocation}
+                  </p>
+                )}
+                {w.example && (
+                  <p
+                    style={{
+                      margin: w.collocation ? "3px 0 0" : 0,
+                      fontFamily: fontLatin,
+                      fontSize: 12.5,
+                      lineHeight: 1.5,
+                      color: colors.inkSoft,
+                      fontStyle: "italic",
+                    }}
+                  >
+                    {w.example}
+                  </p>
+                )}
+              </div>
+            )}
             <WordExamples word={w.en} langCode="en" meaningNative={w.fa} nativeLang={nativeLang} targetLangs={effectiveDisplayLangs} aiSettings={aiSettings} />
           </div>
         </div>
