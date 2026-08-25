@@ -12,6 +12,137 @@ import DailyConversationsTab from "./DailyConversationsTab.jsx";
 import RangeSliderFilter from "./RangeSliderFilter.jsx";
 
 // ---------------------------------------------------------------------------
+// ZoomableImage — عکس با قابلیتِ زوم با دو انگشت (پینچ) روی موبایل، درگ‌کردن
+// وقتی زوم‌شده، و دوبار-تپ برای زوم/ریست سریع. با Pointer Events پیاده‌سازی
+// شده (بدون کتابخونه‌ی جدید) پس هم لمسی و هم موس/ترک‌پد رو پوشش می‌ده.
+// برای «نمایشِ PDF همینجا» استفاده می‌شه تا کاربر بتونه رویِ عکسِ هر صفحه
+// زوم کنه، ولی هر جای دیگه‌ای هم که عکس بزرگ داریم قابلِ استفاده‌ست.
+// ---------------------------------------------------------------------------
+function ZoomableImage({ src, alt, style, minScale = 1, maxScale = 4, overlay, disabled = false }) {
+  const containerRef = useRef(null);
+  const [scale, setScale] = useState(1);
+  const [translate, setTranslate] = useState({ x: 0, y: 0 });
+  const pointersRef = useRef(new Map());
+  const gestureRef = useRef(null);
+  const lastTapRef = useRef(0);
+
+  const clampTranslate = useCallback((t, s) => {
+    const el = containerRef.current;
+    if (!el) return t;
+    const rect = el.getBoundingClientRect();
+    const maxX = Math.max(0, (rect.width * (s - 1)) / 2);
+    const maxY = Math.max(0, (rect.height * (s - 1)) / 2);
+    return { x: Math.min(maxX, Math.max(-maxX, t.x)), y: Math.min(maxY, Math.max(-maxY, t.y)) };
+  }, []);
+
+  const resetZoom = useCallback(() => {
+    setScale(1);
+    setTranslate({ x: 0, y: 0 });
+  }, []);
+
+  // هر بار منبعِ عکس عوض شد (مثلاً رفتن به صفحه‌ی بعد/قبلِ PDF)، زوم ریست بشه
+  useEffect(() => { resetZoom(); }, [src, resetZoom]);
+
+  const endPointer = (e) => {
+    pointersRef.current.delete(e.pointerId);
+    if (pointersRef.current.size === 0) {
+      gestureRef.current = null;
+      setScale((s) => {
+        if (s < 1.02) { setTranslate({ x: 0, y: 0 }); return 1; }
+        return s;
+      });
+    } else if (pointersRef.current.size === 1) {
+      const [[, pt]] = pointersRef.current;
+      gestureRef.current = scale > 1 ? { type: "pan", startX: pt.x, startY: pt.y, startTranslate: translate } : null;
+    }
+  };
+
+  const onPointerDown = (e) => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.setPointerCapture?.(e.pointerId);
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointersRef.current.size === 2) {
+      const pts = [...pointersRef.current.values()];
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      const mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+      gestureRef.current = { type: "pinch", startDist: dist, startScale: scale, startMid: mid, startTranslate: translate };
+    } else if (pointersRef.current.size === 1) {
+      if (scale > 1) {
+        gestureRef.current = { type: "pan", startX: e.clientX, startY: e.clientY, startTranslate: translate };
+      }
+      const now = Date.now();
+      if (now - lastTapRef.current < 300) {
+        if (scale > 1) resetZoom();
+        else { setScale(2); setTranslate({ x: 0, y: 0 }); }
+      }
+      lastTapRef.current = now;
+    }
+  };
+
+  const onPointerMove = (e) => {
+    if (!pointersRef.current.has(e.pointerId)) return;
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const g = gestureRef.current;
+    if (!g) return;
+    if (g.type === "pinch" && pointersRef.current.size === 2) {
+      const pts = [...pointersRef.current.values()];
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      if (g.startDist > 0) {
+        const next = Math.min(maxScale, Math.max(minScale, (g.startScale * dist) / g.startDist));
+        setScale(next);
+        setTranslate(clampTranslate(g.startTranslate, next));
+      }
+    } else if (g.type === "pan" && pointersRef.current.size === 1) {
+      const dx = e.clientX - g.startX;
+      const dy = e.clientY - g.startY;
+      setTranslate(clampTranslate({ x: g.startTranslate.x + dx, y: g.startTranslate.y + dy }, scale));
+    }
+  };
+
+  // وقتی disabled=true (مثلاً چون کاربر رفته تو «حالتِ انتخابِ متن»)، دیگه
+  // خودمون پینچ/درگ رو مدیریت نمی‌کنیم و touchAction رو به حالتِ عادی
+  // برمی‌گردونیم — تا ژستِ لمسِ طولانی/کشیدنِ انگشتِ خودِ مرورگر برای
+  // انتخابِ متنِ لایه‌ی روییِ overlay (که همون زمان فعال می‌شه) آزاد بمونه.
+  // زوم/جابه‌جاییِ فعلی هم دست‌نخورده می‌مونه (فقط دیگه قابلِ تغییر نیست)
+  // تا با سوییچ‌کردنِ بینِ دو حالت، بزرگ‌نماییِ کاربر گم نشه.
+  return (
+    <div
+      ref={containerRef}
+      onPointerDown={disabled ? undefined : onPointerDown}
+      onPointerMove={disabled ? undefined : onPointerMove}
+      onPointerUp={disabled ? undefined : endPointer}
+      onPointerCancel={disabled ? undefined : endPointer}
+      onPointerLeave={disabled ? undefined : (e) => { if (e.buttons === 0) endPointer(e); }}
+      style={{
+        overflow: "hidden",
+        touchAction: disabled ? "auto" : "none",
+        cursor: disabled ? "text" : scale > 1 ? "grab" : "default",
+        position: "relative",
+        ...style,
+      }}
+    >
+      <div
+        style={{
+          position: "relative",
+          transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
+          transformOrigin: "center center",
+          transition: gestureRef.current ? "none" : "transform 0.15s ease-out",
+        }}
+      >
+        <img
+          src={src}
+          alt={alt}
+          draggable={false}
+          style={{ width: "100%", display: "block", userSelect: disabled ? "text" : "none" }}
+        />
+        {overlay}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // جستجوی یکپارچه‌ی «یا از دیکشنری جستجو کن...» توی داستان‌ساز — به‌جای
 // این‌که فقط تو VOCAB (لیست محدودِ چندزبانه) بگرده، باید بتونه از تبِ
 // «لغات» (WORDS_AZ)، «لغات و اخبار» (NEWS_WORDS)، «مکالمه و روزمره»
@@ -8433,6 +8564,114 @@ function drawParagraphMarkers(ctx, viewport, paragraphs) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// لایه‌ی «متنِ نامرئیِ قابل‌انتخاب» رویِ خودِ عکسِ صفحه‌ی PDF — برای اینکه
+// کاربر بتونه دقیقاً مثلِ یه PDF‌خوانِ واقعی، با انگشتش رویِ خودِ عکس متن
+// انتخاب کنه (نه از یه پنلِ جدا). چون خروجیِ نهایی فقط یه عکسِ رندرشده‌ست
+// (نه یه PDF زنده تو DOM)، خودمون یه لایه‌ی span های نامرئی دقیقاً پشتِ
+// همون حروف می‌سازیم؛ همون الگویی که خودِ pdf.js هم برای Text Layer به کار
+// می‌بره: مختصاتِ هر آیتمِ متنی از content.items با ماتریسِ تبدیلِ
+// viewport ترکیب می‌شه تا مختصاتِ پیکسلیِ (روی همون کانواسی که عکس ازش
+// ساخته شده) به دست بیاد. این آیتم‌ها یه‌بار موقعِ پردازشِ PDF محاسبه و
+// (به‌همراهِ خودِ عکس) تو IndexedDB ذخیره می‌شن — تا وقتی PDF دوباره از
+// «PDFهای ذخیره‌شده» باز می‌شه، دوباره نیازی به pdf.js/محاسبه‌ی از نو نباشه.
+// توجه: چرخشِ متن (متنِ عمودی/زاویه‌دار) پشتیبانی نمی‌شه — برای اکثرِ
+// اسنادِ معمولی (متنِ افقیِ ساده) که غالبِ PDFهاست کافیه؛ برای صفحاتِ
+// خیلی خاص (اسکن‌شده با چرخش/جدولِ پیچیده) ممکنه دقیق نباشه، ولی همچنان
+// قابل‌انتخاب می‌مونه.
+function buildPdfTextLayerItems(content, viewport, pdfjsLib) {
+  const items = content?.items || [];
+  const out = [];
+  for (const it of items) {
+    if (!it.str || !it.str.trim() || !Array.isArray(it.transform)) continue;
+    let tx;
+    try {
+      tx = pdfjsLib.Util.transform(viewport.transform, it.transform);
+    } catch {
+      continue;
+    }
+    const angle = Math.atan2(tx[1], tx[0]);
+    // فقط متنِ تقریباً افقی رو دقیق جا می‌ذاریم (بیشترِ PDFها همینه)؛
+    // بقیه هم بدونِ چرخش ولی سرِ جاشون قرار می‌گیرن تا حداقل انتخاب‌پذیر
+    // بمونن.
+    const fontHeight = Math.hypot(tx[2], tx[3]) || 1;
+    const width = Math.max(1, (it.width || 0) * viewport.scale);
+    out.push({
+      str: it.str,
+      left: tx[4],
+      top: tx[5] - fontHeight,
+      width,
+      height: fontHeight * 1.2,
+      fontSize: fontHeight,
+      rotated: Math.abs(angle) > 0.02,
+    });
+  }
+  return out;
+}
+
+// لایه‌ی رندرِ همون آیتم‌ها رویِ عکس — با ResizeObserver نسبتِ عرضِ واقعیِ
+// نمایش‌داده‌شده به عرضِ اصلیِ صفحه (همون که موقعِ رندر با pdf.js محاسبه
+// شده) رو پیدا می‌کنه و کلِ لایه رو با transform:scale به همون نسبت
+// کوچیک/بزرگ می‌کنه — این‌جوری هم روی موبایلِ باریک و هم بعد از پینچ‌زوم
+// (که خودِ ZoomableImage روی همین ظرف اعمال می‌کنه)، جای هر span دقیقاً
+// روی همون حروفِ زیرِ عکس می‌مونه.
+function PdfTextSelectionLayer({ items, pageWidth, pageHeight }) {
+  const outerRef = useRef(null);
+  const [displayScale, setDisplayScale] = useState(1);
+
+  useEffect(() => {
+    const el = outerRef.current;
+    if (!el || !pageWidth) return;
+    const update = () => {
+      const w = el.getBoundingClientRect().width;
+      if (w > 0) setDisplayScale(w / pageWidth);
+    };
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [pageWidth]);
+
+  if (!items || !items.length || !pageWidth || !pageHeight) return null;
+
+  return (
+    <div ref={outerRef} style={{ position: "absolute", inset: 0 }}>
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: pageWidth,
+          height: pageHeight,
+          transform: `scale(${displayScale})`,
+          transformOrigin: "top left",
+        }}
+      >
+        {items.map((it, i) => (
+          <span
+            key={i}
+            style={{
+              position: "absolute",
+              left: it.left,
+              top: it.top,
+              width: it.width,
+              height: it.height,
+              fontSize: it.fontSize,
+              lineHeight: 1.2,
+              whiteSpace: "pre",
+              color: "transparent",
+              cursor: "text",
+            }}
+          >
+            {it.str}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // نوارِ کوچکِ صوتِ کاربر برای داستان — بالای متنِ داستان می‌شینه. یه سوییچِ
 // دوحالته (TTS ⇄ صوتِ من) داره؛ اگه هنوز صوتی آپلود نشده فقط دکمه‌ی آپلود
 // نشون می‌ده (هیچ محدودیتی رو فرمتِ فایل نیست). هیچ هایلایت/خوانشِ
@@ -8719,6 +8958,13 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [pdfViewPages, setPdfViewPages] = useState([]); // [{pageNum, imageUrl, width, height, originalText, translatedText}]
   const [pdfViewTitle, setPdfViewTitle] = useState("");
   const [pdfViewIndex, setPdfViewIndex] = useState(0);
+  // حالتِ «انتخابِ متن رویِ خودِ PDF» — پیش‌فرض خاموشه (یعنی انگشت روی
+  // عکس = پینچ‌زوم/جابه‌جایی، دقیقاً مثلِ الان). کاربر با دکمه‌ی ✍️ می‌تونه
+  // بره تو این حالت؛ اون‌موقع دیگه انگشت روی عکس = انتخابِ متن (مثلِ یه
+  // PDF‌خوانِ واقعی)، نه زوم — چون این دو ژست (پینچ‌زوم دستی و لمسِ
+  // طولانی/کشیدنِ انگشتِ بومیِ مرورگر برای انتخابِ متن) با هم تداخل دارن و
+  // نمی‌شه هم‌زمان هر دو رو با یه انگشت پشتیبانی کرد.
+  const [pdfSelectMode, setPdfSelectMode] = useState(false);
   const pdfViewInputRef = useRef(null);
   // شناسه‌ی سندِ جاری (برای ذخیره‌ی صفحه‌به‌صفحه تو IndexedDB حین پردازش)،
   // و لیستِ PDFهایی که قبلاً کامل/ناقص ذخیره شدن — تا کاربر بتونه بدونِ
@@ -10305,6 +10551,12 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         // بخش) — تا کاربر بتونه شماره‌ها رو با هم تطبیق بده و گم نشه.
         const paragraphs = extractPdfPageParagraphs(content);
         drawParagraphMarkers(ctx, viewport, paragraphs);
+        // مختصاتِ تک‌تک آیتم‌های متنیِ همین صفحه — برای لایه‌ی «انتخابِ متن
+        // رویِ خودِ عکس» (نگاه کن به توضیحِ buildPdfTextLayerItems بالای
+        // فایل). همین‌جا (نه موقعِ نمایش) محاسبه می‌شه چون فقط همین‌جا به
+        // pdfjsLib.Util و viewportِ واقعی دسترسی داریم؛ نتیجه یه آرایه‌ی
+        // ساده‌ی قابلِ‌ذخیره‌ست، پس بدونِ مشکل تو IndexedDB هم می‌مونه.
+        const textLayerItems = buildPdfTextLayerItems(content, viewport, pdfjsLib);
 
         const imageBlob = await canvasToJpgBlob(canvas);
         const imageUrl = imageBlob ? URL.createObjectURL(imageBlob) : "";
@@ -10327,6 +10579,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           height: canvas.height,
           originalText: pageText,
           translatedText: translatedText || "متنی برای ترجمه در این صفحه پیدا نشد.",
+          textItems: textLayerItems,
         };
 
         // بلافاصله همین صفحه رو نشون بده — کاربر منتظرِ کلِ فایل نمی‌مونه،
@@ -11365,12 +11618,70 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             </div>
             <div className="flex flex-wrap gap-3" style={{ alignItems: "flex-start" }}>
               <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+                {!!pdfViewPages[pdfViewIndex]?.textItems?.length && (
+                  <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
+                    <button
+                      onClick={() => setPdfSelectMode(false)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: "5px 9px",
+                        borderRadius: 8,
+                        color: !pdfSelectMode ? colors.paper : colors.ink,
+                        background: !pdfSelectMode ? colors.teal : "transparent",
+                        border: `1px solid ${!pdfSelectMode ? colors.teal : colors.cardBorder}`,
+                      }}
+                    >
+                      🤏 زوم
+                    </button>
+                    <button
+                      onClick={() => setPdfSelectMode(true)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: "5px 9px",
+                        borderRadius: 8,
+                        color: pdfSelectMode ? colors.paper : colors.ink,
+                        background: pdfSelectMode ? colors.teal : "transparent",
+                        border: `1px solid ${pdfSelectMode ? colors.teal : colors.cardBorder}`,
+                      }}
+                    >
+                      ✍️ انتخابِ متن
+                    </button>
+                  </div>
+                )}
                 {pdfViewPages[pdfViewIndex]?.imageUrl && (
-                  <img
+                  <ZoomableImage
                     src={pdfViewPages[pdfViewIndex].imageUrl}
                     alt={`صفحه‌ی ${pdfViewIndex + 1}`}
-                    style={{ width: "100%", borderRadius: 10, border: `1px solid ${colors.cardBorder}`, display: "block" }}
+                    style={{ borderRadius: 10, border: `1px solid ${colors.cardBorder}` }}
+                    disabled={pdfSelectMode}
+                    overlay={
+                      pdfSelectMode && (
+                        <PdfTextSelectionLayer
+                          items={pdfViewPages[pdfViewIndex]?.textItems}
+                          pageWidth={pdfViewPages[pdfViewIndex]?.width}
+                          pageHeight={pdfViewPages[pdfViewIndex]?.height}
+                        />
+                      )
+                    }
                   />
+                )}
+                <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
+                  {pdfSelectMode
+                    ? "رویِ خودِ متنِ عکس انگشتت رو نگه دار و بکش تا انتخاب بشه — همون کادرِ «افزودن به داستان / گرامر / جعبه‌ی لایتنر» باز می‌شه. برای برگشتن به زوم، دکمه‌ی 🤏 زوم رو بزن."
+                    : "برای زوم رو عکس، با دو انگشت پینچ کن یا دوبار سریع لمسش کن؛ وقتی زوم کردی می‌تونی با یه انگشت جابه‌جاش کنی. برای انتخابِ متنِ خودِ صفحه، دکمه‌ی ✍️ انتخابِ متن رو بزن."}
+                </p>
+                {pdfSelectMode && !pdfViewPages[pdfViewIndex]?.textItems?.length && (
+                  <p style={{ fontSize: 10, color: colors.rose, marginTop: 4 }}>
+                    این صفحه متنِ قابلِ‌انتخاب نداره (شاید عکس/اسکن باشه).
+                  </p>
                 )}
               </div>
               <div
@@ -15885,6 +16196,12 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
   // ترجمه بعداً و در پس‌زمینه کامل می‌شه، دقیقاً مثل بقیه‌ی جاهای برنامه).
   const [saved, setSaved] = useState(false);
   const [grammarSaved, setGrammarSaved] = useState(false);
+  // دقیقاً هم‌الگوی «ذخیره برای داستان بعدی» / «افزودن به یادگیری گرامر» —
+  // فقط اینجا از همون singletonِ requestAddToLeitner استفاده می‌کنیم که
+  // popoverِ تک‌لغه‌ایِ ClickableSentence هم برای همین دکمه استفاده می‌کنه
+  // (نگاه کن به addActiveTermToLeitner)، تا هر دو مسیر دقیقاً یه رفتار
+  // داشته باشن و هم‌زمان لیستِ مرورِ لایتنر رو هم آپدیت کنن.
+  const [leitnerSaved, setLeitnerSaved] = useState(false);
 
   useEffect(() => {
     const resolveLangCode = (node) => {
@@ -15966,6 +16283,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       } catch {}
       setSaved(isWordSaved(selectedText, langCode));
       setGrammarSaved(false);
+      setLeitnerSaved(false);
       setMeasuredHeight(null);
       // دیگه پاپ‌آپ همین‌جا باز نمی‌شه — محدوده فقط «آماده» می‌مونه (با
       // هایلایتِ طلاییِ بالا) تا کاربر جدا روش یه لمسِ طولانی انجام بده
@@ -16428,6 +16746,32 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
         >
           <Type size={13} />
           {grammarSaved ? "ذخیره شد در گرامر" : "افزودن به یادگیری گرامر"}
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isGhostEvent()) return;
+            if (!requestAddToLeitner) return;
+            requestAddToLeitner(popup.text, popup.langCode, translation?.status === "done" ? translation.text : "");
+            setLeitnerSaved(true);
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            fontSize: 12,
+            fontWeight: 700,
+            color: leitnerSaved ? colors.gold : colors.paper,
+            background: "rgba(255,255,255,0.08)",
+            border: `1px solid ${leitnerSaved ? colors.gold : "rgba(255,255,255,0.25)"}`,
+            borderRadius: 6,
+            padding: "6px 8px",
+            cursor: "pointer",
+          }}
+        >
+          <ListChecks size={13} />
+          {leitnerSaved ? "به جعبه‌ی لایتنر اضافه شد" : "افزودن به جعبه‌ی لایتنر"}
         </button>
       </div>
     </div>
