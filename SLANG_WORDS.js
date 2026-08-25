@@ -3710,6 +3710,7 @@ export const SLANG_WORDS = [
   { id: 600648, level: "A2", pos: "slang", en: "My dear / My love (friendly, sometimes sarcastic)", fa: "جون من" },
   { id: 600649, level: "B2", pos: "slang", en: "My death? Are you serious? Then why lie?", fa: "مرگ من؟ راست می‌گی؟ دوروغ چرا" },
   { id: 600650, level: "B1", pos: "slang", en: "What a thing! / What a deal! (sarcastic or impressed)", fa: "عجب چیزیه" },
+];
 export const DAILY_WORDS = [
   { id: 100077, level: "A1", pos: "noun", en: "address", fa: "آدرس" },
   { id: 100103, level: "A1", pos: "noun", en: "advice", fa: "توصیه" },
