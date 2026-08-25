@@ -1099,7 +1099,15 @@ async function translateFree(text, targetLang, sourceLang = "auto", aiSettings =
   // «دانلود آفلاین لغات» توی تنظیمات) ترجمه و ذخیره شده، بدون هیچ درخواست
   // شبکه‌ای همون رو برگردون. این دقیقاً همونیه که آفلاین‌بودن رو ممکن می‌کنه.
   const cached = await getCachedTranslation(text, targetLang, sourceLang);
-  if (cached) return cached;
+  // ⛔️ رفعِ باگِ «زبونِ اشتباه/ترجمه‌نشده که برای همیشه کش شده»: قبلاً هر
+  // چی از کش می‌اومد، بدونِ هیچ چکی مستقیم نشون داده می‌شد — پس اگه یه‌بار
+  // (مثلاً به‌خاطرِ باگِ زیر، یا قطعیِ لحظه‌ایِ AI) متنِ اصلی/غلط اشتباهاً کش
+  // شده باشه، همون غلط تا ابد (حتی بعد از رفعِ باگ) نشون داده می‌شد. حالا
+  // موقعِ خوندن از کش هم با همون تستِ looksLikelyMistranslated چک می‌کنیم؛
+  // اگه مشکوک بود، کش رو نادیده می‌گیریم و انگار اصلاً کش نبوده دوباره
+  // می‌ریم سراغِ شبکه — یعنی دیتای غلطِ قدیمی خودش‌به‌خود (بدون نیاز به پاک
+  // کردنِ دستیِ IndexedDB) اصلاح می‌شه.
+  if (cached && !looksLikelyMistranslated(text, cached, targetLang, sourceLang)) return cached;
 
   // کش نبود — کارِ واقعیِ شبکه‌ای وارد صفِ سراسری می‌شه (نه بلافاصله اجرا)
   // تا سقفِ هم‌زمانی رعایت بشه؛ و کلِ این کار زیرِ یه سقفِ زمانیِ سخت قرار
@@ -1148,7 +1156,16 @@ async function translateFreeNetwork(text, targetLang, sourceLang, aiSettings, fo
   if (aiSettings) {
     try {
       const result = await translateViaAI(text, targetLang, sourceLang, aiSettings);
-      if (result && result.trim()) {
+      // 🐛 باگِ اصلی همین‌جا بود: برخلافِ ۴ سرویسِ رایگانِ بالا (که نتیجه‌شون
+      // قبل از کش‌شدن از فیلترِ looksLikelyMistranslated رد می‌شه)، این
+      // آخرین‌چاره (بک‌اندِ AI) هر جوابی که می‌داد — حتی اگه عیناً همون متنِ
+      // مبدأ (مثلاً انگلیسیِ ترجمه‌نشده) بود — بدونِ هیچ چکی برای همیشه کش
+      // و نمایش داده می‌شد. چون ۴ سرویسِ رایگانِ بالا (Google/MyMemory/
+      // Lingva/Libre) توی شبکه‌ی ایران معمولاً فیلتر/بلاکن، عملاً اکثرِ
+      // ترجمه‌ها از همین مسیرِ بدونِ-چک رد می‌شدن — دقیقاً همون دلیلِ دیده‌شدنِ
+      // برچسبِ زبونِ اشتباه (مثلاً ES) با متنِ انگلیسیِ دست‌نخورده. حالا این
+      // نتیجه هم دقیقاً مثلِ بقیه چک می‌شه.
+      if (result && result.trim() && !looksLikelyMistranslated(text, result, targetLang, sourceLang)) {
         setCachedTranslation(text, targetLang, sourceLang, result);
         return result;
       }
