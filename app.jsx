@@ -17277,45 +17277,20 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
                 مثلِ تبِ «Vocabulary in Use» — بقیه‌ی لیست‌ها این فیلد رو
                 ندارن، پس این بخش خودکار مخفی می‌مونه). این جدا از
                 WordExamples پایینه که مثالِ زنده با AI می‌سازه؛ اینجا
-                همون مثال/کالوکیشنِ ثابتِ نویسنده‌ی کتابه. */}
+                همون مثال/کالوکیشنِ ثابتِ نویسنده‌ی کتابه — با
+                direction:"ltr"ِ صریح (چپ‌به‌راستِ درست، نه راست‌چین‌شده به‌خاطرِ
+                ریشه‌یِ rtlِ اپ)، بلندگویِ خودش (لبه‌ی راست، هم‌راستا با بقیه‌ی
+                ردیف‌ها)، و ترجمه‌ی زنده‌ی جمله‌ی مثال به هر زبانِ مقصدی که
+                کاربر بالای صفحه انتخاب کرده. */}
             {(w.collocation || w.example) && (
-              <div
-                style={{
-                  marginTop: 6,
-                  padding: "6px 10px",
-                  background: colors.paperDark,
-                  borderRadius: 8,
-                  borderInlineStart: `3px solid ${colors.teal}`,
-                }}
-              >
-                {w.collocation && (
-                  <p
-                    style={{
-                      margin: 0,
-                      fontFamily: fontLatin,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      color: colors.teal,
-                    }}
-                  >
-                    {w.collocation}
-                  </p>
-                )}
-                {w.example && (
-                  <p
-                    style={{
-                      margin: w.collocation ? "3px 0 0" : 0,
-                      fontFamily: fontLatin,
-                      fontSize: 12.5,
-                      lineHeight: 1.5,
-                      color: colors.inkSoft,
-                      fontStyle: "italic",
-                    }}
-                  >
-                    {w.example}
-                  </p>
-                )}
-              </div>
+              <VocabBookExample
+                collocation={w.collocation}
+                example={w.example}
+                targetLangs={effectiveDisplayLangs}
+                aiSettings={aiSettings}
+                nativeLang={nativeLang}
+                ClickableSentence={ClickableSentence}
+              />
             )}
             <WordExamples word={w.en} langCode="en" meaningNative={w.fa} nativeLang={nativeLang} targetLangs={effectiveDisplayLangs} aiSettings={aiSettings} />
           </div>
@@ -17456,6 +17431,116 @@ function WordTargetTranslation({ word, wordId, pos, langCode, abbr, knownText, n
 // «افزودن به داستان‌ساز» جدا داره؛ و چون خودِ متنِ مثال با ClickableSentence
 // رندر می‌شه، انتخابِ آزادِ یه تکه از همون مثال هم (نگاه کن به ClickableSentence)
 // همون‌جا قابل افزودن به داستانه.
+// ---------------------------------------------------------------------------
+// ترجمه‌ی جمله‌یِ مثال/کالوکیشنِ ثابتِ کتاب (تبِ «Vocabulary in Use») به یک
+// زبانِ مقصدِ مشخص — دقیقاً همون الگویِ WordExampleTranslationLine (بالاتر)
+// برای مثال‌هایِ AI-ساز، فقط این‌جا به‌جایِ کشِ example.translations، از همون
+// کشِ سراسریِ loadWordTranslation/saveWordTranslation استفاده می‌کنه (متنِ
+// جمله رو نرمالایز و کلید می‌کنه) — چون این جمله‌ها ثابتِ دیتان، نه رکوردِ
+// AI با id.
+function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings }) {
+  const [translation, setTranslation] = useState(() => loadWordTranslation(text, targetLang));
+
+  useEffect(() => {
+    const cached = loadWordTranslation(text, targetLang);
+    if (cached) {
+      setTranslation(cached);
+      return;
+    }
+    let cancelled = false;
+    translateFree(text, targetLang, "en", aiSettings, true)
+      .then((t) => {
+        if (cancelled || !t) return;
+        setTranslation(t);
+        saveWordTranslation(text, targetLang, t);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, targetLang]);
+
+  if (!translation) {
+    return <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 4 }}>در حال ترجمه...</p>;
+  }
+
+  return (
+    <div className="flex items-center gap-2" style={{ marginTop: 4, direction: "ltr" }}>
+      <span
+        style={{
+          fontFamily: fontFa,
+          fontSize: 10,
+          fontWeight: 700,
+          color: colors.gold,
+          border: `1px solid ${colors.goldSoft}`,
+          borderRadius: 6,
+          padding: "1px 5px",
+          flexShrink: 0,
+        }}
+      >
+        {abbr || targetLang.toUpperCase()}
+      </span>
+      <p style={{ flex: 1, fontSize: 12, fontWeight: 800, color: translationColor }}>{translation}</p>
+      <SpeakButton text={translation} code={targetLang} color={translationColor} edge="end" />
+    </div>
+  );
+}
+
+// کالوکیشن/جمله‌ی مثالِ ثابتِ کتاب — چپ‌به‌راستِ صریح (dir=ltr)، بلندگو روی
+// لبه‌ی راستِ ردیف (edge="end"، عیناً مثلِ بقیه‌ی تب‌ها)، و زیرش ترجمه‌ی
+// جمله‌ی مثال به هرکدوم از زبان‌های مقصدِ انتخابیِ کاربر — تا بشه متنِ خودِ
+// کتاب رو هم مثلِ مثال‌های AI-ساز به هر زبانی ترجمه/شنید.
+function VocabBookExample({ collocation, example, targetLangs, aiSettings, nativeLang, ClickableSentence }) {
+  return (
+    <div
+      style={{
+        marginTop: 6,
+        padding: "6px 10px",
+        background: colors.paperDark,
+        borderRadius: 8,
+        borderInlineStart: `3px solid ${colors.teal}`,
+      }}
+    >
+      {collocation && (
+        <div className="flex items-center gap-2" style={{ direction: "ltr" }}>
+          <p style={{ flex: 1, margin: 0, fontSize: 12 }}>
+            <ClickableSentence
+              text={collocation}
+              langCode="en"
+              nativeLang={nativeLang}
+              aiSettings={aiSettings}
+              color={colors.teal}
+              fontWeight={700}
+              fontSize={12}
+            />
+          </p>
+          <SpeakButton text={collocation} code="en" color={colors.teal} edge="end" />
+        </div>
+      )}
+      {example && (
+        <div className="flex items-center gap-2" style={{ marginTop: collocation ? 4 : 0, direction: "ltr" }}>
+          <p style={{ flex: 1, margin: 0, fontSize: 12.5, lineHeight: 1.5, fontStyle: "italic" }}>
+            <ClickableSentence
+              text={example}
+              langCode="en"
+              nativeLang={nativeLang}
+              aiSettings={aiSettings}
+              color={colors.inkSoft}
+              fontSize={12.5}
+            />
+          </p>
+          <SpeakButton text={example} code="en" color={colors.teal} edge="end" />
+        </div>
+      )}
+      {example &&
+        (targetLangs || []).map((l) => (
+          <VocabBookExampleTranslation key={l.code} text={example} targetLang={l.code} abbr={l.abbr} aiSettings={aiSettings} />
+        ))}
+    </div>
+  );
+}
+
 function WordExamples({ word, langCode, meaningNative, nativeLang, targetLangs, aiSettings }) {
   const [examples, setExamples] = useState(() => loadWordExamples(word, langCode));
   const [generating, setGenerating] = useState(false);
