@@ -8540,42 +8540,6 @@ async function translateParagraphsList(paragraphTexts, targetLang, aiSettings, o
   });
 }
 
-// رویِ خودِ کانواسِ رندرشده‌ی صفحه (همونی که در نهایت عکسِ اصلی می‌شه)، کنارِ
-// شروعِ هر پاراگراف یه دایره‌ی کوچیکِ شماره‌دار می‌کِشه — دقیقاً هم‌شماره‌ی
-// همون پاراگراف تو پنلِ ترجمه. این‌جوری کاربر با نگاه به عکسِ اصلی می‌تونه
-// شماره‌ی کنارِ هر بخش رو تو متنِ ترجمه پیدا کنه و گم نشه کدوم‌یکی مالِ
-// کدومه. viewport.convertToViewportPoint مختصاتِ فضایِ PDF رو به پیکسلِ
-// همین کانواس تبدیل می‌کنه.
-function drawParagraphMarkers(ctx, viewport, paragraphs) {
-  paragraphs.forEach((p, idx) => {
-    if (p.x == null || p.y == null || !viewport?.convertToViewportPoint) return;
-    let vx, vy;
-    try {
-      [vx, vy] = viewport.convertToViewportPoint(p.x, p.y);
-    } catch {
-      return;
-    }
-    const label = String(idx + 1);
-    const radius = 11;
-    const cx = Math.max(radius + 2, vx - radius - 4);
-    const cy = Math.max(radius + 2, vy - radius + 2);
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.fillStyle = "#1f6f6b";
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "#ffffff";
-    ctx.stroke();
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 13px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(label, cx, cy + 1);
-    ctx.restore();
-  });
-}
-
 // نوارِ کوچکِ صوتِ کاربر برای داستان — بالای متنِ داستان می‌شینه. یه سوییچِ
 // دوحالته (TTS ⇄ صوتِ من) داره؛ اگه هنوز صوتی آپلود نشده فقط دکمه‌ی آپلود
 // نشون می‌ده (هیچ محدودیتی رو فرمتِ فایل نیست). هیچ هایلایت/خوانشِ
@@ -10609,16 +10573,17 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           const content = await page.getTextContent();
           // به‌جای چسبوندنِ همه‌چیز با یه space (که کاملاً مرزِ خط/پاراگرافِ
           // متنِ اصلی رو گم می‌کرد)، صفحه به پاراگراف‌های واقعیِ خودش
-          // شکسته می‌شه — هر پاراگراف یه شماره می‌گیره، هم تو متنِ ترجمه
-          // و هم به‌صورتِ یه نشانگرِ کوچیک رویِ خودِ عکسِ صفحه (کنارِ همون
-          // بخش) — تا کاربر بتونه شماره‌ها رو با هم تطبیق بده و گم نشه.
+          // شکسته می‌شه. دیگه هیچ شماره‌ای رویِ عکس کشیده نمی‌شه و هیچ
+          // عددی جلوی پاراگراف‌ها نوشته نمی‌شه — تطبیقِ متنِ اصلی و ترجمه
+          // فقط با ترتیب/فاصله‌ی خط‌ها انجام می‌شه: هر پاراگراف تو متنِ
+          // ترجمه دقیقاً همون جایی می‌شینه (همون ترتیب، با یه خطِ خالی
+          // جدا) که پاراگرافِ متناظرش تو متنِ اصلی نشسته.
           const paragraphs = extractPdfPageParagraphs(content);
-          drawParagraphMarkers(ctx, viewport, paragraphs);
 
           const imageBlob = await canvasToJpgBlob(canvas);
           const imageUrl = imageBlob ? URL.createObjectURL(imageBlob) : "";
 
-          const pageText = paragraphs.map((p, idx) => `${idx + 1}) ${p.text}`).join("\n\n");
+          const pageText = paragraphs.map((p) => p.text).join("\n\n");
           let translatedText = "";
           if (paragraphs.length) {
             // ⛔️ رفعِ «هنگ‌کردنِ» آپلود: قبلاً اینجا هیچ سقفِ زمانیِ کلی‌ای
@@ -10658,7 +10623,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             });
             const raced = await Promise.race([translationPromise, timeoutFallback]);
             if (raced) translatedParas = raced;
-            translatedText = translatedParas.map((t, idx) => `${idx + 1}) ${t}`).join("\n\n");
+            translatedText = translatedParas.map((t) => t).join("\n\n");
             if (!raced) {
               translatedText += "\n\n(ترجمه‌ی این صفحه به‌خاطرِ کندی/قطعیِ شبکه کامل نشد — متنِ اصلی نشون داده شد.)";
             }
