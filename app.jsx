@@ -8471,10 +8471,23 @@ function extractPdfPageParagraphs(content) {
 // ترجمه‌ی یک لیستِ پاراگراف (خروجیِ تابعِ بالا) — هر پاراگراف جدا و مستقل
 // ترجمه می‌شه، تا ترتیب/تعدادشون با متنِ اصلی دقیقاً یکی بمونه (لازمه
 // برای شماره‌گذاریِ هم‌شکل با نشانگرهای رویِ عکس).
-async function translateParagraphsList(paragraphTexts, targetLang, aiSettings) {
+// onProgress اختیاریه — بعدِ تمومِ ترجمه‌ی هر پاراگراف (نه فقط آخرِ کار) صدا
+// زده می‌شه، تا صفحه‌ای که پاراگراف‌های زیاد داره (نتیجه‌ی مستقیمِ
+// شماره‌گذاریِ ریزِ هر پاراگراف) به‌جای یه پیامِ ثابتِ «در حال ترجمه...»
+// که دقیقه‌ها بی‌حرکت می‌مونه، پیشرفتِ واقعی (چند از چند) نشون بده — همین
+// که کاربر می‌بینه عدد بالا می‌ره، دیگه فکر نمی‌کنه اپ هنگ کرده.
+async function translateParagraphsList(paragraphTexts, targetLang, aiSettings, onProgress) {
+  let doneCount = 0;
+  const total = (paragraphTexts || []).length;
   return runWithConcurrencyLimit(paragraphTexts || [], GLOBAL_TRANSLATE_CONCURRENCY, async (para) => {
     const rawLines = (para || "").split("\n").map((l) => l.trim()).filter(Boolean);
-    if (!rawLines.length) return "";
+    if (!rawLines.length) {
+      doneCount++;
+      if (onProgress) {
+        try { onProgress(doneCount, total); } catch {}
+      }
+      return "";
+    }
     // خطوطی که خودشون یه آیتمِ لیست/ردیف/شماره‌ن (مثلِ LIST_OR_ROW_LINE_RE)
     // جدا نگه داشته می‌شن — نه با بقیه‌ی متن قاطی می‌شن قبل از ترجمه، نه تو
     // خروجی به هم می‌چسبن؛ همون‌جوری زیرِ هم می‌مونن. بقیه‌ی خط‌ها (نثرِ
@@ -8518,7 +8531,12 @@ async function translateParagraphsList(paragraphTexts, targetLang, aiSettings) {
       );
       return translatedGroups.join(" ");
     });
-    return translatedBlocks.join("\n");
+    const joined = translatedBlocks.join("\n");
+    doneCount++;
+    if (onProgress) {
+      try { onProgress(doneCount, total); } catch {}
+    }
+    return joined;
   });
 }
 
@@ -10603,12 +10621,47 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           const pageText = paragraphs.map((p, idx) => `${idx + 1}) ${p.text}`).join("\n\n");
           let translatedText = "";
           if (paragraphs.length) {
-            const translatedParas = await translateParagraphsList(
+            // ⛔️ رفعِ «هنگ‌کردنِ» آپلود: قبلاً اینجا هیچ سقفِ زمانیِ کلی‌ای
+            // برایِ ترجمه‌ی یک صفحه نبود. هرچی صفحه پاراگراف بیشتری داشته
+            // باشه (که خودِ شماره‌گذاری، با شکستنِ صفحه به پاراگراف‌های
+            // ریز، دقیقاً همینو زیاد می‌کنه)، تعدادِ درخواست‌های شبکه‌ای هم
+            // بیشتر می‌شه؛ و اگه سرویس‌های ترجمه‌ی رایگان تو شبکه‌ی کاربر
+            // فیلتر/بلاک باشن، هر کدوم از این درخواست‌ها تا سقفِ
+            // TRANSLATE_HARD_TIMEOUT_MS (۱۵ ثانیه) طول می‌کِشه — با چندتا
+            // پاراگراف این به‌راحتی چند دقیقه می‌شه و ظاهرش دقیقاً «هنگ»ه،
+            // چون هیچ پیشرفتی هم نشون داده نمی‌شد. حالا: (۱) با onProgress
+            // پیام پایین به‌ازایِ هر پاراگرافِ تموم‌شده آپدیت می‌شه، پس
+            // کاربر می‌بینه داره کار می‌کنه نه که یخ زده. (۲) یه سقفِ کلی
+            // برایِ کلِ صفحه گذاشته شده — اگه تا اون‌موقع ترجمه تموم نشه،
+            // به‌جای معطل‌موندن، همون متنِ اصلی (بدونِ ترجمه) برای این صفحه
+            // نشون داده می‌شه و می‌ریم سراغِ صفحه‌ی بعد؛ کاربر می‌تونه بعداً
+            // با دکمه‌ی دوباره‌امتحان‌کردن (یا آپلودِ دوباره) این صفحه رو
+            // وقتی شبکه بهتره ترجمه کنه.
+            const PAGE_TRANSLATE_TIMEOUT_MS = Math.max(20000, paragraphs.length * 6000);
+            let translatedParas = paragraphs.map((p) => p.text); // فالبک: اگه وقت تموم شد، متنِ اصلی نشون داده می‌شه
+            let timedOut = false;
+            const translationPromise = translateParagraphsList(
               paragraphs.map((p) => p.text),
               nativeLang || "fa",
-              aiSettings
+              aiSettings,
+              (done, total) => {
+                if (!timedOut) {
+                  setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه (${done} از ${total} بخش)...`);
+                }
+              }
             );
+            const timeoutFallback = new Promise((resolve) => {
+              setTimeout(() => {
+                timedOut = true;
+                resolve(null);
+              }, PAGE_TRANSLATE_TIMEOUT_MS);
+            });
+            const raced = await Promise.race([translationPromise, timeoutFallback]);
+            if (raced) translatedParas = raced;
             translatedText = translatedParas.map((t, idx) => `${idx + 1}) ${t}`).join("\n\n");
+            if (!raced) {
+              translatedText += "\n\n(ترجمه‌ی این صفحه به‌خاطرِ کندی/قطعیِ شبکه کامل نشد — متنِ اصلی نشون داده شد.)";
+            }
           }
 
           const newPage = {
