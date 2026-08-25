@@ -10349,7 +10349,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       const pageCount = Math.min(srcDoc.numPages, PDF_VIEW_MAX_PAGES);
       const truncated = srcDoc.numPages > PDF_VIEW_MAX_PAGES;
 
-      await savePdfViewMeta({
+      const metaSaved = await savePdfViewMeta({
         id: docId,
         title: docTitle,
         pageCount,
@@ -10357,6 +10357,15 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         createdAt: Date.now(),
       });
       await refreshPdfViewDocs();
+      // savePdfViewMeta/savePdfViewPage قبلاً هر خطایی رو بی‌صدا قورت
+      // می‌دادن (فقط false برمی‌گردوندن) — یعنی اگه حافظه‌ی مرورگر
+      // (IndexedDB) به هر دلیلی (حالتِ خصوصی، پُر بودنِ فضا، یا
+      // محدودیتِ WebViewِ خودِ اپ) اجازه‌ی نوشتن نمی‌داد، کاربر هیچ
+      // پیامی نمی‌دید و فقط بعداً می‌فهمید که PDF تو لیستِ «داستان‌های
+      // ذخیره‌شده» نیست. حالا این حالت صریحاً ردگیری و به کاربر گفته می‌شه
+      // (persistFailed پایین‌تر، بعدِ حلقه‌ی صفحات، چک می‌شه — نه همین‌جا،
+      // چون پیامِ پایانِ حلقه نباید این هشدار رو پاک کنه).
+      let persistFailed = !metaSaved;
 
       const canvasToJpgBlob = (canvas) =>
         new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
@@ -10402,15 +10411,22 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
 
         // ذخیره‌ی همین صفحه تو IndexedDB (عکس به‌صورتِ Blob، نه URL موقت) —
         // تا حتی اگه پردازشِ صفحاتِ بعدی قطع بشه، همین‌قدر برای همیشه می‌مونه.
-        savePdfViewPage(docId, { ...newPage, imageUrl: undefined, imageBlob });
-        savePdfViewMeta({ id: docId, title: docTitle, pageCount, doneCount: i, createdAt: Date.now() });
+        const pageSaved = await savePdfViewPage(docId, { ...newPage, imageUrl: undefined, imageBlob });
+        const metaSavedThisPage = await savePdfViewMeta({ id: docId, title: docTitle, pageCount, doneCount: i, createdAt: Date.now() });
+        if (!pageSaved || !metaSavedThisPage) persistFailed = true;
       }
 
-      setPdfViewError(
-        truncated
-          ? `توجه: چون فایل بیشتر از ${PDF_VIEW_MAX_PAGES} صفحه بود، فقط ${PDF_VIEW_MAX_PAGES} صفحه‌ی اول بارگذاری شد`
-          : ""
-      );
+      if (persistFailed) {
+        setPdfViewError(
+          "این PDF فقط تا وقتی همین صفحه بازه قابلِ خوندنه — حافظه‌ی محلیِ مرورگر/اپ اجازه‌ی ذخیره‌ی دائمی رو نداد (مثلاً به‌خاطرِ حالتِ خصوصی یا پُر بودنِ فضا)، پس بعد از بستن یا رفرش از دست می‌ره."
+        );
+      } else {
+        setPdfViewError(
+          truncated
+            ? `توجه: چون فایل بیشتر از ${PDF_VIEW_MAX_PAGES} صفحه بود، فقط ${PDF_VIEW_MAX_PAGES} صفحه‌ی اول بارگذاری شد`
+            : ""
+        );
+      }
       refreshPdfViewDocs();
     } catch (err) {
       console.error(err);
@@ -10714,7 +10730,17 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         <div className="flex gap-2">
           <button
             onClick={() => {
-              setShowSaved((s) => !s);
+              setShowSaved((s) => {
+                const next = !s;
+                // هر بار که پنل باز می‌شه، لیستِ PDFها رو دوباره از
+                // IndexedDB بخون — قبلاً فقط یک‌بار موقعِ mount خونده
+                // می‌شد، پس اگه اون خواندنِ اول به هر دلیلی (مثلاً هنوز
+                // چیزی ذخیره نشده بود) خالی برمی‌گشت، دیگه هیچ‌وقت
+                // خودش رو تازه نمی‌کرد؛ حالا هر بازکردنِ پنل یه فرصتِ
+                // تازه برای دیدنِ آخرین وضعیتِ واقعیِ حافظه‌ست.
+                if (next) refreshPdfViewDocs();
+                return next;
+              });
             }}
             style={{
               fontSize: 12,
