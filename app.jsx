@@ -17337,8 +17337,20 @@ function WordTargetTranslation({ word, wordId, pos, langCode, abbr, knownText, n
       setText(knownText);
       return;
     }
+    // ⛔️ رفعِ باگِ «ترجمه‌ی قدیمیِ غلط که برای همیشه گیر می‌کرد»: قبلاً هرچی
+    // از این کشِ localStorage (که بینِ همه‌ی تب‌ها مشترکه و فقط با
+    // langCode+word کلید می‌شه) می‌اومد، بدونِ هیچ چکی مستقیم نشون داده
+    // می‌شد — برخلافِ کشِ IndexedDBِ داخلِ translateFree که قبل از
+    // نمایش/کش‌شدن، looksLikelyMistranslated رو چک می‌کنه. نتیجه: اگه یه
+    // لغت (مثلاً routine) یه‌بار قبل‌تر (مثلاً موقعی که همه‌ی سرویس‌های
+    // ترجمه شکست خورده بودن) با متنِ انگلیسیِ ترجمه‌نشده تو همین کش
+    // ذخیره شده باشه، از اون به بعد برای همیشه همون غلط نشون داده می‌شد،
+    // چون اصلاً دوباره سراغِ شبکه نمی‌رفت. حالا همون تستِ رایگان رو اینجا
+    // هم اعمال می‌کنیم؛ اگه کشِ قدیمی مشکوک بود، نادیده‌ش می‌گیریم و مثلِ
+    // حالتِ «کش نداریم» می‌ریم سراغِ translateFree — که خودش دوباره کش
+    // می‌کنه (این‌بار با نتیجه‌ی تازه و چک‌شده).
     const cached = loadWordTranslation(word, langCode);
-    if (cached) {
+    if (cached && !looksLikelyMistranslated(word, cached, langCode, "en")) {
       setText(cached);
       return;
     }
