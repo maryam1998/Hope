@@ -15180,7 +15180,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             autoScrollActive={tab === "vocabInUse"}
             highlightColor={appPrefs.highlightColor}
             jumpTarget={wordJumpTarget}
-            defaultPageSize={VOCAB_IN_USE_WORDS.length}
           />
         )}
 
@@ -16704,12 +16703,16 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
 const WORDS_PAGE_SIZE = 60;
 
 const WordList = React.memo(function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor, jumpTarget, uiLang, defaultPageSize }) {
-  // بازه‌ی پیش‌فرضِ نمایش برای این لیستِ خاص. بیشترِ تب‌ها (لغات، اخبار،
-  // اسلنگ) چیزی پاس نمی‌دن و همون WORDS_PAGE_SIZE (۶۰ تا) امنِ قبلی رو
-  // می‌گیرن — چون این تب‌ها می‌تونن چند هزار ردیف داشته باشن و رندرِ همه‌شون
-  // با هم برنامه رو هنگ می‌کنه. تبِ «Vocabulary in Use» چون تعدادش محدوده
-  // (چندهزار نه، بلکه چندصد لغت)، defaultPageSize={VOCAB_IN_USE_WORDS.length}
-  // رو پاس می‌ده تا از همون اول همه‌ی لغاتش دیده بشن.
+  // بازه‌ی پیش‌فرضِ نمایش برای این لیستِ خاص. همه‌ی تب‌ها (لغات، اخبار،
+  // اسلنگ، Vocabulary in Use) چیزی پاس نمی‌دن و همون WORDS_PAGE_SIZE
+  // (۶۰ تا) امن رو می‌گیرن — چون هرکدوم می‌تونن چند صد تا چند هزار ردیف
+  // داشته باشن و رندرِ همه‌شون با هم (هر ردیف چند فچِ ترجمه/مثالِ جدا داره)
+  // برنامه رو هنگ می‌کنه. قبلاً تبِ «Vocabulary in Use» با
+  // defaultPageSize={VOCAB_IN_USE_WORDS.length} کلِ ۲۲۶۸ لغتش رو یه‌جا
+  // می‌ساخت — همون بلایی که سرِ اسلنگ اومده بود. الان دیگه هیچ تبی این
+  // override رو پاس نمی‌ده؛ به‌جاش، پایین‌تر (loadMoreRef/IntersectionObserver)
+  // با اسکرولِ کاربر به‌طور خودکار دسته‌های بعدی اضافه می‌شن، بدون نیاز به
+  // تایپِ عدد.
   const effectivePageSize = defaultPageSize || WORDS_PAGE_SIZE;
   // زبان‌هایی که باید زیرِ هر لغت ترجمه‌شون نشون داده بشه: همون زبان‌های
   // مقصدی که کاربر بالای صفحه انتخاب/مرتب کرده (targetLangs)، منهای خودِ
@@ -16779,13 +16782,21 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
   // حینِ تایپ.
   const [rangeFromInput, setRangeFromInput] = useState("");
   const [rangeToInput, setRangeToInput] = useState("");
+  // مرزِ بالاییِ «خودکار» — با اسکرولِ کاربر به تهِ بخشِ فعلی، این مقدار
+  // خودش effectivePageSize واحد زیاد می‌شه (اسکرولِ بی‌نهایتِ واقعی، بدون
+  // نیاز به تایپِ عدد). فقط وقتی کاربر خودش چیزی تو فیلدِ «تا» تایپ/درگ
+  // کنه (rangeToInput غیرخالی بشه)، اون مقدارِ دستی اولویت پیدا می‌کنه و
+  // این مقدارِ خودکار نادیده گرفته می‌شه — تا وقتی که دوباره جستجو/فیلتر
+  // عوض بشه و همه‌چیز ریست بشه.
+  const [autoLoadedTo, setAutoLoadedTo] = useState(effectivePageSize);
   useEffect(() => {
     setRangeFromInput("");
     setRangeToInput("");
+    setAutoLoadedTo(effectivePageSize);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, levelFilter, words]);
+  }, [q, levelFilter, words, effectivePageSize]);
 
-  const defaultRangeTo = Math.min(filtered.length, effectivePageSize) || filtered.length || 1;
+  const defaultRangeTo = Math.min(filtered.length, autoLoadedTo) || filtered.length || 1;
   const parsedFrom = parseInt(rangeFromInput, 10);
   const parsedTo = parseInt(rangeToInput, 10);
   const effFrom = Number.isNaN(parsedFrom) ? 1 : parsedFrom;
@@ -16793,6 +16804,28 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
   const clampedFrom = Math.min(Math.max(1, effFrom), Math.max(filtered.length, 1));
   const clampedTo = Math.min(Math.max(clampedFrom, effTo), filtered.length || clampedFrom);
   const visible = filtered.slice(clampedFrom - 1, clampedTo);
+
+  // اسکرولِ بی‌نهایتِ واقعی: یه سنتینلِ نامرئی زیرِ آخرین ردیفِ رندرشده
+  // می‌ذاریم؛ همین که وارد دیدِ کاربر بشه (یعنی به تهِ لیستِ فعلی رسیده)،
+  // با IntersectionObserver دسته‌ی بعدی رو خودکار اضافه می‌کنیم. این‌جوری
+  // هم فقط effectivePageSize ردیف در هر لحظه رندر می‌شه (پایداری/سرعت،
+  // چه لیست ۶۰ تایی باشه چه ۲۲۶۸ تایی مثلِ Vocabulary in Use)، هم کاربر
+  // با اسکرولِ ساده، بدون هیچ تایپِ عددی، نهایتاً به همه‌ی لغات می‌رسه.
+  const loadMoreRef = useRef(null);
+  useEffect(() => {
+    const el = loadMoreRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0] && entries[0].isIntersecting) {
+          setAutoLoadedTo((prev) => Math.min(prev + effectivePageSize, filtered.length));
+        }
+      },
+      { rootMargin: "600px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [filtered.length, effectivePageSize, clampedTo]);
 
   // -----------------------------------------------------------------------
   // ردیابیِ خوانده‌شده/خوانده‌نشده — به ازای همین تب (listId) روی دستگاه
@@ -17289,6 +17322,10 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
         </div>
         );
       })}
+      {/* سنتینلِ نامرئیِ اسکرولِ بی‌نهایت — فقط وقتی چیزی برای لود شدن مونده
+          رندر می‌شه؛ ورودش به دیدِ کاربر (بالاتر، با IntersectionObserver)
+          دسته‌ی بعدی رو خودکار اضافه می‌کنه. */}
+      {clampedTo < filtered.length && <div ref={loadMoreRef} aria-hidden="true" style={{ height: 1 }} />}
     </div>
   );
 });
