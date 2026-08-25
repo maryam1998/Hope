@@ -7,6 +7,7 @@ import { WORDS_AZ } from "./WORDS_AZ.js";
 import { NEWS_WORDS } from "./NEWS_WORDS.js";
 import { DAILY_WORDS } from "./DAILY_WORDS.js";
 import { SLANG_WORDS } from "./SLANG_WORDS.js";
+import { VOCAB_IN_USE_UNITS } from "./vocabularyInUseData.js";
 import { DAILY_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
 import DailyConversationsTab from "./DailyConversationsTab.jsx";
 import RangeSliderFilter from "./RangeSliderFilter.jsx";
@@ -30,6 +31,23 @@ const STORY_SEARCH_WORD_POOL = [
 const STORY_SEARCH_CONVERSATION_POOL = DAILY_CONVERSATIONS.flatMap((tp) =>
   tp.scenarios.flatMap((sc) => [...(sc.speakerA || []), ...(sc.speakerB || [])])
 ).map((it) => ({ term: it.en, fa: it.fa || "", source: "مکالمات روزمره" }));
+
+// «Vocabulary in Use» — دیتای واحدهای موضوعی (هرکدوم چند لغت + تمرین)، برای
+// تبِ لغات مسطح می‌شه به یه آرایه‌ی ساده‌ی {id, en, fa, level, ...} با همون
+// شکلی که WordList (تبِ لغات/لغات‌واخبار/اسلنگ) انتظار داره؛ id پایدار
+// می‌سازیم (بر اساسِ شناسه‌ی واحد + ایندکس) تا ذخیره‌شدن/⭐/خوانده‌شدنِ هر
+// لغت بینِ نشست‌ها ثابت بمونه.
+const VOCAB_IN_USE_WORDS = VOCAB_IN_USE_UNITS.flatMap((unit, ui) =>
+  (unit.words || []).map((w, wi) => ({
+    id: `viu-${unit.id || ui}-${wi}`,
+    en: w.en,
+    fa: w.fa,
+    level: unit.level || null,
+    example: w.example || "",
+    collocation: w.collocation || "",
+    category: unit.topicFa || unit.topic || "",
+  }))
+);
 
 // ---------------------------------------------------------------------------
 // SUPABASE — real accounts (email/password + Google) and cross-device sync.
@@ -1402,6 +1420,7 @@ const UI_STRINGS = {
   tabWords: { fa: "لغات", en: "Words" },
   tabFavorites: { fa: "علاقه‌مندی‌ها", en: "Favorites" },
   tabVocab: { fa: "لغات و اخبار", en: "Vocabulary & news" },
+  tabVocabInUse: { fa: "لغات کاربردی", en: "Vocabulary in Use" },
   tabSlang: { fa: "اسلنگ", en: "Slang" },
   tabDictionary: { fa: "دیکشنری", en: "Dictionary" },
   tabReview: { fa: "مرور (جعبه لایتنر)", en: "Review (Leitner box)" },
@@ -14524,7 +14543,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // و هیچ‌جا نشون داده نمی‌شدن (ستاره می‌خورد ولی توی تبِ «علاقه‌مندی‌ها»
   // ظاهر نمی‌شد)؛ حالا همین‌جا، کنارِ عبارت‌های علاقه‌مندشده، نشون داده می‌شن.
   const favoritedWords = useMemo(() => {
-    const sources = [wordsWithSaved, NEWS_WORDS, DAILY_WORDS, SLANG_WORDS];
+    const sources = [wordsWithSaved, NEWS_WORDS, DAILY_WORDS, SLANG_WORDS, VOCAB_IN_USE_WORDS];
     const seen = new Set();
     const result = [];
     sources.forEach((list) => {
@@ -14815,7 +14834,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         }
       : tab === "conversations" && dailyPlayerText.text
       ? { text: dailyPlayerText.text, code: dailyPlayerText.code }
-      : (tab === "words" || tab === "vocab" || tab === "slang" || tab === "favorites") && wordListPlayerText.text
+      : (tab === "words" || tab === "vocab" || tab === "vocabInUse" || tab === "slang" || tab === "favorites") && wordListPlayerText.text
       ? {
           text: wordListPlayerText.text,
           code: wordListPlayerText.code,
@@ -14975,6 +14994,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       <nav className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ backgroundColor: colors.paperDark }}>
         <TabButton label={tr("tabGrammar", appPrefs.uiLang)} icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabWords", appPrefs.uiLang)} icon={Layers} active={tab === "words"} onClick={() => setTab("words")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabButton label={tr("tabVocabInUse", appPrefs.uiLang)} icon={BookOpen} active={tab === "vocabInUse"} onClick={() => setTab("vocabInUse")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabFavorites", appPrefs.uiLang)} icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabVocab", appPrefs.uiLang)} icon={Newspaper} active={tab === "vocab"} onClick={() => setTab("vocab")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabSlang", appPrefs.uiLang)} icon={Sparkles} active={tab === "slang"} onClick={() => setTab("slang")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
@@ -14983,14 +15003,14 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       </nav>
 
       {/* Level filter — applies to conversation , words, favorites, and vocabulary */}
-      {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "slang") && (
+      {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "vocabInUse" || tab === "slang") && (
         <div className="px-4 pt-3">
           <LevelFilterRow levelFilter={levelFilter} setLevelFilter={setLevelFilter} uiLang={appPrefs.uiLang} />
         </div>
       )}
 
       {/* Search — meaningful for the phrase and word list tabs */}
-      {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "slang") && (
+      {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "vocabInUse" || tab === "slang") && (
         <div className="px-4 pt-3">
           <div
             className="flex items-center gap-2 px-4"
@@ -15001,7 +15021,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={
-                tab === "words" || tab === "vocab" || tab === "slang"
+                tab === "words" || tab === "vocab" || tab === "vocabInUse" || tab === "slang"
                   ? tr("searchWordsPlaceholder", appPrefs.uiLang)
                   : tab === "conversations"
                   ? tr("searchConversationsPlaceholder", appPrefs.uiLang)
@@ -15140,6 +15160,29 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           />
         )}
 
+        {tab === "vocabInUse" && (
+          <WordList
+            words={VOCAB_IN_USE_WORDS}
+            listId="vocabInUse"
+            wordFavorites={wordFavorites}
+            toggleWordFavorite={toggleWordFavorite}
+            query={query}
+            levelFilter={levelFilter}
+            emptyText={tr("noWordsInList", appPrefs.uiLang)}
+            uiLang={appPrefs.uiLang}
+            nativeLang={nativeLang}
+            nativeLabel={nativeLabel}
+            targetLangs={targetLangList}
+            aiSettings={aiSettings}
+            ClickableSentence={ClickableSentence}
+            autoplayEnabled={tab === "vocabInUse"}
+            onFullTextChange={setWordListPlayerText}
+            autoScrollActive={tab === "vocabInUse"}
+            highlightColor={appPrefs.highlightColor}
+            jumpTarget={wordJumpTarget}
+          />
+        )}
+
         {tab === "vocab" && (
           <WordList
             words={NEWS_WORDS}
@@ -15251,11 +15294,11 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               // بهش اسکرول می‌کنیم. اگه id نبود (لغاتی که قبل از این
               // قابلیت ذخیره شدن، یا از مکالمات روزمره اومدن — که ردیفِ
               // مستقلی نداره)، مثلِ قبل کادرِ جستجو رو با خودِ لغت پر می‌کنیم.
-              if (["words", "vocab", "slang", "favorites"].includes(originTab) && entry.origin.id != null) {
+              if (["words", "vocab", "vocabInUse", "slang", "favorites"].includes(originTab) && entry.origin.id != null) {
                 setLevelFilter("all");
                 setQuery("");
                 setWordJumpTarget({ id: entry.origin.id, token: Date.now() });
-              } else if (["conversations", "words", "favorites", "vocab", "slang"].includes(originTab)) {
+              } else if (["conversations", "words", "favorites", "vocab", "vocabInUse", "slang"].includes(originTab)) {
                 setQuery(entry.word);
               }
               return true;
