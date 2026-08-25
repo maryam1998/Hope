@@ -5572,49 +5572,30 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
 // داره) نیستن، بلکه خودِ هدر (روی گرادیانتِ تیره‌ش) رندر می‌شن: هر سه با
 // عرضِ مساوی (flex:1)، غیرفعال = پیلِ کِرم‌رنگ با متنِ تیره، فعال = پیلِ
 // هم‌رنگِ خودِ هدر (تقریباً محو می‌شه توی پس‌زمینه، دقیقاً همون افکتِ موکاپ).
-function HeaderPrimaryTabButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyProp }) {
+// شبکه‌ی یکپارچه‌ی تب‌ها — طبقِ پیش‌نمایشِ tabs-preview.html: هر ۹ تب (۳ تبِ
+// اصلیِ قبلاً داخلِ هدر + ۶ تبِ زیرین) حالا توی یه نوارِ واحد، به‌صورتِ
+// گرید سه‌در‌سه، با آیکون بالا و اسمِ کاملِ تب پایین (بدونِ کوتاه‌شدن).
+function TabGridButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyProp }) {
   return (
     <button
       onClick={onClick}
-      className="flex items-center justify-center rounded-full"
+      className="flex flex-col items-center justify-center rounded-2xl"
       style={{
-        flex: 1,
-        gap: 6,
+        gap: 5,
+        minHeight: 64,
+        padding: "10px 6px",
         fontFamily: fontFamilyProp || fontFa,
-        fontSize: 13,
+        fontSize: 12,
         fontWeight: 600,
-        padding: "11px 6px",
-        backgroundColor: active ? colors.ink : "#E6DAB2",
-        color: active ? "#F3EFDD" : "#5C5637",
-        border: `1px solid ${active ? colors.ink : "#E7DEC1"}`,
-        whiteSpace: "nowrap",
-      }}
-    >
-      <Icon size={15} />
-      {label}
-    </button>
-  );
-}
-
-function TabButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyProp }) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-1.5 justify-center rounded-full"
-      style={{
-        fontFamily: fontFamilyProp || fontFa,
-        fontSize: 13,
-        fontWeight: 600,
-        padding: "11px 16px",
-        // غیرفعال: کِرمِ تیره‌ترِ همون طرحِ مرجع؛ فعال: سبزِ تیره‌ی هدر —
-        // دقیقاً همون جفت‌رنگِ .tab / .tab.active توی language-app-home.html
-        backgroundColor: active ? colors.ink : colors.paperDark,
+        lineHeight: 1.25,
+        textAlign: "center",
+        whiteSpace: "normal",
+        backgroundColor: active ? colors.ink : colors.paper,
         color: active ? colors.paper : colors.inkSoft,
         border: `1px solid ${active ? colors.ink : colors.cardBorder}`,
-        whiteSpace: "nowrap",
       }}
     >
-      <Icon size={15} />
+      <Icon size={18} />
       {label}
     </button>
   );
@@ -14366,9 +14347,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
         {/* Language pickers */}
         <div className="mt-4">
-          <p style={{ fontSize: 13.5, color: colors.paper, opacity: 0.85, marginBottom: 10, lineHeight: 1.9 }}>
+          <p style={{ fontSize: 13.5, color: colors.paper, opacity: 0.85, marginBottom: 8, lineHeight: 1.5 }}>
             زبان مادری{" "}
-            <b style={{ color: colors.gold, fontWeight: 600 }}>(برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)</b>
+            <b style={{ color: colors.gold, fontWeight: 600, fontSize: 11 }}>(برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)</b>
           </p>
           <DraggableLangRow
             order={langPickerOrder}
@@ -14381,9 +14362,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             onClick={(code) => setNativeLang(code)}
           />
           <div style={{ height: 1, background: "rgba(255,255,255,.14)", margin: "18px 0 14px" }} />
-          <p style={{ fontSize: 13.5, color: colors.paper, opacity: 0.85, marginBottom: 10, lineHeight: 1.9 }}>
+          <p style={{ fontSize: 13.5, color: colors.paper, opacity: 0.85, marginBottom: 8, lineHeight: 1.5 }}>
             زبان‌های مقصد{" "}
-            <b style={{ color: colors.gold, fontWeight: 600 }}>
+            <b style={{ color: colors.gold, fontWeight: 600, fontSize: 11 }}>
               (چند تا رو می‌تونی هم‌زمان انتخاب کنی — برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)
             </b>
           </p>
@@ -14416,23 +14397,23 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           )}
         </div>
 
-        {/* سه تبِ اصلی — داخلِ خودِ هدر، رویِ همون گرادیانتِ تیره؛ طبقِ
-            موکاپ، درست زیرِ زبان‌های مقصد. */}
-        <div className="flex gap-2" style={{ marginTop: 16 }}>
-          <HeaderPrimaryTabButton label={tr("tabConversations", appPrefs.uiLang)} icon={MessageCircle} active={tab === "conversations"} onClick={() => setTab("conversations")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-          <HeaderPrimaryTabButton label={tr("tabStory", appPrefs.uiLang)} icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-          <HeaderPrimaryTabButton label={tr("tabSaved", appPrefs.uiLang)} icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        </div>
       </header>
 
-      {/* Tabs */}
-      <nav className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ backgroundColor: colors.paperDark }}>
-        <TabButton label={tr("tabGrammar", appPrefs.uiLang)} icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabWords", appPrefs.uiLang)} icon={Layers} active={tab === "words"} onClick={() => setTab("words")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabVocabInUse", appPrefs.uiLang)} icon={BookOpen} active={tab === "vocabInUse"} onClick={() => setTab("vocabInUse")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabFavorites", appPrefs.uiLang)} icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabSlang", appPrefs.uiLang)} icon={Sparkles} active={tab === "slang"} onClick={() => setTab("slang")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabReview", appPrefs.uiLang)} icon={RotateCcw} active={tab === "review"} onClick={() => { setTab("review"); setReviewIndex(0); setShowAnswer(false); }} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+      {/* Tabs — همه‌ی ۹ تب یکجا، سه ردیفِ سه‌تایی (طبقِ tabs-preview.html)،
+          با اسمِ کاملِ هرکدوم. */}
+      <nav
+        className="grid gap-2 px-3 py-3.5"
+        style={{ gridTemplateColumns: "repeat(3, 1fr)", backgroundColor: colors.paperDark }}
+      >
+        <TabGridButton label={tr("tabConversations", appPrefs.uiLang)} icon={MessageCircle} active={tab === "conversations"} onClick={() => setTab("conversations")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabGridButton label={tr("tabStory", appPrefs.uiLang)} icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabGridButton label={tr("tabSaved", appPrefs.uiLang)} icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabGridButton label={tr("tabGrammar", appPrefs.uiLang)} icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabGridButton label={tr("tabWords", appPrefs.uiLang)} icon={Layers} active={tab === "words"} onClick={() => setTab("words")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabGridButton label={tr("tabVocabInUse", appPrefs.uiLang)} icon={BookOpen} active={tab === "vocabInUse"} onClick={() => setTab("vocabInUse")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabGridButton label={tr("tabFavorites", appPrefs.uiLang)} icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabGridButton label={tr("tabSlang", appPrefs.uiLang)} icon={Sparkles} active={tab === "slang"} onClick={() => setTab("slang")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabGridButton label={tr("tabReview", appPrefs.uiLang)} icon={RotateCcw} active={tab === "review"} onClick={() => { setTab("review"); setReviewIndex(0); setShowAnswer(false); }} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
       </nav>
 
       {/* Level filter — applies to conversation , words, favorites, and vocabulary */}
