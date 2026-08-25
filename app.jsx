@@ -10212,15 +10212,17 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     }
   };
 
-  // «خروجی PDF دوزبانه» — فایلِ خامِ PDF (عکس‌ها/چیدمانِ اصلی) دست‌نخورده
-  // می‌مونه: هر صفحه با pdf.js دقیقاً همون‌جوری که هست به یک عکس رندر و
-  // در یک PDFِ خروجیِ تازه گذاشته می‌شه، و بلافاصله بعدش یک صفحه‌ی
+  // «خروجی PDF دوزبانه» — صفحه‌ی اصلی دیگه به عکس تبدیل نمی‌شه؛ با pdf-lib
+  // عیناً (وکتور، عکس‌های تعبیه‌شده، و متنِ واقعیِ قابلِ انتخاب) از خودِ
+  // فایلِ ورودی کپی و به PDFِ خروجی اضافه می‌شه — پس تو هر PDF-خونی که
+  // بازش کنی، هم عکس‌های خودِ کتاب سرِجاشونن و هم متنش انتخاب/کپی می‌شه؛
+  // دیگه یه اسکرین‌شات نیست. بلافاصله بعدِ هر صفحه‌ی اصلی، یک صفحه‌ی
   // «روبرو»ی ترجمه اضافه می‌شه (متنِ همون صفحه، ترجمه‌شده). چون کشیدنِ
   // مستقیمِ متنِ فارسی/عربی با pdf-lib شکلِ حروف رو به‌هم نمی‌چسبونه (بدونِ
-  // text-shaping بدشکل درمیاد)، ترجمه رو هم با canvas (fillText خودِ
-  // مرورگر که shaping/جهتِ RTL رو کامل بلده) می‌کِشیم و مثلِ صفحه‌ی اصلی،
-  // به‌صورتِ عکس embed می‌کنیم — نتیجه یک PDFِ واحد با متنِ اصلی و ترجمه‌ی
-  // روبروی هم، برای هر صفحه.
+  // text-shaping بدشکل درمیاد)، فقط همین صفحه‌ی ترجمه (که خودش تازه‌ست، نه
+  // صفحه‌ی اصلی) با canvas (fillText خودِ مرورگر که shaping/جهتِ RTL رو
+  // کامل بلده) کشیده و به‌صورتِ عکس embed می‌شه — نتیجه یک PDFِ واحد با
+  // متنِ اصلیِ سالم و ترجمه‌ی روبروی هم، برای هر صفحه.
   const BILINGUAL_PDF_MAX_BYTES = 80 * 1024 * 1024; // ۸۰ مگابایت — رندرِ تصویریِ صفحه‌به‌صفحه از استخراجِ صرفِ متن سنگین‌تره
   const BILINGUAL_PDF_MAX_PAGES = 60; // سقفِ صفحات، تا رندر+ترجمه رو موبایل خیلی طول نکشه/قفل نکنه
   const BILINGUAL_PDF_RENDER_SCALE = 1.6; // کیفیتِ کافی برای خوانا بودنِ متن/عکسِ صفحه، بدونِ حجمِ زیادِ نهایی
@@ -10265,23 +10267,21 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           );
         });
 
+      const srcPdfLibDoc = await PDFDocument.load(buf);
+      const copiedPages = await outDoc.copyPages(
+        srcPdfLibDoc,
+        Array.from({ length: pageCount }, (_, idx) => idx)
+      );
+
       for (let i = 1; i <= pageCount; i++) {
-        setBilingualPdfProgress(`صفحه‌ی ${i} از ${pageCount}: رندرِ صفحه‌ی اصلی...`);
+        setBilingualPdfProgress(`صفحه‌ی ${i} از ${pageCount}: افزودنِ صفحه‌ی اصلی...`);
         await new Promise((r) => setTimeout(r, 0)); // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — تا UI قفل نشه
 
         const page = await srcDoc.getPage(i);
         const viewport = page.getViewport({ scale: BILINGUAL_PDF_RENDER_SCALE });
-        const pageCanvas = document.createElement("canvas");
-        pageCanvas.width = Math.max(1, Math.ceil(viewport.width));
-        pageCanvas.height = Math.max(1, Math.ceil(viewport.height));
-        const pageCtx = pageCanvas.getContext("2d");
-        await page.render({ canvasContext: pageCtx, viewport }).promise;
-        const pageBytes = await canvasToJpgBytes(pageCanvas);
-        if (pageBytes) {
-          const pageImg = await outDoc.embedJpg(pageBytes);
-          const outPage1 = outDoc.addPage([pageCanvas.width, pageCanvas.height]);
-          outPage1.drawImage(pageImg, { x: 0, y: 0, width: pageCanvas.width, height: pageCanvas.height });
-        }
+        const copiedPage = copiedPages[i - 1];
+        const { width: ptWidth, height: ptHeight } = copiedPage.getSize(); // اندازه‌ی واقعیِ صفحه (پوینت) — تا صفحه‌ی ترجمه هم‌قواره‌ی همین باشه
+        outDoc.addPage(copiedPage);
 
         // متنِ همین صفحه رو دربیار و ترجمه کن
         setBilingualPdfProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
@@ -10312,8 +10312,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         // صفحه‌ی «روبرو»ی ترجمه — به‌صورتِ عکسِ متنی (canvas)، دقیقاً به
         // همون اندازه‌ی صفحه‌ی اصلی، تا نظمِ صفحه‌به‌صفحه‌ی PDF حفظ بشه.
         const txCanvas = document.createElement("canvas");
-        txCanvas.width = pageCanvas.width;
-        txCanvas.height = pageCanvas.height;
+        txCanvas.width = Math.max(1, Math.ceil(viewport.width));
+        txCanvas.height = Math.max(1, Math.ceil(viewport.height));
         const txCtx = txCanvas.getContext("2d");
         txCtx.fillStyle = "#fdfbf5";
         txCtx.fillRect(0, 0, txCanvas.width, txCanvas.height);
@@ -10352,8 +10352,10 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         const txBytes = await canvasToJpgBytes(txCanvas);
         if (txBytes) {
           const txImg = await outDoc.embedJpg(txBytes);
-          const outPage2 = outDoc.addPage([txCanvas.width, txCanvas.height]);
-          outPage2.drawImage(txImg, { x: 0, y: 0, width: txCanvas.width, height: txCanvas.height });
+          // با اندازه‌ی نقطه‌ایِ صفحه‌ی اصلی (نه پیکسلِ canvas) اضافه می‌شه، تا
+          // صفحه‌ی ترجمه دقیقاً هم‌اندازه‌ی صفحه‌ی اصلیِ کنارش باشه.
+          const outPage2 = outDoc.addPage([ptWidth, ptHeight]);
+          outPage2.drawImage(txImg, { x: 0, y: 0, width: ptWidth, height: ptHeight });
         }
       }
 
