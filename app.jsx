@@ -12,137 +12,6 @@ import DailyConversationsTab from "./DailyConversationsTab.jsx";
 import RangeSliderFilter from "./RangeSliderFilter.jsx";
 
 // ---------------------------------------------------------------------------
-// ZoomableImage — عکس با قابلیتِ زوم با دو انگشت (پینچ) روی موبایل، درگ‌کردن
-// وقتی زوم‌شده، و دوبار-تپ برای زوم/ریست سریع. با Pointer Events پیاده‌سازی
-// شده (بدون کتابخونه‌ی جدید) پس هم لمسی و هم موس/ترک‌پد رو پوشش می‌ده.
-// برای «نمایشِ PDF همینجا» استفاده می‌شه تا کاربر بتونه رویِ عکسِ هر صفحه
-// زوم کنه، ولی هر جای دیگه‌ای هم که عکس بزرگ داریم قابلِ استفاده‌ست.
-// ---------------------------------------------------------------------------
-function ZoomableImage({ src, alt, style, minScale = 1, maxScale = 4, overlay, disabled = false }) {
-  const containerRef = useRef(null);
-  const [scale, setScale] = useState(1);
-  const [translate, setTranslate] = useState({ x: 0, y: 0 });
-  const pointersRef = useRef(new Map());
-  const gestureRef = useRef(null);
-  const lastTapRef = useRef(0);
-
-  const clampTranslate = useCallback((t, s) => {
-    const el = containerRef.current;
-    if (!el) return t;
-    const rect = el.getBoundingClientRect();
-    const maxX = Math.max(0, (rect.width * (s - 1)) / 2);
-    const maxY = Math.max(0, (rect.height * (s - 1)) / 2);
-    return { x: Math.min(maxX, Math.max(-maxX, t.x)), y: Math.min(maxY, Math.max(-maxY, t.y)) };
-  }, []);
-
-  const resetZoom = useCallback(() => {
-    setScale(1);
-    setTranslate({ x: 0, y: 0 });
-  }, []);
-
-  // هر بار منبعِ عکس عوض شد (مثلاً رفتن به صفحه‌ی بعد/قبلِ PDF)، زوم ریست بشه
-  useEffect(() => { resetZoom(); }, [src, resetZoom]);
-
-  const endPointer = (e) => {
-    pointersRef.current.delete(e.pointerId);
-    if (pointersRef.current.size === 0) {
-      gestureRef.current = null;
-      setScale((s) => {
-        if (s < 1.02) { setTranslate({ x: 0, y: 0 }); return 1; }
-        return s;
-      });
-    } else if (pointersRef.current.size === 1) {
-      const [[, pt]] = pointersRef.current;
-      gestureRef.current = scale > 1 ? { type: "pan", startX: pt.x, startY: pt.y, startTranslate: translate } : null;
-    }
-  };
-
-  const onPointerDown = (e) => {
-    const el = containerRef.current;
-    if (!el) return;
-    el.setPointerCapture?.(e.pointerId);
-    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointersRef.current.size === 2) {
-      const pts = [...pointersRef.current.values()];
-      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      const mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
-      gestureRef.current = { type: "pinch", startDist: dist, startScale: scale, startMid: mid, startTranslate: translate };
-    } else if (pointersRef.current.size === 1) {
-      if (scale > 1) {
-        gestureRef.current = { type: "pan", startX: e.clientX, startY: e.clientY, startTranslate: translate };
-      }
-      const now = Date.now();
-      if (now - lastTapRef.current < 300) {
-        if (scale > 1) resetZoom();
-        else { setScale(2); setTranslate({ x: 0, y: 0 }); }
-      }
-      lastTapRef.current = now;
-    }
-  };
-
-  const onPointerMove = (e) => {
-    if (!pointersRef.current.has(e.pointerId)) return;
-    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    const g = gestureRef.current;
-    if (!g) return;
-    if (g.type === "pinch" && pointersRef.current.size === 2) {
-      const pts = [...pointersRef.current.values()];
-      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      if (g.startDist > 0) {
-        const next = Math.min(maxScale, Math.max(minScale, (g.startScale * dist) / g.startDist));
-        setScale(next);
-        setTranslate(clampTranslate(g.startTranslate, next));
-      }
-    } else if (g.type === "pan" && pointersRef.current.size === 1) {
-      const dx = e.clientX - g.startX;
-      const dy = e.clientY - g.startY;
-      setTranslate(clampTranslate({ x: g.startTranslate.x + dx, y: g.startTranslate.y + dy }, scale));
-    }
-  };
-
-  // وقتی disabled=true (مثلاً چون کاربر رفته تو «حالتِ انتخابِ متن»)، دیگه
-  // خودمون پینچ/درگ رو مدیریت نمی‌کنیم و touchAction رو به حالتِ عادی
-  // برمی‌گردونیم — تا ژستِ لمسِ طولانی/کشیدنِ انگشتِ خودِ مرورگر برای
-  // انتخابِ متنِ لایه‌ی روییِ overlay (که همون زمان فعال می‌شه) آزاد بمونه.
-  // زوم/جابه‌جاییِ فعلی هم دست‌نخورده می‌مونه (فقط دیگه قابلِ تغییر نیست)
-  // تا با سوییچ‌کردنِ بینِ دو حالت، بزرگ‌نماییِ کاربر گم نشه.
-  return (
-    <div
-      ref={containerRef}
-      onPointerDown={disabled ? undefined : onPointerDown}
-      onPointerMove={disabled ? undefined : onPointerMove}
-      onPointerUp={disabled ? undefined : endPointer}
-      onPointerCancel={disabled ? undefined : endPointer}
-      onPointerLeave={disabled ? undefined : (e) => { if (e.buttons === 0) endPointer(e); }}
-      style={{
-        overflow: "hidden",
-        touchAction: disabled ? "auto" : "none",
-        cursor: disabled ? "text" : scale > 1 ? "grab" : "default",
-        position: "relative",
-        ...style,
-      }}
-    >
-      <div
-        style={{
-          position: "relative",
-          transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
-          transformOrigin: "center center",
-          transition: gestureRef.current ? "none" : "transform 0.15s ease-out",
-        }}
-      >
-        <img
-          src={src}
-          alt={alt}
-          draggable={false}
-          style={{ width: "100%", display: "block", userSelect: disabled ? "text" : "none" }}
-        />
-        {overlay}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // جستجوی یکپارچه‌ی «یا از دیکشنری جستجو کن...» توی داستان‌ساز — به‌جای
 // این‌که فقط تو VOCAB (لیست محدودِ چندزبانه) بگرده، باید بتونه از تبِ
 // «لغات» (WORDS_AZ)، «لغات و اخبار» (NEWS_WORDS)، «مکالمه و روزمره»
@@ -8441,39 +8310,34 @@ function enforceSentenceSplit(paragraphs) {
   });
 }
 
-// استخراجِ ساختارِ پاراگراف‌بندیِ یک صفحه‌ی PDF از content.items — هر
-// پاراگراف/بلوکِ متنی جدا (بر اساسِ فاصله‌ی عمودیِ خط‌ها، دقیقاً هم‌شکلِ
-// چیدمانِ خودِ صفحه) با متنش و مختصاتِ (x,y) شروعش برگردونده می‌شه. این
-// مختصات بعداً برای گذاشتنِ یه شماره‌ی کوچیک رویِ خودِ عکسِ صفحه (دقیقاً
-// کنارِ همون بلوک) استفاده می‌شه، تا کاربر بتونه شماره‌ی رویِ عکس رو با
-// همون شماره تو پنلِ ترجمه تطبیق بده و گم نشه کدوم خط/بخش مالِ کدومه.
+// استخراجِ متنِ یک صفحه‌ی PDF از content.items، طوری که ساختارِ سطربندیِ
+// خودِ صفحه (کجا خط عوض شده، کجا یه پاراگراف/بلوکِ جدا شروع شده) حفظ
+// بشه — نه این‌که همه‌چی با یه space به هم بچسبن و کاملاً یه بلوکِ
+// یک‌دست بشن. این برای اونجاهایی لازمه که بعداً ترجمه هم قراره پاراگراف‌
+// به‌پاراگراف، هم‌شکلِ متنِ اصلی نشون داده بشه (وگرنه کاربر نمی‌فهمه کدوم
+// تکه‌ی ترجمه مالِ کدوم خط/بخشِ اصلیه).
 // pdf.js رویِ هر آیتمِ متنی یک `hasEOL` می‌ده (یعنی «بعدِ این آیتم خط عوض
 // می‌شه»)؛ از همون برای مرزِ خط استفاده می‌کنیم. برای تشخیصِ مرزِ
 // پاراگراف (نه فقط خط)، فاصله‌ی عمودیِ بینِ خط‌ها رو با فاصله‌ی «معمولیِ»
 // بینِ خط‌های همون صفحه مقایسه می‌کنیم — فاصله‌ی به‌مراتب بزرگ‌تر یعنی
 // این‌جا یه بلوکِ تازه (پاراگراف/تیتر/آیتمِ جدا) شروع شده.
-function extractPdfPageParagraphs(content) {
+function extractPdfPageTextWithBreaks(content) {
   const items = content?.items || [];
   const rawLines = [];
   let curStr = "";
-  let curX = null;
   let curY = null;
   for (const it of items) {
-    if (curY === null && Array.isArray(it.transform)) {
-      curX = it.transform[4];
-      curY = it.transform[5];
-    }
+    if (curY === null && Array.isArray(it.transform)) curY = it.transform[5];
     curStr += it.str || "";
     if (it.hasEOL) {
-      rawLines.push({ text: curStr, x: curX, y: curY });
+      rawLines.push({ text: curStr, y: curY });
       curStr = "";
-      curX = null;
       curY = null;
     }
   }
-  if (curStr.trim()) rawLines.push({ text: curStr, x: curX, y: curY });
+  if (curStr.trim()) rawLines.push({ text: curStr, y: curY });
   const lines = rawLines.filter((l) => l.text.trim());
-  if (!lines.length) return [];
+  if (!lines.length) return "";
 
   const gaps = [];
   for (let i = 1; i < lines.length; i++) {
@@ -8484,30 +8348,26 @@ function extractPdfPageParagraphs(content) {
   gaps.sort((a, b) => a - b);
   const typicalGap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0;
 
-  const paragraphs = [];
-  let cur = { text: lines[0].text.trim(), x: lines[0].x, y: lines[0].y };
+  let out = lines[0].text.trim();
   for (let i = 1; i < lines.length; i++) {
     const prev = lines[i - 1];
     const line = lines[i];
     const gap = prev.y != null && line.y != null ? Math.abs(prev.y - line.y) : typicalGap;
     const isParagraphBreak = typicalGap > 0 && gap > typicalGap * 1.5;
-    if (isParagraphBreak) {
-      paragraphs.push(cur);
-      cur = { text: line.text.trim(), x: line.x, y: line.y };
-    } else {
-      cur.text += "\n" + line.text.trim();
-    }
+    out += (isParagraphBreak ? "\n\n" : "\n") + line.text.trim();
   }
-  paragraphs.push(cur);
-  return paragraphs;
+  return out.trim();
 }
 
-// ترجمه‌ی یک لیستِ پاراگراف (خروجیِ تابعِ بالا) — هر پاراگراف جدا و مستقل
-// ترجمه می‌شه، تا ترتیب/تعدادشون با متنِ اصلی دقیقاً یکی بمونه (لازمه
-// برای شماره‌گذاریِ هم‌شکل با نشانگرهای رویِ عکس).
-async function translateParagraphsList(paragraphTexts, targetLang, aiSettings) {
-  return runWithConcurrencyLimit(paragraphTexts || [], GLOBAL_TRANSLATE_CONCURRENCY, async (para) => {
-    const flat = (para || "").replace(/\s*\n\s*/g, " ").trim();
+// ترجمه‌ی یک متنِ چندپاراگرافه (خروجیِ تابعِ بالا) طوری که مرزِ پاراگراف‌ها
+// (خطِ خالی بینِ بلوک‌ها) عیناً تو ترجمه هم حفظ بشه — هر پاراگراف جدا
+// ترجمه می‌شه و با همون \n\n به‌هم وصل می‌شن، تا کاربر بتونه بلوک‌به‌بلوک
+// متنِ اصلی و ترجمه رو کنارِ هم تطبیق بده.
+async function translatePageTextPreservingParagraphs(pageText, targetLang, aiSettings) {
+  const paragraphs = (pageText || "").split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (!paragraphs.length) return "";
+  const translatedParagraphs = await runWithConcurrencyLimit(paragraphs, GLOBAL_TRANSLATE_CONCURRENCY, async (para) => {
+    const flat = para.replace(/\s*\n\s*/g, " ").trim();
     if (!flat) return "";
     const sentences = splitTextIntoSentenceStrings(flat);
     const groups = [];
@@ -8526,150 +8386,7 @@ async function translateParagraphsList(paragraphTexts, targetLang, aiSettings) {
     );
     return translatedGroups.join(" ");
   });
-}
-
-// رویِ خودِ کانواسِ رندرشده‌ی صفحه (همونی که در نهایت عکسِ اصلی می‌شه)، کنارِ
-// شروعِ هر پاراگراف یه دایره‌ی کوچیکِ شماره‌دار می‌کِشه — دقیقاً هم‌شماره‌ی
-// همون پاراگراف تو پنلِ ترجمه. این‌جوری کاربر با نگاه به عکسِ اصلی می‌تونه
-// شماره‌ی کنارِ هر بخش رو تو متنِ ترجمه پیدا کنه و گم نشه کدوم‌یکی مالِ
-// کدومه. viewport.convertToViewportPoint مختصاتِ فضایِ PDF رو به پیکسلِ
-// همین کانواس تبدیل می‌کنه.
-function drawParagraphMarkers(ctx, viewport, paragraphs) {
-  paragraphs.forEach((p, idx) => {
-    if (p.x == null || p.y == null || !viewport?.convertToViewportPoint) return;
-    let vx, vy;
-    try {
-      [vx, vy] = viewport.convertToViewportPoint(p.x, p.y);
-    } catch {
-      return;
-    }
-    const label = String(idx + 1);
-    const radius = 11;
-    const cx = Math.max(radius + 2, vx - radius - 4);
-    const cy = Math.max(radius + 2, vy - radius + 2);
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.fillStyle = "#1f6f6b";
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "#ffffff";
-    ctx.stroke();
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 13px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(label, cx, cy + 1);
-    ctx.restore();
-  });
-}
-
-// ---------------------------------------------------------------------------
-// لایه‌ی «متنِ نامرئیِ قابل‌انتخاب» رویِ خودِ عکسِ صفحه‌ی PDF — برای اینکه
-// کاربر بتونه دقیقاً مثلِ یه PDF‌خوانِ واقعی، با انگشتش رویِ خودِ عکس متن
-// انتخاب کنه (نه از یه پنلِ جدا). چون خروجیِ نهایی فقط یه عکسِ رندرشده‌ست
-// (نه یه PDF زنده تو DOM)، خودمون یه لایه‌ی span های نامرئی دقیقاً پشتِ
-// همون حروف می‌سازیم؛ همون الگویی که خودِ pdf.js هم برای Text Layer به کار
-// می‌بره: مختصاتِ هر آیتمِ متنی از content.items با ماتریسِ تبدیلِ
-// viewport ترکیب می‌شه تا مختصاتِ پیکسلیِ (روی همون کانواسی که عکس ازش
-// ساخته شده) به دست بیاد. این آیتم‌ها یه‌بار موقعِ پردازشِ PDF محاسبه و
-// (به‌همراهِ خودِ عکس) تو IndexedDB ذخیره می‌شن — تا وقتی PDF دوباره از
-// «PDFهای ذخیره‌شده» باز می‌شه، دوباره نیازی به pdf.js/محاسبه‌ی از نو نباشه.
-// توجه: چرخشِ متن (متنِ عمودی/زاویه‌دار) پشتیبانی نمی‌شه — برای اکثرِ
-// اسنادِ معمولی (متنِ افقیِ ساده) که غالبِ PDFهاست کافیه؛ برای صفحاتِ
-// خیلی خاص (اسکن‌شده با چرخش/جدولِ پیچیده) ممکنه دقیق نباشه، ولی همچنان
-// قابل‌انتخاب می‌مونه.
-function buildPdfTextLayerItems(content, viewport, pdfjsLib) {
-  const items = content?.items || [];
-  const out = [];
-  for (const it of items) {
-    if (!it.str || !it.str.trim() || !Array.isArray(it.transform)) continue;
-    let tx;
-    try {
-      tx = pdfjsLib.Util.transform(viewport.transform, it.transform);
-    } catch {
-      continue;
-    }
-    const angle = Math.atan2(tx[1], tx[0]);
-    // فقط متنِ تقریباً افقی رو دقیق جا می‌ذاریم (بیشترِ PDFها همینه)؛
-    // بقیه هم بدونِ چرخش ولی سرِ جاشون قرار می‌گیرن تا حداقل انتخاب‌پذیر
-    // بمونن.
-    const fontHeight = Math.hypot(tx[2], tx[3]) || 1;
-    const width = Math.max(1, (it.width || 0) * viewport.scale);
-    out.push({
-      str: it.str,
-      left: tx[4],
-      top: tx[5] - fontHeight,
-      width,
-      height: fontHeight * 1.2,
-      fontSize: fontHeight,
-      rotated: Math.abs(angle) > 0.02,
-    });
-  }
-  return out;
-}
-
-// لایه‌ی رندرِ همون آیتم‌ها رویِ عکس — با ResizeObserver نسبتِ عرضِ واقعیِ
-// نمایش‌داده‌شده به عرضِ اصلیِ صفحه (همون که موقعِ رندر با pdf.js محاسبه
-// شده) رو پیدا می‌کنه و کلِ لایه رو با transform:scale به همون نسبت
-// کوچیک/بزرگ می‌کنه — این‌جوری هم روی موبایلِ باریک و هم بعد از پینچ‌زوم
-// (که خودِ ZoomableImage روی همین ظرف اعمال می‌کنه)، جای هر span دقیقاً
-// روی همون حروفِ زیرِ عکس می‌مونه.
-function PdfTextSelectionLayer({ items, pageWidth, pageHeight }) {
-  const outerRef = useRef(null);
-  const [displayScale, setDisplayScale] = useState(1);
-
-  useEffect(() => {
-    const el = outerRef.current;
-    if (!el || !pageWidth) return;
-    const update = () => {
-      const w = el.getBoundingClientRect().width;
-      if (w > 0) setDisplayScale(w / pageWidth);
-    };
-    update();
-    if (typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [pageWidth]);
-
-  if (!items || !items.length || !pageWidth || !pageHeight) return null;
-
-  return (
-    <div ref={outerRef} style={{ position: "absolute", inset: 0 }}>
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: pageWidth,
-          height: pageHeight,
-          transform: `scale(${displayScale})`,
-          transformOrigin: "top left",
-        }}
-      >
-        {items.map((it, i) => (
-          <span
-            key={i}
-            style={{
-              position: "absolute",
-              left: it.left,
-              top: it.top,
-              width: it.width,
-              height: it.height,
-              fontSize: it.fontSize,
-              lineHeight: 1.2,
-              whiteSpace: "pre",
-              color: "transparent",
-              cursor: "text",
-            }}
-          >
-            {it.str}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
+  return translatedParagraphs.join("\n\n");
 }
 
 // نوارِ کوچکِ صوتِ کاربر برای داستان — بالای متنِ داستان می‌شینه. یه سوییچِ
@@ -8958,19 +8675,91 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [pdfViewPages, setPdfViewPages] = useState([]); // [{pageNum, imageUrl, width, height, originalText, translatedText}]
   const [pdfViewTitle, setPdfViewTitle] = useState("");
   const [pdfViewIndex, setPdfViewIndex] = useState(0);
-  // حالتِ «انتخابِ متن رویِ خودِ PDF» — پیش‌فرض خاموشه (یعنی انگشت روی
-  // عکس = پینچ‌زوم/جابه‌جایی، دقیقاً مثلِ الان). کاربر با دکمه‌ی ✍️ می‌تونه
-  // بره تو این حالت؛ اون‌موقع دیگه انگشت روی عکس = انتخابِ متن (مثلِ یه
-  // PDF‌خوانِ واقعی)، نه زوم — چون این دو ژست (پینچ‌زوم دستی و لمسِ
-  // طولانی/کشیدنِ انگشتِ بومیِ مرورگر برای انتخابِ متن) با هم تداخل دارن و
-  // نمی‌شه هم‌زمان هر دو رو با یه انگشت پشتیبانی کرد.
-  const [pdfSelectMode, setPdfSelectMode] = useState(false);
   const pdfViewInputRef = useRef(null);
   // شناسه‌ی سندِ جاری (برای ذخیره‌ی صفحه‌به‌صفحه تو IndexedDB حین پردازش)،
   // و لیستِ PDFهایی که قبلاً کامل/ناقص ذخیره شدن — تا کاربر بتونه بدونِ
   // آپلود و ترجمه‌ی دوباره، از لیست بازشون کنه.
   const [pdfViewDocId, setPdfViewDocId] = useState(null);
   const [pdfViewDocs, setPdfViewDocs] = useState([]);
+  // نمایش/عدم‌نمایشِ متنِ اصلیِ همین صفحه به‌صورتِ کلمه‌به‌کلمه‌ی کلیک‌پذیر
+  // (برای افزودنِ لغات به داستان‌ساز).
+  const [showPdfOriginalWords, setShowPdfOriginalWords] = useState(false);
+
+  // زوم/جابه‌جاییِ تصویرِ صفحه‌ی PDF با انگشت (پینچ برای زوم، تک‌انگشت
+  // برای جابه‌جایی وقتی زوم شده). هر بار صفحه عوض بشه، زوم ریست می‌شه.
+  const [pdfImgZoom, setPdfImgZoom] = useState(1);
+  const [pdfImgPan, setPdfImgPan] = useState({ x: 0, y: 0 });
+  const pdfImgGestureRef = useRef({ mode: null, startDist: 0, startZoom: 1, startPan: { x: 0, y: 0 }, startTouch: { x: 0, y: 0 } });
+
+  useEffect(() => {
+    setPdfImgZoom(1);
+    setPdfImgPan({ x: 0, y: 0 });
+    setShowPdfOriginalWords(false);
+  }, [pdfViewIndex]);
+
+  function pdfImgTouchDist(touches) {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.hypot(dx, dy);
+  }
+
+  const handlePdfImgTouchStart = useCallback((e) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      pdfImgGestureRef.current = {
+        mode: "pinch",
+        startDist: pdfImgTouchDist(e.touches),
+        startZoom: pdfImgZoom,
+        startPan: pdfImgPan,
+        startTouch: { x: 0, y: 0 },
+      };
+    } else if (e.touches.length === 1 && pdfImgZoom > 1) {
+      pdfImgGestureRef.current = {
+        mode: "pan",
+        startDist: 0,
+        startZoom: pdfImgZoom,
+        startPan: pdfImgPan,
+        startTouch: { x: e.touches[0].clientX, y: e.touches[0].clientY },
+      };
+    }
+  }, [pdfImgZoom, pdfImgPan]);
+
+  const handlePdfImgTouchMove = useCallback((e) => {
+    const g = pdfImgGestureRef.current;
+    if (g.mode === "pinch" && e.touches.length === 2) {
+      e.preventDefault();
+      const dist = pdfImgTouchDist(e.touches);
+      const ratio = dist / (g.startDist || dist);
+      const newZoom = Math.min(4, Math.max(1, g.startZoom * ratio));
+      setPdfImgZoom(newZoom);
+      if (newZoom <= 1) setPdfImgPan({ x: 0, y: 0 });
+    } else if (g.mode === "pan" && e.touches.length === 1) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - g.startTouch.x;
+      const dy = e.touches[0].clientY - g.startTouch.y;
+      setPdfImgPan({ x: g.startPan.x + dx, y: g.startPan.y + dy });
+    }
+  }, []);
+
+  const handlePdfImgTouchEnd = useCallback((e) => {
+    if (e.touches.length === 0) {
+      pdfImgGestureRef.current.mode = null;
+    } else if (e.touches.length === 1) {
+      // از پینچ به تک‌انگشت افتاد — اگه هنوز زوم داریم، پن رو از همینجا ادامه بده
+      pdfImgGestureRef.current = {
+        mode: pdfImgZoom > 1 ? "pan" : null,
+        startDist: 0,
+        startZoom: pdfImgZoom,
+        startPan: pdfImgPan,
+        startTouch: { x: e.touches[0].clientX, y: e.touches[0].clientY },
+      };
+    }
+  }, [pdfImgZoom, pdfImgPan]);
+
+  const handlePdfImgDoubleClick = useCallback(() => {
+    setPdfImgZoom((z) => (z > 1 ? 1 : 2));
+    setPdfImgPan({ x: 0, y: 0 });
+  }, []);
 
   const refreshPdfViewDocs = useCallback(async () => {
     setPdfViewDocs(await listPdfViewDocs());
@@ -9932,6 +9721,48 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     }
   };
 
+  // افزودنِ تک‌تکِ کلماتِ متنِ استخراج‌شده از PDF (originalText) به داستان‌ساز
+  // — دقیقاً همون منطقِ addCustomWord (تشخیصِ زبان، ترجمه در صورتِ نیاز)،
+  // فقط به‌جای گرفتنِ ورودی از کادرِ متنی، مستقیم یه کلمه/عبارتِ کلیک‌شده
+  // از متنِ PDF رو می‌گیره.
+  const addPdfWordToStory = async (raw) => {
+    const w = raw.trim().replace(/^[.,!?;:،؛؟»«"'()\[\]]+|[.,!?;:،؛؟»«"'()\[\]]+$/g, "");
+    if (!w) return;
+    setTranslateNote("");
+    if (selectedWords.includes(w)) return;
+    if (detectPastedTextLanguage(w) === storyLang) {
+      setSelectedWords((prev) => [...prev, w]);
+      ensureSavedStoryWord(w, storyLang);
+      setTranslateNote(`«${w}» به داستان‌ساز اضافه شد`);
+      setTimeout(() => setTranslateNote(""), 3000);
+      return;
+    }
+    setWordTranslating(true);
+    try {
+      const res = await translateFree(w, storyLang, "auto", aiSettings);
+      const translated = res.replace(/^["'«»]+|["'«».\s]+$/g, "").trim() || w;
+      if (!selectedWords.includes(translated)) {
+        setSelectedWords((prev) => [...prev, translated]);
+        ensureSavedStoryWord(translated, storyLang);
+      }
+      setTranslateNote(
+        normalizeWord(translated) !== normalizeWord(w)
+          ? `«${w}» → «${translated}» اضافه شد`
+          : `«${w}» به داستان‌ساز اضافه شد`
+      );
+      setTimeout(() => setTranslateNote(""), 3000);
+    } catch (e) {
+      if (!selectedWords.includes(w)) {
+        setSelectedWords((prev) => [...prev, w]);
+        ensureSavedStoryWord(w, storyLang);
+      }
+      setTranslateNote(`ترجمه‌ی خودکار ناموفق بود؛ «${w}» به‌همون شکل اضافه شد`);
+      setTimeout(() => setTranslateNote(""), 3000);
+    } finally {
+      setWordTranslating(false);
+    }
+  };
+
   const suggestForgottenWords = () => {
     const ranked = Object.entries(wordStats)
       .filter(([, s]) => s.lang === storyLang)
@@ -10483,6 +10314,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   // هم استخراج و ترجمه می‌شه. نتیجه یک آرایه از صفحه‌هاست که تو خودِ
   // داستان‌ساز، صفحه‌به‌صفحه با عکسِ اصلی + ترجمه‌ی روبروش نمایش داده می‌شه.
   const PDF_VIEW_MAX_BYTES = 80 * 1024 * 1024; // ۸۰ مگابایت — رندرِ تصویریِ صفحه‌به‌صفحه سنگین‌تر از استخراجِ صرفِ متنه
+  const PDF_VIEW_MAX_PAGES = 60; // سقفِ صفحات، تا رندر+ترجمه رو موبایل خیلی طول نکشه/قفل نکنه
   const PDF_VIEW_RENDER_SCALE = 1.6; // کیفیتِ کافی برای خوانا بودنِ متن/عکسِ صفحه، بدونِ حجمِ زیادِ نهایی
 
   const handlePdfViewImport = async (e) => {
@@ -10514,9 +10346,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
       const buf = await file.arrayBuffer();
       const srcDoc = await pdfjsLib.getDocument({ data: buf }).promise;
-      // دیگه هیچ سقفی رویِ تعدادِ صفحات نیست — کلِ فایل، هرچقدر هم صفحه
-      // داشته باشه، پردازش می‌شه.
-      const pageCount = srcDoc.numPages;
+      const pageCount = Math.min(srcDoc.numPages, PDF_VIEW_MAX_PAGES);
+      const truncated = srcDoc.numPages > PDF_VIEW_MAX_PAGES;
 
       await savePdfViewMeta({
         id: docId,
@@ -10541,36 +10372,18 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         canvas.height = Math.max(1, Math.ceil(viewport.height));
         const ctx = canvas.getContext("2d");
         await page.render({ canvasContext: ctx, viewport }).promise;
+        const imageBlob = await canvasToJpgBlob(canvas);
+        const imageUrl = imageBlob ? URL.createObjectURL(imageBlob) : "";
 
         setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
         const content = await page.getTextContent();
         // به‌جای چسبوندنِ همه‌چیز با یه space (که کاملاً مرزِ خط/پاراگرافِ
-        // متنِ اصلی رو گم می‌کرد)، صفحه به پاراگراف‌های واقعیِ خودش
-        // شکسته می‌شه — هر پاراگراف یه شماره می‌گیره، هم تو متنِ ترجمه
-        // و هم به‌صورتِ یه نشانگرِ کوچیک رویِ خودِ عکسِ صفحه (کنارِ همون
-        // بخش) — تا کاربر بتونه شماره‌ها رو با هم تطبیق بده و گم نشه.
-        const paragraphs = extractPdfPageParagraphs(content);
-        drawParagraphMarkers(ctx, viewport, paragraphs);
-        // مختصاتِ تک‌تک آیتم‌های متنیِ همین صفحه — برای لایه‌ی «انتخابِ متن
-        // رویِ خودِ عکس» (نگاه کن به توضیحِ buildPdfTextLayerItems بالای
-        // فایل). همین‌جا (نه موقعِ نمایش) محاسبه می‌شه چون فقط همین‌جا به
-        // pdfjsLib.Util و viewportِ واقعی دسترسی داریم؛ نتیجه یه آرایه‌ی
-        // ساده‌ی قابلِ‌ذخیره‌ست، پس بدونِ مشکل تو IndexedDB هم می‌مونه.
-        const textLayerItems = buildPdfTextLayerItems(content, viewport, pdfjsLib);
-
-        const imageBlob = await canvasToJpgBlob(canvas);
-        const imageUrl = imageBlob ? URL.createObjectURL(imageBlob) : "";
-
-        const pageText = paragraphs.map((p, idx) => `${idx + 1}) ${p.text}`).join("\n\n");
-        let translatedText = "";
-        if (paragraphs.length) {
-          const translatedParas = await translateParagraphsList(
-            paragraphs.map((p) => p.text),
-            nativeLang || "fa",
-            aiSettings
-          );
-          translatedText = translatedParas.map((t, idx) => `${idx + 1}) ${t}`).join("\n\n");
-        }
+        // متنِ اصلی رو گم می‌کرد)، سطربندیِ واقعیِ صفحه حفظ می‌شه — تا
+        // ترجمه هم بشه پاراگراف‌به‌پاراگراف هم‌شکلِ متنِ اصلی نشونش داد.
+        const pageText = extractPdfPageTextWithBreaks(content);
+        const translatedText = pageText
+          ? await translatePageTextPreservingParagraphs(pageText, nativeLang || "fa", aiSettings)
+          : "";
 
         const newPage = {
           pageNum: i,
@@ -10579,7 +10392,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           height: canvas.height,
           originalText: pageText,
           translatedText: translatedText || "متنی برای ترجمه در این صفحه پیدا نشد.",
-          textItems: textLayerItems,
         };
 
         // بلافاصله همین صفحه رو نشون بده — کاربر منتظرِ کلِ فایل نمی‌مونه،
@@ -10591,15 +10403,14 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         // ذخیره‌ی همین صفحه تو IndexedDB (عکس به‌صورتِ Blob، نه URL موقت) —
         // تا حتی اگه پردازشِ صفحاتِ بعدی قطع بشه، همین‌قدر برای همیشه می‌مونه.
         savePdfViewPage(docId, { ...newPage, imageUrl: undefined, imageBlob });
-        await savePdfViewMeta({ id: docId, title: docTitle, pageCount, doneCount: i, createdAt: Date.now() });
-        // لیستِ «PDFهای ذخیره‌شده» رو همین‌جا هم آپدیت کن — تا شمارشِ
-        // «فلان از فلان صفحه» تو همون پنل، هم‌زمان با پیشرفتِ پردازش
-        // بالا بره، نه فقط اولِ کار و آخرِ کار. کاربر لازم نیست صبر کنه
-        // تا کلِ فایل تموم بشه؛ همین الان هم از همون پنل قابلِ بازکردنه.
-        refreshPdfViewDocs();
+        savePdfViewMeta({ id: docId, title: docTitle, pageCount, doneCount: i, createdAt: Date.now() });
       }
 
-      setPdfViewError("");
+      setPdfViewError(
+        truncated
+          ? `توجه: چون فایل بیشتر از ${PDF_VIEW_MAX_PAGES} صفحه بود، فقط ${PDF_VIEW_MAX_PAGES} صفحه‌ی اول بارگذاری شد`
+          : ""
+      );
       refreshPdfViewDocs();
     } catch (err) {
       console.error(err);
@@ -10930,49 +10741,38 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             <div style={{ textAlign: "start" }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>PDFهای ذخیره‌شده</span>
               <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
-                {pdfViewDocs.map((doc) => {
-                  // فقط همون سندی که همین الان داره پردازش می‌شه «مشغول»
-                  // حساب می‌شه — بقیه‌ی PDFهای ذخیره‌شده (چه کامل، چه
-                  // نیمه‌کاره از قبل) همیشه قابلِ بازکردنن، حتی وقتی یه
-                  // فایلِ دیگه داره آپلود/ترجمه می‌شه؛ کاربر لازم نیست صبر
-                  // کنه تا اون فایلِ دیگه هم کامل بشه. خودِ سندِ در حالِ
-                  // پردازش رو از همین لیست باز نمی‌کنیم (چون همین الان،
-                  // پایینِ همین صفحه، زنده داره صفحه‌به‌صفحه نشون داده
-                  // می‌شه) — فقط برای جلوگیری از قاطی‌شدنِ وضعیتِ «مشغول».
-                  const isActiveDoc = pdfViewBusy && pdfViewDocId === doc.id;
-                  return (
-                    <div
-                      key={doc.id}
-                      className="flex items-center justify-between"
-                      style={{
-                        border: `1px solid ${colors.cardBorder}`,
-                        borderRadius: 10,
-                        padding: "6px 10px",
-                        fontSize: 12,
-                      }}
+                {pdfViewDocs.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between"
+                    style={{
+                      border: `1px solid ${colors.cardBorder}`,
+                      borderRadius: 10,
+                      padding: "6px 10px",
+                      fontSize: 12,
+                      opacity: pdfViewBusy ? 0.6 : 1,
+                    }}
+                  >
+                    <button
+                      onClick={() => openSavedPdfViewDoc(doc)}
+                      disabled={pdfViewBusy}
+                      style={{ color: colors.ink, fontWeight: 700, textAlign: "start", flex: 1, minWidth: 0 }}
                     >
-                      <button
-                        onClick={() => openSavedPdfViewDoc(doc)}
-                        disabled={isActiveDoc}
-                        style={{ color: colors.ink, fontWeight: 700, textAlign: "start", flex: 1, minWidth: 0, opacity: isActiveDoc ? 0.6 : 1 }}
-                      >
-                        {doc.title}
-                        <span style={{ color: colors.inkSoft, fontWeight: 400 }}>
-                          {" "}
-                          — {doc.doneCount === doc.pageCount ? `${doc.pageCount} صفحه` : `${doc.doneCount} از ${doc.pageCount} صفحه`}
-                          {isActiveDoc && " (در حال پردازش...)"}
-                        </span>
-                      </button>
-                      <button
-                        onClick={() => handleDeletePdfViewDoc(doc)}
-                        disabled={isActiveDoc}
-                        style={{ color: colors.rose, fontSize: 11, textDecoration: "underline", marginInlineStart: 8, opacity: isActiveDoc ? 0.5 : 1 }}
-                      >
-                        حذف
-                      </button>
-                    </div>
-                  );
-                })}
+                      {doc.title}
+                      <span style={{ color: colors.inkSoft, fontWeight: 400 }}>
+                        {" "}
+                        — {doc.doneCount === doc.pageCount ? `${doc.pageCount} صفحه` : `${doc.doneCount} از ${doc.pageCount} صفحه`}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => handleDeletePdfViewDoc(doc)}
+                      disabled={pdfViewBusy}
+                      style={{ color: colors.rose, fontSize: 11, textDecoration: "underline", marginInlineStart: 8 }}
+                    >
+                      حذف
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -11617,71 +11417,32 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               </button>
             </div>
             <div className="flex flex-wrap gap-3" style={{ alignItems: "flex-start" }}>
-              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-                {!!pdfViewPages[pdfViewIndex]?.textItems?.length && (
-                  <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
-                    <button
-                      onClick={() => setPdfSelectMode(false)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        padding: "5px 9px",
-                        borderRadius: 8,
-                        color: !pdfSelectMode ? colors.paper : colors.ink,
-                        background: !pdfSelectMode ? colors.teal : "transparent",
-                        border: `1px solid ${!pdfSelectMode ? colors.teal : colors.cardBorder}`,
-                      }}
-                    >
-                      🤏 زوم
-                    </button>
-                    <button
-                      onClick={() => setPdfSelectMode(true)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        padding: "5px 9px",
-                        borderRadius: 8,
-                        color: pdfSelectMode ? colors.paper : colors.ink,
-                        background: pdfSelectMode ? colors.teal : "transparent",
-                        border: `1px solid ${pdfSelectMode ? colors.teal : colors.cardBorder}`,
-                      }}
-                    >
-                      ✍️ انتخابِ متن
-                    </button>
-                  </div>
-                )}
+              <div
+                style={{
+                  flex: "1 1 260px",
+                  minWidth: 0,
+                  overflow: "hidden",
+                  borderRadius: 10,
+                  border: `1px solid ${colors.cardBorder}`,
+                  touchAction: pdfImgZoom > 1 ? "none" : "pan-y",
+                }}
+                onTouchStart={handlePdfImgTouchStart}
+                onTouchMove={handlePdfImgTouchMove}
+                onTouchEnd={handlePdfImgTouchEnd}
+                onDoubleClick={handlePdfImgDoubleClick}
+              >
                 {pdfViewPages[pdfViewIndex]?.imageUrl && (
-                  <ZoomableImage
+                  <img
                     src={pdfViewPages[pdfViewIndex].imageUrl}
                     alt={`صفحه‌ی ${pdfViewIndex + 1}`}
-                    style={{ borderRadius: 10, border: `1px solid ${colors.cardBorder}` }}
-                    disabled={pdfSelectMode}
-                    overlay={
-                      pdfSelectMode && (
-                        <PdfTextSelectionLayer
-                          items={pdfViewPages[pdfViewIndex]?.textItems}
-                          pageWidth={pdfViewPages[pdfViewIndex]?.width}
-                          pageHeight={pdfViewPages[pdfViewIndex]?.height}
-                        />
-                      )
-                    }
+                    style={{
+                      width: "100%",
+                      display: "block",
+                      transform: `scale(${pdfImgZoom}) translate(${pdfImgPan.x / pdfImgZoom}px, ${pdfImgPan.y / pdfImgZoom}px)`,
+                      transformOrigin: "center center",
+                      transition: pdfImgGestureRef.current.mode ? "none" : "transform 0.15s ease-out",
+                    }}
                   />
-                )}
-                <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
-                  {pdfSelectMode
-                    ? "رویِ خودِ متنِ عکس انگشتت رو نگه دار و بکش تا انتخاب بشه — همون کادرِ «افزودن به داستان / گرامر / جعبه‌ی لایتنر» باز می‌شه. برای برگشتن به زوم، دکمه‌ی 🤏 زوم رو بزن."
-                    : "برای زوم رو عکس، با دو انگشت پینچ کن یا دوبار سریع لمسش کن؛ وقتی زوم کردی می‌تونی با یه انگشت جابه‌جاش کنی. برای انتخابِ متنِ خودِ صفحه، دکمه‌ی ✍️ انتخابِ متن رو بزن."}
-                </p>
-                {pdfSelectMode && !pdfViewPages[pdfViewIndex]?.textItems?.length && (
-                  <p style={{ fontSize: 10, color: colors.rose, marginTop: 4 }}>
-                    این صفحه متنِ قابلِ‌انتخاب نداره (شاید عکس/اسکن باشه).
-                  </p>
                 )}
               </div>
               <div
@@ -11703,6 +11464,60 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 {pdfViewPages[pdfViewIndex]?.translatedText}
               </div>
             </div>
+
+            {pdfViewPages[pdfViewIndex]?.originalText && (
+              <div style={{ marginTop: 10 }}>
+                <button
+                  onClick={() => setShowPdfOriginalWords((v) => !v)}
+                  style={{ fontSize: 12, fontWeight: 700, color: colors.teal }}
+                >
+                  {showPdfOriginalWords ? "بستنِ متنِ اصلی" : "افزودنِ لغات این صفحه به داستان‌ساز"}
+                </button>
+                {showPdfOriginalWords && (
+                  <div
+                    dir="auto"
+                    style={{
+                      marginTop: 8,
+                      backgroundColor: colors.paper,
+                      border: `1px solid ${colors.cardBorder}`,
+                      borderRadius: 10,
+                      padding: 10,
+                      fontSize: 13,
+                      lineHeight: 2.1,
+                      maxHeight: 300,
+                      overflowY: "auto",
+                    }}
+                  >
+                    <p style={{ fontSize: 10, color: colors.inkSoft, marginBottom: 6 }}>
+                      روی هر کلمه بزن تا (در صورتِ نیاز ترجمه بشه و) به لیستِ لغاتِ داستان‌ساز اضافه بشه.
+                    </p>
+                    {pdfViewPages[pdfViewIndex].originalText.split(/(\s+)/).map((token, idx) =>
+                      /^\s+$/.test(token) ? (
+                        <span key={idx}>{token}</span>
+                      ) : (
+                        <button
+                          key={idx}
+                          onClick={() => addPdfWordToStory(token)}
+                          disabled={wordTranslating}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            padding: 0,
+                            margin: 0,
+                            font: "inherit",
+                            color: selectedWords.includes(token.trim().replace(/^[.,!?;:،؛؟»«"'()\[\]]+|[.,!?;:،؛؟»«"'()\[\]]+$/g, "")) ? colors.gold : colors.ink,
+                            fontWeight: selectedWords.includes(token.trim().replace(/^[.,!?;:،؛؟»«"'()\[\]]+|[.,!?;:،؛؟»«"'()\[\]]+$/g, "")) ? 800 : 400,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {token}
+                        </button>
+                      )
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex items-center justify-between" style={{ marginTop: 8 }}>
               <button
                 onClick={() => setPdfViewIndex((i) => Math.max(0, i - 1))}
@@ -16196,12 +16011,6 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
   // ترجمه بعداً و در پس‌زمینه کامل می‌شه، دقیقاً مثل بقیه‌ی جاهای برنامه).
   const [saved, setSaved] = useState(false);
   const [grammarSaved, setGrammarSaved] = useState(false);
-  // دقیقاً هم‌الگوی «ذخیره برای داستان بعدی» / «افزودن به یادگیری گرامر» —
-  // فقط اینجا از همون singletonِ requestAddToLeitner استفاده می‌کنیم که
-  // popoverِ تک‌لغه‌ایِ ClickableSentence هم برای همین دکمه استفاده می‌کنه
-  // (نگاه کن به addActiveTermToLeitner)، تا هر دو مسیر دقیقاً یه رفتار
-  // داشته باشن و هم‌زمان لیستِ مرورِ لایتنر رو هم آپدیت کنن.
-  const [leitnerSaved, setLeitnerSaved] = useState(false);
 
   useEffect(() => {
     const resolveLangCode = (node) => {
@@ -16283,7 +16092,6 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       } catch {}
       setSaved(isWordSaved(selectedText, langCode));
       setGrammarSaved(false);
-      setLeitnerSaved(false);
       setMeasuredHeight(null);
       // دیگه پاپ‌آپ همین‌جا باز نمی‌شه — محدوده فقط «آماده» می‌مونه (با
       // هایلایتِ طلاییِ بالا) تا کاربر جدا روش یه لمسِ طولانی انجام بده
@@ -16746,32 +16554,6 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
         >
           <Type size={13} />
           {grammarSaved ? "ذخیره شد در گرامر" : "افزودن به یادگیری گرامر"}
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            if (isGhostEvent()) return;
-            if (!requestAddToLeitner) return;
-            requestAddToLeitner(popup.text, popup.langCode, translation?.status === "done" ? translation.text : "");
-            setLeitnerSaved(true);
-          }}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            fontSize: 12,
-            fontWeight: 700,
-            color: leitnerSaved ? colors.gold : colors.paper,
-            background: "rgba(255,255,255,0.08)",
-            border: `1px solid ${leitnerSaved ? colors.gold : "rgba(255,255,255,0.25)"}`,
-            borderRadius: 6,
-            padding: "6px 8px",
-            cursor: "pointer",
-          }}
-        >
-          <ListChecks size={13} />
-          {leitnerSaved ? "به جعبه‌ی لایتنر اضافه شد" : "افزودن به جعبه‌ی لایتنر"}
         </button>
       </div>
     </div>
