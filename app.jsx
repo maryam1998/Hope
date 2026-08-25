@@ -11594,19 +11594,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               <div style={{ flex: "1 1 260px", minWidth: 0 }}>
                 <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft }}>ترجمه</span>
-                  <button
-                    onClick={() => copyPdfPageText(pdfViewPages[pdfViewIndex]?.translatedText, "متنِ ترجمه کپی شد")}
-                    disabled={!pdfViewPages[pdfViewIndex]?.translatedText}
-                    className="flex items-center gap-1"
-                    style={{
-                      fontSize: 11,
-                      color: colors.teal,
-                      fontWeight: 700,
-                      opacity: pdfViewPages[pdfViewIndex]?.translatedText ? 1 : 0.4,
-                    }}
-                  >
-                    <Copy size={12} /> کپی
-                  </button>
                 </div>
                 <div
                   dir="auto"
