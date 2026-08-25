@@ -11563,33 +11563,29 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               </button>
             </div>
             <div className="flex flex-wrap gap-3" style={{ alignItems: "flex-start" }}>
-              <div
-                style={{
-                  flex: "1 1 260px",
-                  minWidth: 0,
-                  overflow: "hidden",
-                  borderRadius: 10,
-                  border: `1px solid ${colors.cardBorder}`,
-                  touchAction: pdfImgZoom > 1 ? "none" : "pan-y",
-                }}
-                onTouchStart={handlePdfImgTouchStart}
-                onTouchMove={handlePdfImgTouchMove}
-                onTouchEnd={handlePdfImgTouchEnd}
-                onDoubleClick={handlePdfImgDoubleClick}
-              >
-                {pdfViewPages[pdfViewIndex]?.imageUrl && (
-                  <img
-                    src={pdfViewPages[pdfViewIndex].imageUrl}
-                    alt={`صفحه‌ی ${pdfViewIndex + 1}`}
-                    style={{
-                      width: "100%",
-                      display: "block",
-                      transform: `scale(${pdfImgZoom}) translate(${pdfImgPan.x / pdfImgZoom}px, ${pdfImgPan.y / pdfImgZoom}px)`,
-                      transformOrigin: "center center",
-                      transition: pdfImgGestureRef.current.mode ? "none" : "transform 0.15s ease-out",
-                    }}
-                  />
-                )}
+              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+                <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft }}>متنِ اصلی</span>
+                </div>
+                <div
+                  dir="auto"
+                  style={{
+                    backgroundColor: colors.paper,
+                    border: `1px solid ${colors.cardBorder}`,
+                    borderRadius: 10,
+                    padding: 10,
+                    fontSize: 13,
+                    lineHeight: 1.9,
+                    color: colors.ink,
+                    maxHeight: 480,
+                    overflowY: "auto",
+                    whiteSpace: "pre-wrap",
+                    userSelect: "text",
+                    WebkitUserSelect: "text",
+                  }}
+                >
+                  {pdfViewPages[pdfViewIndex]?.originalText}
+                </div>
               </div>
               <div style={{ flex: "1 1 260px", minWidth: 0 }}>
                 <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
