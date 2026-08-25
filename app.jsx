@@ -1,10 +1,9 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
-import { NEWS_WORDS } from "./NEWS_WORDS.js";
 import { DAILY_WORDS } from "./DAILY_WORDS.js";
 import { SLANG_WORDS } from "./SLANG_WORDS.js";
 import { VOCAB_IN_USE_UNITS } from "./vocabularyInUseData.js";
@@ -15,13 +14,12 @@ import RangeSliderFilter from "./RangeSliderFilter.jsx";
 // ---------------------------------------------------------------------------
 // جستجوی یکپارچه‌ی «یا از دیکشنری جستجو کن...» توی داستان‌ساز — به‌جای
 // این‌که فقط تو VOCAB (لیست محدودِ چندزبانه) بگرده، باید بتونه از تبِ
-// «لغات» (WORDS_AZ)، «لغات و اخبار» (NEWS_WORDS)، «مکالمه و روزمره»
+// «لغات» (WORDS_AZ)، «مکالمه و روزمره»
 // (DAILY_WORDS) و «مکالمات روزمره» (DAILY_CONVERSATIONS) هم لغت/عبارت پیدا
 // کنه. این آرایه‌های مسطح‌شده فقط یه‌بار موقع بارگذاریِ اپ ساخته می‌شن (نه
 // هر رندرِ داستان‌ساز) تا جستجو سنگین نشه.
 const STORY_SEARCH_WORD_POOL = [
   ...WORDS_AZ.map((w) => ({ term: w.en, fa: w.fa, source: "لغات" })),
-  ...NEWS_WORDS.map((w) => ({ term: w.en, fa: w.fa, source: "لغات و اخبار" })),
   ...DAILY_WORDS.map((w) => ({ term: w.en, fa: w.fa, source: "مکالمه و روزمره" })),
   ...SLANG_WORDS.map((w) => ({ term: w.en, fa: w.fa, source: "اسلنگ" })),
 ];
@@ -1436,10 +1434,8 @@ const UI_STRINGS = {
   tabGrammar: { fa: "گرامر", en: "Grammar" },
   tabWords: { fa: "لغات", en: "Words" },
   tabFavorites: { fa: "علاقه‌مندی‌ها", en: "Favorites" },
-  tabVocab: { fa: "لغات و اخبار", en: "Vocabulary & news" },
   tabVocabInUse: { fa: "لغات کاربردی", en: "Vocabulary in Use" },
   tabSlang: { fa: "اسلنگ", en: "Slang" },
-  tabDictionary: { fa: "دیکشنری", en: "Dictionary" },
   tabReview: { fa: "مرور (جعبه لایتنر)", en: "Review (Leitner box)" },
   // Login / signup screen
   loginTitle: { fa: "ورود به کتاب مکالمه", en: "Sign in to Phrasebook" },
@@ -1518,8 +1514,6 @@ const UI_STRINGS = {
   selectAll: { fa: "انتخاب همه", en: "Select all" },
   clearAllWords: { fa: "پاک کردن همه", en: "Clear all" },
   deleteNSelected: { fa: "حذف {n} انتخاب‌شده", en: "Delete {n} selected" },
-  copyToDictionary: { fa: "کپی در دیکشنری", en: "Copy to dictionary" },
-  viewInDictionary: { fa: "مشاهده در دیکشنری", en: "View in dictionary" },
   noSavedWordsYet: {
     fa: "هنوز لغتی ذخیره نکردی. روی هر کلمه‌ی داخل متن‌ها بزن و از پاپ‌آپش «ذخیره برای داستان بعدی» رو انتخاب کن، یا موقع ساخت داستان لغت انتخاب کن.",
     en: "You haven't saved any words yet. Tap any word in the texts and choose \"Save for next story\" from its popup, or pick words while building a story.",
@@ -1534,9 +1528,6 @@ const UI_STRINGS = {
   confirmClearFiltered: { fa: "{n} لغتِ در حال نمایش برای همیشه پاک بشن؟", en: "Permanently clear the {n} word(s) currently shown?" },
   confirmClearAllSaved: { fa: "همه‌ی {n} لغت ذخیره‌شده برای همیشه پاک بشن؟", en: "Permanently clear all {n} saved word(s)?" },
   wordsClearedMsg: { fa: "{n} لغت پاک شد", en: "{n} word(s) cleared" },
-  addedToDictBoth: { fa: "{added} لغت به دیکشنری اضافه شد ({skipped} تا قبلاً بود)", en: "{added} word(s) added to dictionary ({skipped} already there)" },
-  addedToDictOnly: { fa: "{added} لغت به دیکشنری اضافه شد", en: "{added} word(s) added to dictionary" },
-  allAlreadyInDict: { fa: "همه‌ی لغات انتخاب‌شده قبلاً توی دیکشنری بودن", en: "All selected words were already in the dictionary" },
   jumpedToOriginMsg: { fa: "رفتیم به همون بخشی که «{word}» ازش ذخیره شده بود", en: "Jumped to where \"{word}\" was saved from" },
   jumpToOriginUnknownMsg: { fa: "منبعِ این لغت مشخص نیست (احتمالاً قبل از این قابلیت ذخیره شده)", en: "This word's source isn't known (likely saved before this feature existed)" },
 };
@@ -3086,135 +3077,6 @@ function useAutoplayOnScroll(enabled, items) {
   return { registerRef };
 }
 
-// ---------------------------------------------------------------------------
-// دیکشنری آفلاین دانلودی — یه فایل JSON ساده (کلمه ↔ معنی) که یه‌بار از
-// همین سایت دانلود و با Cache API رو گوشی کاربر ذخیره می‌شه. بعد از اون،
-// جستجو کاملاً آفلاینه و نیازی به اینترنت یا سرور AI نداره.
-//
-// فایل‌های دیکشنری تو پوشه‌ی /dictionaries/<code>.json این ریپو هستن
-// (مثلاً dictionaries/en.json). برای اضافه‌کردن یه زبون جدید، همون فرمت
-// (آرایه‌ای از {"en": "...", "fa": "..."}) رو تو یه فایل جدید با اسم کد
-// زبون بذار و به OFFLINE_DICT_LANGS اضافه‌ش کن.
-// ---------------------------------------------------------------------------
-const OFFLINE_DICT_CACHE_NAME = "phrasebook-offline-dict-v1";
-const OFFLINE_DICT_LANGS = ["en"]; // زبون‌هایی که دیکشنری آفلاین براشون آماده‌ست
-
-const offlineDictionary = (() => {
-  // code -> array of {en, fa} (یا هر جفت‌زبونی که فایل داشته باشه)
-  const loaded = new Map();
-  const listeners = new Set();
-
-  function notify() {
-    listeners.forEach((cb) => cb());
-  }
-
-  function fileUrl(code) {
-    // نسبت به خود صفحه — رو GitHub Pages دقیقاً همون /dictionaries/en.json می‌شه
-    return new URL(`dictionaries/${code}.json`, window.location.href).toString();
-  }
-
-  async function isDownloaded(code) {
-    if (loaded.has(code)) return true;
-    if (!("caches" in window)) return false;
-    try {
-      const cache = await caches.open(OFFLINE_DICT_CACHE_NAME);
-      const match = await cache.match(fileUrl(code));
-      return !!match;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // موقع بالا اومدن اپ، هر دیکشنری‌ای که قبلاً دانلود شده رو از Cache می‌خونه
-  // تو حافظه، بدون نیاز به دوباره‌دانلودکردن یا حتی اینترنت داشتن.
-  async function hydrateFromCache() {
-    if (!("caches" in window)) return;
-    try {
-      const cache = await caches.open(OFFLINE_DICT_CACHE_NAME);
-      for (const code of OFFLINE_DICT_LANGS) {
-        if (loaded.has(code)) continue;
-        const match = await cache.match(fileUrl(code));
-        if (match) {
-          const data = await match.json();
-          loaded.set(code, data);
-        }
-      }
-      notify();
-    } catch (e) {}
-  }
-
-  async function download(code, onProgress) {
-    const url = fileUrl(code);
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`دانلود دیکشنری ${code} شکست خورد (HTTP ${res.status})`);
-
-    // تخمین پیشرفت از روی Content-Length، اگه سرور بفرسته
-    const total = Number(res.headers.get("content-length")) || 0;
-    let received = 0;
-    const reader = res.body?.getReader ? res.body.getReader() : null;
-    let text;
-    if (reader) {
-      const chunks = [];
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        received += value.length;
-        if (onProgress) onProgress(total ? Math.min(99, Math.round((received / total) * 100)) : 60);
-      }
-      const blob = new Blob(chunks);
-      text = await blob.text();
-    } else {
-      text = await res.text();
-    }
-    const data = JSON.parse(text);
-
-    loaded.set(code, data);
-    if ("caches" in window) {
-      try {
-        const cache = await caches.open(OFFLINE_DICT_CACHE_NAME);
-        await cache.put(url, new Response(text, { headers: { "Content-Type": "application/json" } }));
-      } catch (e) {}
-    }
-    if (onProgress) onProgress(100);
-    notify();
-    return data.length;
-  }
-
-  function entryCount(code) {
-    return loaded.get(code)?.length || 0;
-  }
-
-  // جستجوی دوطرفه: هم تو کلمه‌ی خارجی، هم تو معنی فارسی می‌گرده
-  function lookup(word, code) {
-    const list = loaded.get(code);
-    if (!list || !word) return [];
-    const q = word.trim().toLowerCase();
-    const qFa = word.trim();
-    if (!q) return [];
-    // اول تطبیق کامل، بعد شامل‌بودن
-    const exact = list.filter((e) => e.en.toLowerCase() === q || e.fa === qFa);
-    if (exact.length) return exact;
-    return list.filter((e) => e.en.toLowerCase().includes(q) || e.fa.includes(qFa)).slice(0, 20);
-  }
-
-  return {
-    subscribe(cb) {
-      listeners.add(cb);
-      return () => listeners.delete(cb);
-    },
-    isDownloaded,
-    hydrateFromCache,
-    download,
-    entryCount,
-    lookup,
-    isLoadedInMemory(code) {
-      return loaded.has(code);
-    },
-  };
-})();
-
-
 //     User → React App (this file) → Cloudflare Worker (src/index.js) → AI provider
 // The frontend NEVER talks to an AI provider directly and never holds an
 // API key. It only calls this one backend endpoint (POST /api/generate).
@@ -3651,7 +3513,7 @@ function mergeWordExamplesFromCloud(cloudAll) {
 
 // ---------------------------------------------------------------------------
 // ترجمه‌ی هر لغتِ لیست به همه‌ی زبان‌های مقصدی که کاربر انتخاب کرده (نه فقط
-// فارسی). چون خودِ دیتای WORDS_AZ/NEWS_WORDS/DAILY_WORDS فقط انگلیسی+فارسی
+// فارسی). چون خودِ دیتای WORDS_AZ/DAILY_WORDS فقط انگلیسی+فارسی
 // دارن، بقیه‌ی زبان‌ها رو همین‌جا، لحظه‌ای و با همون زنجیره‌ی ترجمه‌ی رایگان
 // (translateFree) می‌گیریم و روی دستگاه کش می‌کنیم — تا هر لغت فقط یه‌بار
 // در طول عمر برنامه از سرور خواسته بشه، نه هر بار که کاربر اسکرول می‌کنه.
@@ -3685,7 +3547,7 @@ function saveWordTranslation(word, langCode, translatedText) {
 // ردیابیِ «خوانده‌شده / خوانده‌نشده»ی هر لغت — چون تعداد لغاتِ هر تب
 // (لغات/لغات‌و‌اخبار/اسلنگ/علاقه‌مندی‌ها) خیلی زیاده، کاربر می‌تونه با یه
 // بازه‌ی عددی (از # تا #) فقط بخشی از لیست رو ببینه، و مشخص کنه کدوم لغات رو
-// قبلاً خونده. چون شماره‌ی id بینِ فایل‌های مختلفِ لغت (WORDS_AZ/NEWS_WORDS/
+// قبلاً خونده. چون شماره‌ی id بینِ فایل‌های مختلفِ لغت (WORDS_AZ/
 // DAILY_WORDS/SLANG_WORDS/...) ممکنه تکراری باشه، این وضعیت را جداگانه به
 // ازای هر تب (listId) ذخیره می‌کنیم، نه فقط به ازای id.
 const WORD_READ_KEY = "phrasebook-word-read-v1";
@@ -4791,7 +4653,7 @@ export const conversation = [
 // از این‌ها رو ذخیره کنه، نه فقط تک‌کلمه. این نگاشت‌ها فقط یه‌بار (موقع لود
 // شدنِ ماژول) از روی دیتای موجود ساخته می‌شن، نه هر بار که پنل رندر می‌شه.
 // باید بعد از تعریفِ conversation بیاد چون بهش نیاز داره.
-//   ۱) WORDS_AZ / NEWS_WORDS / DAILY_WORDS: تک‌لغتِ انگلیسی (فیلد en).
+//   ۱) WORDS_AZ / DAILY_WORDS: تک‌لغتِ انگلیسی (فیلد en).
 //   ۲) VOCAB: تک‌لغت/عبارتِ چندزبانه (t.fa, t.en, ...).
 //   ۳) conversation (دیتای تبِ «عبارات»/اصطلاحات): همون شکلِ VOCAB —
 //      چندزبانه (t.*) + level؛ هر وقت این دیتاست پر بشه، خودکار پوشش داده
@@ -4803,7 +4665,7 @@ export const conversation = [
 // می‌شه می‌مونه (کافیه، چون هدف فقط راهنماییِ تقریبیه نه مرجعِ رسمی).
 // ---------------------------------------------------------------------------
 const LEVEL_BY_EN_WORD = new Map();
-[...WORDS_AZ, ...NEWS_WORDS, ...DAILY_WORDS].forEach((w) => {
+[...WORDS_AZ, ...DAILY_WORDS].forEach((w) => {
   const key = normalizeWord(w.en);
   if (key && !LEVEL_BY_EN_WORD.has(key)) LEVEL_BY_EN_WORD.set(key, w.level);
 });
@@ -5028,7 +4890,7 @@ function DraggableLangRow({ order, setOrder, languages, isActive, isDisabled, on
 // ---------------------------------------------------------------------------
 // ============================================================
 // دانلود آفلاین لغات — زبان(ها) رو انتخاب می‌کنی، همه‌ی لغات لیست‌های
-// VOCAB / WORDS_AZ / NEWS_WORDS / DAILY_WORDS رو یکی‌یکی با همون زنجیره‌ی
+// VOCAB / WORDS_AZ / DAILY_WORDS رو یکی‌یکی با همون زنجیره‌ی
 // سرویس‌های رایگان (translateFree) ترجمه می‌کنه و توی IndexedDB ذخیره
 // می‌کنه. بعد از اون، همون کلمات کاملاً آفلاین در دسترسن (چون translateFree
 // اول کش رو چک می‌کنه). اگه وسط کار قطع بشه، دفعه‌ی بعد فقط لغاتِ باقی‌مونده
@@ -5052,7 +4914,7 @@ function OfflineWordsModal({ open, onClose, aiSettings }) {
 
   const allWords = useMemo(() => {
     const map = new Map();
-    [VOCAB, WORDS_AZ, NEWS_WORDS, DAILY_WORDS].forEach((list) => {
+    [VOCAB, WORDS_AZ, DAILY_WORDS].forEach((list) => {
       (list || []).forEach((w) => {
         if (w?.en && !map.has(w.en)) map.set(w.en, true);
       });
@@ -7895,392 +7757,6 @@ const CONTENT_TYPES = [
   { key: "philosophical", label: "فلسفی", prompt: "a short philosophical reflection or thought experiment" },
   { key: "metaphysical", label: "متافیزیکی", prompt: "a short metaphysical/speculative piece about existence, mind, or reality" },
 ];
-
-// ---------------------------------------------------------------------------
-// Dictionary — no static word list. Every lookup is answered live by the
-// same AI backend used by the Story Builder (server/ → DeepSeek), so it
-// covers any word or phrase in any of the app's languages, not just a
-// pre-built database.
-// ---------------------------------------------------------------------------
-// کارت دانلود/وضعیت دیکشنری آفلاین برای یه زبون مشخص — دانلود یه‌بار،
-// بعدش جستجو کاملاً بدون اینترنت کار می‌کنه.
-function OfflineDictionaryCard({ code, label }) {
-  const [status, setStatus] = useState("checking"); // checking | idle | downloading | ready | error
-  const [progress, setProgress] = useState(0);
-  const [count, setCount] = useState(0);
-  const [errMsg, setErrMsg] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    offlineDictionary.isDownloaded(code).then((yes) => {
-      if (cancelled) return;
-      if (yes) {
-        setStatus("ready");
-        setCount(offlineDictionary.entryCount(code));
-      } else {
-        setStatus("idle");
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [code]);
-
-  const handleDownload = async () => {
-    setStatus("downloading");
-    setProgress(0);
-    setErrMsg("");
-    try {
-      const n = await offlineDictionary.download(code, setProgress);
-      setCount(n);
-      setStatus("ready");
-    } catch (e) {
-      setStatus("error");
-      setErrMsg(e?.message || "دانلود ناموفق بود");
-    }
-  };
-
-  return (
-    <div
-      style={{
-        border: `1px solid ${colors.cardBorder}`,
-        borderRadius: 12,
-        padding: 12,
-        backgroundColor: "white",
-      }}
-    >
-      <div className="flex items-center justify-between">
-        <span style={{ fontSize: 13, fontWeight: 600 }}>دیکشنری آفلاین {label}</span>
-        {status === "ready" && (
-          <span style={{ display: "flex", alignItems: "center", gap: 4, color: colors.teal, fontSize: 11, fontWeight: 600 }}>
-            <Check size={13} /> آماده ({count} لغت)
-          </span>
-        )}
-      </div>
-
-      {status === "idle" && (
-        <button
-          onClick={handleDownload}
-          style={{
-            marginTop: 8,
-            fontSize: 12,
-            padding: "6px 12px",
-            borderRadius: 8,
-            border: "none",
-            backgroundColor: colors.gold,
-            color: "white",
-            cursor: "pointer",
-          }}
-        >
-          دانلود برای استفاده‌ی آفلاین
-        </button>
-      )}
-
-      {status === "downloading" && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 4 }}>در حال دانلود… {progress}٪</div>
-          <div style={{ height: 6, backgroundColor: colors.cardBorder, borderRadius: 4, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${progress}%`, backgroundColor: colors.gold, transition: "width .15s linear" }} />
-          </div>
-        </div>
-      )}
-
-      {status === "ready" && (
-        <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 6 }}>
-          از این به بعد، جستجوی این لغات حتی بدون اینترنت هم کار می‌کنه — رایگان و آنی.
-        </p>
-      )}
-
-      {status === "error" && (
-        <div style={{ marginTop: 8 }}>
-          <p style={{ fontSize: 11, color: colors.rose }}>{errMsg}</p>
-          <button
-            onClick={handleDownload}
-            style={{ marginTop: 4, fontSize: 12, color: colors.gold, textDecoration: "underline", background: "none", border: "none", cursor: "pointer" }}
-          >
-            دوباره امتحان کن
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Dictionary({ nativeLang, nativeLabel, dictHistory, setDictHistory, aiSettings }) {
-  const [query, setQuery] = useState("");
-  const [result, setResult] = useState(null);
-  const [offlineHits, setOfflineHits] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [showHistory, setShowHistory] = useState(false);
-
-  const targetLangs = PHRASEBOOK_LANGUAGES.filter((l) => l.code !== "fa");
-
-  const lookup = async (term, opts = {}) => {
-    const word = (term ?? query).trim();
-    if (!word || loading) return;
-    setError("");
-    setResult(null);
-    setOfflineHits([]);
-
-    // اول تو دیکشنری آفلاین (اگه دانلود شده باشه) نگاه کن — رایگان و آنی،
-    // نیازی به اینترنت یا سرور AI نیست. فقط وقتی opts.forceAI باشه ردش کن.
-    if (!opts.forceAI && offlineDictionary.isLoadedInMemory("en")) {
-      const hits = offlineDictionary.lookup(word, "en");
-      if (hits.length) {
-        setOfflineHits(hits);
-        return;
-      }
-    }
-
-    setLoading(true);
-    try {
-      const langLabelPairs = targetLangs.map((l) => ({ code: l.code, label: l.label }));
-      const schema = `{"word": "the term exactly as given, corrected for obvious typos", "detectedLang": "ISO 639-1 code of the language the term is written in", "pos": "part of speech in Persian (اسم/فعل/صفت/قید/حرف اضافه/عبارت)", "ipa": "IPA pronunciation if it's a single word, else empty string", "meaningFa": "clear definition/meaning of the word IN PERSIAN, 1-2 sentences", "translations": {${langLabelPairs
-        .map((p) => `"${p.code}": "translation of the term into ${p.label}"`)
-        .join(", ")}, "fa": "Persian translation (if the term itself isn't Persian)"}, "examples": [{"text": "an example sentence using the term, in the term's own language", "fa": "Persian translation of that example sentence"}]}`;
-      const prompt = `You are a multilingual dictionary. The user (native language: ${nativeLabel}) looked up this word or phrase: "${word}". Identify what language it's in, then respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: ${schema}. Give exactly 2 example sentences. Keep translations natural and idiomatic, not literal word-for-word.`;
-      const res = await callAI({ prompt, maxTokens: 1800, aiSettings });
-      const cleaned = res.replace(/```json|```/g, "").trim();
-      let parsed;
-      try {
-        parsed = JSON.parse(cleaned);
-      } catch (parseErr) {
-        throw new Error("parse-error: پاسخ هوش مصنوعی JSON معتبر نبود، دوباره امتحان کن.");
-      }
-      setResult(parsed);
-      setDictHistory((prev) => {
-        const withoutDup = prev.filter((h) => h.word.toLowerCase() !== (parsed.word || word).toLowerCase());
-        return [{ ...parsed, lookedUpAt: Date.now() }, ...withoutDup].slice(0, 50);
-      });
-    } catch (e) {
-      const msg = String(e?.message || "");
-      if (msg.startsWith("ai-backend-error:")) {
-        setError(`خطای سرور: ${msg.replace("ai-backend-error: ", "")}`);
-      } else if (msg.startsWith("parse-error:")) {
-        setError(msg.replace("parse-error: ", ""));
-      } else {
-        setError(`خطای اتصال: ${msg || "دلیل نامشخص"}`);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const openFromHistory = (entry) => {
-    setResult(entry);
-    setQuery(entry.word);
-    setShowHistory(false);
-  };
-
-  const removeFromHistory = (word) => {
-    setDictHistory((prev) => prev.filter((h) => h.word !== word));
-  };
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <p style={{ fontWeight: 700, fontSize: 16 }}>دیکشنری</p>
-        <button
-          onClick={() => setShowHistory((s) => !s)}
-          style={{
-            fontSize: 12,
-            padding: "5px 12px",
-            borderRadius: 20,
-            border: `1px solid ${colors.cardBorder}`,
-            backgroundColor: showHistory ? colors.ink : "white",
-            color: showHistory ? "white" : colors.ink,
-          }}
-        >
-          تاریخچه ({dictHistory.length})
-        </button>
-      </div>
-
-      <p style={{ fontFamily: fontFa, fontSize: 13, color: colors.inkSoft }}>
-        هر کلمه یا اصطلاحی رو، به هر زبونی، تایپ کن — معنی، تلفظ، مثال و ترجمه‌ش به همه‌ی زبون‌های اپ رو زنده از AI می‌گیره.
-      </p>
-
-      <OfflineDictionaryCard code="en" label="انگلیسی" />
-
-      <div
-        className="flex items-center gap-2 px-3"
-        style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 20, height: 44 }}
-      >
-        <Search size={16} color={colors.inkSoft} />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && lookup()}
-          placeholder="مثلاً: apprehensive یا سرسبز یا break a leg"
-          style={{ flex: 1, fontFamily: fontFa, border: "none", outline: "none", fontSize: 14, backgroundColor: "transparent" }}
-        />
-        {query && (
-          <button onClick={() => { setQuery(""); setResult(null); setOfflineHits([]); }} aria-label="پاک کردن">
-            <X size={16} color={colors.inkSoft} />
-          </button>
-        )}
-      </div>
-
-      <button
-        onClick={() => lookup()}
-        disabled={!query.trim() || loading}
-        className="w-full py-2 rounded-lg font-medium"
-        style={{
-          fontFamily: fontFa,
-          backgroundColor: !query.trim() || loading ? colors.cardBorder : colors.gold,
-          color: "white",
-          opacity: loading ? 0.7 : 1,
-        }}
-      >
-        {loading ? "در حال جستجو..." : "جستجو"}
-      </button>
-
-      {offlineHits.length > 0 && (
-        <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: 12, backgroundColor: "white" }}>
-          <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
-            <span style={{ fontSize: 11, color: colors.teal, fontWeight: 600 }}>از دیکشنری آفلاین (بدون اینترنت)</span>
-          </div>
-          {offlineHits.map((h, i) => (
-            <div
-              key={i}
-              className="flex items-center justify-between"
-              style={{ padding: "8px 2px", borderTop: i > 0 ? `1px solid ${colors.cardBorder}` : "none" }}
-            >
-              <span style={{ fontWeight: 600, fontSize: 15 }}>{h.fa}</span>
-              <span style={{ color: colors.teal, fontSize: 14, direction: "ltr" }}>{h.en}</span>
-            </div>
-          ))}
-          <button
-            onClick={() => lookup(query, { forceAI: true })}
-            disabled={loading}
-            style={{ marginTop: 8, fontSize: 12, color: colors.gold, textDecoration: "underline", background: "none", border: "none", cursor: "pointer" }}
-          >
-            جستجوی کامل‌تر با هوش مصنوعی (مثال، تلفظ، ترجمه به همه‌ی زبون‌ها)
-          </button>
-        </div>
-      )}
-
-      {error && (
-        <div style={{ backgroundColor: "#F8E8E8", border: `1px solid ${colors.rose}`, borderRadius: 10, padding: 12 }}>
-          <p style={{ fontFamily: fontFa, fontSize: 13, color: colors.rose, marginBottom: 8 }}>{error}</p>
-          <button
-            onClick={() => lookup()}
-            disabled={loading}
-            style={{
-              fontFamily: fontFa,
-              fontSize: 12,
-              fontWeight: 700,
-              color: "white",
-              backgroundColor: colors.rose,
-              borderRadius: 8,
-              padding: "5px 14px",
-              opacity: loading ? 0.6 : 1,
-            }}
-          >
-            تلاش دوباره
-          </button>
-        </div>
-      )}
-
-      {showHistory && (
-        <div className="flex flex-col gap-2">
-          {dictHistory.length === 0 && (
-            <p style={{ fontFamily: fontFa, fontSize: 13, color: colors.inkSoft, textAlign: "center", padding: 16 }}>
-              هنوز چیزی جستجو نکردی.
-            </p>
-          )}
-          {dictHistory.map((h) => (
-            <div
-              key={h.word}
-              onClick={() => openFromHistory(h)}
-              className="flex items-center justify-between p-3 rounded-lg cursor-pointer"
-              style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}` }}
-            >
-              <div>
-                <p style={{ fontFamily: fontLatin, fontWeight: 600, fontSize: 14, color: colors.ink }}>{h.word}</p>
-                <p style={{ fontFamily: fontFa, fontSize: 12, color: colors.inkSoft }}>{h.meaningFa}</p>
-              </div>
-              <button onClick={(e) => { e.stopPropagation(); removeFromHistory(h.word); }} aria-label="حذف">
-                <X size={16} color={colors.inkSoft} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {!showHistory && result && (
-        <div className="flex flex-col gap-3 p-4 rounded-lg" style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}` }}>
-          <div className="flex items-center gap-2" style={{ direction: "ltr" }}>
-            <p style={{ fontFamily: fontLatin, fontWeight: 800, fontSize: 20, color: mainTextColor }}>{result.word}</p>
-            <SpeakButton text={result.word} code={result.detectedLang || "en"} edge="end" />
-            {result.pos && (
-              <span
-                style={{
-                  fontFamily: fontFa,
-                  fontSize: 11,
-                  color: colors.gold,
-                  border: `1px solid ${colors.goldSoft}`,
-                  borderRadius: 6,
-                  padding: "1px 6px",
-                }}
-              >
-                {result.pos}
-              </span>
-            )}
-          </div>
-          {result.ipa && (
-            <p style={{ fontFamily: fontLatin, fontSize: 13, color: colors.inkSoft, direction: "ltr" }}>/{result.ipa}/</p>
-          )}
-          {result.meaningFa && (
-            <p style={{ fontFamily: fontFa, fontSize: 14, fontWeight: 800, color: translationColor }}>{result.meaningFa}</p>
-          )}
-
-          {result.translations && (
-            <div className="flex flex-col gap-1" style={{ marginTop: 4 }}>
-              <p style={{ fontFamily: fontFa, fontSize: 12, fontWeight: 700, color: colors.inkSoft }}>ترجمه‌ها</p>
-              {targetLangs.map((l) => (
-                result.translations[l.code] ? (
-                  <div key={l.code} style={{ display: "flex", alignItems: "center", gap: 8, direction: "ltr" }}>
-                    <span
-                      style={{
-                        fontFamily: fontFa,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: colors.gold,
-                        border: `1px solid ${colors.goldSoft}`,
-                        borderRadius: 6,
-                        padding: "1px 5px",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {l.abbr}
-                    </span>
-                    <p style={{ fontFamily: fontLatin, color: translationColor, fontWeight: 800, fontSize: 14, flex: 1 }}>
-                      {result.translations[l.code]}
-                    </p>
-                    <SpeakButton text={result.translations[l.code]} code={l.code} color={translationColor} edge="end" />
-                  </div>
-                ) : null
-              ))}
-            </div>
-          )}
-
-          {Array.isArray(result.examples) && result.examples.length > 0 && (
-            <div className="flex flex-col gap-2" style={{ marginTop: 4 }}>
-              <p style={{ fontFamily: fontFa, fontSize: 12, fontWeight: 700, color: colors.inkSoft }}>مثال</p>
-              {result.examples.map((ex, i) => (
-                <div key={i} style={{ backgroundColor: colors.paper, borderRadius: 8, padding: 8 }}>
-                  <p style={{ fontFamily: fontLatin, fontSize: 13, color: colors.ink, direction: "ltr" }}>{ex.text}</p>
-                  {ex.fa && <p style={{ fontFamily: fontFa, fontSize: 12, color: colors.inkSoft, marginTop: 2 }}>{ex.fa}</p>}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // شکستنِ متنِ یه پاراگراف به جمله‌های واقعی — هوش مصنوعی که داستان می‌سازه
@@ -12215,7 +11691,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
 // popover's "save for next story" button, grouped by language, so they're
 // easy to find later instead of only surfacing inside Story Builder.
 // ---------------------------------------------------------------------------
-function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabel, targetOrder, dictHistory, setDictHistory, onGoToDictionary, uiLang }) {
+function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabel, targetOrder, uiLang }) {
   const [words, setWords] = useState([]);
   // لغاتی که کاربر توی همین صفحه علامت زده تا ببره داستان‌ساز — جدا از
   // خودِ انبار دائمی؛ فقط یه انتخاب موقتیه، نه حذف/اضافه به ذخیره‌شده‌ها.
@@ -12449,50 +11925,6 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
     setActionMsg(trf("wordsClearedMsg", uiLang, { n: filteredWords.length }));
   };
 
-  // معادل‌های هر لغتِ انتخاب‌شده (که قبلاً توی همین پنل جمع شده) رو مستقیم
-  // به تاریخچه‌ی دیکشنری اضافه می‌کنه — بدون نیاز به جستجوی دوباره از AI.
-  // لغاتی که از قبل توی دیکشنری بودن (بر اساس خودِ کلمه) رد می‌شن تا داده‌ی
-  // کامل‌تری که قبلاً از AI گرفته شده بود دست‌نخورده بمونه.
-  const copySelectedToDictionary = () => {
-    if (!totalPicked || !setDictHistory) return;
-    const toCopy = [];
-    Object.entries(picked).forEach(([code, set]) => {
-      (set || new Set()).forEach((word) => {
-        const entry = words.find((w) => w.langCode === code && w.word === word);
-        if (entry) toCopy.push(entry);
-      });
-    });
-    if (!toCopy.length) return;
-    const existingKeys = new Set((dictHistory || []).map((h) => (h.word || "").toLowerCase()));
-    const additions = [];
-    toCopy.forEach((e) => {
-      const key = (e.word || "").toLowerCase();
-      if (!key || existingKeys.has(key)) return;
-      existingKeys.add(key);
-      additions.push({
-        word: e.word,
-        detectedLang: e.langCode,
-        pos: "",
-        ipa: "",
-        meaningFa: e.langCode !== nativeLang ? (e.translations && e.translations[nativeLang]) || "" : "",
-        translations: { ...(e.translations || {}) },
-        examples: [],
-        lookedUpAt: Date.now(),
-      });
-    });
-    if (additions.length) {
-      setDictHistory((prev) => [...additions, ...prev].slice(0, 50));
-    }
-    const skipped = toCopy.length - additions.length;
-    setActionMsg(
-      additions.length && skipped
-        ? trf("addedToDictBoth", uiLang, { added: additions.length, skipped })
-        : additions.length
-        ? trf("addedToDictOnly", uiLang, { added: additions.length })
-        : tr("allAlreadyInDict", uiLang)
-    );
-  };
-
   useEffect(() => {
     if (!actionMsg) return;
     const t = setTimeout(() => setActionMsg(""), 4000);
@@ -12558,27 +11990,16 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
               {tr("clearAllWords", uiLang)}
             </button>
             {totalPicked > 0 && (
-              <>
-                <button onClick={deleteSelected} className="flex items-center gap-1" style={{ ...toolbarButtonStyle, color: colors.rose }}>
-                  <X size={13} />
-                  {trf("deleteNSelected", uiLang, { n: totalPicked })}
-                </button>
-                <button onClick={copySelectedToDictionary} className="flex items-center gap-1" style={{ ...toolbarButtonStyle, color: colors.teal }}>
-                  <Copy size={13} />
-                  {tr("copyToDictionary", uiLang)}
-                </button>
-              </>
+              <button onClick={deleteSelected} className="flex items-center gap-1" style={{ ...toolbarButtonStyle, color: colors.rose }}>
+                <X size={13} />
+                {trf("deleteNSelected", uiLang, { n: totalPicked })}
+              </button>
             )}
           </div>
 
           {actionMsg && (
             <p className="flex items-center gap-2" style={{ fontSize: 12, color: colors.teal }}>
               {actionMsg}
-              {onGoToDictionary && /دیکشنری|dictionary/i.test(actionMsg) && (
-                <button onClick={onGoToDictionary} style={{ textDecoration: "underline", color: colors.teal }}>
-                  {tr("viewInDictionary", uiLang)}
-                </button>
-              )}
             </p>
           )}
         </div>
@@ -14452,7 +13873,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [cloudChecked, setCloudChecked] = useState(false);
   const [wordStats, setWordStats] = useState({});
   const [savedStories, setSavedStories] = useState([]);
-  const [dictHistory, setDictHistory] = useState([]);
   const [backendUrl, setBackendUrl] = useState("");
   const [storyJump, setStoryJump] = useState(null); // { lang, token } — set when jumping in from Saved Words
   // متنِ کاملِ داستانِ ساخته‌شده در تبِ داستان‌ساز — برای این‌که دکمه‌ی
@@ -14560,7 +13980,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // و هیچ‌جا نشون داده نمی‌شدن (ستاره می‌خورد ولی توی تبِ «علاقه‌مندی‌ها»
   // ظاهر نمی‌شد)؛ حالا همین‌جا، کنارِ عبارت‌های علاقه‌مندشده، نشون داده می‌شن.
   const favoritedWords = useMemo(() => {
-    const sources = [wordsWithSaved, NEWS_WORDS, DAILY_WORDS, SLANG_WORDS, VOCAB_IN_USE_WORDS];
+    const sources = [wordsWithSaved, DAILY_WORDS, SLANG_WORDS, VOCAB_IN_USE_WORDS];
     const seen = new Set();
     const result = [];
     sources.forEach((list) => {
@@ -14654,7 +14074,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         setSavedStories(saved.savedStories);
       }
     }
-    if (saved.dictHistory) setDictHistory(saved.dictHistory);
     if (saved.backendUrl) setBackendUrl(saved.backendUrl);
     if (Array.isArray(saved.savedStoryWords)) {
       if (merge) {
@@ -14746,7 +14165,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         boxes,
         wordStats,
         savedStories,
-        dictHistory,
         backendUrl,
         savedStoryWords: loadSavedStoryWords(),
         grammarNotes: loadGrammarNotes(),
@@ -14774,7 +14192,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       if (pendingSaveRef.current) pendingSaveRef.current();
     }, 500);
     return () => clearTimeout(timeout);
-  }, [nativeLang, targetOrder, langPickerOrder, favorites, wordFavorites, boxes, wordStats, savedStories, dictHistory, backendUrl, loaded, cloudChecked, userStorageKey, user?.uid, savedWordsVersion, grammarNotesVersion, wordExamplesVersion]);
+  }, [nativeLang, targetOrder, langPickerOrder, favorites, wordFavorites, boxes, wordStats, savedStories, backendUrl, loaded, cloudChecked, userStorageKey, user?.uid, savedWordsVersion, grammarNotesVersion, wordExamplesVersion]);
 
   // --- Flush فوری درست قبل از بستن/رفرش/مینیمایز‌کردنِ صفحه ------------------
   // اگه یه ذخیره‌ی معلق (تو تایمرِ ۵۰۰ میلی‌ثانیه‌یِ بالا) هنوز اجرا نشده،
@@ -14851,7 +14269,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         }
       : tab === "conversations" && dailyPlayerText.text
       ? { text: dailyPlayerText.text, code: dailyPlayerText.code }
-      : (tab === "words" || tab === "vocab" || tab === "vocabInUse" || tab === "slang" || tab === "favorites") && wordListPlayerText.text
+      : (tab === "words" || tab === "vocabInUse" || tab === "slang" || tab === "favorites") && wordListPlayerText.text
       ? {
           text: wordListPlayerText.text,
           code: wordListPlayerText.code,
@@ -15013,21 +14431,19 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         <TabButton label={tr("tabWords", appPrefs.uiLang)} icon={Layers} active={tab === "words"} onClick={() => setTab("words")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabVocabInUse", appPrefs.uiLang)} icon={BookOpen} active={tab === "vocabInUse"} onClick={() => setTab("vocabInUse")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabFavorites", appPrefs.uiLang)} icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabVocab", appPrefs.uiLang)} icon={Newspaper} active={tab === "vocab"} onClick={() => setTab("vocab")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabSlang", appPrefs.uiLang)} icon={Sparkles} active={tab === "slang"} onClick={() => setTab("slang")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabDictionary", appPrefs.uiLang)} icon={Search} active={tab === "dictionary"} onClick={() => setTab("dictionary")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabReview", appPrefs.uiLang)} icon={RotateCcw} active={tab === "review"} onClick={() => { setTab("review"); setReviewIndex(0); setShowAnswer(false); }} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
       </nav>
 
       {/* Level filter — applies to conversation , words, favorites, and vocabulary */}
-      {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "vocabInUse" || tab === "slang") && (
+      {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocabInUse" || tab === "slang") && (
         <div className="px-4 pt-3">
           <LevelFilterRow levelFilter={levelFilter} setLevelFilter={setLevelFilter} uiLang={appPrefs.uiLang} />
         </div>
       )}
 
       {/* Search — meaningful for the phrase and word list tabs */}
-      {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocab" || tab === "vocabInUse" || tab === "slang") && (
+      {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocabInUse" || tab === "slang") && (
         <div className="px-4 pt-3">
           <div
             className="flex items-center gap-2 px-4"
@@ -15038,7 +14454,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={
-                tab === "words" || tab === "vocab" || tab === "vocabInUse" || tab === "slang"
+                tab === "words" || tab === "vocabInUse" || tab === "slang"
                   ? tr("searchWordsPlaceholder", appPrefs.uiLang)
                   : tab === "conversations"
                   ? tr("searchConversationsPlaceholder", appPrefs.uiLang)
@@ -15200,29 +14616,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           />
         )}
 
-        {tab === "vocab" && (
-          <WordList
-            words={NEWS_WORDS}
-            listId="vocab"
-            wordFavorites={wordFavorites}
-            toggleWordFavorite={toggleWordFavorite}
-            query={query}
-            levelFilter={levelFilter}
-            emptyText={tr("noWordsInList", appPrefs.uiLang)}
-            uiLang={appPrefs.uiLang}
-            nativeLang={nativeLang}
-            nativeLabel={nativeLabel}
-            targetLangs={targetLangList}
-            aiSettings={aiSettings}
-            ClickableSentence={ClickableSentence}
-            autoplayEnabled={tab === "vocab"}
-            onFullTextChange={setWordListPlayerText}
-            autoScrollActive={tab === "vocab"}
-            highlightColor={appPrefs.highlightColor}
-            jumpTarget={wordJumpTarget}
-          />
-        )}
-
         {tab === "slang" && (
           <WordList
             words={SLANG_WORDS}
@@ -15260,25 +14653,12 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           />
         )}
 
-        {tab === "dictionary" && (
-          <Dictionary
-            nativeLang={nativeLang}
-            nativeLabel={nativeLabel}
-            dictHistory={dictHistory}
-            setDictHistory={setDictHistory}
-            aiSettings={aiSettings}
-          />
-        )}
-
         {tab === "saved" && (
           <SavedWordsPanel
             uiLang={appPrefs.uiLang}
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
             targetOrder={targetOrder}
-            dictHistory={dictHistory}
-            setDictHistory={setDictHistory}
-            onGoToDictionary={() => setTab("dictionary")}
             onJumpToStory={(lang, words) => {
               // فقط لغات رو به داستان‌ساز می‌فرسته (که همیشه mount شده و
               // همون لحظه‌شون رو دریافت می‌کنه) — بدون این‌که خودش تبِ
@@ -15311,11 +14691,11 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               // بهش اسکرول می‌کنیم. اگه id نبود (لغاتی که قبل از این
               // قابلیت ذخیره شدن، یا از مکالمات روزمره اومدن — که ردیفِ
               // مستقلی نداره)، مثلِ قبل کادرِ جستجو رو با خودِ لغت پر می‌کنیم.
-              if (["words", "vocab", "vocabInUse", "slang", "favorites"].includes(originTab) && entry.origin.id != null) {
+              if (["words", "vocabInUse", "slang", "favorites"].includes(originTab) && entry.origin.id != null) {
                 setLevelFilter("all");
                 setQuery("");
                 setWordJumpTarget({ id: entry.origin.id, token: Date.now() });
-              } else if (["conversations", "words", "favorites", "vocab", "vocabInUse", "slang"].includes(originTab)) {
+              } else if (["conversations", "words", "favorites", "vocabInUse", "slang"].includes(originTab)) {
                 setQuery(entry.word);
               }
               return true;
@@ -16772,7 +16152,7 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
           return Object.values(w.t).some((v) => typeof v === "string" && v.toLowerCase().includes(q));
         }
         if (w.en.toLowerCase().includes(q) || w.fa.includes(q)) return true;
-        // لغاتی مثلِ DAILY_WORDS/SLANG_WORDS/NEWS_WORDS/WORDS_AZ ترجمه‌ی
+        // لغاتی مثلِ DAILY_WORDS/SLANG_WORDS/WORDS_AZ ترجمه‌ی
         // ثابتِ توی دیتا ندارن — ترجمه‌شون فقط لحظه‌ای (lazy) گرفته و کش
         // می‌شه. برای این‌که جستجو رویِ همون ترجمه‌های انتخابیِ کاربر هم
         // جواب بده، هم کشِ زنده‌ی همین رندر (wordTranslationValues) و هم
@@ -18254,12 +17634,6 @@ export default function App() {
   const [appPrefs, setAppPrefs] = useState(loadAppPrefs);
 
   useEffect(() => saveAppPrefs(appPrefs), [appPrefs]);
-
-  // اگه کاربر قبلاً دیکشنری‌ای دانلود کرده بوده، همین اول بارگذاریش کن تو
-  // حافظه — بدون این کار، جستجوی آفلاین فقط بعد از یه دانلود تازه کار می‌کنه.
-  useEffect(() => {
-    offlineDictionary.hydrateFromCache();
-  }, []);
 
   // سشن واقعی Supabase: هم موقع بارگذاری اول صفحه (مثلاً بعد از برگشتن از
   // صفحه‌ی ورود گوگل) چک می‌کنیم، هم روی هر تغییر (ورود/خروج/تازه‌سازی توکن)
