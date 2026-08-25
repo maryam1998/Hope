@@ -235,8 +235,17 @@ const PDF_VIEW_DB_NAME = "pdf-view-documents";
 const PDF_VIEW_META_STORE = "meta"; // { id, title, pageCount, doneCount, createdAt }
 const PDF_VIEW_PAGE_STORE = "pages"; // key: `${docId}::${pageNum}` -> { pageNum, imageBlob, width, height, originalText, translatedText }
 
+// یه اتصالِ واحد و مشترک به IndexedDB — قبلاً هر تابعِ save/list/load خودش
+// جدا indexedDB.open() صدا می‌زد و هیچ‌وقت هم نمی‌بستش؛ برای یه کتابِ ۱۶
+// صفحه‌ای این می‌شد ده‌ها اتصالِ باز و بسته‌نشده، پشتِ سرِ هم، تویِ چندثانیه
+// — دقیقاً همین باعثِ هنگ/قفلِ کاملِ تب (حتی اسکرول) می‌شد، چون مرورگر
+// (خصوصاً موبایل) با این‌همه اتصالِ هم‌زمانِ بازِ IndexedDB قفل می‌کنه. الان
+// یه اتصالِ واحد ساخته و کش می‌شه؛ همه‌ی توابعِ زیر همینِ یکی رو دوباره
+// استفاده می‌کنن.
+let pdfViewDbPromise = null;
 function openPdfViewDB() {
-  return new Promise((resolve, reject) => {
+  if (pdfViewDbPromise) return pdfViewDbPromise;
+  pdfViewDbPromise = new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") { reject(new Error("indexeddb-unavailable")); return; }
     const req = indexedDB.open(PDF_VIEW_DB_NAME, 1);
     req.onupgradeneeded = () => {
@@ -248,9 +257,17 @@ function openPdfViewDB() {
         db.createObjectStore(PDF_VIEW_PAGE_STORE);
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      // اگه به هر دلیلی (آپدیتِ نسخه‌ی DB تو یه تبِ دیگه و…) این اتصال
+      // بسته شد، دفعه‌ی بعد یه اتصالِ تازه ساخته بشه، نه اینکه به یه
+      // اتصالِ مرده گیر کنیم.
+      db.onclose = () => { pdfViewDbPromise = null; };
+      resolve(db);
+    };
+    req.onerror = () => { pdfViewDbPromise = null; reject(req.error); };
   });
+  return pdfViewDbPromise;
 }
 
 async function savePdfViewMeta(meta) {
