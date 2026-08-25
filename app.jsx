@@ -10492,6 +10492,13 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   // داستان‌ساز، صفحه‌به‌صفحه با عکسِ اصلی + ترجمه‌ی روبروش نمایش داده می‌شه.
   const PDF_VIEW_MAX_BYTES = 80 * 1024 * 1024; // ۸۰ مگابایت — رندرِ تصویریِ صفحه‌به‌صفحه سنگین‌تر از استخراجِ صرفِ متنه
   const PDF_VIEW_RENDER_SCALE = 1.6; // کیفیتِ کافی برای خوانا بودنِ متن/عکسِ صفحه، بدونِ حجمِ زیادِ نهایی
+  // سقفِ ابعادِ کانواسِ رندرشده (پیکسل، ضلعِ بزرگ‌تر). ریشه‌ی اصلیِ «قفل‌شدن»
+  // موقعِ آپلودِ PDFِ عکس‌دار/اسکن‌شده همین‌جا بود: صفحه‌ی PDFِ اسکن‌شده با
+  // DPIِ بالا می‌تونه ابعادِ طبیعیِ چندهزار پیکسلی داشته باشه؛ رندرِ اون با
+  // مقیاسِ ثابتِ ۱.۶ یه کانواسِ غول‌پیکر می‌سازه که خودِ ساختن/JPEG‌کردنش
+  // حافظه‌ی مرورگر رو (خصوصاً موبایل) پر می‌کنه و تب رو هنگ/قفل می‌کنه —
+  // این سقف باعث می‌شه صفحاتِ خیلی‌بزرگ با مقیاسِ کمتر (نه ثابت) رندر بشن.
+  const PDF_VIEW_MAX_CANVAS_DIM = 1800;
 
   const handlePdfViewImport = async (e) => {
     const file = e.target.files?.[0];
@@ -10538,69 +10545,98 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       const canvasToJpgBlob = (canvas) =>
         new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
 
+      let failedPages = 0;
       for (let i = 1; i <= pageCount; i++) {
         setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال رندر...`);
         await new Promise((r) => setTimeout(r, 0)); // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — تا UI قفل نشه
 
-        const page = await srcDoc.getPage(i);
-        const viewport = page.getViewport({ scale: PDF_VIEW_RENDER_SCALE });
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.ceil(viewport.width));
-        canvas.height = Math.max(1, Math.ceil(viewport.height));
-        const ctx = canvas.getContext("2d");
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        // یه صفحه‌ی خراب/غیرعادی‌سنگین نباید کلِ آپلود رو متوقف کنه —
+        // خطاش رو می‌گیریم، یه صفحه‌ی جای‌گزین با پیامِ خطا ثبت می‌کنیم و
+        // به صفحه‌ی بعدی می‌ریم؛ این‌جوری «قفل‌شدنِ همیشگی» رویِ یه صفحه‌ی
+        // خراب هم دیگه اتفاق نمی‌افته.
+        try {
+          const page = await srcDoc.getPage(i);
+          // مقیاسِ واقعی رو از رویِ ابعادِ طبیعیِ خودِ صفحه حساب می‌کنیم، نه
+          // همیشه مقیاسِ ثابت — صفحه‌ی اسکن‌شده‌ی خیلی‌بزرگ با مقیاسِ کمتر،
+          // صفحه‌ی معمولی با همون مقیاسِ کاملِ قبلی رندر می‌شه.
+          const baseViewport = page.getViewport({ scale: 1 });
+          const longSide = Math.max(baseViewport.width, baseViewport.height) || 1;
+          const effectiveScale = Math.min(PDF_VIEW_RENDER_SCALE, PDF_VIEW_MAX_CANVAS_DIM / longSide);
+          const viewport = page.getViewport({ scale: Math.max(effectiveScale, 0.3) });
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.ceil(viewport.width));
+          canvas.height = Math.max(1, Math.ceil(viewport.height));
+          const ctx = canvas.getContext("2d");
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          await new Promise((r) => setTimeout(r, 0)); // بعدِ رندرِ سنگین، یه فرصتِ دیگه به UI برای نفس‌کشیدن
 
-        setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
-        const content = await page.getTextContent();
-        // به‌جای چسبوندنِ همه‌چیز با یه space (که کاملاً مرزِ خط/پاراگرافِ
-        // متنِ اصلی رو گم می‌کرد)، صفحه به پاراگراف‌های واقعیِ خودش
-        // شکسته می‌شه — هر پاراگراف یه شماره می‌گیره، هم تو متنِ ترجمه
-        // و هم به‌صورتِ یه نشانگرِ کوچیک رویِ خودِ عکسِ صفحه (کنارِ همون
-        // بخش) — تا کاربر بتونه شماره‌ها رو با هم تطبیق بده و گم نشه.
-        const paragraphs = extractPdfPageParagraphs(content);
-        drawParagraphMarkers(ctx, viewport, paragraphs);
+          setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
+          const content = await page.getTextContent();
+          // به‌جای چسبوندنِ همه‌چیز با یه space (که کاملاً مرزِ خط/پاراگرافِ
+          // متنِ اصلی رو گم می‌کرد)، صفحه به پاراگراف‌های واقعیِ خودش
+          // شکسته می‌شه — هر پاراگراف یه شماره می‌گیره، هم تو متنِ ترجمه
+          // و هم به‌صورتِ یه نشانگرِ کوچیک رویِ خودِ عکسِ صفحه (کنارِ همون
+          // بخش) — تا کاربر بتونه شماره‌ها رو با هم تطبیق بده و گم نشه.
+          const paragraphs = extractPdfPageParagraphs(content);
+          drawParagraphMarkers(ctx, viewport, paragraphs);
 
-        const imageBlob = await canvasToJpgBlob(canvas);
-        const imageUrl = imageBlob ? URL.createObjectURL(imageBlob) : "";
+          const imageBlob = await canvasToJpgBlob(canvas);
+          const imageUrl = imageBlob ? URL.createObjectURL(imageBlob) : "";
 
-        const pageText = paragraphs.map((p, idx) => `${idx + 1}) ${p.text}`).join("\n\n");
-        let translatedText = "";
-        if (paragraphs.length) {
-          const translatedParas = await translateParagraphsList(
-            paragraphs.map((p) => p.text),
-            nativeLang || "fa",
-            aiSettings
-          );
-          translatedText = translatedParas.map((t, idx) => `${idx + 1}) ${t}`).join("\n\n");
+          const pageText = paragraphs.map((p, idx) => `${idx + 1}) ${p.text}`).join("\n\n");
+          let translatedText = "";
+          if (paragraphs.length) {
+            const translatedParas = await translateParagraphsList(
+              paragraphs.map((p) => p.text),
+              nativeLang || "fa",
+              aiSettings
+            );
+            translatedText = translatedParas.map((t, idx) => `${idx + 1}) ${t}`).join("\n\n");
+          }
+
+          const newPage = {
+            pageNum: i,
+            imageUrl,
+            width: canvas.width,
+            height: canvas.height,
+            originalText: pageText,
+            translatedText: translatedText || "متنی برای ترجمه در این صفحه پیدا نشد.",
+          };
+
+          // بلافاصله همین صفحه رو نشون بده — کاربر منتظرِ کلِ فایل نمی‌مونه،
+          // از همون صفحه‌ی اول می‌تونه شروع به خوندن کنه، بقیه پشتِ‌صحنه
+          // پردازش می‌شن. صفحه‌ی اول هم که آماده شد، خودکار باز می‌شه.
+          setPdfViewPages((prev) => [...prev, newPage]);
+          if (i === 1) setPdfViewIndex(0);
+
+          // ذخیره‌ی همین صفحه تو IndexedDB (عکس به‌صورتِ Blob، نه URL موقت) —
+          // تا حتی اگه پردازشِ صفحاتِ بعدی قطع بشه، همین‌قدر برای همیشه می‌مونه.
+          await savePdfViewPage(docId, { ...newPage, imageUrl: undefined, imageBlob });
+          await savePdfViewMeta({ id: docId, title: docTitle, pageCount, doneCount: i, createdAt: Date.now() });
+          // لیستِ «PDFهای ذخیره‌شده» رو همین‌جا هم آپدیت کن — تا شمارشِ
+          // «فلان از فلان صفحه» تو همون پنل، هم‌زمان با پیشرفتِ پردازش
+          // بالا بره، نه فقط اولِ کار و آخرِ کار. کاربر لازم نیست صبر کنه
+          // تا کلِ فایل تموم بشه؛ همین الان هم از همون پنل قابلِ بازکردنه.
+          refreshPdfViewDocs();
+        } catch (pageErr) {
+          console.error(`pdf-view page ${i} failed`, pageErr);
+          failedPages++;
+          const errPage = {
+            pageNum: i,
+            imageUrl: "",
+            width: 0,
+            height: 0,
+            originalText: "",
+            translatedText: "این صفحه پردازش نشد (خطا/سنگینیِ زیاد) — صفحاتِ بعدی ادامه پیدا می‌کنن.",
+          };
+          setPdfViewPages((prev) => [...prev, errPage]);
+          if (i === 1) setPdfViewIndex(0);
+          await savePdfViewMeta({ id: docId, title: docTitle, pageCount, doneCount: i, createdAt: Date.now() });
+          refreshPdfViewDocs();
         }
-
-        const newPage = {
-          pageNum: i,
-          imageUrl,
-          width: canvas.width,
-          height: canvas.height,
-          originalText: pageText,
-          translatedText: translatedText || "متنی برای ترجمه در این صفحه پیدا نشد.",
-        };
-
-        // بلافاصله همین صفحه رو نشون بده — کاربر منتظرِ کلِ فایل نمی‌مونه،
-        // از همون صفحه‌ی اول می‌تونه شروع به خوندن کنه، بقیه پشتِ‌صحنه
-        // پردازش می‌شن. صفحه‌ی اول هم که آماده شد، خودکار باز می‌شه.
-        setPdfViewPages((prev) => [...prev, newPage]);
-        if (i === 1) setPdfViewIndex(0);
-
-        // ذخیره‌ی همین صفحه تو IndexedDB (عکس به‌صورتِ Blob، نه URL موقت) —
-        // تا حتی اگه پردازشِ صفحاتِ بعدی قطع بشه، همین‌قدر برای همیشه می‌مونه.
-        savePdfViewPage(docId, { ...newPage, imageUrl: undefined, imageBlob });
-        await savePdfViewMeta({ id: docId, title: docTitle, pageCount, doneCount: i, createdAt: Date.now() });
-        // لیستِ «PDFهای ذخیره‌شده» رو همین‌جا هم آپدیت کن — تا شمارشِ
-        // «فلان از فلان صفحه» تو همون پنل، هم‌زمان با پیشرفتِ پردازش
-        // بالا بره، نه فقط اولِ کار و آخرِ کار. کاربر لازم نیست صبر کنه
-        // تا کلِ فایل تموم بشه؛ همین الان هم از همون پنل قابلِ بازکردنه.
-        refreshPdfViewDocs();
       }
 
-      setPdfViewError("");
+      setPdfViewError(failedPages ? `توجه: ${failedPages} صفحه پردازش نشد، بقیه‌ی صفحات آماده‌ن` : "");
       refreshPdfViewDocs();
     } catch (err) {
       console.error(err);
