@@ -1290,9 +1290,11 @@ const READ_DONE_BG = "#FBF2DF";
 // تب‌های دیگه هم (لغات، اخبار، اسلنگ، داستان‌های ذخیره‌شده، یادداشت‌های
 // گرامر) برای ردیف/کارتِ خوانده‌شده استفاده می‌شه، به‌جای رنگِ تختِ
 // READ_DONE_BG بالا.
-const READ_DONE_GRADIENT = "linear-gradient(145deg, #FCEACB 0%, #F6D69C 55%, #F0C583 100%)";
-const READ_DONE_BORDER = "#E3B96E";
-const READ_DONE_SHADOW = "0 4px 14px -6px rgba(201,154,46,.45)";
+const READ_DONE_GRADIENT = "linear-gradient(150deg, #F8F2DE 0%, #F1E6C6 100%)";
+const READ_DONE_BORDER = "#E3D2A2";
+const READ_DONE_SHADOW = "0 2px 8px -6px rgba(150,120,40,.15)";
+// تیکِ «خوانده‌شده» همیشه سبزه (مستقل از تمِ رنگیِ فعال) تا با هر پوسته‌ای یکدست بمونه.
+const READ_DONE_CHECK_GRADIENT = "linear-gradient(135deg, #3F9B72, #276E4F)";
 // پالتِ رنگ‌های کم‌رنگ/بی‌حال (pastel) که کاربر می‌تونه به‌عنوانِ رنگِ
 // هایلایتِ خواندن ازش انتخاب کنه — دقیقاً همون طیفی که خودِ کاربر
 // به‌عنوانِ نمونه فرستاد (زردِ کم‌رنگ، هلویی، نارنجیِ ملایم، صورتی‌مرجانی،
@@ -10456,7 +10458,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                             height: 20,
                             borderRadius: "50%",
                             border: savedStoryReadIds.has(s.id) ? `1.6px solid ${READ_DONE_BORDER}` : `1.6px dashed ${colors.cardBorder}`,
-                            background: savedStoryReadIds.has(s.id) ? `linear-gradient(135deg, ${colors.gold}, ${READ_DONE_BORDER})` : "transparent",
+                            background: savedStoryReadIds.has(s.id) ? READ_DONE_CHECK_GRADIENT : "transparent",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
@@ -12177,7 +12179,7 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                               height: 20,
                               borderRadius: "50%",
                               border: isRead ? `1.6px solid ${READ_DONE_BORDER}` : `1.6px dashed ${colors.cardBorder}`,
-                              background: isRead ? `linear-gradient(135deg, ${colors.gold}, ${READ_DONE_BORDER})` : "transparent",
+                              background: isRead ? READ_DONE_CHECK_GRADIENT : "transparent",
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
@@ -13050,7 +13052,7 @@ function GrammarPanel({
                               height: 20,
                               borderRadius: "50%",
                               border: noteReadIds.has(n.id) ? `1.6px solid ${READ_DONE_BORDER}` : `1.6px dashed ${colors.cardBorder}`,
-                              background: noteReadIds.has(n.id) ? `linear-gradient(135deg, ${colors.gold}, ${READ_DONE_BORDER})` : "transparent",
+                              background: noteReadIds.has(n.id) ? READ_DONE_CHECK_GRADIENT : "transparent",
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
@@ -16543,7 +16545,7 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
               height: 20,
               borderRadius: "50%",
               border: isRead ? `1.6px solid ${READ_DONE_BORDER}` : `1.6px dashed ${colors.cardBorder}`,
-              background: isRead ? `linear-gradient(135deg, ${colors.gold}, ${READ_DONE_BORDER})` : "transparent",
+              background: isRead ? READ_DONE_CHECK_GRADIENT : "transparent",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
