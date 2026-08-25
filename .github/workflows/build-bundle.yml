@@ -23,6 +23,7 @@ on:
       - "DAILY_WORDS.js"
       - "SLANG_WORDS.js"
       - "DAILY_CONVERSATIONS.js"
+      - "vocabularyInUseData.js"
   workflow_dispatch: {}
 
 # لازمه ورک‌فلو اجازه‌ی commit/push به همین ریپو رو داشته باشه.
