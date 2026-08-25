@@ -233,12 +233,13 @@ async function deleteStoryAudioRecord(storyKey) {
 // ============================================================
 const PDF_VIEW_DB_NAME = "pdf-view-documents";
 const PDF_VIEW_META_STORE = "meta"; // { id, title, pageCount, doneCount, createdAt }
-const PDF_VIEW_PAGE_STORE = "pages"; // key: `${docId}::${pageNum}` -> { pageNum, imageBlob, width, height, originalText, translatedText }
+const PDF_VIEW_PAGE_STORE = "pages"; // key: `${docId}::${pageNum}` -> { pageNum, originalText, translatedText }
+const PDF_VIEW_FILE_STORE = "rawfile"; // key: docId -> Blob (خودِ فایلِ PDFِ آپلودی، دست‌نخورده — نه عکس، نه متنِ استخراج‌شده)
 
 function openPdfViewDB() {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") { reject(new Error("indexeddb-unavailable")); return; }
-    const req = indexedDB.open(PDF_VIEW_DB_NAME, 1);
+    const req = indexedDB.open(PDF_VIEW_DB_NAME, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(PDF_VIEW_META_STORE)) {
@@ -247,10 +248,45 @@ function openPdfViewDB() {
       if (!db.objectStoreNames.contains(PDF_VIEW_PAGE_STORE)) {
         db.createObjectStore(PDF_VIEW_PAGE_STORE);
       }
+      if (!db.objectStoreNames.contains(PDF_VIEW_FILE_STORE)) {
+        db.createObjectStore(PDF_VIEW_FILE_STORE);
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+// خودِ فایلِ خامِ PDF (بدونِ هیچ تغییری) رو ذخیره می‌کنه — تا حتی بعدِ
+// بستنِ اپ، وقتی کاربر دوباره همون سند رو باز می‌کنه، دقیقاً خودِ فایلِ
+// اصلی (نه یه عکس یا متنِ استخراج‌شده) نشونش داده بشه.
+async function saveRawPdfFile(docId, blob) {
+  try {
+    const db = await openPdfViewDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(PDF_VIEW_FILE_STORE, "readwrite");
+      tx.objectStore(PDF_VIEW_FILE_STORE).put(blob, docId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function loadRawPdfFile(docId) {
+  try {
+    const db = await openPdfViewDB();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(PDF_VIEW_FILE_STORE, "readonly");
+      const req = tx.objectStore(PDF_VIEW_FILE_STORE).get(docId);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
 }
 
 async function savePdfViewMeta(meta) {
@@ -320,10 +356,11 @@ async function deletePdfViewDoc(docId, pageCount) {
   try {
     const db = await openPdfViewDB();
     await new Promise((resolve) => {
-      const tx = db.transaction([PDF_VIEW_META_STORE, PDF_VIEW_PAGE_STORE], "readwrite");
+      const tx = db.transaction([PDF_VIEW_META_STORE, PDF_VIEW_PAGE_STORE, PDF_VIEW_FILE_STORE], "readwrite");
       tx.objectStore(PDF_VIEW_META_STORE).delete(docId);
       const pageStore = tx.objectStore(PDF_VIEW_PAGE_STORE);
       for (let i = 1; i <= pageCount; i++) pageStore.delete(`${docId}::${i}`);
+      tx.objectStore(PDF_VIEW_FILE_STORE).delete(docId);
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
     });
@@ -8666,13 +8703,16 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const bilingualPdfInputRef = useRef(null);
   // «نمایشِ PDF همینجا» — حالتِ دومِ بارگذاریِ PDF، برخلافِ «خروجی PDF
   // دوزبانه» بالا (که یک فایلِ تازه می‌سازه و دانلود می‌کنه)، این‌یکی
-  // چیزی دانلود نمی‌کنه: فایلِ خام رو با عکس‌های خودش همینجا تو
-  // داستان‌ساز، صفحه‌به‌صفحه نشون می‌ده و ترجمه‌ی متنِ همون صفحه رو
-  // درست کنارش/زیرش می‌ذاره (روبروی هم).
+  // چیزی دانلود نمی‌کنه: خودِ فایلِ PDFِ آپلودی عیناً (بدونِ تبدیل به عکس
+  // یا جایگزینی با متنِ استخراج‌شده) تو یک iframeِ واقعی نشون داده می‌شه —
+  // دقیقاً همون چیزی که کاربر آپلود کرده، با همون عکس‌ها/چیدمان/فونت،
+  // قابلِ زوم و انتخابِ متنِ بومیِ خودِ PDF. ترجمه‌ی متنِ همون صفحه هم
+  // (فقط برای پنلِ کناری، نه برای جایگزینیِ خودِ PDF) کنارش نشون داده می‌شه.
   const [pdfViewBusy, setPdfViewBusy] = useState(false);
   const [pdfViewProgress, setPdfViewProgress] = useState("");
   const [pdfViewError, setPdfViewError] = useState("");
-  const [pdfViewPages, setPdfViewPages] = useState([]); // [{pageNum, imageUrl, width, height, originalText, translatedText}]
+  const [pdfViewPages, setPdfViewPages] = useState([]); // [{pageNum, originalText, translatedText}]
+  const [pdfViewRawUrl, setPdfViewRawUrl] = useState(""); // blob URL خودِ فایلِ خامِ PDF
   const [pdfViewTitle, setPdfViewTitle] = useState("");
   const [pdfViewIndex, setPdfViewIndex] = useState(0);
   const pdfViewInputRef = useRef(null);
@@ -10384,14 +10424,14 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     }
   };
 
-  // «نمایشِ PDF همینجا» — حالتِ دومِ بارگذاریِ PDF. با pdf.js هر صفحه دقیقاً
-  // همون‌جوری که هست (عکس‌ها/چیدمانِ اصلی) به یک عکس رندر می‌شه و به‌صورتِ
-  // blob URL نگه داشته می‌شه (نه دانلود، نه ارسال به سرور)؛ متنِ همون صفحه
-  // هم استخراج و ترجمه می‌شه. نتیجه یک آرایه از صفحه‌هاست که تو خودِ
-  // داستان‌ساز، صفحه‌به‌صفحه با عکسِ اصلی + ترجمه‌ی روبروش نمایش داده می‌شه.
-  const PDF_VIEW_MAX_BYTES = 80 * 1024 * 1024; // ۸۰ مگابایت — رندرِ تصویریِ صفحه‌به‌صفحه سنگین‌تر از استخراجِ صرفِ متنه
-  const PDF_VIEW_MAX_PAGES = 60; // سقفِ صفحات، تا رندر+ترجمه رو موبایل خیلی طول نکشه/قفل نکنه
-  const PDF_VIEW_RENDER_SCALE = 1.6; // کیفیتِ کافی برای خوانا بودنِ متن/عکسِ صفحه، بدونِ حجمِ زیادِ نهایی
+  // «نمایشِ PDF همینجا» — حالتِ دومِ بارگذاریِ PDF. خودِ فایلِ آپلودی هیچ
+  // تبدیلی نمی‌شه (نه رندر به عکس، نه جایگزینی با متنِ استخراج‌شده)؛ عیناً
+  // به‌صورتِ blob URL نگه داشته می‌شه و تو یک iframeِ واقعی نمایش داده
+  // می‌شه — دقیقاً همون PDF که کاربر آپلود کرده. فقط برای پنلِ ترجمه‌ی
+  // کناری، متنِ هر صفحه با pdf.js (بدونِ رندر/بدونِ عکس) استخراج و ترجمه
+  // می‌شه؛ خودِ نمایشِ اصلی به این استخراج هیچ ربطی نداره.
+  const PDF_VIEW_MAX_BYTES = 80 * 1024 * 1024;
+  const PDF_VIEW_MAX_PAGES = 60; // سقفِ صفحات، فقط برای استخراج/ترجمه‌ی متن، نه برای خودِ نمایشِ PDF
 
   const handlePdfViewImport = async (e) => {
     const file = e.target.files?.[0];
@@ -10402,10 +10442,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setPdfViewError(`حجمِ فایل بیشتر از ${Math.round(PDF_VIEW_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه`);
       return;
     }
-    // قبل از شروعِ فایلِ تازه، عکس‌های صفحه‌ی قبلی رو از حافظه پاک کن.
-    pdfViewPages.forEach((p) => {
-      try { URL.revokeObjectURL(p.imageUrl); } catch {}
-    });
+    try { URL.revokeObjectURL(pdfViewRawUrl); } catch {}
     setPdfViewPages([]);
     setPdfViewIndex(0);
     setPdfViewBusy(true);
@@ -10418,6 +10455,12 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setPdfViewDocId(docId);
     setPdfViewTitle(docTitle);
     try {
+      // خودِ فایلِ خام رو همین اول، دست‌نخورده، هم نشون بده و هم ذخیره کن —
+      // این همون چیزیه که کاربر آپلود کرده، نه هیچ نسخه‌ی تبدیل‌شده‌ای.
+      const rawUrl = URL.createObjectURL(file);
+      setPdfViewRawUrl(rawUrl);
+      saveRawPdfFile(docId, file);
+
       const pdfjsLib = await import("pdfjs-dist");
       pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
       const buf = await file.arrayBuffer();
@@ -10434,24 +10477,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       });
       await refreshPdfViewDocs();
 
-      const canvasToJpgBlob = (canvas) =>
-        new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
-
       for (let i = 1; i <= pageCount; i++) {
-        setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال رندر...`);
+        setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
         await new Promise((r) => setTimeout(r, 0)); // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — تا UI قفل نشه
 
         const page = await srcDoc.getPage(i);
-        const viewport = page.getViewport({ scale: PDF_VIEW_RENDER_SCALE });
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.ceil(viewport.width));
-        canvas.height = Math.max(1, Math.ceil(viewport.height));
-        const ctx = canvas.getContext("2d");
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        const imageBlob = await canvasToJpgBlob(canvas);
-        const imageUrl = imageBlob ? URL.createObjectURL(imageBlob) : "";
-
-        setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
         const content = await page.getTextContent();
         // به‌جای چسبوندنِ همه‌چیز با یه space (که کاملاً مرزِ خط/پاراگرافِ
         // متنِ اصلی رو گم می‌کرد)، سطربندیِ واقعیِ صفحه حفظ می‌شه — تا
@@ -10463,28 +10493,21 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
 
         const newPage = {
           pageNum: i,
-          imageUrl,
-          width: canvas.width,
-          height: canvas.height,
           originalText: pageText,
           translatedText: translatedText || "متنی برای ترجمه در این صفحه پیدا نشد.",
         };
 
-        // بلافاصله همین صفحه رو نشون بده — کاربر منتظرِ کلِ فایل نمی‌مونه،
-        // از همون صفحه‌ی اول می‌تونه شروع به خوندن کنه، بقیه پشتِ‌صحنه
-        // پردازش می‌شن. صفحه‌ی اول هم که آماده شد، خودکار باز می‌شه.
+        // بلافاصله همین صفحه رو نشون بده — کاربر منتظرِ کلِ فایل نمی‌مونه.
         setPdfViewPages((prev) => [...prev, newPage]);
         if (i === 1) setPdfViewIndex(0);
 
-        // ذخیره‌ی همین صفحه تو IndexedDB (عکس به‌صورتِ Blob، نه URL موقت) —
-        // تا حتی اگه پردازشِ صفحاتِ بعدی قطع بشه، همین‌قدر برای همیشه می‌مونه.
-        savePdfViewPage(docId, { ...newPage, imageUrl: undefined, imageBlob });
+        savePdfViewPage(docId, newPage);
         savePdfViewMeta({ id: docId, title: docTitle, pageCount, doneCount: i, createdAt: Date.now() });
       }
 
       setPdfViewError(
         truncated
-          ? `توجه: چون فایل بیشتر از ${PDF_VIEW_MAX_PAGES} صفحه بود، فقط ${PDF_VIEW_MAX_PAGES} صفحه‌ی اول بارگذاری شد`
+          ? `توجه: چون فایل بیشتر از ${PDF_VIEW_MAX_PAGES} صفحه بود، ترجمه فقط برای ${PDF_VIEW_MAX_PAGES} صفحه‌ی اول آماده شد (خودِ PDF کامل نشون داده می‌شه)`
           : ""
       );
       refreshPdfViewDocs();
@@ -10524,33 +10547,34 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   }, [autoScrollActive, showSaved]);
 
   // بازکردنِ یه PDFِ قبلاً ذخیره‌شده از لیست — بدونِ آپلودِ دوباره یا هیچ
-  // درخواستِ ترجمه‌ی تازه‌ای؛ فقط عکس‌ها/ترجمه‌های همون‌موقع از IndexedDB
-  // خونده می‌شن و به object URL تبدیل می‌شن.
+  // درخواستِ ترجمه‌ی تازه‌ای؛ خودِ فایلِ خامِ PDF از IndexedDB خونده و به
+  // blob URL تبدیل می‌شه (دقیقاً همون فایلِ اصلی)، و ترجمه‌های همون‌موقع
+  // هم کنارش نشون داده می‌شن.
   const openSavedPdfViewDoc = async (doc) => {
     // این لیست حالا داخلِ پنلِ «داستان‌های ذخیره‌شده»ست؛ برای دیدنِ خودِ
     // صفحاتِ PDF باید از اون پنل برگردیم به نمای اصلیِ داستان‌ساز — دقیقاً
     // همون‌طور که بازکردنِ یه داستانِ ذخیره‌شده هم این کار رو می‌کنه.
     setShowSaved(false);
-    pdfViewPages.forEach((p) => {
-      try { URL.revokeObjectURL(p.imageUrl); } catch {}
-    });
+    try { URL.revokeObjectURL(pdfViewRawUrl); } catch {}
     setPdfViewPages([]);
     setPdfViewIndex(0);
     setPdfViewError("");
     setPdfViewBusy(true);
     setPdfViewProgress("در حال بازکردنِ PDFِ ذخیره‌شده...");
     try {
+      const rawBlob = await loadRawPdfFile(doc.id);
+      setPdfViewRawUrl(rawBlob ? URL.createObjectURL(rawBlob) : "");
       const storedPages = await loadPdfViewPages(doc.id, doc.pageCount);
-      const pages = storedPages
-        .sort((a, b) => a.pageNum - b.pageNum)
-        .map((p) => ({ ...p, imageUrl: p.imageBlob ? URL.createObjectURL(p.imageBlob) : "" }));
+      const pages = storedPages.sort((a, b) => a.pageNum - b.pageNum);
       setPdfViewPages(pages);
       setPdfViewTitle(doc.title);
       setPdfViewDocId(doc.id);
       setPdfViewIndex(0);
-      if (doc.doneCount < doc.pageCount) {
+      if (!rawBlob) {
+        setPdfViewError("خودِ فایلِ PDF برای این سند پیدا نشد — برای دیدنِ دوباره‌ش باید از اول آپلودش کنی");
+      } else if (doc.doneCount < doc.pageCount) {
         setPdfViewError(
-          `توجه: دفعه‌ی قبل فقط ${doc.doneCount} صفحه از ${doc.pageCount} صفحه پردازش شده بود؛ برای بقیه دوباره فایل رو آپلود کن`
+          `توجه: دفعه‌ی قبل ترجمه فقط برای ${doc.doneCount} صفحه از ${doc.pageCount} صفحه آماده شده بود؛ برای بقیه دوباره فایل رو آپلود کن`
         );
       }
     } catch (err) {
@@ -10565,25 +10589,23 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   const handleDeletePdfViewDoc = async (doc) => {
     await deletePdfViewDoc(doc.id, doc.pageCount);
     if (pdfViewDocId === doc.id) {
-      pdfViewPages.forEach((p) => {
-        try { URL.revokeObjectURL(p.imageUrl); } catch {}
-      });
+      try { URL.revokeObjectURL(pdfViewRawUrl); } catch {}
       setPdfViewPages([]);
       setPdfViewIndex(0);
       setPdfViewTitle("");
       setPdfViewDocId(null);
+      setPdfViewRawUrl("");
     }
     refreshPdfViewDocs();
   };
 
   const closePdfView = () => {
-    pdfViewPages.forEach((p) => {
-      try { URL.revokeObjectURL(p.imageUrl); } catch {}
-    });
+    try { URL.revokeObjectURL(pdfViewRawUrl); } catch {}
     setPdfViewPages([]);
     setPdfViewIndex(0);
     setPdfViewTitle("");
     setPdfViewDocId(null);
+    setPdfViewRawUrl("");
     setPdfViewError("");
     // توجه: بستنِ نمایش، سندِ ذخیره‌شده رو پاک نمی‌کنه — هنوز تو لیستِ
     // «PDFهای ذخیره‌شده» پایینِ همین بخش هست و بعداً بدونِ آپلودِ دوباره
@@ -11551,11 +11573,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             «داستان‌های ذخیره‌شده» (بالا، گوشه‌ی سمت چپ) نشون داده می‌شه،
             نه اینجا وسطِ صفحه‌ی اصلیِ داستان‌ساز. */}
 
-        {pdfViewPages.length > 0 && (
+        {pdfViewRawUrl && (
           <div style={{ marginTop: 12, textAlign: "start" }}>
             <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>
-                {pdfViewTitle} — صفحه‌ی {pdfViewIndex + 1} از {pdfViewPages.length}
+                {pdfViewTitle} — صفحه‌ی {pdfViewIndex + 1} از {pdfViewPages.length || "…"}
                 {pdfViewBusy && pdfViewDocId && (
                   <span style={{ color: colors.inkSoft, fontWeight: 400 }}> (بقیه‌ی صفحات در حالِ پردازش...)</span>
                 )}
@@ -11565,9 +11587,36 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               </button>
             </div>
             <div className="flex flex-wrap gap-3" style={{ alignItems: "flex-start" }}>
+              <div
+                style={{
+                  flex: "1 1 260px",
+                  minWidth: 0,
+                  borderRadius: 10,
+                  border: `1px solid ${colors.cardBorder}`,
+                }}
+              >
+                {pdfViewRawUrl && (
+                  <iframe
+                    key={pdfViewIndex}
+                    src={`${pdfViewRawUrl}#page=${pdfViewIndex + 1}`}
+                    title={`صفحه‌ی ${pdfViewIndex + 1}`}
+                    style={{ width: "100%", height: 480, border: "none", display: "block", borderRadius: 10 }}
+                  />
+                )}
+                <div style={{ padding: "6px 8px" }}>
+                  <a
+                    href={pdfViewRawUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ fontSize: 11, color: colors.teal, fontWeight: 700, textDecoration: "underline" }}
+                  >
+                    اگه اینجا درست نشون داده نمی‌شه، PDF رو تو یه تبِ جدا باز کن
+                  </a>
+                </div>
+              </div>
               <div style={{ flex: "1 1 260px", minWidth: 0 }}>
                 <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft }}>متنِ اصلی</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft }}>متنِ اصلی (قابلِ انتخاب)</span>
                 </div>
                 <div
                   dir="auto"
@@ -11579,7 +11628,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                     fontSize: 13,
                     lineHeight: 1.9,
                     color: colors.ink,
-                    maxHeight: 480,
+                    maxHeight: 220,
                     overflowY: "auto",
                     whiteSpace: "pre-wrap",
                     userSelect: "text",
@@ -11588,9 +11637,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 >
                   {pdfViewPages[pdfViewIndex]?.originalText}
                 </div>
-              </div>
-              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-                <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
+                <div className="flex items-center justify-between" style={{ marginBottom: 4, marginTop: 10 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft }}>ترجمه</span>
                 </div>
                 <div
@@ -11602,7 +11649,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                     fontSize: 13,
                     lineHeight: 1.9,
                     color: colors.ink,
-                    maxHeight: 480,
+                    maxHeight: 220,
                     overflowY: "auto",
                     whiteSpace: "pre-wrap",
                     userSelect: "text",
