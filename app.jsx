@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic, ZoomIn, ZoomOut } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Newspaper, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -235,17 +235,8 @@ const PDF_VIEW_DB_NAME = "pdf-view-documents";
 const PDF_VIEW_META_STORE = "meta"; // { id, title, pageCount, doneCount, createdAt }
 const PDF_VIEW_PAGE_STORE = "pages"; // key: `${docId}::${pageNum}` -> { pageNum, imageBlob, width, height, originalText, translatedText }
 
-// یه اتصالِ واحد و مشترک به IndexedDB — قبلاً هر تابعِ save/list/load خودش
-// جدا indexedDB.open() صدا می‌زد و هیچ‌وقت هم نمی‌بستش؛ برای یه کتابِ ۱۶
-// صفحه‌ای این می‌شد ده‌ها اتصالِ باز و بسته‌نشده، پشتِ سرِ هم، تویِ چندثانیه
-// — دقیقاً همین باعثِ هنگ/قفلِ کاملِ تب (حتی اسکرول) می‌شد، چون مرورگر
-// (خصوصاً موبایل) با این‌همه اتصالِ هم‌زمانِ بازِ IndexedDB قفل می‌کنه. الان
-// یه اتصالِ واحد ساخته و کش می‌شه؛ همه‌ی توابعِ زیر همینِ یکی رو دوباره
-// استفاده می‌کنن.
-let pdfViewDbPromise = null;
 function openPdfViewDB() {
-  if (pdfViewDbPromise) return pdfViewDbPromise;
-  pdfViewDbPromise = new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") { reject(new Error("indexeddb-unavailable")); return; }
     const req = indexedDB.open(PDF_VIEW_DB_NAME, 1);
     req.onupgradeneeded = () => {
@@ -257,17 +248,9 @@ function openPdfViewDB() {
         db.createObjectStore(PDF_VIEW_PAGE_STORE);
       }
     };
-    req.onsuccess = () => {
-      const db = req.result;
-      // اگه به هر دلیلی (آپدیتِ نسخه‌ی DB تو یه تبِ دیگه و…) این اتصال
-      // بسته شد، دفعه‌ی بعد یه اتصالِ تازه ساخته بشه، نه اینکه به یه
-      // اتصالِ مرده گیر کنیم.
-      db.onclose = () => { pdfViewDbPromise = null; };
-      resolve(db);
-    };
-    req.onerror = () => { pdfViewDbPromise = null; reject(req.error); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
   });
-  return pdfViewDbPromise;
 }
 
 async function savePdfViewMeta(meta) {
@@ -8327,119 +8310,34 @@ function enforceSentenceSplit(paragraphs) {
   });
 }
 
-// pdf.js فاصله‌ی بینِ دو کلمه رو همیشه به‌عنوانِ یه کاراکترِ space تو
-// «str» نمی‌ده — خیلی وقت‌ها دو کلمه‌ی کنارِ هم دو «آیتمِ» جدا هستن و
-// خودِ فاصله فقط تو مختصاتِ x بینِ‌شون وجود داره. بدونِ این تابع، این دو
-// کلمه بدونِ فاصله به‌هم می‌چسبن. اینجا فاصله‌ی افقیِ بینِ پایانِ آیتمِ قبلی
-// و شروعِ آیتمِ بعدی رو با اندازه‌ی فونت مقایسه می‌کنیم: فاصله‌ی معمولیِ
-// یه کلمه یه space می‌شه، فاصله‌ی خیلی بزرگ‌تر (ستونِ جدا/تب/جدول) چندتا
-// space می‌شه — تا چیدمانِ فاصله‌دارِ خودِ PDF تا حدِ امکان حفظ بشه.
-function buildPdfLineFromItems(items) {
-  let str = "";
-  let endX = null;
-  for (const it of items) {
-    const tr = it.transform;
-    const x = Array.isArray(tr) ? tr[4] : null;
-    const fontH = Array.isArray(tr) ? Math.abs(tr[3]) || Math.abs(tr[0]) || 10 : 10;
-    const s = it.str || "";
-    if (endX != null && x != null && s) {
-      const gap = x - endX;
-      if (gap > fontH * 2.2) str += "   ";
-      else if (gap > fontH * 0.12 && !/\s$/.test(str) && !/^\s/.test(s)) str += " ";
-    }
-    str += s;
-    if (Array.isArray(tr)) {
-      const w = typeof it.width === "number" ? it.width : s.length * fontH * 0.5;
-      endX = tr[4] + w;
-    }
-  }
-  return str;
-}
-
-// خطی که خودش یه آیتمِ لیستِ‌شماره‌دار/ردیفِ‌جدول/شماره‌یِ تنهاست (نه بخشی
-// از یه جمله‌ی پیوسته) — این خط‌ها نباید رویِ نقطه‌یِ داخلیِ خودشون
-// («۱.»، «2)») بشکنن یا با خطِ بعدی قاطی بشن، باید عیناً و با همون
-// فاصله‌بندیِ خودشون یه واحدِ جدا بمونن.
-const LIST_OR_ROW_LINE_RE = /^\s*(?:[\u06F0-\u06F9\d]+[.\)\-:]|[•\-–—*])\s*\S/;
-
-// خطوطِ خامِ استخراج‌شده (هر خط دست‌نخورده و با فاصله‌بندیِ خودش) رو به
-// واحدهای نهایی تبدیل می‌کنه: خطوطِ لیست/ردیف/شماره عیناً نگه داشته
-// می‌شن (نه ادغام، نه شکستنِ داخلی)، خطوطِ معمولیِ متن به‌هم می‌چسبن و طبقِ
-// روالِ قبلی رویِ علامتِ‌پایانِ‌جمله می‌شکنن.
-function linesToSentenceStrings(lines) {
-  const out = [];
-  let proseBuf = [];
-  const flushProse = () => {
-    if (proseBuf.length) {
-      out.push(...splitTextIntoSentenceStrings(proseBuf.join(" ")));
-      proseBuf = [];
-    }
-  };
-  for (const raw of lines) {
-    const line = (raw || "").trim();
-    if (!line) continue;
-    if (LIST_OR_ROW_LINE_RE.test(line)) {
-      flushProse();
-      out.push(line);
-    } else {
-      proseBuf.push(line);
-    }
-  }
-  flushProse();
-  return out;
-}
-
-// استخراجِ صفحه‌ی PDF به لیستِ خط‌های خام (هر خط با فاصله‌بندیِ خودش، طبقِ
-// buildPdfLineFromItems) — برای «وارد کردنِ PDF برای خوانش» که فقط متن
-// لازم داره (نه مختصات).
-function extractPdfPageLines(content) {
-  const items = content?.items || [];
-  const lines = [];
-  let curItems = [];
-  for (const it of items) {
-    curItems.push(it);
-    if (it.hasEOL) {
-      lines.push(buildPdfLineFromItems(curItems));
-      curItems = [];
-    }
-  }
-  if (curItems.length) lines.push(buildPdfLineFromItems(curItems));
-  return lines.filter((l) => l.trim());
-}
-
-// استخراجِ ساختارِ پاراگراف‌بندیِ یک صفحه‌ی PDF از content.items — هر
-// پاراگراف/بلوکِ متنی جدا (بر اساسِ فاصله‌ی عمودیِ خط‌ها، دقیقاً هم‌شکلِ
-// چیدمانِ خودِ صفحه) با متنش و مختصاتِ (x,y) شروعش برگردونده می‌شه. این
-// مختصات بعداً برای گذاشتنِ یه شماره‌ی کوچیک رویِ خودِ عکسِ صفحه (دقیقاً
-// کنارِ همون بلوک) استفاده می‌شه، تا کاربر بتونه شماره‌ی رویِ عکس رو با
-// همون شماره تو پنلِ ترجمه تطبیق بده و گم نشه کدوم خط/بخش مالِ کدومه.
+// استخراجِ متنِ یک صفحه‌ی PDF از content.items، طوری که ساختارِ سطربندیِ
+// خودِ صفحه (کجا خط عوض شده، کجا یه پاراگراف/بلوکِ جدا شروع شده) حفظ
+// بشه — نه این‌که همه‌چی با یه space به هم بچسبن و کاملاً یه بلوکِ
+// یک‌دست بشن. این برای اونجاهایی لازمه که بعداً ترجمه هم قراره پاراگراف‌
+// به‌پاراگراف، هم‌شکلِ متنِ اصلی نشون داده بشه (وگرنه کاربر نمی‌فهمه کدوم
+// تکه‌ی ترجمه مالِ کدوم خط/بخشِ اصلیه).
 // pdf.js رویِ هر آیتمِ متنی یک `hasEOL` می‌ده (یعنی «بعدِ این آیتم خط عوض
 // می‌شه»)؛ از همون برای مرزِ خط استفاده می‌کنیم. برای تشخیصِ مرزِ
 // پاراگراف (نه فقط خط)، فاصله‌ی عمودیِ بینِ خط‌ها رو با فاصله‌ی «معمولیِ»
 // بینِ خط‌های همون صفحه مقایسه می‌کنیم — فاصله‌ی به‌مراتب بزرگ‌تر یعنی
 // این‌جا یه بلوکِ تازه (پاراگراف/تیتر/آیتمِ جدا) شروع شده.
-function extractPdfPageParagraphs(content) {
+function extractPdfPageTextWithBreaks(content) {
   const items = content?.items || [];
   const rawLines = [];
-  let curItems = [];
-  let curX = null;
+  let curStr = "";
   let curY = null;
   for (const it of items) {
-    if (curY === null && Array.isArray(it.transform)) {
-      curX = it.transform[4];
-      curY = it.transform[5];
-    }
-    curItems.push(it);
+    if (curY === null && Array.isArray(it.transform)) curY = it.transform[5];
+    curStr += it.str || "";
     if (it.hasEOL) {
-      rawLines.push({ text: buildPdfLineFromItems(curItems), x: curX, y: curY });
-      curItems = [];
-      curX = null;
+      rawLines.push({ text: curStr, y: curY });
+      curStr = "";
       curY = null;
     }
   }
-  if (curItems.length) rawLines.push({ text: buildPdfLineFromItems(curItems), x: curX, y: curY });
+  if (curStr.trim()) rawLines.push({ text: curStr, y: curY });
   const lines = rawLines.filter((l) => l.text.trim());
-  if (!lines.length) return [];
+  if (!lines.length) return "";
 
   const gaps = [];
   for (let i = 1; i < lines.length; i++) {
@@ -8450,94 +8348,45 @@ function extractPdfPageParagraphs(content) {
   gaps.sort((a, b) => a - b);
   const typicalGap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0;
 
-  const paragraphs = [];
-  let cur = { text: lines[0].text.trim(), x: lines[0].x, y: lines[0].y };
+  let out = lines[0].text.trim();
   for (let i = 1; i < lines.length; i++) {
     const prev = lines[i - 1];
     const line = lines[i];
     const gap = prev.y != null && line.y != null ? Math.abs(prev.y - line.y) : typicalGap;
     const isParagraphBreak = typicalGap > 0 && gap > typicalGap * 1.5;
-    if (isParagraphBreak) {
-      paragraphs.push(cur);
-      cur = { text: line.text.trim(), x: line.x, y: line.y };
-    } else {
-      cur.text += "\n" + line.text.trim();
-    }
+    out += (isParagraphBreak ? "\n\n" : "\n") + line.text.trim();
   }
-  paragraphs.push(cur);
-  return paragraphs;
+  return out.trim();
 }
 
-// ترجمه‌ی یک لیستِ پاراگراف (خروجیِ تابعِ بالا) — هر پاراگراف جدا و مستقل
-// ترجمه می‌شه، تا ترتیب/تعدادشون با متنِ اصلی دقیقاً یکی بمونه (لازمه
-// برای شماره‌گذاریِ هم‌شکل با نشانگرهای رویِ عکس).
-// onProgress اختیاریه — بعدِ تمومِ ترجمه‌ی هر پاراگراف (نه فقط آخرِ کار) صدا
-// زده می‌شه، تا صفحه‌ای که پاراگراف‌های زیاد داره (نتیجه‌ی مستقیمِ
-// شماره‌گذاریِ ریزِ هر پاراگراف) به‌جای یه پیامِ ثابتِ «در حال ترجمه...»
-// که دقیقه‌ها بی‌حرکت می‌مونه، پیشرفتِ واقعی (چند از چند) نشون بده — همین
-// که کاربر می‌بینه عدد بالا می‌ره، دیگه فکر نمی‌کنه اپ هنگ کرده.
-async function translateParagraphsList(paragraphTexts, targetLang, aiSettings, onProgress) {
-  let doneCount = 0;
-  const total = (paragraphTexts || []).length;
-  return runWithConcurrencyLimit(paragraphTexts || [], GLOBAL_TRANSLATE_CONCURRENCY, async (para) => {
-    const rawLines = (para || "").split("\n").map((l) => l.trim()).filter(Boolean);
-    if (!rawLines.length) {
-      doneCount++;
-      if (onProgress) {
-        try { onProgress(doneCount, total); } catch {}
-      }
-      return "";
-    }
-    // خطوطی که خودشون یه آیتمِ لیست/ردیف/شماره‌ن (مثلِ LIST_OR_ROW_LINE_RE)
-    // جدا نگه داشته می‌شن — نه با بقیه‌ی متن قاطی می‌شن قبل از ترجمه، نه تو
-    // خروجی به هم می‌چسبن؛ همون‌جوری زیرِ هم می‌مونن. بقیه‌ی خط‌ها (نثرِ
-    // پیوسته) طبقِ روالِ قبلی به‌هم می‌چسبن و رویِ جمله می‌شکنن.
-    const blocks = [];
-    let proseBuf = [];
-    const flushProse = () => {
-      if (proseBuf.length) {
-        blocks.push({ isRow: false, text: proseBuf.join(" ") });
-        proseBuf = [];
-      }
-    };
-    for (const line of rawLines) {
-      if (LIST_OR_ROW_LINE_RE.test(line)) {
-        flushProse();
-        blocks.push({ isRow: true, text: line });
+// ترجمه‌ی یک متنِ چندپاراگرافه (خروجیِ تابعِ بالا) طوری که مرزِ پاراگراف‌ها
+// (خطِ خالی بینِ بلوک‌ها) عیناً تو ترجمه هم حفظ بشه — هر پاراگراف جدا
+// ترجمه می‌شه و با همون \n\n به‌هم وصل می‌شن، تا کاربر بتونه بلوک‌به‌بلوک
+// متنِ اصلی و ترجمه رو کنارِ هم تطبیق بده.
+async function translatePageTextPreservingParagraphs(pageText, targetLang, aiSettings) {
+  const paragraphs = (pageText || "").split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (!paragraphs.length) return "";
+  const translatedParagraphs = await runWithConcurrencyLimit(paragraphs, GLOBAL_TRANSLATE_CONCURRENCY, async (para) => {
+    const flat = para.replace(/\s*\n\s*/g, " ").trim();
+    if (!flat) return "";
+    const sentences = splitTextIntoSentenceStrings(flat);
+    const groups = [];
+    let cur = "";
+    for (const s of sentences.length ? sentences : [flat]) {
+      if (cur && (cur + " " + s).length > 400) {
+        groups.push(cur);
+        cur = s;
       } else {
-        proseBuf.push(line);
+        cur = cur ? `${cur} ${s}` : s;
       }
     }
-    flushProse();
-
-    const translatedBlocks = await runWithConcurrencyLimit(blocks, GLOBAL_TRANSLATE_CONCURRENCY, async (block) => {
-      if (block.isRow) {
-        return translateFree(block.text, targetLang, "auto", aiSettings);
-      }
-      const sentences = splitTextIntoSentenceStrings(block.text);
-      const groups = [];
-      let cur = "";
-      for (const s of sentences.length ? sentences : [block.text]) {
-        if (cur && (cur + " " + s).length > 400) {
-          groups.push(cur);
-          cur = s;
-        } else {
-          cur = cur ? `${cur} ${s}` : s;
-        }
-      }
-      if (cur) groups.push(cur);
-      const translatedGroups = await runWithConcurrencyLimit(groups, GLOBAL_TRANSLATE_CONCURRENCY, (g) =>
-        translateFree(g, targetLang, "auto", aiSettings)
-      );
-      return translatedGroups.join(" ");
-    });
-    const joined = translatedBlocks.join("\n");
-    doneCount++;
-    if (onProgress) {
-      try { onProgress(doneCount, total); } catch {}
-    }
-    return joined;
+    if (cur) groups.push(cur);
+    const translatedGroups = await runWithConcurrencyLimit(groups, GLOBAL_TRANSLATE_CONCURRENCY, (g) =>
+      translateFree(g, targetLang, "auto", aiSettings)
+    );
+    return translatedGroups.join(" ");
   });
+  return translatedParagraphs.join("\n\n");
 }
 
 // نوارِ کوچکِ صوتِ کاربر برای داستان — بالای متنِ داستان می‌شینه. یه سوییچِ
@@ -8756,143 +8605,6 @@ function getStoryEntryPreview(entry, maxLen) {
   return text.length > limit ? `${text.slice(0, limit).trim()}…` : text;
 }
 
-// زومِ درجا (نه تمام‌صفحه) رویِ عکسِ صفحه‌ی PDF — طوری که پنلِ ترجمه‌ی
-// کنارش هم‌زمان دیده بمونه (نه اینکه با بازشدنِ زوم، ترجمه از دید بره).
-// پینچ‌زوم (لمسی)، اسکرول‌ویل (دسکتاپ)، دبل‌تپ/دبل‌کلیک برای زوم/ریست، و
-// درگ برای جابه‌جایی وقتی زوم شده — همه‌ش دقیقاً همون‌جا تویِ باکسِ عکس.
-function ZoomablePdfPageImage({ src, alt }) {
-  const [scale, setScale] = useState(1);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
-  const touchRef = useRef({});
-  const mouseRef = useRef(null);
-  const clampScale = (s) => Math.min(5, Math.max(1, s));
-
-  // هر بار عکس (یعنی صفحه) عوض شد، زوم/جابه‌جاییِ قبلی ریست بشه — وگرنه
-  // با ورق‌زدنِ صفحه، صفحه‌ی بعدی هم زوم‌شده و جابه‌جا نشون داده می‌شه.
-  useEffect(() => {
-    setScale(1);
-    setPos({ x: 0, y: 0 });
-  }, [src]);
-
-  const resetView = () => { setScale(1); setPos({ x: 0, y: 0 }); };
-  const handleWheel = (e) => {
-    e.preventDefault();
-    setScale((s) => clampScale(s - e.deltaY * 0.0015));
-  };
-  const handleDoubleClick = () => {
-    if (scale > 1) resetView();
-    else { setScale(2.2); setPos({ x: 0, y: 0 }); }
-  };
-  const onTouchStart = (e) => {
-    if (e.touches.length === 2) {
-      const [a, b] = e.touches;
-      touchRef.current = {
-        pinchStartDist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
-        pinchStartScale: scale,
-      };
-    } else if (e.touches.length === 1) {
-      touchRef.current = {
-        panStartX: e.touches[0].clientX,
-        panStartY: e.touches[0].clientY,
-        posStartX: pos.x,
-        posStartY: pos.y,
-      };
-    }
-  };
-  const onTouchMove = (e) => {
-    if (e.touches.length === 2 && touchRef.current.pinchStartDist) {
-      e.preventDefault();
-      const [a, b] = e.touches;
-      const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-      setScale(clampScale(touchRef.current.pinchStartScale * (dist / touchRef.current.pinchStartDist)));
-    } else if (e.touches.length === 1 && touchRef.current.panStartX != null && scale > 1) {
-      e.preventDefault();
-      const dx = e.touches[0].clientX - touchRef.current.panStartX;
-      const dy = e.touches[0].clientY - touchRef.current.panStartY;
-      setPos({ x: touchRef.current.posStartX + dx, y: touchRef.current.posStartY + dy });
-    }
-  };
-  const onTouchEnd = () => { touchRef.current = {}; };
-  const onMouseDown = (e) => {
-    if (scale <= 1) return;
-    mouseRef.current = { startX: e.clientX, startY: e.clientY, posStartX: pos.x, posStartY: pos.y };
-  };
-  const onMouseMove = (e) => {
-    if (!mouseRef.current) return;
-    setPos({
-      x: mouseRef.current.posStartX + (e.clientX - mouseRef.current.startX),
-      y: mouseRef.current.posStartY + (e.clientY - mouseRef.current.startY),
-    });
-  };
-  const onMouseUp = () => { mouseRef.current = null; };
-
-  return (
-    <div
-      onWheel={handleWheel}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
-      onMouseLeave={onMouseUp}
-      style={{
-        position: "relative",
-        overflow: "hidden",
-        borderRadius: 10,
-        border: `1px solid ${colors.cardBorder}`,
-        touchAction: "none",
-      }}
-    >
-      <img
-        src={src}
-        alt={alt}
-        draggable={false}
-        onDoubleClick={handleDoubleClick}
-        onMouseDown={onMouseDown}
-        style={{
-          width: "100%",
-          display: "block",
-          transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})`,
-          transformOrigin: "center center",
-          cursor: scale > 1 ? "grab" : "zoom-in",
-          userSelect: "none",
-        }}
-      />
-      {scale > 1 && (
-        <button
-          onClick={resetView}
-          style={{
-            position: "absolute", top: 6, insetInlineEnd: 6,
-            padding: "3px 10px", borderRadius: 999, border: "none",
-            backgroundColor: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 11, fontWeight: 700,
-          }}
-        >
-          ریست زوم
-        </button>
-      )}
-      <div
-        style={{
-          position: "absolute", bottom: 6, insetInlineStart: "50%", transform: "translateX(-50%)",
-          display: "flex", alignItems: "center", gap: 6,
-        }}
-      >
-        <button
-          onClick={() => setScale((s) => clampScale(s - 0.5))}
-          style={{ width: 28, height: 28, borderRadius: 999, border: "none", backgroundColor: "rgba(0,0,0,0.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
-        >
-          <ZoomOut size={14} />
-        </button>
-        <button
-          onClick={() => setScale((s) => clampScale(s + 0.5))}
-          style={{ width: 28, height: 28, borderRadius: 999, border: "none", backgroundColor: "rgba(0,0,0,0.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
-        >
-          <ZoomIn size={14} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, onUserAudioStateChange, autoScrollActive, calendarSystem, highlightColor, uid, uiLang }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
@@ -8904,11 +8616,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const defaultStoryLang =
     (targetOrder || []).find((c) => storyLangOptions.includes(c)) || storyLangOptions[0] || "en";
   const [storyLang, setStoryLang] = useState(defaultStoryLang);
-  // تنظیماتِ سراسریِ اندازه/بولدِ متنِ زبانِ مقصد (همون تنظیماتی که رویِ
-  // ClickableSentence هم اثر می‌ذاره) — پنلِ ترجمه‌ی PDF عکس‌دار (پایین‌تر)
-  // قبلاً به این تنظیمات وصل نبود و اندازه/بولدش ثابت بود؛ الان با همین
-  // هوک زنده گوش می‌ده تا از تبِ تنظیمات قابلِ تغییر باشه.
-  const pdfViewTargetTextPrefs = useTargetTextPrefs();
   // اگه کاربر بالای صفحه زبان‌های مقصد رو عوض کنه (مثلاً از انگلیسی به
   // هندی)، storyLang باید خودش رو با انتخاب جدید هماهنگ کنه — قبلاً فقط
   // یه‌بار موقع mount مقداردهی می‌شد و بعدش «قفل» می‌موند رو همون زبون اول،
@@ -10254,12 +9961,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       for (let i = 1; i <= pageCount; i++) {
         const page = await doc.getPage(i);
         const content = await page.getTextContent();
-        // به‌جایِ چسبوندنِ کورکورانه‌ی همه‌ی آیتم‌ها با یه space (که فاصله‌ی
-        // واقعیِ PDF رو گم می‌کنه و شماره‌ی لیست/ردیفِ جدول رو با متنِ بعدی
-        // قاطی می‌کنه)، خط‌به‌خط با فاصله‌بندیِ خودِ صفحه استخراج می‌کنیم و
-        // خط‌های لیست/ردیف رو دست‌نخورده نگه می‌داریم.
-        const pageLines = extractPdfPageLines(content);
-        allSentences.push(...linesToSentenceStrings(pageLines));
+        const pageText = content.items.map((it) => it.str).join(" ");
+        allSentences.push(...splitTextIntoSentenceStrings(pageText));
         // pdf.js انجامِ getTextContent روی صفحه‌های سنگین رو کاملاً
         // سینکرون/CPU-heavy انجام می‌ده؛ خودِ await هم همیشه کافی نیست تا
         // مرورگر فرصتِ رندر/پاسخ‌گویی به لمس پیدا کنه (چون resolve شدنِ
@@ -10490,14 +10193,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   // هم استخراج و ترجمه می‌شه. نتیجه یک آرایه از صفحه‌هاست که تو خودِ
   // داستان‌ساز، صفحه‌به‌صفحه با عکسِ اصلی + ترجمه‌ی روبروش نمایش داده می‌شه.
   const PDF_VIEW_MAX_BYTES = 80 * 1024 * 1024; // ۸۰ مگابایت — رندرِ تصویریِ صفحه‌به‌صفحه سنگین‌تر از استخراجِ صرفِ متنه
+  const PDF_VIEW_MAX_PAGES = 60; // سقفِ صفحات، تا رندر+ترجمه رو موبایل خیلی طول نکشه/قفل نکنه
   const PDF_VIEW_RENDER_SCALE = 1.6; // کیفیتِ کافی برای خوانا بودنِ متن/عکسِ صفحه، بدونِ حجمِ زیادِ نهایی
-  // سقفِ ابعادِ کانواسِ رندرشده (پیکسل، ضلعِ بزرگ‌تر). ریشه‌ی اصلیِ «قفل‌شدن»
-  // موقعِ آپلودِ PDFِ عکس‌دار/اسکن‌شده همین‌جا بود: صفحه‌ی PDFِ اسکن‌شده با
-  // DPIِ بالا می‌تونه ابعادِ طبیعیِ چندهزار پیکسلی داشته باشه؛ رندرِ اون با
-  // مقیاسِ ثابتِ ۱.۶ یه کانواسِ غول‌پیکر می‌سازه که خودِ ساختن/JPEG‌کردنش
-  // حافظه‌ی مرورگر رو (خصوصاً موبایل) پر می‌کنه و تب رو هنگ/قفل می‌کنه —
-  // این سقف باعث می‌شه صفحاتِ خیلی‌بزرگ با مقیاسِ کمتر (نه ثابت) رندر بشن.
-  const PDF_VIEW_MAX_CANVAS_DIM = 1800;
 
   const handlePdfViewImport = async (e) => {
     const file = e.target.files?.[0];
@@ -10528,9 +10225,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
       const buf = await file.arrayBuffer();
       const srcDoc = await pdfjsLib.getDocument({ data: buf }).promise;
-      // دیگه هیچ سقفی رویِ تعدادِ صفحات نیست — کلِ فایل، هرچقدر هم صفحه
-      // داشته باشه، پردازش می‌شه.
-      const pageCount = srcDoc.numPages;
+      const pageCount = Math.min(srcDoc.numPages, PDF_VIEW_MAX_PAGES);
+      const truncated = srcDoc.numPages > PDF_VIEW_MAX_PAGES;
 
       await savePdfViewMeta({
         id: docId,
@@ -10544,134 +10240,56 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       const canvasToJpgBlob = (canvas) =>
         new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
 
-      let failedPages = 0;
       for (let i = 1; i <= pageCount; i++) {
         setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال رندر...`);
         await new Promise((r) => setTimeout(r, 0)); // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — تا UI قفل نشه
 
-        // یه صفحه‌ی خراب/غیرعادی‌سنگین نباید کلِ آپلود رو متوقف کنه —
-        // خطاش رو می‌گیریم، یه صفحه‌ی جای‌گزین با پیامِ خطا ثبت می‌کنیم و
-        // به صفحه‌ی بعدی می‌ریم؛ این‌جوری «قفل‌شدنِ همیشگی» رویِ یه صفحه‌ی
-        // خراب هم دیگه اتفاق نمی‌افته.
-        try {
-          const page = await srcDoc.getPage(i);
-          // مقیاسِ واقعی رو از رویِ ابعادِ طبیعیِ خودِ صفحه حساب می‌کنیم، نه
-          // همیشه مقیاسِ ثابت — صفحه‌ی اسکن‌شده‌ی خیلی‌بزرگ با مقیاسِ کمتر،
-          // صفحه‌ی معمولی با همون مقیاسِ کاملِ قبلی رندر می‌شه.
-          const baseViewport = page.getViewport({ scale: 1 });
-          const longSide = Math.max(baseViewport.width, baseViewport.height) || 1;
-          const effectiveScale = Math.min(PDF_VIEW_RENDER_SCALE, PDF_VIEW_MAX_CANVAS_DIM / longSide);
-          const viewport = page.getViewport({ scale: Math.max(effectiveScale, 0.3) });
-          const canvas = document.createElement("canvas");
-          canvas.width = Math.max(1, Math.ceil(viewport.width));
-          canvas.height = Math.max(1, Math.ceil(viewport.height));
-          const ctx = canvas.getContext("2d");
-          await page.render({ canvasContext: ctx, viewport }).promise;
-          await new Promise((r) => setTimeout(r, 0)); // بعدِ رندرِ سنگین، یه فرصتِ دیگه به UI برای نفس‌کشیدن
+        const page = await srcDoc.getPage(i);
+        const viewport = page.getViewport({ scale: PDF_VIEW_RENDER_SCALE });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.ceil(viewport.width));
+        canvas.height = Math.max(1, Math.ceil(viewport.height));
+        const ctx = canvas.getContext("2d");
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const imageBlob = await canvasToJpgBlob(canvas);
+        const imageUrl = imageBlob ? URL.createObjectURL(imageBlob) : "";
 
-          setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
-          const content = await page.getTextContent();
-          // به‌جای چسبوندنِ همه‌چیز با یه space (که کاملاً مرزِ خط/پاراگرافِ
-          // متنِ اصلی رو گم می‌کرد)، صفحه به پاراگراف‌های واقعیِ خودش
-          // شکسته می‌شه. دیگه هیچ شماره‌ای رویِ عکس کشیده نمی‌شه و هیچ
-          // عددی جلوی پاراگراف‌ها نوشته نمی‌شه — تطبیقِ متنِ اصلی و ترجمه
-          // فقط با ترتیب/فاصله‌ی خط‌ها انجام می‌شه: هر پاراگراف تو متنِ
-          // ترجمه دقیقاً همون جایی می‌شینه (همون ترتیب، با یه خطِ خالی
-          // جدا) که پاراگرافِ متناظرش تو متنِ اصلی نشسته.
-          const paragraphs = extractPdfPageParagraphs(content);
+        setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
+        const content = await page.getTextContent();
+        // به‌جای چسبوندنِ همه‌چیز با یه space (که کاملاً مرزِ خط/پاراگرافِ
+        // متنِ اصلی رو گم می‌کرد)، سطربندیِ واقعیِ صفحه حفظ می‌شه — تا
+        // ترجمه هم بشه پاراگراف‌به‌پاراگراف هم‌شکلِ متنِ اصلی نشونش داد.
+        const pageText = extractPdfPageTextWithBreaks(content);
+        const translatedText = pageText
+          ? await translatePageTextPreservingParagraphs(pageText, nativeLang || "fa", aiSettings)
+          : "";
 
-          const imageBlob = await canvasToJpgBlob(canvas);
-          const imageUrl = imageBlob ? URL.createObjectURL(imageBlob) : "";
+        const newPage = {
+          pageNum: i,
+          imageUrl,
+          width: canvas.width,
+          height: canvas.height,
+          originalText: pageText,
+          translatedText: translatedText || "متنی برای ترجمه در این صفحه پیدا نشد.",
+        };
 
-          const pageText = paragraphs.map((p) => p.text).join("\n\n");
-          let translatedText = "";
-          if (paragraphs.length) {
-            // ⛔️ رفعِ «هنگ‌کردنِ» آپلود: قبلاً اینجا هیچ سقفِ زمانیِ کلی‌ای
-            // برایِ ترجمه‌ی یک صفحه نبود. هرچی صفحه پاراگراف بیشتری داشته
-            // باشه (که خودِ شماره‌گذاری، با شکستنِ صفحه به پاراگراف‌های
-            // ریز، دقیقاً همینو زیاد می‌کنه)، تعدادِ درخواست‌های شبکه‌ای هم
-            // بیشتر می‌شه؛ و اگه سرویس‌های ترجمه‌ی رایگان تو شبکه‌ی کاربر
-            // فیلتر/بلاک باشن، هر کدوم از این درخواست‌ها تا سقفِ
-            // TRANSLATE_HARD_TIMEOUT_MS (۱۵ ثانیه) طول می‌کِشه — با چندتا
-            // پاراگراف این به‌راحتی چند دقیقه می‌شه و ظاهرش دقیقاً «هنگ»ه،
-            // چون هیچ پیشرفتی هم نشون داده نمی‌شد. حالا: (۱) با onProgress
-            // پیام پایین به‌ازایِ هر پاراگرافِ تموم‌شده آپدیت می‌شه، پس
-            // کاربر می‌بینه داره کار می‌کنه نه که یخ زده. (۲) یه سقفِ کلی
-            // برایِ کلِ صفحه گذاشته شده — اگه تا اون‌موقع ترجمه تموم نشه،
-            // به‌جای معطل‌موندن، همون متنِ اصلی (بدونِ ترجمه) برای این صفحه
-            // نشون داده می‌شه و می‌ریم سراغِ صفحه‌ی بعد؛ کاربر می‌تونه بعداً
-            // با دکمه‌ی دوباره‌امتحان‌کردن (یا آپلودِ دوباره) این صفحه رو
-            // وقتی شبکه بهتره ترجمه کنه.
-            const PAGE_TRANSLATE_TIMEOUT_MS = Math.max(20000, paragraphs.length * 6000);
-            let translatedParas = paragraphs.map((p) => p.text); // فالبک: اگه وقت تموم شد، متنِ اصلی نشون داده می‌شه
-            let timedOut = false;
-            const translationPromise = translateParagraphsList(
-              paragraphs.map((p) => p.text),
-              nativeLang || "fa",
-              aiSettings,
-              (done, total) => {
-                if (!timedOut) {
-                  setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه (${done} از ${total} بخش)...`);
-                }
-              }
-            );
-            const timeoutFallback = new Promise((resolve) => {
-              setTimeout(() => {
-                timedOut = true;
-                resolve(null);
-              }, PAGE_TRANSLATE_TIMEOUT_MS);
-            });
-            const raced = await Promise.race([translationPromise, timeoutFallback]);
-            if (raced) translatedParas = raced;
-            translatedText = translatedParas.map((t) => t).join("\n\n");
-            if (!raced) {
-              translatedText += "\n\n(ترجمه‌ی این صفحه به‌خاطرِ کندی/قطعیِ شبکه کامل نشد — متنِ اصلی نشون داده شد.)";
-            }
-          }
+        // بلافاصله همین صفحه رو نشون بده — کاربر منتظرِ کلِ فایل نمی‌مونه،
+        // از همون صفحه‌ی اول می‌تونه شروع به خوندن کنه، بقیه پشتِ‌صحنه
+        // پردازش می‌شن. صفحه‌ی اول هم که آماده شد، خودکار باز می‌شه.
+        setPdfViewPages((prev) => [...prev, newPage]);
+        if (i === 1) setPdfViewIndex(0);
 
-          const newPage = {
-            pageNum: i,
-            imageUrl,
-            width: canvas.width,
-            height: canvas.height,
-            originalText: pageText,
-            translatedText: translatedText || "متنی برای ترجمه در این صفحه پیدا نشد.",
-          };
-
-          // بلافاصله همین صفحه رو نشون بده — کاربر منتظرِ کلِ فایل نمی‌مونه،
-          // از همون صفحه‌ی اول می‌تونه شروع به خوندن کنه، بقیه پشتِ‌صحنه
-          // پردازش می‌شن. صفحه‌ی اول هم که آماده شد، خودکار باز می‌شه.
-          setPdfViewPages((prev) => [...prev, newPage]);
-          if (i === 1) setPdfViewIndex(0);
-
-          // ذخیره‌ی همین صفحه تو IndexedDB (عکس به‌صورتِ Blob، نه URL موقت) —
-          // تا حتی اگه پردازشِ صفحاتِ بعدی قطع بشه، همین‌قدر برای همیشه می‌مونه.
-          await savePdfViewPage(docId, { ...newPage, imageUrl: undefined, imageBlob });
-          await savePdfViewMeta({ id: docId, title: docTitle, pageCount, doneCount: i, createdAt: Date.now() });
-          // لیستِ «PDFهای ذخیره‌شده» رو همین‌جا هم آپدیت کن — تا شمارشِ
-          // «فلان از فلان صفحه» تو همون پنل، هم‌زمان با پیشرفتِ پردازش
-          // بالا بره، نه فقط اولِ کار و آخرِ کار. کاربر لازم نیست صبر کنه
-          // تا کلِ فایل تموم بشه؛ همین الان هم از همون پنل قابلِ بازکردنه.
-          refreshPdfViewDocs();
-        } catch (pageErr) {
-          console.error(`pdf-view page ${i} failed`, pageErr);
-          failedPages++;
-          const errPage = {
-            pageNum: i,
-            imageUrl: "",
-            width: 0,
-            height: 0,
-            originalText: "",
-            translatedText: "این صفحه پردازش نشد (خطا/سنگینیِ زیاد) — صفحاتِ بعدی ادامه پیدا می‌کنن.",
-          };
-          setPdfViewPages((prev) => [...prev, errPage]);
-          if (i === 1) setPdfViewIndex(0);
-          await savePdfViewMeta({ id: docId, title: docTitle, pageCount, doneCount: i, createdAt: Date.now() });
-          refreshPdfViewDocs();
-        }
+        // ذخیره‌ی همین صفحه تو IndexedDB (عکس به‌صورتِ Blob، نه URL موقت) —
+        // تا حتی اگه پردازشِ صفحاتِ بعدی قطع بشه، همین‌قدر برای همیشه می‌مونه.
+        savePdfViewPage(docId, { ...newPage, imageUrl: undefined, imageBlob });
+        savePdfViewMeta({ id: docId, title: docTitle, pageCount, doneCount: i, createdAt: Date.now() });
       }
 
-      setPdfViewError(failedPages ? `توجه: ${failedPages} صفحه پردازش نشد، بقیه‌ی صفحات آماده‌ن` : "");
+      setPdfViewError(
+        truncated
+          ? `توجه: چون فایل بیشتر از ${PDF_VIEW_MAX_PAGES} صفحه بود، فقط ${PDF_VIEW_MAX_PAGES} صفحه‌ی اول بارگذاری شد`
+          : ""
+      );
       refreshPdfViewDocs();
     } catch (err) {
       console.error(err);
@@ -11002,49 +10620,38 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             <div style={{ textAlign: "start" }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>PDFهای ذخیره‌شده</span>
               <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
-                {pdfViewDocs.map((doc) => {
-                  // فقط همون سندی که همین الان داره پردازش می‌شه «مشغول»
-                  // حساب می‌شه — بقیه‌ی PDFهای ذخیره‌شده (چه کامل، چه
-                  // نیمه‌کاره از قبل) همیشه قابلِ بازکردنن، حتی وقتی یه
-                  // فایلِ دیگه داره آپلود/ترجمه می‌شه؛ کاربر لازم نیست صبر
-                  // کنه تا اون فایلِ دیگه هم کامل بشه. خودِ سندِ در حالِ
-                  // پردازش رو از همین لیست باز نمی‌کنیم (چون همین الان،
-                  // پایینِ همین صفحه، زنده داره صفحه‌به‌صفحه نشون داده
-                  // می‌شه) — فقط برای جلوگیری از قاطی‌شدنِ وضعیتِ «مشغول».
-                  const isActiveDoc = pdfViewBusy && pdfViewDocId === doc.id;
-                  return (
-                    <div
-                      key={doc.id}
-                      className="flex items-center justify-between"
-                      style={{
-                        border: `1px solid ${colors.cardBorder}`,
-                        borderRadius: 10,
-                        padding: "6px 10px",
-                        fontSize: 12,
-                      }}
+                {pdfViewDocs.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between"
+                    style={{
+                      border: `1px solid ${colors.cardBorder}`,
+                      borderRadius: 10,
+                      padding: "6px 10px",
+                      fontSize: 12,
+                      opacity: pdfViewBusy ? 0.6 : 1,
+                    }}
+                  >
+                    <button
+                      onClick={() => openSavedPdfViewDoc(doc)}
+                      disabled={pdfViewBusy}
+                      style={{ color: colors.ink, fontWeight: 700, textAlign: "start", flex: 1, minWidth: 0 }}
                     >
-                      <button
-                        onClick={() => openSavedPdfViewDoc(doc)}
-                        disabled={isActiveDoc}
-                        style={{ color: colors.ink, fontWeight: 700, textAlign: "start", flex: 1, minWidth: 0, opacity: isActiveDoc ? 0.6 : 1 }}
-                      >
-                        {doc.title}
-                        <span style={{ color: colors.inkSoft, fontWeight: 400 }}>
-                          {" "}
-                          — {doc.doneCount === doc.pageCount ? `${doc.pageCount} صفحه` : `${doc.doneCount} از ${doc.pageCount} صفحه`}
-                          {isActiveDoc && " (در حال پردازش...)"}
-                        </span>
-                      </button>
-                      <button
-                        onClick={() => handleDeletePdfViewDoc(doc)}
-                        disabled={isActiveDoc}
-                        style={{ color: colors.rose, fontSize: 11, textDecoration: "underline", marginInlineStart: 8, opacity: isActiveDoc ? 0.5 : 1 }}
-                      >
-                        حذف
-                      </button>
-                    </div>
-                  );
-                })}
+                      {doc.title}
+                      <span style={{ color: colors.inkSoft, fontWeight: 400 }}>
+                        {" "}
+                        — {doc.doneCount === doc.pageCount ? `${doc.pageCount} صفحه` : `${doc.doneCount} از ${doc.pageCount} صفحه`}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => handleDeletePdfViewDoc(doc)}
+                      disabled={pdfViewBusy}
+                      style={{ color: colors.rose, fontSize: 11, textDecoration: "underline", marginInlineStart: 8 }}
+                    >
+                      حذف
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -11689,11 +11296,12 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               </button>
             </div>
             <div className="flex flex-wrap gap-3" style={{ alignItems: "flex-start" }}>
-              <div style={{ flex: "1 1 340px", minWidth: 0 }}>
+              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
                 {pdfViewPages[pdfViewIndex]?.imageUrl && (
-                  <ZoomablePdfPageImage
+                  <img
                     src={pdfViewPages[pdfViewIndex].imageUrl}
                     alt={`صفحه‌ی ${pdfViewIndex + 1}`}
+                    style={{ width: "100%", borderRadius: 10, border: `1px solid ${colors.cardBorder}`, display: "block" }}
                   />
                 )}
               </div>
@@ -11705,10 +11313,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                   backgroundColor: colors.goldSoft,
                   borderRadius: 10,
                   padding: 10,
-                  fontFamily: RTL_LANGS.includes(nativeLang || "fa") ? fontFa : fontLatin,
-                  fontWeight:
-                    pdfViewTargetTextPrefs.bold === "both" || pdfViewTargetTextPrefs.bold === "translation" ? 700 : 400,
-                  fontSize: Math.round(13 * ((pdfViewTargetTextPrefs.scale || 100) / 100)),
+                  fontSize: 13,
                   lineHeight: 1.9,
                   color: colors.ink,
                   maxHeight: 480,
