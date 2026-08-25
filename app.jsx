@@ -16011,6 +16011,13 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
   // ترجمه بعداً و در پس‌زمینه کامل می‌شه، دقیقاً مثل بقیه‌ی جاهای برنامه).
   const [saved, setSaved] = useState(false);
   const [grammarSaved, setGrammarSaved] = useState(false);
+  // دکمه‌ی کپیِ خودِ اپ — چون بالاتر (خط‌های handleUp/handleContextMenu)
+  // عمداً منوی بومیِ Copy گوشی رو غیرفعال کردیم (تا پاپ‌آپِ «افزودن به
+  // داستان» جایگزینش بشه)، کاربر دیگه هیچ راهِ دیگه‌ای برای کپی‌کردنِ متنِ
+  // انتخاب‌شده نداره. این دکمه دقیقاً همون کارِ آیکونِ Copy بومی رو با
+  // navigator.clipboard انجام می‌ده، بدون این‌که مجبور باشیم اون رفتارِ
+  // عمدیِ بالا (غیرفعال‌کردنِ منوی سیستم) رو کلاً برداریم.
+  const [copiedText, setCopiedText] = useState(false);
 
   useEffect(() => {
     const resolveLangCode = (node) => {
@@ -16092,6 +16099,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       } catch {}
       setSaved(isWordSaved(selectedText, langCode));
       setGrammarSaved(false);
+      setCopiedText(false);
       setMeasuredHeight(null);
       // دیگه پاپ‌آپ همین‌جا باز نمی‌شه — محدوده فقط «آماده» می‌مونه (با
       // هایلایتِ طلاییِ بالا) تا کاربر جدا روش یه لمسِ طولانی انجام بده
@@ -16499,6 +16507,57 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       <div style={{ height: 1, background: "rgba(255,255,255,0.15)", margin: "2px 0" }} />
 
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isGhostEvent()) return;
+            const doFallbackCopy = () => {
+              // بعضی WebViewهای قدیمیِ اندروید navigator.clipboard رو ندارن —
+              // یه textarea موقت می‌سازیم و با execCommand("copy") کپی می‌کنیم.
+              try {
+                const ta = document.createElement("textarea");
+                ta.value = popup.text;
+                ta.style.position = "fixed";
+                ta.style.opacity = "0";
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                document.execCommand("copy");
+                ta.remove();
+                setCopiedText(true);
+                setTimeout(() => setCopiedText(false), 1500);
+              } catch {}
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard
+                .writeText(popup.text)
+                .then(() => {
+                  setCopiedText(true);
+                  setTimeout(() => setCopiedText(false), 1500);
+                })
+                .catch(doFallbackCopy);
+            } else {
+              doFallbackCopy();
+            }
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            fontSize: 12,
+            fontWeight: 700,
+            color: copiedText ? colors.gold : colors.paper,
+            background: "rgba(255,255,255,0.08)",
+            border: `1px solid ${copiedText ? colors.gold : "rgba(255,255,255,0.25)"}`,
+            borderRadius: 6,
+            padding: "6px 8px",
+            cursor: "pointer",
+          }}
+        >
+          <Copy size={13} />
+          {copiedText ? "کپی شد ✓" : "کپیِ متن"}
+        </button>
         <button
           onClick={(e) => {
             e.stopPropagation();
