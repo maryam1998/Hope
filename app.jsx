@@ -16243,11 +16243,24 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
 
   // دکمه‌ی «تلاش دوباره»ی خودِ ترجمه (جدا از دکمه‌های ذخیره/گرامر پایین) —
   // برای وقتی سرویس‌های ترجمه‌ی رایگان موقتاً جواب ندادن.
-  function retryTranslation() {
+  // پارامترِ reportWrong (دکمه‌ی جدیدِ 🔄 کنارِ خودِ ترجمه، حتی وقتی status
+  // از قبل "done" بوده): برخلافِ حالتِ عادی که اول کشِ IndexedDB رو چک
+  // می‌کنه (و چون همون ترجمه‌ی «غلط» از قبل کش شده، دوباره همونو برمی‌گردوند
+  // و دکمه عملاً هیچ‌کاری نمی‌کرد)، این حالت مستقیم می‌ره سراغِ شبکه با
+  // forceVerify=true — یعنی حتی اگه هیچ‌کدوم از تست‌های heuristic مشکوکش
+  // نکرده باشن هم، نتیجه‌ی خامِ سرویسِ رایگان قبل از نمایش با AI بازبینی/
+  // اصلاح می‌شه (دقیقاً همون مسیری که برای اسلنگ/اصطلاح‌ها همیشه فعاله؛
+  // خط ۱۷۵۹۷). نتیجه‌ی تازه همون‌جا (داخلِ translateFreeNetwork) جای کشِ
+  // قدیمی رو توی IndexedDB می‌گیره، پس دفعه‌ی بعد هم دیگه همین ترجمه‌ی
+  // اصلاح‌شده برمی‌گرده.
+  function retryTranslation(reportWrong) {
     if (!popup) return;
     const targetLang = nativeLang || fallbackLangCode;
     setTranslation({ status: "loading" });
-    translateFree(popup.text, targetLang, popup.langCode, aiSettings)
+    const task = reportWrong
+      ? translateFreeNetwork(popup.text, targetLang, popup.langCode, aiSettings, true)
+      : translateFree(popup.text, targetLang, popup.langCode, aiSettings);
+    task
       .then((result) => {
         const clean = (result || "").trim();
         setTranslation(clean && clean !== popup.text.trim() ? { status: "done", text: clean } : { status: "error" });
@@ -16261,6 +16274,9 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
   // ترجمه بعداً و در پس‌زمینه کامل می‌شه، دقیقاً مثل بقیه‌ی جاهای برنامه).
   const [saved, setSaved] = useState(false);
   const [grammarSaved, setGrammarSaved] = useState(false);
+  // دقیقاً معادل leitnerAdded توی پاپ‌آپِ تک‌لغه‌ایِ ClickableSentence —
+  // فیدبکِ خودِ دکمه‌ی «افزودن به جعبه‌ی لایتنر» برای یک محدوده‌ی انتخاب‌شده.
+  const [leitnerAdded, setLeitnerAdded] = useState(false);
   // دکمه‌ی کپیِ خودِ اپ — چون بالاتر (خط‌های handleUp/handleContextMenu)
   // عمداً منوی بومیِ Copy گوشی رو غیرفعال کردیم (تا پاپ‌آپِ «افزودن به
   // داستان» جایگزینش بشه)، کاربر دیگه هیچ راهِ دیگه‌ای برای کپی‌کردنِ متنِ
@@ -16349,6 +16365,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       } catch {}
       setSaved(isWordSaved(selectedText, langCode));
       setGrammarSaved(false);
+      setLeitnerAdded(false);
       setCopiedText(false);
       setMeasuredHeight(null);
       // دیگه پاپ‌آپ همین‌جا باز نمی‌شه — محدوده فقط «آماده» می‌مونه (با
@@ -16571,6 +16588,16 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       });
   }
 
+  // دقیقاً معادل addActiveTermToLeitner توی پاپ‌آپِ تک‌لغه‌ایِ ClickableSentence
+  // — از همون singletonِ requestAddToLeitner استفاده می‌کنه، فقط این‌جا برای
+  // یک محدوده‌ی انتخاب‌شده (چند کلمه/جمله) به‌جای تک‌لغت.
+  function addSelectionToLeitner() {
+    if (!popup || !requestAddToLeitner) return;
+    const meaningText = translation && translation.status === "done" ? translation.text : "";
+    requestAddToLeitner(popup.text, popup.langCode, meaningText);
+    setLeitnerAdded(true);
+  }
+
   return (
     <div
       ref={popupElRef}
@@ -16727,6 +16754,32 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
               >
                 {translation.text}
               </span>
+              {/* دکمه‌ی «ترجمه اشتباهه؟» — اگه ترجمه‌ی نشون‌داده‌شده درست
+                  نبود، کاربر همین‌جا می‌تونه بدونِ بستنِ پاپ‌آپ درخواستِ
+                  یه ترجمه‌ی تازه/بازبینی‌شده بده (نگاه کن به توضیحِ
+                  reportWrong بالای retryTranslation). */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  retryTranslation(true);
+                }}
+                aria-label="این ترجمه اشتباهه، یکی بهتر پیدا کن"
+                title="ترجمه اشتباهه؟ دوباره امتحان کن"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  width: 22,
+                  height: 22,
+                  color: colors.goldSoft,
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+              >
+                <RotateCcw size={13} />
+              </button>
             </div>
           )}
           {translation.status === "error" && (
@@ -16863,6 +16916,30 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
         >
           <Type size={13} />
           {grammarSaved ? "ذخیره شد در گرامر" : "افزودن به یادگیری گرامر"}
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isGhostEvent()) return;
+            addSelectionToLeitner();
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            fontSize: 12,
+            fontWeight: 700,
+            color: leitnerAdded ? colors.gold : colors.paper,
+            background: "rgba(255,255,255,0.08)",
+            border: `1px solid ${leitnerAdded ? colors.gold : "rgba(255,255,255,0.25)"}`,
+            borderRadius: 6,
+            padding: "6px 8px",
+            cursor: "pointer",
+          }}
+        >
+          <RotateCcw size={13} />
+          {leitnerAdded ? "به جعبه‌ی لایتنر اضافه شد" : "افزودن به جعبه‌ی لایتنر"}
         </button>
       </div>
     </div>
