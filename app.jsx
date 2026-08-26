@@ -277,7 +277,12 @@ async function deleteStoryAudioRecord(storyKey) {
 // ============================================================
 const PDF_VIEW_DB_NAME = "pdf-view-documents";
 const PDF_VIEW_META_STORE = "meta"; // { id, title, pageCount, doneCount, createdAt }
-const PDF_VIEW_PAGE_STORE = "pages"; // key: `${docId}::${pageNum}` -> { pageNum, imageBlob, width, height, originalText, translatedText }
+const PDF_VIEW_PAGE_STORE = "pages"; // key: `${docId}::${pageNum}` -> { pageNum, originalText, translatedText } (فرمتِ قدیمی‌تر ممکنه imageBlob/width/height هم داشته باشه)
+// 🆕 بایتِ خامِ خودِ فایلِ PDF (نه عکسِ از پیش‌رندرشده‌ی هر صفحه) — تا
+// موقعِ نمایش، هر صفحه با pdf.js همون لحظه زنده رندر بشه (مثلِ یه ویووِرِ
+// واقعیِ PDF، با لایه‌ی متنِ قابلِ‌سلکت)، نه یک عکسِ ثابتِ از پیش‌ساخته.
+const PDF_VIEW_FILE_STORE = "files"; // key: docId -> ArrayBuffer
+
 
 // 🩹 قبلاً همیشه با نسخه‌ی ثابتِ ۱ باز می‌شد: indexedDB.open(NAME, 1). اگه
 // دیتابیسِ واقعیِ رویِ گوشیِ کاربر، به هر دلیلِ تاریخی‌ای (مثلاً نسخه‌ی
@@ -300,7 +305,8 @@ function openPdfViewDB() {
       const probeDb = probeReq.result;
       const hasStores =
         probeDb.objectStoreNames.contains(PDF_VIEW_META_STORE) &&
-        probeDb.objectStoreNames.contains(PDF_VIEW_PAGE_STORE);
+        probeDb.objectStoreNames.contains(PDF_VIEW_PAGE_STORE) &&
+        probeDb.objectStoreNames.contains(PDF_VIEW_FILE_STORE);
       if (hasStores) {
         resolve(probeDb);
         return;
@@ -315,6 +321,9 @@ function openPdfViewDB() {
         }
         if (!db.objectStoreNames.contains(PDF_VIEW_PAGE_STORE)) {
           db.createObjectStore(PDF_VIEW_PAGE_STORE);
+        }
+        if (!db.objectStoreNames.contains(PDF_VIEW_FILE_STORE)) {
+          db.createObjectStore(PDF_VIEW_FILE_STORE);
         }
       };
       upgradeReq.onsuccess = () => resolve(upgradeReq.result);
@@ -358,6 +367,38 @@ async function savePdfViewPage(docId, page) {
   }
 }
 
+// 🆕 ذخیره/بازخوانیِ بایتِ خامِ خودِ فایلِ PDF — تا در بازکردنِ بعدی، بشه
+// همون فایلِ اصلی رو دوباره با pdf.js باز کرد و صفحه‌ها رو زنده (نه از
+// روی عکسِ ثابت) رندر کرد.
+async function savePdfViewFile(docId, arrayBuffer) {
+  try {
+    const db = await openPdfViewDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(PDF_VIEW_FILE_STORE, "readwrite");
+      tx.objectStore(PDF_VIEW_FILE_STORE).put(arrayBuffer, docId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, errorName: err?.name || String(err) };
+  }
+}
+
+async function loadPdfViewFile(docId) {
+  try {
+    const db = await openPdfViewDB();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(PDF_VIEW_FILE_STORE, "readonly");
+      const req = tx.objectStore(PDF_VIEW_FILE_STORE).get(docId);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function listPdfViewDocs() {
   try {
     const db = await openPdfViewDB();
@@ -395,10 +436,11 @@ async function deletePdfViewDoc(docId, pageCount) {
   try {
     const db = await openPdfViewDB();
     await new Promise((resolve) => {
-      const tx = db.transaction([PDF_VIEW_META_STORE, PDF_VIEW_PAGE_STORE], "readwrite");
+      const tx = db.transaction([PDF_VIEW_META_STORE, PDF_VIEW_PAGE_STORE, PDF_VIEW_FILE_STORE], "readwrite");
       tx.objectStore(PDF_VIEW_META_STORE).delete(docId);
       const pageStore = tx.objectStore(PDF_VIEW_PAGE_STORE);
       for (let i = 1; i <= pageCount; i++) pageStore.delete(`${docId}::${i}`);
+      tx.objectStore(PDF_VIEW_FILE_STORE).delete(docId);
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
     });
@@ -8293,6 +8335,109 @@ function getStoryEntryPreview(entry, maxLen) {
   return text.length > limit ? `${text.slice(0, limit).trim()}…` : text;
 }
 
+// ============================================================
+// نمایشِ زنده‌ی صفحه‌ی PDF — به‌جای اتکا به یک عکسِ ثابتِ از پیش‌رندرشده،
+// هر بار که صفحه عوض می‌شه، خودِ pdf.js همون لحظه صفحه رو روی یک
+// <canvas> می‌کِشه، به‌علاوه‌ی یک لایه‌ی نامرئیِ متن (دقیقاً همون تکنیکی
+// که ویووِرهای واقعیِ PDF مثلِ خودِ کروم استفاده می‌کنن) که متنِ خودِ PDF
+// رو واقعاً قابلِ سلکت/کپی می‌کنه — نه فقط یک عکس. این کامپوننت هیچ
+// UIای بیرون از خودِ صفحه (نوارِ ابزار، دکمه‌ی دانلود و…) نداره — همه‌چیز
+// داخلِ همین کارتِ داستان‌ساز می‌مونه.
+//
+// برای PDFهایی که پیش از این تغییر ذخیره شده بودن (که فرمتِ قدیمی‌شون
+// فقط عکسِ از پیش‌رندرشده داره، نه بایتِ خامِ خودِ فایل)، از fallbackImageUrl
+// استفاده می‌شه — همون عکسِ قدیمی نشون داده می‌شه، بدونِ این‌که کاربر
+// مجبور بشه دوباره فایل رو آپلود کنه.
+function PdfLivePageView({ pdfDoc, pdfjsLib, pageNum, fallbackImageUrl, onError }) {
+  const canvasRef = useRef(null);
+  const textLayerRef = useRef(null);
+  const renderTaskRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!pdfDoc || !pageNum) return undefined;
+    (async () => {
+      try {
+        // اگه رندرِ صفحه‌ی قبلی هنوز تموم نشده، اول کنسلش کن — وگرنه موقعِ
+        // ورق‌زدنِ سریع، دو رندرِ هم‌زمان روی یک canvas به‌هم می‌ریزن.
+        if (renderTaskRef.current) {
+          try { renderTaskRef.current.cancel(); } catch {}
+        }
+        const page = await pdfDoc.getPage(pageNum);
+        if (cancelled) return;
+        // مقیاسِ رندر: کافی برای شارپ‌بودن رویِ صفحه‌نمایش‌های retina/موبایل
+        // (تا سقفِ ۳ برابر، تا حجمِ canvas بی‌جهت زیاد نشه).
+        const renderScale = Math.min(3, Math.max(1.5, (window.devicePixelRatio || 1) * 1.4));
+        const viewport = page.getViewport({ scale: renderScale });
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        canvas.width = Math.max(1, Math.ceil(viewport.width));
+        canvas.height = Math.max(1, Math.ceil(viewport.height));
+        const ctx = canvas.getContext("2d");
+        const task = page.render({ canvasContext: ctx, viewport });
+        renderTaskRef.current = task;
+        await task.promise;
+        renderTaskRef.current = null;
+        if (cancelled) return;
+
+        // لایه‌ی متنِ نامرئی/قابلِ‌سلکت، هم‌مکان با تصویرِ صفحه. چون canvas
+        // با رزولوشنِ بالاتر (renderScale) رسم شده ولی رویِ صفحه با
+        // style.width:100% کوچیک‌تر نمایش داده می‌شه، لایه‌ی متن هم باید تو
+        // همون مختصاتِ بزرگِ viewport ساخته بشه و بعد با یک transform:scale
+        // به همون اندازه‌ی نمایشیِ canvas کوچیک بشه — دقیقاً همون تکنیکِ
+        // خودِ ویووِرِ pdf.js.
+        const textLayerDiv = textLayerRef.current;
+        if (textLayerDiv) {
+          textLayerDiv.innerHTML = "";
+          const displayWidth = canvas.getBoundingClientRect().width || canvas.width;
+          const cssScale = displayWidth / viewport.width;
+          textLayerDiv.style.width = `${viewport.width}px`;
+          textLayerDiv.style.height = `${viewport.height}px`;
+          textLayerDiv.style.transform = `scale(${cssScale})`;
+          textLayerDiv.style.transformOrigin = "0 0";
+          try {
+            if (pdfjsLib?.TextLayer) {
+              const textContent = await page.getTextContent();
+              if (cancelled) return;
+              const textLayer = new pdfjsLib.TextLayer({
+                textContentSource: textContent,
+                container: textLayerDiv,
+                viewport,
+              });
+              await textLayer.render();
+            }
+          } catch {
+            // لایه‌ی متن اختیاریه — اگه ساختش شکست خورد، تصویرِ صفحه هنوز
+            // درست دیده می‌شه، فقط سلکت‌کردنِ مستقیمِ متنِ روش کار نمی‌کنه.
+          }
+        }
+      } catch (err) {
+        if (!cancelled && onError) onError(err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (renderTaskRef.current) {
+        try { renderTaskRef.current.cancel(); } catch {}
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdfDoc, pageNum]);
+
+  if (!pdfDoc) {
+    return fallbackImageUrl ? (
+      <img src={fallbackImageUrl} alt={`صفحه‌ی ${pageNum}`} style={{ width: "100%", display: "block" }} />
+    ) : null;
+  }
+
+  return (
+    <div style={{ position: "relative", width: "100%", lineHeight: 0, overflow: "hidden" }}>
+      <canvas ref={canvasRef} style={{ width: "100%", display: "block" }} />
+      <div ref={textLayerRef} className="textLayer" style={{ position: "absolute", top: 0, left: 0 }} />
+    </div>
+  );
+}
+
 function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, onUserAudioStateChange, autoScrollActive, calendarSystem, highlightColor, uid, uiLang }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
@@ -8360,15 +8505,57 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [pdfViewBusy, setPdfViewBusy] = useState(false);
   const [pdfViewProgress, setPdfViewProgress] = useState("");
   const [pdfViewError, setPdfViewError] = useState("");
-  const [pdfViewPages, setPdfViewPages] = useState([]); // [{pageNum, imageUrl, width, height, originalText, translatedText}]
+  const [pdfViewPages, setPdfViewPages] = useState([]); // [{pageNum, originalText, translatedText}] (سندهای قدیمی‌تر ممکنه imageUrl هم داشته باشن — fallback)
   const [pdfViewTitle, setPdfViewTitle] = useState("");
   const [pdfViewIndex, setPdfViewIndex] = useState(0);
+  // همون تنظیماتِ سراسریِ «اندازه/بولدِ فونتِ زبانِ مقصد» که تو صفحه‌ی
+  // تنظیمات هست و ClickableSentence خودش داخلی اعمال می‌کنه — اینجا هم
+  // دستی روی باکسِ ترجمه‌ی PDF (که خودش ClickableSentence نیست، فقط یه
+  // <div> ساده‌ست) اعمال می‌شه، تا با بقیه‌ی اپ هماهنگ باشه.
+  const pdfTargetTextPrefs = useTargetTextPrefs();
+  const pdfTranslationShouldBold =
+    pdfTargetTextPrefs.bold === "both" || pdfTargetTextPrefs.bold === "translation";
+  const pdfTranslationFontSize = Math.round(13 * ((pdfTargetTextPrefs.scale || 100) / 100));
   const pdfViewInputRef = useRef(null);
   // شناسه‌ی سندِ جاری (برای ذخیره‌ی صفحه‌به‌صفحه تو IndexedDB حین پردازش)،
   // و لیستِ PDFهایی که قبلاً کامل/ناقص ذخیره شدن — تا کاربر بتونه بدونِ
   // آپلود و ترجمه‌ی دوباره، از لیست بازشون کنه.
   const [pdfViewDocId, setPdfViewDocId] = useState(null);
   const [pdfViewDocs, setPdfViewDocs] = useState([]);
+  // 🆕 نمونه‌ی زنده‌ی pdf.js برای فایلِ فعلاً بازشده — تا هر صفحه به‌جای
+  // عکسِ ثابت، همون لحظه با PdfLivePageView رندر بشه (لایه‌ی متنِ
+  // قابلِ‌سلکت هم داره). pdfjsLibRef فقط برای این‌که ماژولِ pdfjs-dist
+  // (و workerSrc اش) فقط یه‌بار import بشه، نه هر بار که PDF عوض می‌شه.
+  const pdfjsLibRef = useRef(null);
+  const [pdfViewLiveDoc, setPdfViewLiveDoc] = useState(null); // { docId, doc } | null
+  const getPdfjsLib = async () => {
+    if (!pdfjsLibRef.current) {
+      const lib = await import("pdfjs-dist");
+      lib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
+      pdfjsLibRef.current = lib;
+    }
+    return pdfjsLibRef.current;
+  };
+  const clearPdfViewLiveDoc = () => {
+    setPdfViewLiveDoc((prev) => {
+      if (prev?.doc) {
+        try { prev.doc.destroy(); } catch {}
+      }
+      return null;
+    });
+  };
+  // اگه کاربر کاملاً از تبِ داستان‌ساز بره بیرون (کامپوننت unmount بشه)،
+  // نمونه‌ی زنده‌ی pdf.js هم آزاد بشه — وگرنه حافظه نگه داشته می‌مونه.
+  useEffect(() => {
+    return () => {
+      setPdfViewLiveDoc((prev) => {
+        if (prev?.doc) {
+          try { prev.doc.destroy(); } catch {}
+        }
+        return null;
+      });
+    };
+  }, []);
   // 🩹 آیا صفحاتِ همین PDFِ باز، واقعاً توی IndexedDB ذخیره شدن یا نه —
   // چون تا الان «ذخیره در داستان‌ها» بدونِ توجه به این، همیشه یه کارتِ
   // اشاره‌گر می‌ساخت؛ حتی وقتی نوشتنِ واقعیِ صفحات (به‌خاطرِ پُر بودنِ
@@ -10008,19 +10195,19 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     }
   };
 
-  // «نمایشِ PDF همینجا» — حالتِ دومِ بارگذاریِ PDF. با pdf.js هر صفحه دقیقاً
-  // همون‌جوری که هست (عکس‌ها/چیدمانِ اصلی) به یک عکس رندر می‌شه و به‌صورتِ
-  // blob URL نگه داشته می‌شه (نه دانلود، نه ارسال به سرور)؛ متنِ همون صفحه
-  // هم استخراج و ترجمه می‌شه. نتیجه یک آرایه از صفحه‌هاست که تو خودِ
-  // داستان‌ساز، صفحه‌به‌صفحه با عکسِ اصلی + ترجمه‌ی روبروش نمایش داده می‌شه.
-  const PDF_VIEW_MAX_BYTES = 80 * 1024 * 1024; // ۸۰ مگابایت — رندرِ تصویریِ صفحه‌به‌صفحه سنگین‌تر از استخراجِ صرفِ متنه
+  // «نمایشِ PDF همینجا» — حالتِ دومِ بارگذاریِ PDF. به‌جای رندرِ از پیش هر
+  // صفحه به یک عکسِ ثابت، بایتِ خامِ خودِ فایل ذخیره می‌شه و هر صفحه با
+  // PdfLivePageView همون لحظه که کاربر می‌بینتش زنده رندر می‌شه — یعنی یک
+  // ویووِرِ واقعیِ PDF، با لایه‌ی متنِ قابلِ‌سلکت، نه یک عکس. متنِ هر صفحه
+  // هم همچنان از قبل استخراج و ترجمه می‌شه (برای باکسِ ترجمه‌ی روبرو و
+  // بخشِ «نمایشِ متنِ اصلی (کلیک‌پذیر)»).
+  const PDF_VIEW_MAX_BYTES = 80 * 1024 * 1024; // ۸۰ مگابایت
   // 🩹 طبقِ درخواستِ کاربر، سقفِ تعدادِ صفحات کاملاً برداشته شد — قبلاً حتی
   // فایل‌های خیلی طولانی (مثلاً ۲۷۴ صفحه) رو فقط تا صفحه‌ی ۶۰ می‌خوند و
   // بی‌صدا بقیه رو کنار می‌ذاشت. الان همه‌ی صفحاتِ فایل پردازش می‌شن —
   // ممکنه برای فایل‌های خیلی حجیم/طولانی رو موبایل کمی طول بکشه، ولی
   // صفحه‌به‌صفحه که آماده می‌شه فوراً نشون داده و ذخیره می‌شه، پس نیازی به
   // صبرِ کاربر برای کلِ فایل نیست.
-  const PDF_VIEW_RENDER_SCALE = 1.6; // کیفیتِ کافی برای خوانا بودنِ متن/عکسِ صفحه، بدونِ حجمِ زیادِ نهایی
 
   const handlePdfViewImport = async (e) => {
     const file = e.target.files?.[0];
@@ -10031,10 +10218,12 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setPdfViewError(`حجمِ فایل بیشتر از ${Math.round(PDF_VIEW_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه`);
       return;
     }
-    // قبل از شروعِ فایلِ تازه، عکس‌های صفحه‌ی قبلی رو از حافظه پاک کن.
+    // قبل از شروعِ فایلِ تازه، عکسِ فرمتِ قدیمی (اگه بود) و نمونه‌ی زنده‌ی
+    // قبلی رو آزاد کن.
     pdfViewPages.forEach((p) => {
       try { URL.revokeObjectURL(p.imageUrl); } catch {}
     });
+    clearPdfViewLiveDoc();
     setPdfViewPages([]);
     setPdfViewIndex(0);
     setPdfViewBusy(true);
@@ -10048,11 +10237,17 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setPdfViewTitle(docTitle);
     setPdfViewPersisted(true);
     try {
-      const pdfjsLib = await import("pdfjs-dist");
-      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
+      const pdfjsLib = await getPdfjsLib();
       const buf = await file.arrayBuffer();
+      // یه کپیِ جدا برای ذخیره‌سازی — چون pdf.js ممکنه بافرِ اصلی رو به
+      // خودش «منتقل» (transfer/detach) کنه و بعدش دیگه قابلِ خوندن نباشه.
+      const bufForStorage = buf.slice(0);
       const srcDoc = await pdfjsLib.getDocument({ data: buf }).promise;
       const pageCount = srcDoc.numPages;
+
+      // نمایشِ زنده از همین الان فعاله — کاربر منتظرِ ترجمه نمی‌مونه تا
+      // خودِ صفحه رو ببینه.
+      setPdfViewLiveDoc({ docId, doc: srcDoc });
 
       const metaSaved = await savePdfViewMeta({
         id: docId,
@@ -10061,10 +10256,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         doneCount: 0,
         createdAt: Date.now(),
       });
+      const fileSaved = await savePdfViewFile(docId, bufForStorage);
       await refreshPdfViewDocs();
-      // savePdfViewMeta/savePdfViewPage قبلاً هر خطایی رو بی‌صدا قورت
-      // می‌دادن (فقط false برمی‌گردوندن) — یعنی اگه حافظه‌ی مرورگر
-      // (IndexedDB) به هر دلیلی (حالتِ خصوصی، پُر بودنِ فضا، یا
+      // savePdfViewMeta/savePdfViewPage/savePdfViewFile قبلاً هر خطایی رو
+      // بی‌صدا قورت می‌دادن (فقط false برمی‌گردوندن) — یعنی اگه حافظه‌ی
+      // مرورگر (IndexedDB) به هر دلیلی (حالتِ خصوصی، پُر بودنِ فضا، یا
       // محدودیتِ WebViewِ خودِ اپ) اجازه‌ی نوشتن نمی‌داد، کاربر هیچ
       // پیامی نمی‌دید و فقط بعداً می‌فهمید که PDF تو لیستِ «داستان‌های
       // ذخیره‌شده» نیست. حالا این حالت صریحاً ردگیری و به کاربر گفته می‌شه
@@ -10072,27 +10268,14 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       // چون پیامِ پایانِ حلقه نباید این هشدار رو پاک کنه). نامِ دقیقِ خطا
       // (مثلاً QuotaExceededError) هم نگه داشته می‌شه تا تو پیامِ نهایی
       // نشون داده بشه — بدونِ نیاز به کنسولِ دیباگ.
-      let persistFailed = !metaSaved.ok;
-      let firstErrorName = metaSaved.ok ? "" : metaSaved.errorName;
-
-      const canvasToJpgBlob = (canvas) =>
-        new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+      let persistFailed = !metaSaved.ok || !fileSaved.ok;
+      let firstErrorName = (!metaSaved.ok && metaSaved.errorName) || (!fileSaved.ok && fileSaved.errorName) || "";
 
       for (let i = 1; i <= pageCount; i++) {
-        setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال رندر...`);
+        setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
         await new Promise((r) => setTimeout(r, 0)); // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — تا UI قفل نشه
 
         const page = await srcDoc.getPage(i);
-        const viewport = page.getViewport({ scale: PDF_VIEW_RENDER_SCALE });
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.ceil(viewport.width));
-        canvas.height = Math.max(1, Math.ceil(viewport.height));
-        const ctx = canvas.getContext("2d");
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        const imageBlob = await canvasToJpgBlob(canvas);
-        const imageUrl = imageBlob ? URL.createObjectURL(imageBlob) : "";
-
-        setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
         const content = await page.getTextContent();
         // به‌جای چسبوندنِ همه‌چیز با یه space (که کاملاً مرزِ خط/پاراگرافِ
         // متنِ اصلی رو گم می‌کرد)، سطربندیِ واقعیِ صفحه حفظ می‌شه — تا
@@ -10104,9 +10287,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
 
         const newPage = {
           pageNum: i,
-          imageUrl,
-          width: canvas.width,
-          height: canvas.height,
           originalText: pageText,
           translatedText: translatedText || "متنی برای ترجمه در این صفحه پیدا نشد.",
         };
@@ -10117,9 +10297,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         setPdfViewPages((prev) => [...prev, newPage]);
         if (i === 1) setPdfViewIndex(0);
 
-        // ذخیره‌ی همین صفحه تو IndexedDB (عکس به‌صورتِ Blob، نه URL موقت) —
-        // تا حتی اگه پردازشِ صفحاتِ بعدی قطع بشه، همین‌قدر برای همیشه می‌مونه.
-        const pageSaved = await savePdfViewPage(docId, { ...newPage, imageUrl: undefined, imageBlob });
+        // ذخیره‌ی متنِ همین صفحه تو IndexedDB — تا حتی اگه پردازشِ صفحاتِ
+        // بعدی قطع بشه، همین‌قدر برای همیشه می‌مونه (خودِ عکس/صفحه دیگه
+        // لازم نیست ذخیره بشه، چون از رویِ همون فایلِ خامِ ذخیره‌شده هر بار
+        // زنده رندر می‌شه).
+        const pageSaved = await savePdfViewPage(docId, newPage);
         const metaSavedThisPage = await savePdfViewMeta({ id: docId, title: docTitle, pageCount, doneCount: i, createdAt: Date.now() });
         if (!pageSaved.ok || !metaSavedThisPage.ok) {
           persistFailed = true;
@@ -10169,6 +10351,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     pdfViewPages.forEach((p) => {
       try { URL.revokeObjectURL(p.imageUrl); } catch {}
     });
+    clearPdfViewLiveDoc();
     setPdfViewPages([]);
     setPdfViewIndex(0);
     setPdfViewError("");
@@ -10181,7 +10364,13 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       // خطایی صفحاتِ خالی برمی‌گشت؛ دقیقاً همون حالتی که کاربر می‌بینه
       // «هیچی نشون داده نمی‌شه» بدونِ هیچ پیام یا نشونه‌ای از چرایی‌اش.
       const expectedPageCount = doc.pageCount || 2000;
-      const storedPages = await loadPdfViewPages(doc.id, expectedPageCount);
+      // 🆕 اول بایتِ خامِ خودِ فایل رو بردار — اگه این PDF با نسخه‌ی جدید
+      // ذخیره شده باشه (نه فرمتِ قدیمی‌ترِ فقط-عکس)، اینجا موجوده و می‌شه
+      // با pdf.js دوباره بازش کرد تا صفحه‌ها زنده رندر بشن.
+      const [fileBytes, storedPages] = await Promise.all([
+        loadPdfViewFile(doc.id),
+        loadPdfViewPages(doc.id, expectedPageCount),
+      ]);
       const pages = storedPages
         .sort((a, b) => a.pageNum - b.pageNum)
         .map((p) => ({ ...p, imageUrl: p.imageBlob ? URL.createObjectURL(p.imageBlob) : "" }));
@@ -10189,20 +10378,36 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setPdfViewTitle(doc.title);
       setPdfViewDocId(doc.id);
       setPdfViewIndex(0);
-      setPdfViewPersisted(pages.length > 0);
-      if (pages.length === 0) {
+
+      let liveDocReady = false;
+      if (fileBytes) {
+        try {
+          const pdfjsLib = await getPdfjsLib();
+          const liveDoc = await pdfjsLib.getDocument({ data: fileBytes }).promise;
+          setPdfViewLiveDoc({ docId: doc.id, doc: liveDoc });
+          liveDocReady = true;
+        } catch (liveErr) {
+          console.error(liveErr);
+          // اگه بازکردنِ زنده‌ی فایل شکست خورد، حداقل صفحاتِ متنی/ترجمه
+          // (اگه موجود باشن) هنوز قابلِ دیدنن.
+        }
+      }
+
+      setPdfViewPersisted(liveDocReady || pages.length > 0);
+      if (!liveDocReady && pages.length === 0) {
         // 🩹 قبلاً این حالت کاملاً بی‌صدا بود: نه خطا، نه هیچ چیزِ دیگه‌ای —
         // کاربر فقط یه اسپینر می‌دید و بعدش هیچی، انگار برنامه یخ زده.
         // این معمولاً یعنی صفحاتِ واقعیِ PDF (که فقط رویِ همون گوشی/مرورگرِ
         // اصلی، تویِ IndexedDB ذخیره شده بودن — نه رویِ سرور/ابر) از بین
         // رفتن: مثلاً کاربر کش/دیتای مرورگر رو پاک کرده، اپ رو حذف و دوباره
         // نصب کرده، یا داره از یه گوشی/مرورگرِ دیگه وارد می‌شه. کارتِ خودِ
-        // داستان (اشاره‌گر) از طریق ابر همگام می‌مونه، ولی خودِ عکسِ صفحات
-        // هیچ‌وقت به سرور فرستاده نمی‌شه، پس روی دستگاهِ تازه در دسترس نیست.
+        // داستان (اشاره‌گر) از طریق ابر همگام می‌مونه، ولی خودِ فایل/عکسِ
+        // صفحات هیچ‌وقت به سرور فرستاده نمی‌شه، پس روی دستگاهِ تازه در
+        // دسترس نیست.
         setPdfViewError(
           "این PDF دیگه روی این گوشی/مرورگر در دسترس نیست (چون فقط همینجا ذخیره شده بود، نه روی سرور) — احتمالاً حافظه‌ی مرورگر پاک شده یا داری از یه دستگاهِ دیگه وارد می‌شی. برای دیدنش دوباره، فایلِ PDF رو از اول آپلود کن."
         );
-      } else if (doc.doneCount < doc.pageCount) {
+      } else if (pages.length > 0 && doc.doneCount < doc.pageCount) {
         setPdfViewError(
           `توجه: دفعه‌ی قبل فقط ${doc.doneCount} صفحه از ${doc.pageCount} صفحه پردازش شده بود؛ برای بقیه دوباره فایل رو آپلود کن`
         );
@@ -10222,6 +10427,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       pdfViewPages.forEach((p) => {
         try { URL.revokeObjectURL(p.imageUrl); } catch {}
       });
+      clearPdfViewLiveDoc();
       setPdfViewPages([]);
       setPdfViewIndex(0);
       setPdfViewTitle("");
@@ -10234,6 +10440,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     pdfViewPages.forEach((p) => {
       try { URL.revokeObjectURL(p.imageUrl); } catch {}
     });
+    clearPdfViewLiveDoc();
     setPdfViewPages([]);
     setPdfViewIndex(0);
     setPdfViewTitle("");
@@ -11276,19 +11483,25 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 onTouchEnd={handlePdfImgTouchEnd}
                 onDoubleClick={handlePdfImgDoubleClick}
               >
-                {pdfViewPages[pdfViewIndex]?.imageUrl && (
-                  <img
-                    src={pdfViewPages[pdfViewIndex].imageUrl}
-                    alt={`صفحه‌ی ${pdfViewIndex + 1}`}
+                {(pdfViewLiveDoc?.docId === pdfViewDocId && pdfViewLiveDoc?.doc) || pdfViewPages[pdfViewIndex]?.imageUrl ? (
+                  <div
                     style={{
-                      width: "100%",
-                      display: "block",
                       transform: `scale(${pdfImgZoom}) translate(${pdfImgPan.x / pdfImgZoom}px, ${pdfImgPan.y / pdfImgZoom}px)`,
                       transformOrigin: "center center",
                       transition: pdfImgGestureRef.current.mode ? "none" : "transform 0.15s ease-out",
                     }}
-                  />
-                )}
+                  >
+                    <PdfLivePageView
+                      pdfDoc={pdfViewLiveDoc?.docId === pdfViewDocId ? pdfViewLiveDoc.doc : null}
+                      pdfjsLib={pdfjsLibRef.current}
+                      pageNum={pdfViewIndex + 1}
+                      fallbackImageUrl={pdfViewPages[pdfViewIndex]?.imageUrl}
+                      onError={() =>
+                        setPdfViewError("رندرِ زنده‌ی این صفحه مشکل داشت — ممکنه فایل خراب یا رمزگذاری‌شده باشه")
+                      }
+                    />
+                  </div>
+                ) : null}
               </div>
               <div
                 dir="auto"
@@ -11298,7 +11511,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                   backgroundColor: colors.goldSoft,
                   borderRadius: 10,
                   padding: 10,
-                  fontSize: 13,
+                  fontSize: pdfTranslationFontSize,
+                  fontWeight: pdfTranslationShouldBold ? 700 : 400,
                   lineHeight: 1.9,
                   color: colors.ink,
                   maxHeight: 480,
@@ -14630,6 +14844,28 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         ::highlight(hope-story-sel) { background-color: ${colors.goldSoft}; color: ${colors.ink}; }
         .spin { animation: pb-spin 0.8s linear infinite; }
         @keyframes pb-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        /* لایه‌ی متنِ نامرئی/قابلِ‌سلکتِ ویووِرِ زنده‌ی PDF (PdfLivePageView) —
+           همون CSSِ استانداردِ textLayer خودِ pdf.js: هر اسپن دقیقاً روی
+           همون کلمه‌ی رسم‌شده تو canvas می‌شینه (شفاف، ولی قابلِ‌انتخاب). */
+        .textLayer {
+          position: absolute;
+          text-align: initial;
+          inset: 0;
+          overflow: hidden;
+          line-height: 1;
+          text-size-adjust: none;
+          forced-color-adjust: none;
+          transform-origin: 0 0;
+          caret-color: transparent;
+        }
+        .textLayer span, .textLayer br {
+          color: transparent;
+          position: absolute;
+          white-space: pre;
+          cursor: text;
+          transform-origin: 0% 0%;
+        }
+        .textLayer ::selection { background: ${colors.gold}; opacity: 0.35; }
       `}</style>
 
       {/* Header — همون گرادیانتِ ملایمِ سبزِ تیره‌ی طرحِ مرجع (radial highlight +
