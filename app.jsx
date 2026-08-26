@@ -3839,13 +3839,26 @@ function mergeWordExamplesFromCloud(cloudAll) {
 // در طول عمر برنامه از سرور خواسته بشه، نه هر بار که کاربر اسکرول می‌کنه.
 const WORD_TRANSLATIONS_KEY = "phrasebook-word-translations-v1";
 
+// ⚡️ فیکسِ سرعت (هنگ‌کردنِ جستجو): loadAllWordTranslations() قبلاً هر بار
+// صدا زده می‌شد کلِ رشته‌ی localStorage رو از نو JSON.parse می‌کرد. این
+// تابع از داخلِ فیلترِ جستجوی WordList، به‌ازای هر لغتی که مستقیم با
+// متنِ جستجو جور در نمیومد، به‌ازای هر زبانِ مقصد دوباره صدا زده می‌شد —
+// یعنی با چند هزار لغت (مثلاً تبِ لغات با ۶٬۳۱۹ ردیف) و چند زبان، هر
+// کاراکتری که کاربر تایپ می‌کرد چند هزار بار JSON.parse رویِ یه بلاکِ
+// به‌مرورِ‌زمان بزرگ‌شونده اجرا می‌شد — دقیقاً همون چیزی که باعثِ هنگِ
+// کاملِ جستجو (توی همه‌ی تب‌ها) می‌شد. حالا نتیجه‌ی parse شده رو تا وقتی
+// چیزی عوض نشده (فقط با saveWordTranslation) توی حافظه نگه می‌داریم —
+// یعنی در طولِ یه نشست، این بلاک حداکثر یه‌بار parse می‌شه، نه هزاران بار.
+let wordTranslationsMemoCache = null;
 function loadAllWordTranslations() {
+  if (wordTranslationsMemoCache) return wordTranslationsMemoCache;
   try {
     const raw = window.localStorage.getItem(WORD_TRANSLATIONS_KEY);
-    return raw ? JSON.parse(raw) : {};
+    wordTranslationsMemoCache = raw ? JSON.parse(raw) : {};
   } catch {
-    return {};
+    wordTranslationsMemoCache = {};
   }
+  return wordTranslationsMemoCache;
 }
 function wordTranslationKey(word, langCode) {
   return `${langCode}::${normalizeWord(word)}`;
@@ -3858,6 +3871,10 @@ function saveWordTranslation(word, langCode, translatedText) {
   if (!translatedText || !translatedText.trim()) return;
   const all = loadAllWordTranslations();
   all[wordTranslationKey(word, langCode)] = translatedText.trim();
+  // کشِ حافظه رو هم هم‌زمان به‌روز نگه می‌داریم (نه فقط localStorage) تا
+  // لغتِ تازه‌ترجمه‌شده همون لحظه توی جستجو/نمایش هم در دسترس باشه، بدونِ
+  // نیاز به یه parse دیگه.
+  wordTranslationsMemoCache = all;
   try {
     window.localStorage.setItem(WORD_TRANSLATIONS_KEY, JSON.stringify(all));
   } catch {}
@@ -14458,6 +14475,18 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [reviewIndex, setReviewIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
   const [query, setQuery] = useState("");
+  // ⚡️ فیکسِ سرعت: خودِ فیلدِ جستجو رو مستقیم به query وصل نگه می‌داریم (تا
+  // تایپ‌کردن هیچ تأخیری حس نشه)، ولی چیزی که واقعاً به WordList/تبِ
+  // مکالمات (فیلترِ سنگین رویِ چند هزار ردیف) پاس داده می‌شه debouncedQuery
+  // ـه — فقط ۱۵۰ میلی‌ثانیه بعد از آخرین حرفی که کاربر تایپ کرده به‌روز
+  // می‌شه. قبلاً هر تک‌کاراکتر بلافاصله کلِ فیلترِ سنگین رو (حتی بعدِ فیکسِ
+  // کشِ ترجمه‌ها) روی چند هزار ردیف اجرا می‌کرد؛ روی گوشیِ کم‌رم، تایپِ
+  // سریع باعث می‌شد چند اجرای سنگین پشتِ‌سرِهم صف بشن و تایپ کاملاً هنگ کنه.
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), 150);
+    return () => clearTimeout(t);
+  }, [query]);
   const [levelFilter, setLevelFilter] = useState("all");
   // مرتب‌سازیِ مشترکِ تب‌های لغات/Vocabulary in Use/اسلنگ/علاقه‌مندی‌ها —
   // همون الگویِ savedStoriesSort تویِ داستان‌ساز، اینجا رویِ WordList اثر
@@ -14593,7 +14622,16 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   // می‌مونه، لازم نیست هر تب state جدا داشته باشه.
   const [wordListPlayerText, setWordListPlayerText] = useState({ text: "", code: "" });
   const [grammarJump, setGrammarJump] = useState(null); // { word, sentence, langCode, token } — set from the word popover
-  const aiSettings = { backendUrl, setBackendUrl };
+  // ⚡️ فیکسِ سرعت: قبلاً این آبجکت هر بار که PhrasebookMain رندر می‌شد (یعنی
+  // با هر تایپ توی جستجو، هر تیک تایمر، هر حرکتِ انگشت روی نوارِ تمرینِ
+  // جمله‌سازی، هرچیزی) یه رفرنسِ کاملاً تازه می‌ساخت. چون aiSettings به
+  // ده‌ها کامپوننتِ React.memo‌شده در سراسرِ اپ (WordList، MiniMarkdown،
+  // GrammarPanel، WordTargetTranslation و...) پاس داده می‌شه، رفرنسِ تازه
+  // در هر رندر باعث می‌شد memo همیشه «تغییر کرده» تشخیص بده و کلِ اون
+  // زیردرخت‌ها (از جمله فیلترِ سنگینِ جستجو و چتِ تمرینِ گرامر) دوباره
+  // محاسبه/رندر بشن — همونی که باعثِ هنگ/کندیِ گسترده می‌شد. با useMemo،
+  // فقط وقتی backendUrl واقعاً عوض بشه یه آبجکتِ تازه ساخته می‌شه.
+  const aiSettings = useMemo(() => ({ backendUrl, setBackendUrl }), [backendUrl]);
   const userStorageKey = `${STORAGE_KEY}:${user?.email || "guest"}`;
 
   // Lets the word-tap popover (ClickableSentence, rendered in several
@@ -15217,7 +15255,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         {tab === "conversations" && (
   <DailyConversationsTab
     data={DAILY_CONVERSATIONS}
-    query={query}
+    query={debouncedQuery}
     uiLang={appPrefs.uiLang || "fa"}
     nativeLang={nativeLang}
     nativeLabel={nativeLabel}
@@ -15255,7 +15293,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                     targetLangs={targetLangList}
                     favorites={favorites}
                     toggleFavorite={toggleFavorite}
-                    query={query}
+                    query={debouncedQuery}
                     levelFilter={levelFilter}
                     aiSettings={aiSettings}
                     autoplayEnabled={tab === "favorites"}
@@ -15277,7 +15315,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                       listId="favorites"
                       wordFavorites={wordFavorites}
                       toggleWordFavorite={toggleWordFavorite}
-                      query={query}
+                      query={debouncedQuery}
                       levelFilter={levelFilter}
                       sortKey={wordSortKey}
                       emptyText=""
@@ -15309,7 +15347,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             listId="words"
             wordFavorites={wordFavorites}
             toggleWordFavorite={toggleWordFavorite}
-            query={query}
+            query={debouncedQuery}
             levelFilter={levelFilter}
             sortKey={wordSortKey}
             emptyText={tr("noWordsInList", appPrefs.uiLang)}
@@ -15333,7 +15371,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             listId="vocabInUse"
             wordFavorites={wordFavorites}
             toggleWordFavorite={toggleWordFavorite}
-            query={query}
+            query={debouncedQuery}
             levelFilter={levelFilter}
             sortKey={wordSortKey}
             emptyText={tr("noWordsInList", appPrefs.uiLang)}
@@ -15357,7 +15395,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             listId="slang"
             wordFavorites={wordFavorites}
             toggleWordFavorite={toggleWordFavorite}
-            query={query}
+            query={debouncedQuery}
             levelFilter={levelFilter}
             sortKey={wordSortKey}
             emptyText={tr("noWordsInList", appPrefs.uiLang)}
