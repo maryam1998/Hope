@@ -8322,6 +8322,13 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // آپلود و ترجمه‌ی دوباره، از لیست بازشون کنه.
   const [pdfViewDocId, setPdfViewDocId] = useState(null);
   const [pdfViewDocs, setPdfViewDocs] = useState([]);
+  // 🩹 آیا صفحاتِ همین PDFِ باز، واقعاً توی IndexedDB ذخیره شدن یا نه —
+  // چون تا الان «ذخیره در داستان‌ها» بدونِ توجه به این، همیشه یه کارتِ
+  // اشاره‌گر می‌ساخت؛ حتی وقتی نوشتنِ واقعیِ صفحات (به‌خاطرِ پُر بودنِ
+  // فضا/حالتِ خصوصی/محدودیتِ WebView) شکست خورده بود. نتیجه: کارت تو
+  // لیست بود ولی بازکردنش هیچی نشون نمی‌داد. حالا این دکمه فقط وقتی فعاله
+  // که ذخیره‌سازیِ واقعی موفق بوده باشه.
+  const [pdfViewPersisted, setPdfViewPersisted] = useState(true);
   // نمایش/عدم‌نمایشِ متنِ اصلیِ همین صفحه به‌صورتِ کلمه‌به‌کلمه‌ی کلیک‌پذیر
   // (برای افزودنِ لغات به داستان‌ساز).
   const [showPdfOriginalWords, setShowPdfOriginalWords] = useState(false);
@@ -8472,6 +8479,11 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // از قبل با سطحِ خودش (storyLevel) ذخیره می‌شه، این فیلتر فقط برای پیداکردن
   // و ساماندهیِ راحت‌ترِ همون داستان‌های ازقبل‌ذخیره‌شده‌ست.
   const [savedStoriesLevelFilter, setSavedStoriesLevelFilter] = useState("all");
+  // جستجو در لیستِ «داستان‌های ذخیره‌شده» — روی متنِ خودِ داستان، لغاتِ
+  // انتخاب‌شده، و عنوانِ PDF (برای کارت‌های PDF) چک می‌شه؛ زبانِ داستان
+  // اصلاً مهم نیست — چون فقط includeِ سادهٔ رشته‌ست، هر زبان/اسکریپتی
+  // (فارسی، انگلیسی، عربی، هرچی) بدونِ هیچ فرقی جستجو می‌شه.
+  const [savedStoriesSearch, setSavedStoriesSearch] = useState("");
   // مرتب‌سازیِ لیستِ «داستان‌های ذخیره‌شده» — گزینه‌ها دقیقاً مثلِ منوی
   // Sort byِ سیستم (جدیدترین/قدیمی‌ترین تاریخ، نام A→Z/Z→A، و تعدادِ
   // کلمات کم/زیاد به‌جای اندازه‌ی فایل).
@@ -9982,6 +9994,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     const docTitle = file.name.replace(/\.pdf$/i, "");
     setPdfViewDocId(docId);
     setPdfViewTitle(docTitle);
+    setPdfViewPersisted(true);
     try {
       const pdfjsLib = await import("pdfjs-dist");
       pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
@@ -10059,14 +10072,16 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
 
       if (persistFailed) {
         setPdfViewError(
-          "این PDF فقط تا وقتی همین صفحه بازه قابلِ خوندنه — حافظه‌ی محلیِ مرورگر/اپ اجازه‌ی ذخیره‌ی دائمی رو نداد (مثلاً به‌خاطرِ حالتِ خصوصی یا پُر بودنِ فضا)، پس بعد از بستن یا رفرش از دست می‌ره."
+          "این PDF فقط تا وقتی همین صفحه بازه قابلِ خوندنه — حافظه‌ی محلیِ مرورگر/اپ اجازه‌ی ذخیره‌ی دائمی رو نداد (مثلاً به‌خاطرِ حالتِ خصوصی یا پُر بودنِ فضا)، پس بعد از بستن یا رفرش از دست می‌ره. دکمه‌ی «ذخیره در داستان‌ها» هم به همین دلیل غیرفعاله — چون چیزی برای بازکردنِ بعدی نمی‌مونه."
         );
+        setPdfViewPersisted(false);
       } else {
         setPdfViewError(
           truncated
             ? `توجه: چون فایل بیشتر از ${PDF_VIEW_MAX_PAGES} صفحه بود، فقط ${PDF_VIEW_MAX_PAGES} صفحه‌ی اول بارگذاری شد`
             : ""
         );
+        setPdfViewPersisted(true);
       }
       refreshPdfViewDocs();
     } catch (err) {
@@ -10095,7 +10110,13 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setPdfViewBusy(true);
     setPdfViewProgress("در حال بازکردنِ PDFِ ذخیره‌شده...");
     try {
-      const storedPages = await loadPdfViewPages(doc.id, doc.pageCount);
+      // 🩹 doc.pageCount ممکنه نامعلوم باشه (مثلاً کارتی که از قبل، پیش از
+      // اضافه‌شدنِ این فیلد، ساخته شده) — بدونِ این fallback، حلقه‌ی
+      // loadPdfViewPages اصلاً اجرا نمی‌شد (for i=1..undefined) و بی‌هیچ
+      // خطایی صفحاتِ خالی برمی‌گشت؛ دقیقاً همون حالتی که کاربر می‌بینه
+      // «هیچی نشون داده نمی‌شه» بدونِ هیچ پیام یا نشونه‌ای از چرایی‌اش.
+      const expectedPageCount = doc.pageCount || 200;
+      const storedPages = await loadPdfViewPages(doc.id, expectedPageCount);
       const pages = storedPages
         .sort((a, b) => a.pageNum - b.pageNum)
         .map((p) => ({ ...p, imageUrl: p.imageBlob ? URL.createObjectURL(p.imageBlob) : "" }));
@@ -10103,7 +10124,20 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setPdfViewTitle(doc.title);
       setPdfViewDocId(doc.id);
       setPdfViewIndex(0);
-      if (doc.doneCount < doc.pageCount) {
+      setPdfViewPersisted(pages.length > 0);
+      if (pages.length === 0) {
+        // 🩹 قبلاً این حالت کاملاً بی‌صدا بود: نه خطا، نه هیچ چیزِ دیگه‌ای —
+        // کاربر فقط یه اسپینر می‌دید و بعدش هیچی، انگار برنامه یخ زده.
+        // این معمولاً یعنی صفحاتِ واقعیِ PDF (که فقط رویِ همون گوشی/مرورگرِ
+        // اصلی، تویِ IndexedDB ذخیره شده بودن — نه رویِ سرور/ابر) از بین
+        // رفتن: مثلاً کاربر کش/دیتای مرورگر رو پاک کرده، اپ رو حذف و دوباره
+        // نصب کرده، یا داره از یه گوشی/مرورگرِ دیگه وارد می‌شه. کارتِ خودِ
+        // داستان (اشاره‌گر) از طریق ابر همگام می‌مونه، ولی خودِ عکسِ صفحات
+        // هیچ‌وقت به سرور فرستاده نمی‌شه، پس روی دستگاهِ تازه در دسترس نیست.
+        setPdfViewError(
+          "این PDF دیگه روی این گوشی/مرورگر در دسترس نیست (چون فقط همینجا ذخیره شده بود، نه روی سرور) — احتمالاً حافظه‌ی مرورگر پاک شده یا داری از یه دستگاهِ دیگه وارد می‌شی. برای دیدنش دوباره، فایلِ PDF رو از اول آپلود کن."
+        );
+      } else if (doc.doneCount < doc.pageCount) {
         setPdfViewError(
           `توجه: دفعه‌ی قبل فقط ${doc.doneCount} صفحه از ${doc.pageCount} صفحه پردازش شده بود؛ برای بقیه دوباره فایل رو آپلود کن`
         );
@@ -10368,7 +10402,10 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   // «داستان‌های ذخیره‌شده» می‌سازه، دقیقاً مثلِ بقیه‌ی داستان‌ها — با آیکونِ
   // 📄 کنارش (شبیهِ همون 🎵ای که برای صوتِ آپلودی گذاشته شده).
   const savePdfToStories = () => {
-    if (!pdfViewDocId) return;
+    // 🩹 اگه ذخیره‌سازیِ واقعیِ صفحات تو IndexedDB شکست خورده باشه، دیگه
+    // کارتِ اشاره‌گر نساز — چون بعداً بازکردنش هیچی نشون نمی‌ده (دقیقاً
+    // همون باگی که قبلاً باعث می‌شد کارت باشه ولی خالی باز بشه).
+    if (!pdfViewDocId || !pdfViewPersisted) return;
     setSavedStories((prev) => {
       if (prev.some((s) => s.pdfDocId === pdfViewDocId)) return prev; // قبلاً ذخیره شده
       const entry = {
@@ -10481,6 +10518,29 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               </div>
             </div>
           )}
+          {/* جستجو در داستان‌های ذخیره‌شده — روی متنِ خودِ داستان، لغاتِ
+              انتخاب‌شده، و عنوانِ PDF چک می‌شه؛ کاملاً مستقل از زبانِ
+              داستان (فارسی/انگلیسی/هرچی) — همه‌شون یکسان جستجو می‌شن. */}
+          {savedStories.length > 1 && (
+            <div
+              className="flex items-center gap-2 px-3"
+              style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 20, height: 40 }}
+            >
+              <Search size={15} color={colors.inkSoft} />
+              <input
+                value={savedStoriesSearch}
+                onChange={(e) => setSavedStoriesSearch(e.target.value)}
+                placeholder="جستجو در داستان‌های ذخیره‌شده..."
+                dir="auto"
+                style={{ flex: 1, border: "none", outline: "none", fontSize: 13, backgroundColor: "transparent" }}
+              />
+              {savedStoriesSearch && (
+                <button onClick={() => setSavedStoriesSearch("")} aria-label="پاک کردن جستجو" style={{ display: "flex" }}>
+                  <X size={15} color={colors.inkSoft} />
+                </button>
+              )}
+            </div>
+          )}
           {/* سطح‌ها همیشه توی ردیفِ خودشون، تمام‌عرض و بدون تنگ‌شدن نشون
               داده می‌شن؛ مرتب‌سازی یه ردیفِ جدا زیرشه — قبلاً کنارِ هم
               بودن و دکمه‌ی مرتب‌سازی جای سطح‌ها رو تنگ می‌کرد. */}
@@ -10494,6 +10554,25 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             <p style={{ fontSize: 13, color: colors.inkSoft }}>هنوز داستانی ذخیره نکردی.</p>
           )}
           {savedStories.length > 0 && (() => {
+            // جستجو، مستقلِ از زبانِ داستان — یه include سادهٔ رشته‌ست، پس
+            // فارسی/انگلیسی/عربی/هر اسکریپتِ دیگه‌ای رو یکسان پیدا می‌کنه.
+            const q = savedStoriesSearch.trim().toLowerCase();
+            const searched = q
+              ? savedStories.filter((s) => {
+                  const haystack = [
+                    s.pdfDocId ? s.title : getStoryEntryFullText(s),
+                    (s.selectedWords || []).join(" "),
+                  ]
+                    .join(" ")
+                    .toLowerCase();
+                  return haystack.includes(q);
+                })
+              : savedStories;
+            if (q && searched.length === 0) {
+              return (
+                <p style={{ fontSize: 13, color: colors.inkSoft }}>چیزی با این جستجو پیدا نشد.</p>
+              );
+            }
             // هر داستان از قبل با سطحِ خودش (storyLevel) ذخیره شده. وقتی فیلترِ
             // خاصی (مثلاً B1) انتخاب شده فقط داستان‌های همون سطح نشون داده
             // می‌شن. وقتی «همه سطح‌ها»ست، دیگه بر اساسِ سطح دسته‌بندی/تفکیک
@@ -10502,8 +10581,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             // (خط اول کارت) نمایش داده می‌شه.
             const groups = (
               savedStoriesLevelFilter !== "all"
-                ? [[savedStoriesLevelFilter, savedStories.filter((s) => s.storyLevel === savedStoriesLevelFilter)]]
-                : [["all", savedStories]]
+                ? [[savedStoriesLevelFilter, searched.filter((s) => s.storyLevel === savedStoriesLevelFilter)]]
+                : [["all", searched]]
             ).map(([lv, list]) => [lv, sortSavedStories(list, savedStoriesSort)]);
             if (!groups.length || groups.every(([, list]) => list.length === 0)) {
               return (
@@ -11096,16 +11175,21 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               <div className="flex items-center gap-2">
                 <button
                   onClick={savePdfToStories}
-                  disabled={!pdfViewDocId || savedStories.some((s) => s.pdfDocId === pdfViewDocId)}
+                  disabled={!pdfViewDocId || !pdfViewPersisted || savedStories.some((s) => s.pdfDocId === pdfViewDocId)}
+                  title={!pdfViewPersisted ? "چون ذخیره‌سازیِ محلی ناموفق بود، این PDF قابلِ اضافه‌کردن به لیست نیست" : undefined}
                   style={{
                     fontSize: 11,
                     fontWeight: 700,
                     color: savedStories.some((s) => s.pdfDocId === pdfViewDocId) ? colors.inkSoft : colors.gold,
                     textDecoration: savedStories.some((s) => s.pdfDocId === pdfViewDocId) ? "none" : "underline",
-                    opacity: !pdfViewDocId ? 0.5 : 1,
+                    opacity: !pdfViewDocId || !pdfViewPersisted ? 0.5 : 1,
                   }}
                 >
-                  {savedStories.some((s) => s.pdfDocId === pdfViewDocId) ? "ذخیره شد ✓" : "ذخیره در داستان‌ها"}
+                  {savedStories.some((s) => s.pdfDocId === pdfViewDocId)
+                    ? "ذخیره شد ✓"
+                    : !pdfViewPersisted
+                    ? "قابلِ ذخیره نیست"
+                    : "ذخیره در داستان‌ها"}
                 </button>
                 <button onClick={closePdfView} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
                   بستن
