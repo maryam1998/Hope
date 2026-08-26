@@ -306,9 +306,14 @@ async function savePdfViewMeta(meta) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    return true;
-  } catch {
-    return false;
+    return { ok: true };
+  } catch (err) {
+    // 🩹 قبلاً فقط false برمی‌گشت — یعنی هیچ‌جا معلوم نمی‌شد واقعاً چرا
+    // نوشتن شکست خورده (پُر بودنِ فضا؟ حالتِ خصوصی؟ چیزِ دیگه؟). حالا
+    // نامِ خودِ خطای مرورگر (مثلاً QuotaExceededError) هم برگردونده می‌شه
+    // تا بشه مستقیم تو پیامِ روی صفحه نشونش داد — بدونِ نیاز به کنسولِ
+    // دیباگ که رو موبایل اصلاً در دسترس نیست.
+    return { ok: false, errorName: err?.name || String(err) };
   }
 }
 
@@ -321,9 +326,9 @@ async function savePdfViewPage(docId, page) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    return true;
-  } catch {
-    return false;
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, errorName: err?.name || String(err) };
   }
 }
 
@@ -372,6 +377,22 @@ async function deletePdfViewDoc(docId, pageCount) {
       tx.onerror = () => resolve();
     });
   } catch {}
+}
+
+// 🩹 تخمینِ فضای ذخیره‌سازیِ مرورگر (چقدر استفاده شده از چقدر مجاز) — برای
+// اینکه وقتی نوشتن تو IndexedDB شکست می‌خوره، بشه دقیقاً نشون داد آیا
+// واقعاً فضا پُر شده یا دلیلِ دیگه‌ای داشته (مثلاً حالتِ خصوصی). خیلی از
+// مرورگرهای موبایل این API رو دارن؛ اگه نداشت، بی‌صدا null برمی‌گردونه —
+// نبودنِ این اطلاعات نباید کلِ فرآیندِ آپلود رو خراب کنه.
+async function estimatePdfViewStorage() {
+  try {
+    if (!navigator.storage || !navigator.storage.estimate) return null;
+    const { usage, quota } = await navigator.storage.estimate();
+    if (typeof usage !== "number" || typeof quota !== "number" || !quota) return null;
+    return { usageMB: Math.round(usage / (1024 * 1024)), quotaMB: Math.round(quota / (1024 * 1024)), pct: Math.round((usage / quota) * 100) };
+  } catch {
+    return null;
+  }
 }
 
 // هوکِ مدیریتِ صوتِ کاربر برای یک داستانِ مشخص (storyKey پایدار — معمولاً
@@ -10018,8 +10039,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       // پیامی نمی‌دید و فقط بعداً می‌فهمید که PDF تو لیستِ «داستان‌های
       // ذخیره‌شده» نیست. حالا این حالت صریحاً ردگیری و به کاربر گفته می‌شه
       // (persistFailed پایین‌تر، بعدِ حلقه‌ی صفحات، چک می‌شه — نه همین‌جا،
-      // چون پیامِ پایانِ حلقه نباید این هشدار رو پاک کنه).
-      let persistFailed = !metaSaved;
+      // چون پیامِ پایانِ حلقه نباید این هشدار رو پاک کنه). نامِ دقیقِ خطا
+      // (مثلاً QuotaExceededError) هم نگه داشته می‌شه تا تو پیامِ نهایی
+      // نشون داده بشه — بدونِ نیاز به کنسولِ دیباگ.
+      let persistFailed = !metaSaved.ok;
+      let firstErrorName = metaSaved.ok ? "" : metaSaved.errorName;
 
       const canvasToJpgBlob = (canvas) =>
         new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
@@ -10067,12 +10091,27 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         // تا حتی اگه پردازشِ صفحاتِ بعدی قطع بشه، همین‌قدر برای همیشه می‌مونه.
         const pageSaved = await savePdfViewPage(docId, { ...newPage, imageUrl: undefined, imageBlob });
         const metaSavedThisPage = await savePdfViewMeta({ id: docId, title: docTitle, pageCount, doneCount: i, createdAt: Date.now() });
-        if (!pageSaved || !metaSavedThisPage) persistFailed = true;
+        if (!pageSaved.ok || !metaSavedThisPage.ok) {
+          persistFailed = true;
+          if (!firstErrorName) firstErrorName = (!pageSaved.ok && pageSaved.errorName) || (!metaSavedThisPage.ok && metaSavedThisPage.errorName) || "";
+        }
       }
 
       if (persistFailed) {
+        // 🩹 علاوه بر پیامِ کلی، تخمینِ واقعیِ فضای ذخیره‌سازیِ مرورگر و
+        // نامِ دقیقِ خطا هم نشون داده می‌شه — تا معلوم بشه واقعاً «فضا پُره»
+        // یا دلیلِ دیگه‌ای داره (مثلاً حالتِ خصوصی که QuotaExceeded نمی‌ده،
+        // بلکه خودِ بازکردنِ دیتابیس رو رد می‌کنه).
+        const estimate = await estimatePdfViewStorage();
+        const details = [
+          firstErrorName ? `نوعِ خطا: ${firstErrorName}` : "",
+          estimate ? `فضای استفاده‌شده: ${estimate.usageMB} از ${estimate.quotaMB} مگابایت (${estimate.pct}%)` : "",
+        ]
+          .filter(Boolean)
+          .join(" — ");
         setPdfViewError(
-          "این PDF فقط تا وقتی همین صفحه بازه قابلِ خوندنه — حافظه‌ی محلیِ مرورگر/اپ اجازه‌ی ذخیره‌ی دائمی رو نداد (مثلاً به‌خاطرِ حالتِ خصوصی یا پُر بودنِ فضا)، پس بعد از بستن یا رفرش از دست می‌ره. دکمه‌ی «ذخیره در داستان‌ها» هم به همین دلیل غیرفعاله — چون چیزی برای بازکردنِ بعدی نمی‌مونه."
+          "این PDF فقط تا وقتی همین صفحه بازه قابلِ خوندنه — حافظه‌ی محلیِ مرورگر/اپ اجازه‌ی ذخیره‌ی دائمی رو نداد (مثلاً به‌خاطرِ حالتِ خصوصی یا پُر بودنِ فضا)، پس بعد از بستن یا رفرش از دست می‌ره. دکمه‌ی «ذخیره در داستان‌ها» هم به همین دلیل غیرفعاله — چون چیزی برای بازکردنِ بعدی نمی‌مونه." +
+            (details ? ` (${details})` : "")
         );
         setPdfViewPersisted(false);
       } else {
