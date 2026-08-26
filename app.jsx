@@ -1961,6 +1961,140 @@ function SavedStoriesSortMenu({ sortKey, setSortKey }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// دکمه‌ی «مرتب‌سازی» عمومی — دقیقاً همون ظاهر/رفتارِ SavedStoriesSortMenu
+// (تبِ داستان‌ساز)، ولی به‌جای قفل‌شدن رویِ گزینه‌های اختصاصیِ داستان‌ها،
+// یه آرایه‌ی options دلخواه می‌گیره — تا هم تبِ لغات/Vocabulary in
+// Use/اسلنگ/علاقه‌مندی‌ها (WordList) و هم تبِ «لغات ذخیره‌شده»
+// (SavedWordsPanel) بتونن با گزینه‌های خودشون همینو استفاده کنن، بدونِ
+// تکرارِ کدِ منویِ کشویی.
+function GenericSortMenu({ sortKey, setSortKey, options }) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((o) => o.key === sortKey) || options[0];
+  return (
+    <div style={{ position: "relative", flexShrink: 0 }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          fontFamily: fontFa,
+          fontSize: 12,
+          fontWeight: 600,
+          padding: "4px 12px",
+          borderRadius: 14,
+          border: `1px solid ${colors.cardBorder}`,
+          backgroundColor: "white",
+          color: colors.ink,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          whiteSpace: "nowrap",
+        }}
+      >
+        ⇅ مرتب‌سازی: {current.label}
+      </button>
+      {open && (
+        <>
+          <div
+            onClick={() => setOpen(false)}
+            style={{ position: "fixed", inset: 0, zIndex: 40 }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              top: "calc(100% + 6px)",
+              right: 0,
+              zIndex: 41,
+              backgroundColor: "white",
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: 12,
+              boxShadow: "0 6px 20px rgba(0,0,0,0.12)",
+              minWidth: 180,
+              overflow: "hidden",
+            }}
+          >
+            {options.map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => {
+                  setSortKey(opt.key);
+                  setOpen(false);
+                }}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "right",
+                  fontFamily: fontFa,
+                  fontSize: 13,
+                  fontWeight: opt.key === sortKey ? 700 : 500,
+                  padding: "9px 14px",
+                  border: "none",
+                  backgroundColor: opt.key === sortKey ? colors.goldSoft : "white",
+                  color: colors.ink,
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// گزینه‌های مرتب‌سازیِ لیستِ لغات (تب‌های لغات/Vocabulary in
+// Use/اسلنگ/علاقه‌مندی‌ها) — این لغات تاریخِ ذخیره‌سازی ندارن (یه دیکشنریِ
+// ثابتن)، پس فقط بر اساسِ نام (الفبا) و سطحِ CEFR مرتب می‌شن.
+const WORD_LIST_SORT_OPTIONS = [
+  { key: "default", label: "پیش‌فرض" },
+  { key: "nameAsc", label: "نام: الف ← ی" },
+  { key: "nameDesc", label: "نام: ی ← الف" },
+  { key: "levelAsc", label: "سطح: ساده ← سخت" },
+  { key: "levelDesc", label: "سطح: سخت ← ساده" },
+];
+const WORD_LIST_LEVEL_ORDER = { A1: 1, A2: 2, B1: 3, B2: 4, C1: 5, C2: 6 };
+function sortWordListEntries(list, sortKey) {
+  if (!sortKey || sortKey === "default") return list;
+  const arr = [...list];
+  const levelRank = (w) => WORD_LIST_LEVEL_ORDER[w?.level] ?? 99;
+  switch (sortKey) {
+    case "nameAsc":
+      return arr.sort((a, b) => (a.en || "").localeCompare(b.en || ""));
+    case "nameDesc":
+      return arr.sort((a, b) => (b.en || "").localeCompare(a.en || ""));
+    case "levelAsc":
+      return arr.sort((a, b) => levelRank(a) - levelRank(b));
+    case "levelDesc":
+      return arr.sort((a, b) => levelRank(b) - levelRank(a));
+    default:
+      return arr;
+  }
+}
+
+// گزینه‌های مرتب‌سازیِ «لغات ذخیره‌شده» (تبِ ذخیره‌شده‌ها) — این‌ها برخلافِ
+// بالا savedAt دارن (وقتی از پاپ‌آپِ لغت/داستان‌ساز ذخیره می‌شن)، پس
+// جدیدترین/قدیمی‌ترین هم به گزینه‌ها اضافه می‌شه.
+const SAVED_WORDS_SORT_OPTIONS = [
+  { key: "newest", label: "جدیدترین تاریخ" },
+  { key: "oldest", label: "قدیمی‌ترین تاریخ" },
+  { key: "nameAsc", label: "نام: الف ← ی" },
+  { key: "nameDesc", label: "نام: ی ← الف" },
+];
+function sortSavedWordEntries(list, sortKey) {
+  const arr = [...list];
+  switch (sortKey) {
+    case "oldest":
+      return arr.sort((a, b) => new Date(a.savedAt || 0) - new Date(b.savedAt || 0));
+    case "nameAsc":
+      return arr.sort((a, b) => (a.word || "").localeCompare(b.word || ""));
+    case "nameDesc":
+      return arr.sort((a, b) => (b.word || "").localeCompare(a.word || ""));
+    case "newest":
+    default:
+      return arr.sort((a, b) => new Date(b.savedAt || 0) - new Date(a.savedAt || 0));
+  }
+}
+
 // Plain localStorage wrapper — works in any real browser (deployed site, PWA
 // on a phone, etc). `window.storage` from the Claude preview environment
 // does NOT exist once this app is deployed on its own, so we don't rely on it.
@@ -12252,6 +12386,9 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
   // فقط لغاتِ در حال نمایش رو در برمی‌گیرن.
   const [query, setQuery] = useState("");
   const [actionMsg, setActionMsg] = useState("");
+  // مرتب‌سازی — دقیقاً همون الگویِ داستان‌ساز، اینجا رویِ لغاتِ ذخیره‌شده
+  // (نگاه کن به GenericSortMenu/SAVED_WORDS_SORT_OPTIONS بالای فایل).
+  const [sortKey, setSortKey] = useState("newest");
 
   // نگه‌داشتنِ طولانی (لانگ‌پرس) روی هر کارت → کاربر رو به همون تبی می‌بره
   // که اون لغت/عبارت اونجا ذخیره شده بود (origin.tab — نگاه کن به
@@ -12435,6 +12572,11 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
     if (!byLang[w.langCode]) byLang[w.langCode] = [];
     byLang[w.langCode].push(w);
   });
+  // مرتب‌سازیِ هر گروهِ زبان جدا (نگاه کن به GenericSortMenu/sortKey بالا) —
+  // چون هر زبان لیستِ مستقلِ خودش رو داره (کارتِ جدا، بازه‌ی نمایشِ جدا).
+  Object.keys(byLang).forEach((code) => {
+    byLang[code] = sortSavedWordEntries(byLang[code], sortKey);
+  });
   const langCodes = Object.keys(byLang);
 
   const totalPicked = Object.values(picked).reduce((sum, set) => sum + (set ? set.size : 0), 0);
@@ -12518,6 +12660,10 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                 <X size={15} color={colors.inkSoft} />
               </button>
             )}
+          </div>
+
+          <div className="flex justify-start">
+            <GenericSortMenu sortKey={sortKey} setSortKey={setSortKey} options={SAVED_WORDS_SORT_OPTIONS} />
           </div>
 
           <div className="flex items-center flex-wrap gap-2">
@@ -14313,6 +14459,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
   const [showAnswer, setShowAnswer] = useState(false);
   const [query, setQuery] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
+  // مرتب‌سازیِ مشترکِ تب‌های لغات/Vocabulary in Use/اسلنگ/علاقه‌مندی‌ها —
+  // همون الگویِ savedStoriesSort تویِ داستان‌ساز، اینجا رویِ WordList اثر
+  // می‌ذاره (نگاه کن به GenericSortMenu/WORD_LIST_SORT_OPTIONS).
+  const [wordSortKey, setWordSortKey] = useState("default");
   // لانگ‌پرسِ یه لغت توی «لغات ذخیره‌شده» — اگه اون لغت با شناسه‌ی دقیقِ
   // همون ردیف (id) ذخیره شده باشه (نگاه کن به originExtra توی WordList)،
   // این استیت به WordListِ همون تب می‌رسه تا دقیقاً همون ردیف رو (نه فقط
@@ -15014,6 +15164,16 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         </div>
       )}
 
+      {/* دکمه‌ی مرتب‌سازی — دقیقاً همون چیزی که تبِ داستان‌ساز داره، اینجا هم
+          برای تب‌های لغات/Vocabulary in Use/اسلنگ/علاقه‌مندی‌ها. مکالماتِ
+          روزمره از یه کامپوننتِ جدا (DailyConversationsTab) استفاده می‌کنه
+          که ترتیبِ خودِ سناریوها رو نگه می‌داره، پس اینجا نمی‌گنجه. */}
+      {(tab === "words" || tab === "favorites" || tab === "vocabInUse" || tab === "slang") && (
+        <div className="px-4 pt-3 flex justify-start">
+          <GenericSortMenu sortKey={wordSortKey} setSortKey={setWordSortKey} options={WORD_LIST_SORT_OPTIONS} />
+        </div>
+      )}
+
       {/* Search — meaningful for the phrase and word list tabs */}
       {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocabInUse" || tab === "slang") && (
         <div className="px-4 pt-3">
@@ -15119,6 +15279,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                       toggleWordFavorite={toggleWordFavorite}
                       query={query}
                       levelFilter={levelFilter}
+                      sortKey={wordSortKey}
                       emptyText=""
                       uiLang={appPrefs.uiLang}
                       nativeLang={nativeLang}
@@ -15150,6 +15311,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             toggleWordFavorite={toggleWordFavorite}
             query={query}
             levelFilter={levelFilter}
+            sortKey={wordSortKey}
             emptyText={tr("noWordsInList", appPrefs.uiLang)}
             uiLang={appPrefs.uiLang}
             nativeLang={nativeLang}
@@ -15173,6 +15335,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             toggleWordFavorite={toggleWordFavorite}
             query={query}
             levelFilter={levelFilter}
+            sortKey={wordSortKey}
             emptyText={tr("noWordsInList", appPrefs.uiLang)}
             uiLang={appPrefs.uiLang}
             nativeLang={nativeLang}
@@ -15196,6 +15359,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             toggleWordFavorite={toggleWordFavorite}
             query={query}
             levelFilter={levelFilter}
+            sortKey={wordSortKey}
             emptyText={tr("noWordsInList", appPrefs.uiLang)}
             uiLang={appPrefs.uiLang}
             nativeLang={nativeLang}
@@ -16671,7 +16835,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
 // به کتابخونه‌ی جدید).
 const WORDS_PAGE_SIZE = 60;
 
-const WordList = React.memo(function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, levelFilter, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor, jumpTarget, uiLang, defaultPageSize }) {
+const WordList = React.memo(function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, levelFilter, sortKey, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor, jumpTarget, uiLang, defaultPageSize }) {
   // بازه‌ی پیش‌فرضِ نمایش برای این لیستِ خاص. همه‌ی تب‌ها (لغات، اخبار،
   // اسلنگ، Vocabulary in Use) چیزی پاس نمی‌دن و همون WORDS_PAGE_SIZE
   // (۶۰ تا) امن رو می‌گیرن — چون هرکدوم می‌تونن چند صد تا چند هزار ردیف
@@ -16737,9 +16901,12 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
         });
       });
     }
-    return list;
+    // مرتب‌سازی — نگاه کن به GenericSortMenu/WORD_LIST_SORT_OPTIONS بالای
+    // فایل. بعد از فیلترِ سطح/جستجو انجام می‌شه تا رویِ همون لیستِ نهاییِ
+    // نمایش‌داده‌شده اثر بذاره.
+    return sortWordListEntries(list, sortKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [words, levelFilter, q, wordTranslationValues, displayLangsKey]);
+  }, [words, levelFilter, q, wordTranslationValues, displayLangsKey, sortKey]);
 
   // به‌جای اسکرولِ بی‌نهایت، چون تعدادِ لغات خیلی زیاده، کاربر یه بازه‌ی
   // عددی («از # تا #») مشخص می‌کنه و فقط همون بخش از لیست رندر می‌شه.
@@ -17464,11 +17631,48 @@ function WordTargetTranslation({ word, wordId, pos, langCode, abbr, knownText, n
 // جمله رو نرمالایز و کلید می‌کنه) — چون این جمله‌ها ثابتِ دیتان، نه رکوردِ
 // AI با id.
 function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings }) {
-  const [translation, setTranslation] = useState(() => loadWordTranslation(text, targetLang));
+  // ⛔️ همون فیکسِ WordTargetTranslation (بالاتر) اینجا هم لازم بود: قبلاً
+  // نتیجه‌ی translateFree — چه از کش، چه تازه — بدونِ هیچ چکی مستقیم
+  // ست/کش می‌شد. وقتی همه‌ی سرویس‌های ترجمه برای یه جمله (که معمولاً از
+  // خودِ تکِ‌کلمه طولانی‌تره و شانسِ تایم‌اوت/شکست‌ش بیشتره) شکست می‌خوردن،
+  // translateFree به‌جای throw، خودِ متنِ انگلیسیِ اصلی رو برمی‌گردوند —
+  // نتیجه: همون جمله‌ی انگلیسی، بدونِ ترجمه، زیرِ برچسبِ زبونِ مقصد (مثلاً
+  // KO) نشون داده و برای همیشه تو localStorage کش می‌شد. حالا دقیقاً مثلِ
+  // WordTargetTranslation، هم موقعِ خوندنِ کش و هم موقعِ ذخیره‌ی نتیجه‌ی تازه،
+  // با looksLikelyMistranslated چک می‌شه؛ اگه مشکوک بود (مثلاً عیناً همون
+  // متنِ مبدأ)، نه نشون داده می‌شه نه کش — دوباره سراغِ شبکه می‌ره.
+  const [translation, setTranslation] = useState(() => {
+    const cached = loadWordTranslation(text, targetLang);
+    return cached && !looksLikelyMistranslated(text, cached, targetLang, "en") ? cached : "";
+  });
+  const [retrying, setRetrying] = useState(false);
+  const [retryFailed, setRetryFailed] = useState(false);
+
+  const handleRetry = useCallback(async () => {
+    if (retrying) return;
+    setRetrying(true);
+    setRetryFailed(false);
+    try {
+      let result = aiSettings ? await translateViaAI(text, targetLang, "en", aiSettings).catch(() => null) : null;
+      if (!result) {
+        result = await translateFree(text, targetLang, "en", aiSettings, true);
+      }
+      if (result && !looksLikelyMistranslated(text, result, targetLang, "en")) {
+        setTranslation(result);
+        saveWordTranslation(text, targetLang, result);
+      } else {
+        setRetryFailed(true);
+      }
+    } catch {
+      setRetryFailed(true);
+    } finally {
+      setRetrying(false);
+    }
+  }, [retrying, text, targetLang, aiSettings]);
 
   useEffect(() => {
     const cached = loadWordTranslation(text, targetLang);
-    if (cached) {
+    if (cached && !looksLikelyMistranslated(text, cached, targetLang, "en")) {
       setTranslation(cached);
       return;
     }
@@ -17476,6 +17680,7 @@ function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings }) {
     translateFree(text, targetLang, "en", aiSettings, true)
       .then((t) => {
         if (cancelled || !t) return;
+        if (looksLikelyMistranslated(text, t, targetLang, "en")) return; // کش نکن — خودِ سیستمِ ترجمه دوباره امتحان می‌کنه
         setTranslation(t);
         saveWordTranslation(text, targetLang, t);
       })
@@ -17508,6 +17713,18 @@ function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings }) {
       </span>
       <p style={{ flex: 1, fontSize: 12, fontWeight: 800, color: translationColor }}>{translation}</p>
       <SpeakButton text={translation} code={targetLang} color={translationColor} edge="end" />
+      <button
+        onClick={handleRetry}
+        disabled={retrying}
+        title="اگه این ترجمه اشتباهه، دوباره امتحان کن"
+        aria-label="ترجمه‌ی دوباره"
+        style={{ background: "none", border: "none", padding: 4, flexShrink: 0, cursor: retrying ? "default" : "pointer", display: "flex", alignItems: "center" }}
+      >
+        {retrying ? <Loader2 size={12} className="spin" color={colors.inkSoft} /> : <RotateCcw size={12} color={colors.inkSoft} style={{ opacity: 0.6 }} />}
+      </button>
+      {retryFailed && (
+        <span style={{ fontSize: 10, color: colors.rose, flexShrink: 0 }}>هنوز جواب درست نگرفتیم</span>
+      )}
     </div>
   );
 }
