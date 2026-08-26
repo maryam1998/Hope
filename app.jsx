@@ -18524,7 +18524,7 @@ function WordExamples({ word, langCode, meaningNative, nativeLang, targetLangs, 
       </button>
       {err && <p style={{ color: colors.rose, fontSize: 11, marginTop: 4 }}>{err}</p>}
       {examples.map((ex) => (
-        <WordExampleRow key={ex.id} example={ex} word={word} langCode={langCode} nativeLang={nativeLang} targetLangs={targetLangs} aiSettings={aiSettings} />
+        <WordExampleRow key={ex.id} example={ex} word={word} langCode={langCode} nativeLang={nativeLang} nativeLabel={nativeLabel} targetLangs={targetLangs} aiSettings={aiSettings} />
       ))}
     </div>
   );
@@ -18534,7 +18534,7 @@ function WordExamples({ word, langCode, meaningNative, nativeLang, targetLangs, 
 // WordTargetTranslation/LineTranslation برای خودِ لغت/جمله استفاده می‌کنن،
 // اینجا هم عیناً برای هر کدوم از زبان‌های مقصدِ انتخاب‌شده تکرار می‌شه (نه
 // فقط nativeLang) تا مثلاً هم فارسی هم اسپانیایی هم‌زمان دیده بشن.
-function WordExampleTranslationLine({ example, word, langCode, targetLang, abbr, aiSettings }) {
+function WordExampleTranslationLine({ example, word, langCode, targetLang, abbr, aiSettings, nativeLang, nativeLabel }) {
   const [translation, setTranslation] = useState(example.translations?.[targetLang] || "");
 
   useEffect(() => {
@@ -18576,13 +18576,32 @@ function WordExampleTranslationLine({ example, word, langCode, targetLang, abbr,
       >
         {abbr || targetLang.toUpperCase()}
       </span>
-      <p style={{ flex: 1, fontSize: 12, fontWeight: 800, color: translationColor }}>{translation}</p>
+      {/* ClickableSentence به‌جای <p> ساده — تا روی ترجمه‌ی مثال‌های
+          AI-ساز هم بشه لغت/محدوده انتخاب کرد و همون پاپ‌آپِ «افزودن به
+          داستان بعدی / افزودن به گرامر / افزودن به جعبه‌ی لایتنر» باز
+          بشه؛ alignSourceText/alignSourceLang همون تکنیکِ «ترجمه‌ی داخلِ
+          جمله»یِ نسخه‌ی اصلیِ مثال رو فعال می‌کنه (دقیقاً همون الگویی که
+          برایِ ترجمه‌های داخلِ خودِ داستان استفاده می‌شه). */}
+      <div style={{ flex: 1 }}>
+        <ClickableSentence
+          text={translation}
+          langCode={targetLang}
+          nativeLang={nativeLang}
+          nativeLabel={nativeLabel}
+          aiSettings={aiSettings}
+          color={translationColor}
+          fontWeight={800}
+          fontSize={12}
+          alignSourceText={example.text}
+          alignSourceLang={langCode}
+        />
+      </div>
       <SpeakButton text={translation} code={targetLang} color={translationColor} edge="end" />
     </div>
   );
 }
 
-function WordExampleRow({ example, word, langCode, nativeLang, targetLangs, aiSettings }) {
+function WordExampleRow({ example, word, langCode, nativeLang, targetLangs, aiSettings, nativeLabel }) {
   const [added, setAdded] = useState(false);
   // زبان‌های مقصدی که کاربر بالای صفحه انتخاب/مرتب کرده، منهای خودِ زبانِ
   // مقصدی که جمله‌ی مثال بهش نوشته شده (langCode) — اگه چیزی انتخاب نشده
@@ -18611,6 +18630,7 @@ function WordExampleRow({ example, word, langCode, nativeLang, targetLangs, aiSe
             text={example.text}
             langCode={langCode}
             nativeLang={nativeLang}
+            nativeLabel={nativeLabel}
             aiSettings={aiSettings}
             color={mainTextColor}
             fontWeight={800}
@@ -18628,6 +18648,8 @@ function WordExampleRow({ example, word, langCode, nativeLang, targetLangs, aiSe
           targetLang={l.code}
           abbr={l.abbr}
           aiSettings={aiSettings}
+          nativeLang={nativeLang}
+          nativeLabel={nativeLabel}
         />
       ))}
       <button
