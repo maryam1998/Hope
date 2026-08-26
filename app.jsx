@@ -279,21 +279,47 @@ const PDF_VIEW_DB_NAME = "pdf-view-documents";
 const PDF_VIEW_META_STORE = "meta"; // { id, title, pageCount, doneCount, createdAt }
 const PDF_VIEW_PAGE_STORE = "pages"; // key: `${docId}::${pageNum}` -> { pageNum, imageBlob, width, height, originalText, translatedText }
 
+// 🩹 قبلاً همیشه با نسخه‌ی ثابتِ ۱ باز می‌شد: indexedDB.open(NAME, 1). اگه
+// دیتابیسِ واقعیِ رویِ گوشیِ کاربر، به هر دلیلِ تاریخی‌ای (مثلاً نسخه‌ی
+// قدیمی‌ترِ همینِ اپ که یه زمانی این DB رو با نسخه‌ی بالاتر باز/ارتقا داده
+// بود)، از قبل نسخه‌ای بالاتر از ۱ داشت، خودِ indexedDB.open(NAME, 1)
+// بلافاصله با VersionError رد می‌شد — نه فقط یه نوشتن، بلکه اصلِ بازکردنِ
+// دیتابیس. یعنی هیچ صفحه‌ای هیچ‌وقت واقعاً ذخیره نمی‌شد، برای هر PDFِ
+// جدیدی که آپلود می‌شد (نه فقط قدیمی‌ها) — دقیقاً همون چیزی که کاربر دید.
+// فیکس: دیگه نسخه رو حدس نمی‌زنیم. اول بدونِ مشخص‌کردنِ نسخه باز می‌کنیم
+// (که با هر نسخه‌ای که همین الان واقعاً رویِ دستگاهه باز می‌شه، هرچی که
+// باشه)، و فقط اگه استورهای لازم رو نداشت، با یه نسخه‌ی بالاتر ارتقاش
+// می‌دیم. این‌جوری دیگه هیچ عددِ ثابتی نمی‌تونه با واقعیتِ رویِ گوشی تداخل
+// کنه.
 function openPdfViewDB() {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") { reject(new Error("indexeddb-unavailable")); return; }
-    const req = indexedDB.open(PDF_VIEW_DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(PDF_VIEW_META_STORE)) {
-        db.createObjectStore(PDF_VIEW_META_STORE, { keyPath: "id" });
+    const probeReq = indexedDB.open(PDF_VIEW_DB_NAME);
+    probeReq.onerror = () => reject(probeReq.error);
+    probeReq.onsuccess = () => {
+      const probeDb = probeReq.result;
+      const hasStores =
+        probeDb.objectStoreNames.contains(PDF_VIEW_META_STORE) &&
+        probeDb.objectStoreNames.contains(PDF_VIEW_PAGE_STORE);
+      if (hasStores) {
+        resolve(probeDb);
+        return;
       }
-      if (!db.objectStoreNames.contains(PDF_VIEW_PAGE_STORE)) {
-        db.createObjectStore(PDF_VIEW_PAGE_STORE);
-      }
+      const nextVersion = probeDb.version + 1;
+      probeDb.close();
+      const upgradeReq = indexedDB.open(PDF_VIEW_DB_NAME, nextVersion);
+      upgradeReq.onupgradeneeded = () => {
+        const db = upgradeReq.result;
+        if (!db.objectStoreNames.contains(PDF_VIEW_META_STORE)) {
+          db.createObjectStore(PDF_VIEW_META_STORE, { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains(PDF_VIEW_PAGE_STORE)) {
+          db.createObjectStore(PDF_VIEW_PAGE_STORE);
+        }
+      };
+      upgradeReq.onsuccess = () => resolve(upgradeReq.result);
+      upgradeReq.onerror = () => reject(upgradeReq.error);
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
   });
 }
 
@@ -9988,7 +10014,12 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   // هم استخراج و ترجمه می‌شه. نتیجه یک آرایه از صفحه‌هاست که تو خودِ
   // داستان‌ساز، صفحه‌به‌صفحه با عکسِ اصلی + ترجمه‌ی روبروش نمایش داده می‌شه.
   const PDF_VIEW_MAX_BYTES = 80 * 1024 * 1024; // ۸۰ مگابایت — رندرِ تصویریِ صفحه‌به‌صفحه سنگین‌تر از استخراجِ صرفِ متنه
-  const PDF_VIEW_MAX_PAGES = 60; // سقفِ صفحات، تا رندر+ترجمه رو موبایل خیلی طول نکشه/قفل نکنه
+  // 🩹 طبقِ درخواستِ کاربر، سقفِ تعدادِ صفحات کاملاً برداشته شد — قبلاً حتی
+  // فایل‌های خیلی طولانی (مثلاً ۲۷۴ صفحه) رو فقط تا صفحه‌ی ۶۰ می‌خوند و
+  // بی‌صدا بقیه رو کنار می‌ذاشت. الان همه‌ی صفحاتِ فایل پردازش می‌شن —
+  // ممکنه برای فایل‌های خیلی حجیم/طولانی رو موبایل کمی طول بکشه، ولی
+  // صفحه‌به‌صفحه که آماده می‌شه فوراً نشون داده و ذخیره می‌شه، پس نیازی به
+  // صبرِ کاربر برای کلِ فایل نیست.
   const PDF_VIEW_RENDER_SCALE = 1.6; // کیفیتِ کافی برای خوانا بودنِ متن/عکسِ صفحه، بدونِ حجمِ زیادِ نهایی
 
   const handlePdfViewImport = async (e) => {
@@ -10021,8 +10052,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
       const buf = await file.arrayBuffer();
       const srcDoc = await pdfjsLib.getDocument({ data: buf }).promise;
-      const pageCount = Math.min(srcDoc.numPages, PDF_VIEW_MAX_PAGES);
-      const truncated = srcDoc.numPages > PDF_VIEW_MAX_PAGES;
+      const pageCount = srcDoc.numPages;
 
       const metaSaved = await savePdfViewMeta({
         id: docId,
@@ -10115,11 +10145,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         );
         setPdfViewPersisted(false);
       } else {
-        setPdfViewError(
-          truncated
-            ? `توجه: چون فایل بیشتر از ${PDF_VIEW_MAX_PAGES} صفحه بود، فقط ${PDF_VIEW_MAX_PAGES} صفحه‌ی اول بارگذاری شد`
-            : ""
-        );
+        setPdfViewError("");
         setPdfViewPersisted(true);
       }
       refreshPdfViewDocs();
@@ -10154,7 +10180,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       // loadPdfViewPages اصلاً اجرا نمی‌شد (for i=1..undefined) و بی‌هیچ
       // خطایی صفحاتِ خالی برمی‌گشت؛ دقیقاً همون حالتی که کاربر می‌بینه
       // «هیچی نشون داده نمی‌شه» بدونِ هیچ پیام یا نشونه‌ای از چرایی‌اش.
-      const expectedPageCount = doc.pageCount || 200;
+      const expectedPageCount = doc.pageCount || 2000;
       const storedPages = await loadPdfViewPages(doc.id, expectedPageCount);
       const pages = storedPages
         .sort((a, b) => a.pageNum - b.pageNum)
