@@ -4993,10 +4993,18 @@ function DraggableLangRow({ order, setOrder, languages, isActive, isDisabled, on
 // اول کش رو چک می‌کنه). اگه وسط کار قطع بشه، دفعه‌ی بعد فقط لغاتِ باقی‌مونده
 // رو ادامه می‌ده (لغاتی که قبلاً کش شدن رد می‌شن، پس منابع رو هدر نمی‌ده).
 // ============================================================
+function formatDownloadSize(bytes) {
+  if (!bytes) return "۰ کیلوبایت";
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)}`.replace(".", "٫") + " کیلوبایت";
+  const mb = kb / 1024;
+  return `${mb.toFixed(1)}`.replace(".", "٫") + " مگابایت";
+}
+
 function OfflineWordsModal({ open, onClose, aiSettings }) {
   const [selectedLangs, setSelectedLangs] = useState([]);
   const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [progress, setProgress] = useState({ done: 0, total: 0, bytes: 0, failed: 0 });
   const [currentWord, setCurrentWord] = useState("");
   const [cachedCount, setCachedCount] = useState(null);
   const [finished, setFinished] = useState(false);
@@ -5033,10 +5041,16 @@ function OfflineWordsModal({ open, onClose, aiSettings }) {
 
     const jobs = [];
     selectedLangs.forEach((lang) => allWords.forEach((word) => jobs.push({ word, lang })));
-    setProgress({ done: 0, total: jobs.length });
+    setProgress({ done: 0, total: jobs.length, bytes: 0, failed: 0 });
 
     let doneCount = 0;
-    const CONCURRENCY = 4;
+    let byteCount = 0;
+    let failedCount = 0;
+    // با اضافه‌شدنِ circuit-breakerِ سرویس‌های ترجمه (که سرویسِ فیلترشده رو
+    // بعد از چندبار شکست کنار می‌ذاره)، هر کار خیلی سریع‌تر از قبل تصمیم
+    // می‌گیره — پس هم‌زمانیِ محلیِ این دانلود رو هم به همون سقفِ سراسری
+    // (GLOBAL_TRANSLATE_CONCURRENCY) نزدیک می‌کنیم تا صف زودتر خالی بشه.
+    const CONCURRENCY = 8;
     let cursor = 0;
 
     async function worker() {
@@ -5045,12 +5059,20 @@ function OfflineWordsModal({ open, onClose, aiSettings }) {
         const job = jobs[cursor++];
         setCurrentWord(job.word);
         try {
-          await translateFree(job.word, job.lang, "en", aiSettings);
+          const result = await translateFree(job.word, job.lang, "en", aiSettings);
+          // اگه نتیجه هنوز مشکوک/ترجمه‌نشده‌ست (یعنی همه‌ی سرویس‌ها شکست
+          // خوردن و متنِ اصلی برگشته)، به‌عنوانِ «موفق» حسابش نمی‌کنیم —
+          // تا شمارشگرِ کاربر واقعی باشه، نه گمراه‌کننده.
+          if (result && !looksLikelyMistranslated(job.word, result, job.lang, "en")) {
+            byteCount += new TextEncoder().encode(result).length;
+          } else {
+            failedCount++;
+          }
         } catch {
-          // اگه یه کلمه شکست خورد، بی‌خیالش می‌شیم و می‌ریم سراغ بعدی
+          failedCount++;
         }
         doneCount++;
-        setProgress({ done: doneCount, total: jobs.length });
+        setProgress({ done: doneCount, total: jobs.length, bytes: byteCount, failed: failedCount });
       }
     }
 
@@ -5135,8 +5157,13 @@ function OfflineWordsModal({ open, onClose, aiSettings }) {
               <div style={{ height: "100%", width: `${pct}%`, backgroundColor: colors.gold, transition: "width .2s" }} />
             </div>
             <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 4 }}>
-              {progress.done.toLocaleString("fa-IR")} از {progress.total.toLocaleString("fa-IR")} ({pct}٪)
+              {progress.done.toLocaleString("fa-IR")} از {progress.total.toLocaleString("fa-IR")} ({pct}٪) · {formatDownloadSize(progress.bytes)}
             </p>
+            {progress.failed > 0 && (
+              <p style={{ fontSize: 11, color: colors.rose, marginBottom: 4 }}>
+                {progress.failed.toLocaleString("fa-IR")} تا هنوز جواب نگرفتن (بعداً دوباره امتحان می‌شن)
+              </p>
+            )}
             <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 16, direction: "ltr", textAlign: "left", opacity: 0.7 }}>
               {currentWord}
             </p>
@@ -5152,9 +5179,14 @@ function OfflineWordsModal({ open, onClose, aiSettings }) {
         {finished && (
           <div style={{ textAlign: "center", padding: "10px 0" }}>
             <p style={{ fontSize: 14, fontWeight: 700, color: colors.ink, marginBottom: 6 }}>✅ تمام شد</p>
-            <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 16 }}>
-              الان {cachedCount?.toLocaleString("fa-IR")} ترجمه روی گوشی ذخیره‌ست و کاملاً آفلاین در دسترسه.
+            <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>
+              الان {cachedCount?.toLocaleString("fa-IR")} ترجمه (حدود {formatDownloadSize(progress.bytes)} این‌بار) روی گوشی ذخیره‌ست و کاملاً آفلاین در دسترسه.
             </p>
+            {progress.failed > 0 && (
+              <p style={{ fontSize: 11, color: colors.rose, marginBottom: 10 }}>
+                {progress.failed.toLocaleString("fa-IR")} تا ترجمه نشدن (احتمالاً سرویس‌ها موقتاً در دسترس نبودن) — می‌تونی دوباره «شروع دانلود» رو بزنی، فقط همین‌ها امتحان می‌شن.
+              </p>
+            )}
             <button onClick={onClose} style={{ width: "100%", padding: "10px", borderRadius: 12, fontSize: 13, fontWeight: 700, backgroundColor: colors.ink, color: colors.paper }}>
               باشه
             </button>
@@ -16808,6 +16840,38 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
 // پشت‌سرهمِ چند زبان چشم رو خسته نکنه.
 function WordTargetTranslation({ word, wordId, pos, langCode, abbr, knownText, nativeLang, nativeLabel, aiSettings, ClickableSentence, fullText, lineOffsets, isActiveLine, autoScrollActive, highlightColor, onResolved }) {
   const [text, setText] = useState(knownText || (() => loadWordTranslation(word, langCode)));
+  // 🔁 دکمه‌ی «ترجمه‌ی این ردیف اشتباهه، دوباره امتحان کن» — چون گاهی سرویس‌های
+  // رایگان برای یک زبونِ خاص (نه همه) همیشه یه جوابِ غلط/تکراری برمی‌گردونن
+  // (مثلاً به‌خاطرِ فیلترینگ یا محدودیتِ خودِ اون سرویس برای اون زبون)، و
+  // منتظرِ رفع‌شدنِ خودکارش موندن ممکنه هیچ‌وقت جواب نده. این دکمه به‌جایِ
+  // چرخه‌ی معمولیِ ۴ سرویسِ رایگان (که همین الان همون جوابِ غلط رو دادن)،
+  // مستقیم سراغِ بک‌اندِ AI خودِ اپ می‌ره (اگه در دسترس باشه) — شانسِ بیشتری
+  // برایِ گرفتنِ جوابِ درست داره؛ و فقط اگه نتیجه از تستِ رایگانِ
+  // looksLikelyMistranslated رد بشه کش/نمایش می‌شه، وگرنه به‌جایِ ذخیره‌یِ
+  // یه غلطِ دیگه، فقط یه پیامِ کوتاهِ خطا نشون می‌ده.
+  const [retrying, setRetrying] = useState(false);
+  const [retryFailed, setRetryFailed] = useState(false);
+  const handleRetry = useCallback(async () => {
+    if (retrying) return;
+    setRetrying(true);
+    setRetryFailed(false);
+    try {
+      let result = aiSettings ? await translateViaAI(word, langCode, "en", aiSettings).catch(() => null) : null;
+      if (!result) {
+        result = await translateFree(word, langCode, "en", aiSettings, true);
+      }
+      if (result && !looksLikelyMistranslated(word, result, langCode, "en")) {
+        setText(result);
+        saveWordTranslation(word, langCode, result);
+      } else {
+        setRetryFailed(true);
+      }
+    } catch {
+      setRetryFailed(true);
+    } finally {
+      setRetrying(false);
+    }
+  }, [retrying, word, langCode, aiSettings]);
 
   useEffect(() => {
     if (knownText) {
@@ -16921,9 +16985,21 @@ function WordTargetTranslation({ word, wordId, pos, langCode, abbr, knownText, n
             fullText={fullText}
             startOffset={myOffset ? myOffset.start : undefined}
           />
+          <button
+            onClick={handleRetry}
+            disabled={retrying}
+            title="اگه این ترجمه اشتباهه، دوباره امتحان کن"
+            aria-label="ترجمه‌ی دوباره"
+            style={{ background: "none", border: "none", padding: 4, flexShrink: 0, cursor: retrying ? "default" : "pointer", display: "flex", alignItems: "center" }}
+          >
+            {retrying ? <Loader2 size={13} className="spin" color={colors.inkSoft} /> : <RotateCcw size={13} color={colors.inkSoft} style={{ opacity: 0.6 }} />}
+          </button>
         </>
       ) : (
         <p style={{ flex: 1, fontSize: 12, color: colors.inkSoft }}>در حال ترجمه...</p>
+      )}
+      {retryFailed && (
+        <span style={{ fontSize: 10, color: colors.rose, flexShrink: 0 }}>هنوز جواب درست نگرفتیم</span>
       )}
     </div>
   );
