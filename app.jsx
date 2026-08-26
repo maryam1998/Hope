@@ -4718,6 +4718,21 @@ function addLeitnerCustomWord(word, langCode, opts) {
   return true;
 }
 
+// وقتی یه لغتِ سفارشیِ لایتنر فقط ترجمه‌ی یک زبون رو داره (چون موقعِ
+// افزودن، فقط همون یه زبونِ مقصد باز بود) و کاربر بعداً یه زبونِ مقصدِ
+// دیگه هم فعال می‌کنه، ReviewBox این تابع رو صدا می‌زنه تا ترجمه‌یِ همون
+// زبونِ تازه رو (که جدا با translateFree گرفته) روی همون رکورد پر کنه —
+// دقیقاً همون الگویِ «تکمیلِ تنبل» که updateSavedWordTranslation برای
+// پنلِ لغاتِ ذخیره‌شده استفاده می‌کنه.
+function fillLeitnerCustomWordTranslation(id, langCode, text) {
+  if (!text) return;
+  const list = loadLeitnerCustomWords();
+  const idx = list.findIndex((e) => e.id === id);
+  if (idx < 0 || list[idx].t[langCode]) return; // دیگه وجود نداره یا از قبل پر شده
+  list[idx] = { ...list[idx], t: { ...list[idx].t, [langCode]: text } };
+  saveLeitnerCustomWordsList(list);
+}
+
 // ---------------------------------------------------------------------------
 // نگاشتِ سطح (بالاتر، بعد از تعریفِ conversation) رو این‌جا صدا می‌زنیم —
 // نگاه کن به LEVEL_BY_EN_WORD / lookupSavedWordLevel پایین‌ترِ همین فایل،
@@ -18143,7 +18158,37 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
   const levelCounts = [1, 2, 3, 4].map((lvl) => dueAll.filter((x) => x.lvl === lvl).length);
   const filtered = levelFilter === "all" ? dueAll : dueAll.filter((x) => x.lvl === levelFilter);
   const active = filtered.sort((a, b) => a.lvl - b.lvl).map((x) => x.p);
-  if (active.length === 0) {
+  const current = active.length ? active[index % active.length] : null;
+
+  // لغاتِ سفارشیِ لایتنر (که با «افزودن به جعبه‌ی لایتنر» از پاپ‌آپِ لغت
+  // اضافه می‌شن) موقعِ افزوده‌شدن فقط ترجمه‌ی همون یه زبونِ مقصدی که اون
+  // لحظه باز بوده رو دارن — نه همه‌ی زبون‌های فعال (targetLangs). این‌جا،
+  // وقتی کاربر جوابِ کارت رو باز می‌کنه، برای هر زبونِ مقصدِ فعالی که هنوز
+  // ترجمه نداره، جدا از خودِ لغت (t[current.langCode]) با translateFree
+  // ترجمه می‌گیریم و با fillLeitnerCustomWordTranslation روی همون رکورد
+  // پرش می‌کنیم — یعنی این تب هم مثلِ بقیه‌ی جاهای اپ «مولتی‌ترجمه» می‌شه،
+  // نه فقط تک‌ترجمه. pendingRef جلویِ درخواستِ تکراری برای یه (لغت،زبون)ِ
+  // در حالِ انتظار رو می‌گیره.
+  const pendingLeitnerTranslationsRef = useRef(new Set());
+  useEffect(() => {
+    if (!showAnswer || !current || !current.langCode) return;
+    const sourceWord = current.t[current.langCode];
+    if (!sourceWord) return;
+    (targetLangs || []).forEach((l) => {
+      if (l.code === current.langCode || current.t[l.code]) return;
+      const key = `${current.id}:${l.code}`;
+      if (pendingLeitnerTranslationsRef.current.has(key)) return;
+      pendingLeitnerTranslationsRef.current.add(key);
+      translateFree(sourceWord, l.code, current.langCode)
+        .then((text) => {
+          if (text) fillLeitnerCustomWordTranslation(current.id, l.code, text);
+        })
+        .catch(() => {})
+        .finally(() => pendingLeitnerTranslationsRef.current.delete(key));
+    });
+  }, [showAnswer, current, targetLangs]);
+
+  if (!current) {
     return (
       <div className="flex flex-col items-center gap-3 mt-6">
         {levelFilter !== "all" && (
@@ -18155,7 +18200,6 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
       </div>
     );
   }
-  const current = active[index % active.length];
   const currentLevel = boxes[current.id] ?? 1;
 
   const handle = (knew) => {
