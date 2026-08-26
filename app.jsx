@@ -8051,6 +8051,27 @@ function enforceSentenceSplit(paragraphs) {
 // پاراگراف (نه فقط خط)، فاصله‌ی عمودیِ بینِ خط‌ها رو با فاصله‌ی «معمولیِ»
 // بینِ خط‌های همون صفحه مقایسه می‌کنیم — فاصله‌ی به‌مراتب بزرگ‌تر یعنی
 // این‌جا یه بلوکِ تازه (پاراگراف/تیتر/آیتمِ جدا) شروع شده.
+// استخراجِ «تخت» (بدونِ حفظِ پاراگراف) از content.items یه صفحه‌ی PDF —
+// برخلافِ چسبوندنِ سرراستِ هر آیتم با یه space وسطشون
+// (`.map(it=>it.str).join(" ")`)، که چون خیلی از فونت‌ها/PDFها
+// (مخصوصاً متنِ justify‌شده) هر چندتا حرف رو به‌صورتِ آیتمِ جداگونه
+// می‌دن، باعثِ افتادنِ فاصله‌ی اضافه وسطِ خودِ کلمه‌ها می‌شد — مثلاً
+// «was» به‌صورتِ «w as» یا «time» به‌صورتِ «ti m e» درمی‌اومد، چون
+// بینِ هر دو آیتم (even وسطِ یه کلمه) یه space زوری اضافه می‌شد.
+// اینجا دقیقاً مثلِ extractPdfPageTextWithBreaks آیتم‌ها رو بدونِ
+// separatorِ اضافه بهم می‌چسبونیم (فاصله‌ی واقعیِ بینِ کلمه‌ها از قبل
+// خودِ pdf.js تشخیص داده و تو str آیتم‌ها گذاشته)، و فقط سرِ هر خط
+// (hasEOL) یه space می‌ذاریم تا کلمه‌های دو سرِ خط بهم نچسبن.
+function extractPdfPageTextFlat(content) {
+  const items = content?.items || [];
+  let out = "";
+  for (const it of items) {
+    out += it.str || "";
+    if (it.hasEOL) out += " ";
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
 function extractPdfPageTextWithBreaks(content) {
   const items = content?.items || [];
   const rawLines = [];
@@ -9183,7 +9204,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
       for (let i = 1; i <= pageCount; i++) {
         const page = await doc.getPage(i);
         const content = await page.getTextContent();
-        const pageText = content.items.map((it) => it.str).join(" ");
+        const pageText = extractPdfPageTextFlat(content);
         // هر PDF متنِ خام رو معمولاً به‌صورتِ یه رشته‌ی پیوسته می‌ده، نه
         // خط‌به‌خط — برای اینکه با پارسرِ فعلی (که هر خط رو یه لغت فرض
         // می‌کنه) جور دربیاد، رویِ نقطه/کاما/newline خودِ PDF می‌شکونیمش.
@@ -9969,7 +9990,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       for (let i = 1; i <= pageCount; i++) {
         const page = await doc.getPage(i);
         const content = await page.getTextContent();
-        const pageText = content.items.map((it) => it.str).join(" ");
+        const pageText = extractPdfPageTextFlat(content);
         allSentences.push(...splitTextIntoSentenceStrings(pageText));
         // pdf.js انجامِ getTextContent روی صفحه‌های سنگین رو کاملاً
         // سینکرون/CPU-heavy انجام می‌ده؛ خودِ await هم همیشه کافی نیست تا
@@ -10099,7 +10120,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         // متنِ همین صفحه رو دربیار و ترجمه کن
         setBilingualPdfProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
         const content = await page.getTextContent();
-        const pageText = content.items.map((it) => it.str).join(" ").trim();
+        const pageText = extractPdfPageTextFlat(content);
         let translatedText = "";
         if (pageText) {
           const sentences = splitTextIntoSentenceStrings(pageText);
