@@ -685,6 +685,14 @@ function useStoryUserAudio(storyKey, allSentences) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [manualIndex, setManualIndex] = useState(0); // اشاره‌گرِ دستیِ خط، فقط با دکمه‌ی قبل/بعد عوض می‌شه
+  // سرعتِ پخشِ صوتِ آپلودیِ کاربر — مستقل از سرعتِ TTS (که سراسری و
+  // مخصوصِ speechController است). یه پیش‌فرضِ سراسری (نه مخصوصِ هر داستان)
+  // در localStorage نگه داشته می‌شه — دقیقاً همون الگویِ phrasebook-tts-rate.
+  const [rate, setRateState] = useState(() => {
+    const r = Number(window.localStorage?.getItem("phrasebook-user-audio-rate"));
+    return r >= 0.5 && r <= 2 ? r : 1;
+  });
+  const rateRef = useRef(rate);
   // وضعیتِ ذخیره‌سازیِ فایلِ آپلودی — تا وقتی روی IndexedDB نوشته می‌شه
   // (که برایِ فایل‌های صوتیِ حجیم/طولانی ممکنه یه لحظه طول بکشه)، دکمه‌ی
   // آپلود باید غیرفعال/در حالِ بارگذاری نشون داده بشه، وگرنه کاربر حسِ
@@ -744,6 +752,22 @@ function useStoryUserAudio(storyKey, allSentences) {
     setAbA(null);
     setAbB(null);
     setAbState("idle");
+  }
+
+  // با هر تغییرِ سرعت، هم رویِ خودِ <audio> اعمالش می‌کنیم (برای همینِ الان،
+  // بدونِ صبر برایِ بارگذاریِ بعدی)، هم rateRef رو به‌روز نگه می‌داریم (برایِ
+  // onDur پایین‌تر که داخلِ یه useEffectِ بدونِ dependency صدا زده می‌شه و
+  // به مقدارِ همیشه‌به‌روزِ state دسترسی نداره)، هم در localStorage ذخیره‌ش
+  // می‌کنیم تا دفعه‌ی بعد هم همین سرعت پیش‌فرض باشه.
+  useEffect(() => {
+    rateRef.current = rate;
+    if (audioElRef.current) audioElRef.current.playbackRate = rate;
+    try {
+      window.localStorage.setItem("phrasebook-user-audio-rate", String(rate));
+    } catch {}
+  }, [rate]);
+  function setRate(r) {
+    setRateState(Math.min(Math.max(Number(r) || 1, 0.5), 2));
   }
 
   // بارگذاریِ اولیه از IndexedDB وقتی storyKey عوض می‌شه
@@ -816,7 +840,7 @@ function useStoryUserAudio(storyKey, allSentences) {
       lastReportedTimeRef.current = t;
       setCurrentTime(t);
     };
-    const onDur = () => setDuration(el.duration || 0);
+    const onDur = () => { setDuration(el.duration || 0); el.playbackRate = rateRef.current; };
     const onPlay = () => setIsPlaying(true);
     const onPause = () => { setIsPlaying(false); syncTimeNow(); };
     // دکمه‌ی «تکرارِ سراسری» (RepeatButton) یه تنظیمِ مشترک روی
@@ -920,6 +944,8 @@ function useStoryUserAudio(storyKey, allSentences) {
     currentTime,
     duration,
     manualIndex,
+    rate,
+    setRate,
     activeSentence,
     audioSaving,
     audioSaveError,
@@ -8515,7 +8541,77 @@ function UserAudioProgressTrack({ ua, color }) {
         style={{ flex: 1, accentColor: color, opacity: hasAudio ? 1 : 0.5, direction: "ltr", touchAction: "pan-x" }}
       />
       <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 34, textAlign: "left" }}>{fmtTime(duration)}</span>
+      <UserAudioSpeedControl ua={ua} color={color} />
     </div>
+  );
+}
+
+// کنترلِ سرعتِ پخشِ صوتِ آپلودیِ کاربر — دقیقاً همون ظاهر/رفتارِ SpeedControl
+// (سرعتِ TTS)، ولی به‌جایِ speechController، رویِ ua.rate/ua.setRate از
+// useStoryUserAudio کار می‌کنه؛ آخرین آیتمِ همین ردیفه، پس (با جهتِ rtl)
+// سمتِ چپِ پلیر می‌شینه — دقیقاً کنارِ دکمه‌ی سرعتِ TTS در همون موقعیت.
+function UserAudioSpeedControl({ ua, color }) {
+  const { rate, setRate, hasAudio } = ua || {};
+  const r = rate || 1;
+  const c = color || colors.gold;
+  const disabled = !hasAudio || !setRate;
+  const step = (delta) => setRate && setRate(Math.round((r + delta) * 10) / 10);
+  const btnStyle = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 20,
+    height: 20,
+    borderRadius: 999,
+    border: `1px solid ${colors.cardBorder}`,
+    background: "white",
+    color: c,
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1,
+    cursor: "pointer",
+    flexShrink: 0,
+    padding: 0,
+  };
+  return (
+    <span
+      title={`سرعتِ پخشِ صوتِ من: ${r.toFixed(1)}×`}
+      style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0, opacity: disabled ? 0.5 : 1 }}
+    >
+      <Gauge size={15} color={colors.inkSoft} />
+      <button
+        type="button"
+        onClick={() => step(-0.1)}
+        disabled={disabled || r <= 0.5}
+        style={{ ...btnStyle, opacity: disabled || r <= 0.5 ? 0.4 : 1 }}
+        aria-label="کم‌کردنِ سرعتِ صوتِ من"
+      >
+        −
+      </button>
+      <input
+        type="range"
+        min={0.5}
+        max={2}
+        step={0.05}
+        value={r}
+        onChange={(e) => setRate && setRate(e.target.value)}
+        disabled={disabled}
+        style={{ width: 44, accentColor: c }}
+        aria-label="سرعتِ پخشِ صوتِ من"
+      />
+      <button
+        type="button"
+        onClick={() => step(0.1)}
+        disabled={disabled || r >= 2}
+        style={{ ...btnStyle, opacity: disabled || r >= 2 ? 0.4 : 1 }}
+        aria-label="زیادکردنِ سرعتِ صوتِ من"
+      >
+        +
+      </button>
+      <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap", minWidth: 24 }}>
+        {r.toFixed(1)}×
+      </span>
+    </span>
   );
 }
 
@@ -9317,12 +9413,45 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
 
   // پریدن به یه نتیجه‌ی جستجو — همون مکانیزمِ pendingScrollRef/highlightSentence
   // که برای لانگ‌پرسِ لغاتِ ذخیره‌شده استفاده می‌شه؛ اگه پاراگرافش هنوز نمایش
-  // داده نشده، visibleParagraphCount رو هم جلو می‌بره.
+  // داده نشده، visibleParagraphCount رو هم جلو می‌بره. علاوه بر اسکرول، خودِ
+  // خواندن (TTS یا صوتِ آپلودیِ کاربر، هرکدوم الان فعاله) هم از دقیقاً همون
+  // جمله ادامه/شروع می‌شه — نه فقط یه هایلایتِ بی‌صدا.
   function jumpToStorySearchMatch(pi, si) {
     setGranularity("sentence");
     setVisibleParagraphCount((n) => (pi >= n ? pi + 1 : n));
     pendingScrollRef.current = { pi, si };
     setSearchJumpSeq((n) => n + 1);
+
+    const offset = sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0;
+
+    if (playbackMode === "user" && userAudio.hasAudio) {
+      // صوتِ آپلودیِ کاربر: هیچ نگاشتِ دقیقِ کاراکتر↔زمان نداریم (برخلافِ
+      // TTS)، پس فقط یه تخمینِ نسبیِ ساده — درصدِ آفستِ کاراکتری از کلِ متن
+      // رو روی طولِ کلِ صدا اعمال می‌کنیم و از همون‌جا پخش رو شروع می‌کنیم.
+      const ratio = fullStoryText.length ? offset / fullStoryText.length : 0;
+      const target = ratio * (userAudio.duration || 0);
+      userAudio.seek(target);
+      userAudio.play();
+      return;
+    }
+
+    // حالتِ TTS: اگه همین متن همین الان (پخش‌شده یا مکث‌شده) لود شده،
+    // seekToChunk می‌زنیم تا دقیقاً از همین جمله ادامه بده (بدونِ توگل‌کردنِ
+    // پاز/پخش)؛ وگرنه از صفر، یه سشنِ تازه‌ی «خواندنِ کل متن» رو از همین
+    // آفست شروع می‌کنیم.
+    if (!fullStoryText) return;
+    const st = speechController.getState();
+    if (st.key === mainStoryKey && st.status !== "idle") {
+      const meta = speechController.getChunksMeta();
+      let idx = 0;
+      for (let i = 0; i < meta.length; i++) {
+        if (offset >= meta[i].start) idx = i;
+        else break;
+      }
+      speechController.seekToChunk(idx);
+    } else {
+      speechController.toggle(fullStoryText, storyLang, offset, { loop: true });
+    }
   }
 
   // جمله‌ای که همین الان، در حینِ پخشِ «کل متن» از روی پلیر، داره خونده
