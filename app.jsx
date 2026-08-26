@@ -3970,6 +3970,60 @@ async function generateWordExample({ word, langCode, meaningNative, nativeLabel,
 const GRAMMAR_NOTES_KEY = "phrasebook-grammar-notes-v1";
 const GRAMMAR_NOTES_CHANGED_EVENT = "phrasebook:grammarNotesChanged";
 
+// ---------------------------------------------------------------------------
+// یادداشتِ آزادِ کاربر برای هر داستان — یک متنِ ساده (بدونِ محدودیتِ تعدادِ
+// کلمه) که زیرِ خودِ داستان نگه‌داری می‌شه. با mainStoryKey (همون کلیدی که
+// useStoryUserAudio هم استفاده می‌کنه) به داستانِ مشخص وصل می‌شه، پس هر
+// داستان یادداشتِ مستقلِ خودش رو داره و با عوض‌شدنِ داستان، یادداشتِ داستانِ
+// دیگه نشون داده می‌شه.
+// ---------------------------------------------------------------------------
+const STORY_NOTES_KEY = "phrasebook-story-notes-v1";
+function loadStoryNotesMap() {
+  try {
+    const raw = window.localStorage.getItem(STORY_NOTES_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    return obj && typeof obj === "object" && !Array.isArray(obj) ? obj : {};
+  } catch {
+    return {};
+  }
+}
+function loadStoryNote(storyKey) {
+  if (!storyKey) return "";
+  const all = loadStoryNotesMap();
+  return typeof all[storyKey] === "string" ? all[storyKey] : "";
+}
+function saveStoryNote(storyKey, text) {
+  if (!storyKey) return;
+  const all = loadStoryNotesMap();
+  if (text && text.trim()) {
+    all[storyKey] = text;
+  } else {
+    delete all[storyKey];
+  }
+  try {
+    window.localStorage.setItem(STORY_NOTES_KEY, JSON.stringify(all));
+  } catch {}
+}
+// هوکِ ساده‌ی یادداشتِ هر داستان — با عوض‌شدنِ storyKey (یعنی رفتن سراغِ
+// داستانِ دیگه)، متنِ ذخیره‌شده‌ی همون داستان از localStorage خونده می‌شه؛
+// هر تغییری هم بلافاصله (بدونِ دکمه‌ی جداگونه‌ی «ذخیره») روی همون کلید
+// نوشته می‌شه.
+function useStoryNote(storyKey) {
+  const [text, setText] = useState(() => loadStoryNote(storyKey));
+  const lastKeyRef = useRef(storyKey);
+  useEffect(() => {
+    if (lastKeyRef.current !== storyKey) {
+      lastKeyRef.current = storyKey;
+      setText(loadStoryNote(storyKey));
+    }
+  }, [storyKey]);
+  const update = (next) => {
+    setText(next);
+    saveStoryNote(storyKey, next);
+  };
+  return [text, update];
+}
+
 // تنظیماتِ نمایشِ متنِ زبان‌های مقصد — اندازه‌ی فونت (به‌صورتِ درصدِ
 // مقیاس، با نوارِ پیمایشِ کم/زیاد در تنظیمات) و حالتِ بولدشدن (برای متنِ
 // اصلی، ترجمه، هردو، یا هیچ‌کدوم). این جدا از «اندازه‌ی فونتِ کلیِ اپ»یِ
@@ -8991,6 +9045,16 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // هنوز رندر نشدن). یه useLayoutEffectِ بدونِ وابستگی (پایین‌تر) هر بار بعد
   // از هر رندر چک می‌کنه که آیا نودِ موردنظر حالا در دسترسه یا نه.
   const pendingScrollRef = useRef(null); // {pi, si} | null
+  // جستجوی آزاد داخلِ متنِ داستان — کاربر می‌تونه با هر زبانی تایپ کنه؛ روی
+  // متنِ اصلیِ هر جمله و روی همه‌ی ترجمه‌هاش (هر زبانی که فعاله) چک می‌شه.
+  // فقط برای پیداکردن و پریدن به جمله‌ی موردنظره، لیستِ داستان رو فیلتر
+  // نمی‌کنه (که شماره‌ی پاراگراف/جمله‌ها به‌هم نریزه).
+  const [storySearchQuery, setStorySearchQuery] = useState("");
+  // یه شمارنده‌ی ساده که با هر بار زدنِ رویِ یه نتیجه‌ی جستجو یکی زیاد می‌شه،
+  // فقط برای این‌که کامپوننت مطمئناً یه رندرِ تازه بزنه و useLayoutEffectِ
+  // اسکرول (پایین‌تر، بر اساسِ pendingScrollRef) بعدش اجرا بشه — حتی اگه
+  // granularity/visibleParagraphCount قبلاً همون مقدار بودن.
+  const [searchJumpSeq, setSearchJumpSeq] = useState(0);
   const [translationLangs, setTranslationLangs] = useState(
     Array.from(new Set([nativeLang, ...(targetOrder || [])])).filter((c) => c !== defaultStoryLang)
   );
@@ -9218,6 +9282,47 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   function reportStoryWordSpoken(baseOffset, localEnd) {
     if (!mainStoryKey) return;
     rememberMainTextResumeOffset(mainStoryKey, (baseOffset || 0) + (localEnd || 0));
+  }
+
+  // یادداشتِ آزادِ همین داستان — با mainStoryKey مشخص می‌شه دقیقاً کدوم
+  // داستانه، پس با بازکردنِ داستانِ دیگه، یادداشتِ همون داستانِ دیگه نشون
+  // داده می‌شه.
+  const [storyNote, setStoryNote] = useStoryNote(mainStoryKey);
+
+  // نتیجه‌های جستجوی آزادِ داخلِ متنِ داستان — روی متنِ اصلیِ هر جمله و
+  // ترجمه‌های فعالش چک می‌شه؛ حداکثر ۳۰ نتیجه (برای سبک‌موندنِ رابط) نشون
+  // داده می‌شه.
+  const storySearchMatches = useMemo(() => {
+    const q = storySearchQuery.trim().toLowerCase();
+    if (!q) return [];
+    const results = [];
+    for (let pi = 0; pi < paragraphs.length; pi++) {
+      const sentences = paragraphs[pi]?.sentences || [];
+      for (let si = 0; si < sentences.length; si++) {
+        const s = sentences[si];
+        if (!s) continue;
+        const original = (s.text || "").toLowerCase();
+        const translated = translationLangs
+          .map((code) => s.t?.[code] || "")
+          .join(" ")
+          .toLowerCase();
+        if (original.includes(q) || translated.includes(q)) {
+          results.push({ pi, si, text: s.text || "" });
+          if (results.length >= 30) return results;
+        }
+      }
+    }
+    return results;
+  }, [storySearchQuery, paragraphs, translationLangs]);
+
+  // پریدن به یه نتیجه‌ی جستجو — همون مکانیزمِ pendingScrollRef/highlightSentence
+  // که برای لانگ‌پرسِ لغاتِ ذخیره‌شده استفاده می‌شه؛ اگه پاراگرافش هنوز نمایش
+  // داده نشده، visibleParagraphCount رو هم جلو می‌بره.
+  function jumpToStorySearchMatch(pi, si) {
+    setGranularity("sentence");
+    setVisibleParagraphCount((n) => (pi >= n ? pi + 1 : n));
+    pendingScrollRef.current = { pi, si };
+    setSearchJumpSeq((n) => n + 1);
   }
 
   // جمله‌ای که همین الان، در حینِ پخشِ «کل متن» از روی پلیر، داره خونده
@@ -12096,6 +12201,67 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             </div>
           </div>
 
+          {!editingStoryText && (
+            <div style={{ marginBottom: 12 }}>
+              <div
+                className="flex items-center gap-2"
+                style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 10, padding: "6px 10px" }}
+              >
+                <Search size={14} color={colors.inkSoft} style={{ flexShrink: 0 }} />
+                <input
+                  type="text"
+                  value={storySearchQuery}
+                  onChange={(e) => setStorySearchQuery(e.target.value)}
+                  placeholder="جستجو داخلِ متنِ داستان — به هر زبانی"
+                  dir="auto"
+                  style={{ flex: 1, minWidth: 0, border: "none", outline: "none", fontSize: 13, background: "transparent", color: colors.ink }}
+                />
+                {!!storySearchQuery && (
+                  <button
+                    onClick={() => setStorySearchQuery("")}
+                    aria-label="پاک‌کردنِ جستجو"
+                    style={{ display: "flex", alignItems: "center", background: "none", border: "none", color: colors.inkSoft, cursor: "pointer", flexShrink: 0 }}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              {!!storySearchQuery.trim() && (
+                <div style={{ marginTop: 6 }}>
+                  {storySearchMatches.length === 0 ? (
+                    <p style={{ fontSize: 12, color: colors.inkSoft }}>چیزی پیدا نشد.</p>
+                  ) : (
+                    <div className="flex flex-col gap-1">
+                      <p style={{ fontSize: 11, color: colors.inkSoft }}>{storySearchMatches.length} نتیجه:</p>
+                      {storySearchMatches.map((m, idx) => (
+                        <button
+                          key={`${m.pi}-${m.si}-${idx}`}
+                          type="button"
+                          onClick={() => jumpToStorySearchMatch(m.pi, m.si)}
+                          dir="auto"
+                          style={{
+                            textAlign: "start",
+                            fontSize: 12,
+                            padding: "6px 8px",
+                            borderRadius: 8,
+                            border: `1px solid ${colors.cardBorder}`,
+                            backgroundColor: colors.paper,
+                            color: colors.ink,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {m.text}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {editingStoryText ? (
             <div style={{ marginBottom: 8, textAlign: "start" }}>
               <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>
@@ -12564,6 +12730,29 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 {w}: {countOccurrences(fullStoryText, w)} بار
               </span>
             ))}
+          </div>
+
+          <div style={{ marginTop: 14, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 12 }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>
+              یادداشتِ من دربارهٔ این داستان
+            </p>
+            <textarea
+              value={storyNote}
+              onChange={(e) => setStoryNote(e.target.value)}
+              dir="auto"
+              rows={5}
+              placeholder="هرچی می‌خوای دربارهٔ این داستان یادداشت کن — بدونِ محدودیتِ تعدادِ کلمه…"
+              style={{
+                width: "100%",
+                border: `1px solid ${colors.cardBorder}`,
+                borderRadius: 10,
+                padding: "8px 10px",
+                fontSize: 13,
+                outline: "none",
+                resize: "vertical",
+                minHeight: 90,
+              }}
+            />
           </div>
           </>
           )}
