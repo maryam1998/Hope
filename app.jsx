@@ -1093,7 +1093,7 @@ async function verifyTranslationWithAI(sourceText, targetLang, draft, aiSettings
 // از ۳ به ۶ افزایش پیدا کرد تا صفِ درخواست‌ها (مخصوصاً موقعِ اضافه‌کردنِ یه
 // زبانِ مقصدِ تازه رویِ یه لیستِ ۶۰تایی) سریع‌تر خالی بشه و احتمالِ رسیدنِ
 // یه کار به تایمر (بالا) قبل از این‌که اصلاً نوبتش برسه کمتر بشه.
-const GLOBAL_TRANSLATE_CONCURRENCY = 6;
+const GLOBAL_TRANSLATE_CONCURRENCY = 10;
 const TRANSLATE_HARD_TIMEOUT_MS = 15000;
 let _translateActiveCount = 0;
 const _translateQueue = [];
@@ -1166,9 +1166,50 @@ async function translateFree(text, targetLang, sourceLang = "auto", aiSettings =
   });
 }
 
+// ---------------------------------------------------------------------------
+// 🚦 Circuit breaker برای سرویس‌های ترجمه: اگه یه سرویس (مثلاً چون تویِ
+// شبکه‌ی کاربر فیلتر/بلاکه) پشتِ‌سرِهم شکست بخوره، قبلاً همچنان برایِ
+// *هر کلمه/هر زبونِ بعدی* دوباره امتحانش می‌کردیم — یعنی هر ردیفِ ترجمه
+// (هر کلمه × هر زبون) باید صبر می‌کرد تا هر ۴ سرویس یکی‌یکی (هرکدوم تا
+// fetchWithTimeoutِ خودش) شکست بخورن، قبل از این‌که نوبت به بعدی/بک‌اندِ
+// AI برسه. روی صفحه‌ای با مثلاً ۶۰ لغت × ۹ زبونِ غیرِفارسی = ۵۴۰ ردیف،
+// با فقط GLOBAL_TRANSLATE_CONCURRENCY کارِ هم‌زمان، این یعنی ده‌ها دقیقه
+// طول می‌کشید تا کل صف خالی بشه — دقیقاً همون «صبر کردم ولی ترجمه نشد».
+// حالا: بعد از چند شکستِ پشتِ‌سرِهمِ یه سرویس (تویِ کلِ اپ، نه فقط یه
+// کلمه)، همون سرویس برایِ چند دقیقه به‌طور کامل کنار گذاشته می‌شه — پس
+// بقیه‌ی ردیف‌ها بلافاصله سراغِ سرویسِ زنده (یا بک‌اندِ AI) می‌رن، بدونِ
+// این‌که وقتِ‌شون رویِ سرویس‌هایِ مرده تلف بشه. بعد از اتمامِ زمانِ بلاک،
+// خودکار یه‌بارِ دیگه امتحان می‌شه (شاید فیلترینگ برداشته شده باشه).
+const PROVIDER_FAIL_THRESHOLD = 2; // این‌قدر شکستِ پشتِ‌سرِهم یعنی احتمالاً بلاکه، نه یه خطایِ لحظه‌ای
+const PROVIDER_BLOCK_MS = 3 * 60 * 1000; // ۳ دقیقه کنار گذاشته می‌شه، بعدش دوباره امتحان می‌شه
+const _providerFailCounts = {};
+const _providerBlockedUntil = {};
+function isProviderTemporarilyBlocked(provider) {
+  const until = _providerBlockedUntil[provider.name];
+  if (!until) return false;
+  if (Date.now() < until) return true;
+  // زمانِ بلاک تموم شده — پاکش کن تا دوباره یه شانس بگیره
+  delete _providerBlockedUntil[provider.name];
+  _providerFailCounts[provider.name] = 0;
+  return false;
+}
+function reportProviderOutcome(provider, succeeded) {
+  if (succeeded) {
+    _providerFailCounts[provider.name] = 0;
+    delete _providerBlockedUntil[provider.name];
+    return;
+  }
+  const count = (_providerFailCounts[provider.name] || 0) + 1;
+  _providerFailCounts[provider.name] = count;
+  if (count >= PROVIDER_FAIL_THRESHOLD) {
+    _providerBlockedUntil[provider.name] = Date.now() + PROVIDER_BLOCK_MS;
+  }
+}
+
 async function translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify) {
   const providers = [translateViaGoogle, translateViaMyMemory, translateViaLingva, translateViaLibre];
   for (const provider of providers) {
+    if (isProviderTemporarilyBlocked(provider)) continue;
     try {
       const result = await provider(text, targetLang, sourceLang);
       if (result && result.trim()) {
@@ -1188,10 +1229,14 @@ async function translateFreeNetwork(text, targetLang, sourceLang, aiSettings, fo
         if (looksLikelyMistranslated(text, finalResult, targetLang, sourceLang)) {
           continue;
         }
+        reportProviderOutcome(provider, true);
         setCachedTranslation(text, targetLang, sourceLang, finalResult); // fire-and-forget
         return finalResult;
       }
+      // جواب خالی/بی‌محتوا هم یه‌جور شکستِ همون سرویسه
+      reportProviderOutcome(provider, false);
     } catch (error) {
+      reportProviderOutcome(provider, false);
       console.warn(`ترجمه با ${provider.name} ناموفق بود، رفتن سراغ سرویس بعدی:`, error?.message || error);
     }
   }
