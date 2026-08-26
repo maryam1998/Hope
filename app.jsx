@@ -1515,6 +1515,32 @@ function highlightBg(highlightColor, isActive, inactiveValue) {
   return highlightColor || READ_MARKER_COLOR;
 }
 
+// ⚡️ استایلِ مشترکِ «سواچِ رنگ» — دقیقاً بر اساسِ ظاهرِ سواچ‌های
+// «Theme Colors»ِ پاورپوینت که کاربر نمونه فرستاد: یه مربعِ کوچیکِ
+// گوشه‌گرد با بردرِ نازکِ خاکستری و یه سایه‌ی ظریف، به‌جای دایره‌ی تختِ
+// قبلی. هم پیکِ «رنگ و تم» و هم پالتِ «رنگِ هایلایتِ خواندن» از همین یه
+// تابع استفاده می‌کنن تا کاملاً هم‌شکل باشن (طبقِ درخواستِ کاربر). حالتِ
+// انتخاب‌شده هم به‌جای یه بردرِ ضخیمِ ساده، یه حلقه‌ی دوتایی (یه خطِ سفید
+// و بعدش رنگِ طلایی) دورِ سواچ می‌کشه — همون افکتِ برجسته‌شدنِ سواچِ
+// انتخابی که توی اسکرین‌شاتِ پاورپوینت هم دیده می‌شه.
+function swatchButtonStyle(bg, selected, size = 34) {
+  return {
+    width: size,
+    height: size,
+    borderRadius: 8,
+    backgroundColor: bg,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    border: `1px solid ${selected ? colors.gold : "rgba(0,0,0,.16)"}`,
+    boxShadow: selected
+      ? `0 0 0 2px white, 0 0 0 4px ${colors.gold}, 0 1px 3px rgba(0,0,0,.2)`
+      : "0 1px 2px rgba(0,0,0,.12), inset 0 0 0 1px rgba(255,255,255,.35)",
+    flexShrink: 0,
+    transition: "box-shadow .15s ease",
+  };
+}
+
 // Theme presets — each is a full set of the 9 tokens above. "vintage" is the
 // original look; the rest are alternate moods, all still checked for
 // readable contrast (dark ink/text tokens on light paper tokens, or the
@@ -1527,37 +1553,43 @@ const APP_THEMES = {
   },
   ocean: {
     label: { fa: "اقیانوسی", en: "Ocean" },
-    swatch: "#1C7C93",
+    // ⚡️ سواچِ پیکِ تم (فقط پیش‌نمایشِ دکمه، نه رنگ‌های واقعیِ تم) به یه
+    // آبیِ واضح‌تر و تمیزتر تغییر کرد — طبقِ درخواستِ کاربر که سواچ‌های
+    // غیرِ پیش‌فرض کدر/زشت به‌نظر می‌رسیدن. رنگ‌های واقعیِ تم (values) دست‌نخورده موند.
+    swatch: "#2E86DE",
     values: { paper: "#EAF4F4", paperDark: "#D7E9EA", ink: "#0F2A38", inkSoft: "#2A4E5C", gold: "#1C7C93", goldSoft: "#8FCBD8", teal: "#1C7C93", rose: "#B4533F", cardBorder: "#BBD6D8" },
   },
   forest: {
     label: { fa: "جنگلی", en: "Forest" },
-    swatch: "#5C7A3A",
+    swatch: "#2FA84F",
     values: { paper: "#F1F0E4", paperDark: "#E2E0CC", ink: "#26321D", inkSoft: "#41522C", gold: "#8A6D2F", goldSoft: "#C9B77E", teal: "#5C7A3A", rose: "#9C4A3A", cardBorder: "#CBCBA8" },
   },
   rosewine: {
     label: { fa: "گلبهی", en: "Rosewine" },
-    swatch: "#A34960",
+    swatch: "#C2185B",
     values: { paper: "#F7EAEA", paperDark: "#EBD6D8", ink: "#3A1F26", inkSoft: "#5C3540", gold: "#A34960", goldSoft: "#E3AFBC", teal: "#6E5A78", rose: "#A34960", cardBorder: "#DDBFC4" },
   },
   midnight: {
     label: { fa: "تیره (شب)", en: "Midnight" },
-    swatch: "#D9A441",
+    // ⚡️ قبلاً سواچِ این تم هم طلایی بود (D9A441) — تقریباً هم‌رنگِ خودِ
+    // پیش‌فرض (vintage) و به‌سختی قابلِ‌تشخیص. حالا یه بنفشِ‌آبیِ متمایز
+    // (periwinkle/indigo، شبیهِ یکی از رنگ‌های ردیفِ اسکرین‌شات) داره.
+    swatch: "#3F51B5",
     values: { paper: "#1B1F2A", paperDark: "#262C3B", ink: "#F1E8D6", inkSoft: "#C9C2AE", gold: "#D9A441", goldSoft: "#8A6A2C", teal: "#5FA997", rose: "#D9776A", cardBorder: "#3A4258" },
   },
   sunset: {
     label: { fa: "غروب", en: "Sunset" },
-    swatch: "#D9752E",
+    swatch: "#E8622C",
     values: { paper: "#FCEFE2", paperDark: "#F5DFC6", ink: "#3A2313", inkSoft: "#6B4A2C", gold: "#D9752E", goldSoft: "#F0B784", teal: "#4E7A6E", rose: "#B23A3A", cardBorder: "#E6C79E" },
   },
   lavender: {
     label: { fa: "بنفش (اسطوخودوس)", en: "Lavender" },
-    swatch: "#7A5FA8",
+    swatch: "#8E44AD",
     values: { paper: "#F1EEF8", paperDark: "#E1DAF0", ink: "#2C2140", inkSoft: "#4C3E68", gold: "#7A5FA8", goldSoft: "#C5B3E3", teal: "#4C7A8A", rose: "#A8517F", cardBorder: "#D2C5EA" },
   },
   mint: {
     label: { fa: "نعنایی", en: "Mint" },
-    swatch: "#2E9E7B",
+    swatch: "#1AAE8C",
     values: { paper: "#EAF7F1", paperDark: "#D6EEE2", ink: "#12332A", inkSoft: "#2E5548", gold: "#2E9E7B", goldSoft: "#9BDCC3", teal: "#2E9E7B", rose: "#B25353", cardBorder: "#BEE0D0" },
   },
 };
@@ -5695,14 +5727,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
                 onClick={() => update("theme", key)}
                 title={th.label[uiLang] || th.label.fa}
                 aria-pressed={appPrefs.theme === key}
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: "50%",
-                  backgroundColor: th.swatch,
-                  border: appPrefs.theme === key ? `3px solid ${colors.ink}` : `1px solid ${colors.cardBorder}`,
-                  flexShrink: 0,
-                }}
+                style={swatchButtonStyle(th.swatch, appPrefs.theme === key)}
               />
             ))}
           </div>
@@ -5881,17 +5906,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
               onClick={() => update("highlightColor", "none")}
               aria-pressed={appPrefs.highlightColor === "none"}
               title={uiLang === "en" ? "No highlight" : "بدون هایلایت"}
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: "50%",
-                backgroundColor: "white",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                border: appPrefs.highlightColor === "none" ? `3px solid ${colors.ink}` : `1px solid ${colors.cardBorder}`,
-                flexShrink: 0,
-              }}
+              style={swatchButtonStyle("white", appPrefs.highlightColor === "none", 30)}
             >
               <X size={14} color={colors.inkSoft} />
             </button>
@@ -5901,14 +5916,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
                 onClick={() => update("highlightColor", hex)}
                 aria-pressed={appPrefs.highlightColor === hex}
                 title={hex}
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: "50%",
-                  backgroundColor: hex,
-                  border: appPrefs.highlightColor === hex ? `3px solid ${colors.ink}` : `1px solid ${colors.cardBorder}`,
-                  flexShrink: 0,
-                }}
+                style={swatchButtonStyle(hex, appPrefs.highlightColor === hex, 30)}
               />
             ))}
           </div>
