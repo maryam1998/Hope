@@ -11022,6 +11022,35 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
 
       <div style={{ textAlign: "center" }}>
         <input
+          ref={pdfReadInputRef}
+          type="file"
+          accept="application/pdf"
+          onChange={handlePdfImportForReading}
+          style={{ display: "none" }}
+        />
+        <button
+          onClick={() => pdfReadInputRef.current?.click()}
+          disabled={pdfReadBusy}
+          className="flex items-center justify-center gap-2"
+          style={{
+            width: "100%",
+            border: `1px dashed ${colors.cardBorder}`,
+            borderRadius: 14,
+            padding: "10px 16px",
+            fontWeight: 700,
+            fontSize: 13,
+            color: colors.teal,
+            opacity: pdfReadBusy ? 0.6 : 1,
+          }}
+        >
+          {pdfReadBusy ? <Loader2 size={16} className="spin" /> : <span>📖</span>}
+          {pdfReadBusy ? (pdfReadProgress || "در حال خوندنِ PDF...") : "به‌جاش یه PDF برای خوانش وارد کن"}
+        </button>
+        {pdfReadError && (
+          <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfReadError}</p>
+        )}
+
+        <input
           ref={pdfViewInputRef}
           type="file"
           accept="application/pdf"
@@ -11041,6 +11070,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             fontSize: 13,
             color: colors.teal,
             opacity: pdfViewBusy ? 0.6 : 1,
+            marginTop: 10,
           }}
         >
           {pdfViewBusy ? <Loader2 size={16} className="spin" /> : <span>📑</span>}
