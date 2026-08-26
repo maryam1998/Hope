@@ -101,9 +101,12 @@ const READ_MARKER_COLOR = "#FFD54F";
 // گرادیانتِ طلاییِ «خوانده‌شده» — همون افکتِ .card.done توی
 // language-app-home.html، اینجا هم برای هدرِ سناریوهای بازشونده استفاده
 // می‌شه تا با بقیه‌ی جاهای اپ یکسان باشه.
-const READ_DONE_GRADIENT = "linear-gradient(145deg, #FCEACB 0%, #F6D69C 55%, #F0C583 100%)";
-const READ_DONE_BORDER = "#E3B96E";
-const READ_DONE_SHADOW = "0 4px 14px -6px rgba(201,154,46,.45)";
+const READ_DONE_GRADIENT = "linear-gradient(150deg, #F8F2DE 0%, #F1E6C6 100%)";
+const READ_DONE_BORDER = "#E3D2A2";
+const READ_DONE_SHADOW = "0 2px 8px -6px rgba(150,120,40,.15)";
+// تیکِ «خوانده‌شده» همیشه سبزه (مستقل از تمِ رنگیِ فعال یا readDoneColor)
+// تا با بقیه‌ی تب‌های اپ (لغات، داستان‌ها، یادداشت‌ها) دقیقاً یکدست بمونه.
+const READ_DONE_CHECK_GRADIENT = "linear-gradient(135deg, #3F9B72, #276E4F)";
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
 // نسخه‌ی محلیِ نگاشتِ لوکالِ TTS — عیناً همون چیزی که app.jsx داره (برای
@@ -176,8 +179,8 @@ function TopicCard({ meta, index, hasData, onClick, uiLang, isRead, onToggleRead
           width: 20,
           height: 20,
           borderRadius: "50%",
-          border: isRead ? `1.6px solid ${readDoneColor || "#B4841E"}` : "1.6px dashed #C8BE95",
-          background: isRead ? `linear-gradient(135deg, ${colors.gold}, ${readDoneColor || "#B4841E"})` : "#fff",
+          border: isRead ? `1.6px solid ${READ_DONE_BORDER}` : "1.6px dashed #C8BE95",
+          background: isRead ? READ_DONE_CHECK_GRADIENT : "#fff",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -493,8 +496,8 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
               width: 20,
               height: 20,
               borderRadius: "50%",
-              border: isRead ? `1.6px solid ${readDoneColor || READ_DONE_BORDER}` : "1.6px dashed #C8BE95",
-              background: isRead ? `linear-gradient(135deg, ${colors.gold}, ${readDoneColor || READ_DONE_BORDER})` : "transparent",
+              border: isRead ? `1.6px solid ${READ_DONE_BORDER}` : "1.6px dashed #C8BE95",
+              background: isRead ? READ_DONE_CHECK_GRADIENT : "transparent",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",

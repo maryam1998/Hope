@@ -1295,6 +1295,9 @@ const READ_DONE_BORDER = "#E3D2A2";
 const READ_DONE_SHADOW = "0 2px 8px -6px rgba(150,120,40,.15)";
 // تیکِ «خوانده‌شده» همیشه سبزه (مستقل از تمِ رنگیِ فعال) تا با هر پوسته‌ای یکدست بمونه.
 const READ_DONE_CHECK_GRADIENT = "linear-gradient(135deg, #3F9B72, #276E4F)";
+// رنگِ ثابتِ ستاره‌ی «افزودن به علاقه‌مندی‌ها» — زرد (نه طلایی/نارنجی)،
+// مستقل از تمِ رنگیِ فعال، تا همه‌جای اپ یکدست باشه.
+const STAR_FAVORITE_COLOR = "#F5C518";
 // پالتِ رنگ‌های کم‌رنگ/بی‌حال (pastel) که کاربر می‌تونه به‌عنوانِ رنگِ
 // هایلایتِ خواندن ازش انتخاب کنه — دقیقاً همون طیفی که خودِ کاربر
 // به‌عنوانِ نمونه فرستاد (زردِ کم‌رنگ، هلویی، نارنجیِ ملایم، صورتی‌مرجانی،
@@ -15210,8 +15213,8 @@ const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, t
                 <button onClick={() => toggleFavorite(p.id)} aria-label={tr("addToFavoritesAria", uiLang)} style={{ marginRight: 4 }}>
                   <Star
                     size={20}
-                    color={colors.gold}
-                    fill={favorites.has(p.id) ? colors.gold : "none"}
+                    color={STAR_FAVORITE_COLOR}
+                    fill={favorites.has(p.id) ? STAR_FAVORITE_COLOR : "none"}
                   />
                 </button>
               </div>
@@ -16554,7 +16557,7 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
             {isRead && <Check size={13} color="white" strokeWidth={3} />}
           </button>
           <button onClick={() => toggleWordFavorite(w.id)} aria-label={tr("addToFavoritesAria", uiLang)} style={{ marginLeft: 4, flexShrink: 0 }}>
-            <Star size={20} color={colors.gold} fill={wordFavorites.has(w.id) ? colors.gold : "none"} />
+            <Star size={20} color={STAR_FAVORITE_COLOR} fill={wordFavorites.has(w.id) ? STAR_FAVORITE_COLOR : "none"} />
           </button>
           <div className="flex-1">
             {/* لغت + نشان‌های سطح/نوع توی یه زیرجعبه‌ی flex-wrap جدا هستن، و
