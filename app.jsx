@@ -10326,6 +10326,15 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   };
 
   const openSavedStory = (entry) => {
+    // 🆕 داستان‌های ذخیره‌شده‌ای که از «PDF رو با عکسِ اصلی + ترجمه همینجا
+    // نشون بده» اومدن، فقط یه اشاره‌گر (pdfDocId) به سندِ واقعی‌شون تو
+    // IndexedDBِ خودِ PDFها نگه می‌دارن (نه خودِ تصاویر/صفحات — که خیلی
+    // سنگین‌تر از اونه که تو همون آرایه‌ی savedStories/localStorage جا بشه).
+    // پس بازکردن‌شون باید از همون مسیرِ «بازکردنِ PDFِ ذخیره‌شده» رد بشه.
+    if (entry.pdfDocId) {
+      openSavedPdfViewDoc({ id: entry.pdfDocId, title: entry.title, pageCount: entry.pageCount, doneCount: entry.pageCount });
+      return;
+    }
     setStoryLang(entry.storyLang);
     setStoryLevel(entry.storyLevel);
     setStoryLength(entry.storyLength || "medium");
@@ -10341,7 +10350,36 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   };
 
   const deleteSavedStory = (id) => {
-    setSavedStories((prev) => prev.filter((s) => s.id !== id));
+    setSavedStories((prev) => {
+      const entry = prev.find((s) => s.id === id);
+      // اگه این کارت در واقع یه اشاره‌گر به یه PDFِ ذخیره‌شده بود، خودِ
+      // سندِ PDF (صفحات/عکس‌ها) رو هم از IndexedDBِ مخصوصِ PDFها پاک کن —
+      // وگرنه یه سندِ یتیم و بی‌استفاده اونجا برای همیشه می‌مونه.
+      if (entry?.pdfDocId) {
+        deletePdfViewDoc(entry.pdfDocId, entry.pageCount).then(refreshPdfViewDocs).catch(() => {});
+      }
+      return prev.filter((s) => s.id !== id);
+    });
+  };
+
+  // 🆕 دکمه‌ی «ذخیره در داستان‌ها»یِ خودِ نمایشگرِ PDF — سندِ PDF از قبل با
+  // بازشدنش خودکار تویِ IndexedDBِ خودش ذخیره شده (savePdfViewMeta/Page)،
+  // این دکمه فقط یه کارتِ سبک (اشاره‌گر) براش تویِ همون لیستِ یکپارچه‌ی
+  // «داستان‌های ذخیره‌شده» می‌سازه، دقیقاً مثلِ بقیه‌ی داستان‌ها — با آیکونِ
+  // 📄 کنارش (شبیهِ همون 🎵ای که برای صوتِ آپلودی گذاشته شده).
+  const savePdfToStories = () => {
+    if (!pdfViewDocId) return;
+    setSavedStories((prev) => {
+      if (prev.some((s) => s.pdfDocId === pdfViewDocId)) return prev; // قبلاً ذخیره شده
+      const entry = {
+        id: Date.now(),
+        pdfDocId: pdfViewDocId,
+        title: pdfViewTitle,
+        pageCount: pdfViewPages.length,
+        savedAt: new Date().toISOString(),
+      };
+      return [entry, ...prev];
+    });
   };
 
   const submitQuiz = () => {
@@ -10598,14 +10636,29 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                             {savedStoriesAudioMap[s.id] && (
                               <span title="صوتِ آپلودی داره" style={{ marginLeft: 6 }}>🎵</span>
                             )}
-                            {LANGUAGES.find((l) => l.code === s.storyLang)?.label} · {s.storyLevel} ·{" "}
-                            {CONTENT_TYPES.find((c) => c.key === s.contentType)?.label || "عمومی"} ·{" "}
-                            {STORY_LENGTHS.find((l) => l.key === s.storyLength)?.label || "متوسط"}
+                            {s.pdfDocId && (
+                              <span title="فایلِ PDF" style={{ marginLeft: 6 }}>📄</span>
+                            )}
+                            {s.pdfDocId ? (
+                              <>PDF{s.pageCount ? ` · ${s.pageCount} صفحه` : ""}</>
+                            ) : (
+                              <>
+                                {LANGUAGES.find((l) => l.code === s.storyLang)?.label} · {s.storyLevel} ·{" "}
+                                {CONTENT_TYPES.find((c) => c.key === s.contentType)?.label || "عمومی"} ·{" "}
+                                {STORY_LENGTHS.find((l) => l.key === s.storyLength)?.label || "متوسط"}
+                              </>
+                            )}
                           </p>
-                          {getStoryEntryPreview(s) && (
-                            <p style={{ fontSize: 12, color: colors.ink, marginTop: 2 }}>{getStoryEntryPreview(s)}</p>
+                          {s.pdfDocId ? (
+                            <p style={{ fontSize: 12, color: colors.ink, marginTop: 2 }}>{s.title}</p>
+                          ) : (
+                            <>
+                              {getStoryEntryPreview(s) && (
+                                <p style={{ fontSize: 12, color: colors.ink, marginTop: 2 }}>{getStoryEntryPreview(s)}</p>
+                              )}
+                              <p style={{ fontSize: 12, color: colors.inkSoft }}>{s.selectedWords.join("، ")}</p>
+                            </>
                           )}
-                          <p style={{ fontSize: 12, color: colors.inkSoft }}>{s.selectedWords.join("، ")}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -10969,71 +11022,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
 
       <div style={{ textAlign: "center" }}>
         <input
-          ref={pdfReadInputRef}
-          type="file"
-          accept="application/pdf"
-          onChange={handlePdfImportForReading}
-          style={{ display: "none" }}
-        />
-        <button
-          onClick={() => pdfReadInputRef.current?.click()}
-          disabled={pdfReadBusy}
-          className="flex items-center justify-center gap-2"
-          style={{
-            width: "100%",
-            border: `1px dashed ${colors.cardBorder}`,
-            borderRadius: 14,
-            padding: "10px 16px",
-            fontWeight: 700,
-            fontSize: 13,
-            color: colors.teal,
-            opacity: pdfReadBusy ? 0.6 : 1,
-          }}
-        >
-          {pdfReadBusy ? <Loader2 size={16} className="spin" /> : <span>📖</span>}
-          {pdfReadBusy ? (pdfReadProgress || "در حال خوندنِ PDF...") : "به‌جاش یه PDF برای خوانش وارد کن"}
-        </button>
-        {pdfReadError && (
-          <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfReadError}</p>
-        )}
-        <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
-          به‌جای ساختِ داستان با هوش‌مصنوعی، متنِ خودِ PDF رو با همین سیستمِ خوانش (ترجمه، هایلایت، صدا) نشون می‌ده — بدونِ نیاز به انتخابِ لغت.
-        </p>
-
-        <input
-          ref={bilingualPdfInputRef}
-          type="file"
-          accept="application/pdf"
-          onChange={handleBilingualPdfExport}
-          style={{ display: "none" }}
-        />
-        <button
-          onClick={() => bilingualPdfInputRef.current?.click()}
-          disabled={bilingualPdfBusy}
-          className="flex items-center justify-center gap-2"
-          style={{
-            width: "100%",
-            border: `1px dashed ${colors.gold}`,
-            borderRadius: 14,
-            padding: "10px 16px",
-            fontWeight: 700,
-            fontSize: 13,
-            color: colors.gold,
-            opacity: bilingualPdfBusy ? 0.6 : 1,
-            marginTop: 10,
-          }}
-        >
-          {bilingualPdfBusy ? <Loader2 size={16} className="spin" /> : <span>🖼️</span>}
-          {bilingualPdfBusy ? (bilingualPdfProgress || "در حال ساختِ PDFِ دوزبانه...") : "دانلودِ همین PDF با عکس‌های اصلی + ترجمه"}
-        </button>
-        {bilingualPdfError && (
-          <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{bilingualPdfError}</p>
-        )}
-        <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
-          خودِ فایل (عکس‌ها/چیدمانِ اصلی) دست‌نخورده می‌مونه؛ یک PDFِ تازه دانلود می‌شه که بعدِ هر صفحه‌ی اصلی، یک صفحه‌ی «ترجمه» روبروش اضافه شده — همه‌چیز محلی، روی خودِ گوشی/مرورگر ساخته می‌شه.
-        </p>
-
-        <input
           ref={pdfViewInputRef}
           type="file"
           accept="application/pdf"
@@ -11053,7 +11041,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             fontSize: 13,
             color: colors.teal,
             opacity: pdfViewBusy ? 0.6 : 1,
-            marginTop: 10,
           }}
         >
           {pdfViewBusy ? <Loader2 size={16} className="spin" /> : <span>📑</span>}
@@ -11062,9 +11049,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         {pdfViewError && (
           <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfViewError}</p>
         )}
-        <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
-          خودِ فایل (عکس‌ها/چیدمانِ اصلی) دست‌نخورده می‌مونه و هیچی دانلود نمی‌شه؛ همین که صفحه‌ی اول آماده شد نشونت داده می‌شه و می‌تونی شروع به خوندن کنی — بقیه‌ی صفحات پشتِ‌صحنه ادامه پیدا می‌کنن. نتیجه هم همینجا تو اپ ذخیره می‌مونه، دیگه لازم نیست دوباره آپلودش کنی.
-        </p>
 
         {/* لیستِ PDFهای ذخیره‌شده از این‌جا برداشته شد — حالا داخلِ پنلِ
             «داستان‌های ذخیره‌شده» (بالا، گوشه‌ی سمت چپ) نشون داده می‌شه،
@@ -11079,9 +11063,24 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                   <span style={{ color: colors.inkSoft, fontWeight: 400 }}> (بقیه‌ی صفحات در حالِ پردازش...)</span>
                 )}
               </span>
-              <button onClick={closePdfView} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
-                بستن
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={savePdfToStories}
+                  disabled={!pdfViewDocId || savedStories.some((s) => s.pdfDocId === pdfViewDocId)}
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: savedStories.some((s) => s.pdfDocId === pdfViewDocId) ? colors.inkSoft : colors.gold,
+                    textDecoration: savedStories.some((s) => s.pdfDocId === pdfViewDocId) ? "none" : "underline",
+                    opacity: !pdfViewDocId ? 0.5 : 1,
+                  }}
+                >
+                  {savedStories.some((s) => s.pdfDocId === pdfViewDocId) ? "ذخیره شد ✓" : "ذخیره در داستان‌ها"}
+                </button>
+                <button onClick={closePdfView} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
+                  بستن
+                </button>
+              </div>
             </div>
             <div className="flex flex-wrap gap-3" style={{ alignItems: "flex-start" }}>
               <div
