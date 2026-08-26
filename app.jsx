@@ -35,12 +35,40 @@ const STORY_SEARCH_CONVERSATION_POOL = DAILY_CONVERSATIONS.flatMap((tp) =>
 // شکلی که WordList (تبِ لغات/لغات‌واخبار/اسلنگ) انتظار داره؛ id پایدار
 // می‌سازیم (بر اساسِ شناسه‌ی واحد + ایندکس) تا ذخیره‌شدن/⭐/خوانده‌شدنِ هر
 // لغت بینِ نشست‌ها ثابت بمونه.
+// 🐛 باگِ اصلی: unit.level توی vocabularyInUseData.js فقط یه برچسبِ آزاد
+// («intermediate») بود، ولی فیلترِ سطح توی UI (LevelFilterRow/WordList)
+// دقیقاً با رشته‌های "A1".."C2" مقایسه می‌کرد (`words.filter(w => w.level
+// === levelFilter)`) — پس هیچ‌وقت برابر نمی‌شدن و هر سطحی که می‌زدی خالی
+// می‌موند. حالا خودِ ۱۰۰ واحدِ vocabularyInUseData.js با کدهای واقعیِ
+// CEFR (بر اساسِ موضوع/سختیِ لغاتِ هر واحد: A1×14، A2×35، B1×41، B2×10)
+// برچسب‌گذاری شدن — نه فقط یه نگاشتِ یکنواخت به B1. تابعِ زیر فقط یه
+// شبکه‌ی ایمنیه: اگه یه‌جا هنوز برچسبِ آزادِ قدیمی (مثلِ «intermediate»)
+// باقی مونده باشه تبدیلش می‌کنه، وگرنه کدِ CEFRِ خودِ دیتا رو دست‌نخورده
+// برمی‌گردونه.
+const VOCAB_IN_USE_LEVEL_TO_CEFR = {
+  elementary: "A2",
+  "pre-intermediate": "A2",
+  preintermediate: "A2",
+  intermediate: "B1",
+  "upper-intermediate": "B2",
+  upperintermediate: "B2",
+  advanced: "C1",
+  proficiency: "C2",
+};
+function normalizeVocabInUseLevel(rawLevel) {
+  if (!rawLevel) return null;
+  const key = String(rawLevel).trim().toLowerCase();
+  // اگه از قبل خودش یه کدِ CEFR معتبره (مثلاً یه‌جا تویِ دیتا اصلاح شد و
+  // مستقیم "B1" نوشتن)، همون رو دست‌نخورده برگردون.
+  if (/^[abc][12]$/i.test(key)) return key.toUpperCase();
+  return VOCAB_IN_USE_LEVEL_TO_CEFR[key] || null;
+}
 const VOCAB_IN_USE_WORDS = VOCAB_IN_USE_UNITS.flatMap((unit, ui) =>
   (unit.words || []).map((w, wi) => ({
     id: `viu-${unit.id || ui}-${wi}`,
     en: w.en,
     fa: w.fa,
-    level: unit.level || null,
+    level: normalizeVocabInUseLevel(unit.level),
     example: w.example || "",
     collocation: w.collocation || "",
     category: unit.topicFa || unit.topic || "",
@@ -1062,7 +1090,10 @@ async function verifyTranslationWithAI(sourceText, targetLang, draft, aiSettings
 // بینِ همه مشترکه). حالا فقط GLOBAL_TRANSLATE_CONCURRENCY تا درخواستِ
 // واقعیِ شبکه‌ای، در کلِ اپ (نه فقط داخلِ یه افکت)، هم‌زمان اجرا می‌شه؛
 // بقیه صف می‌کِشن.
-const GLOBAL_TRANSLATE_CONCURRENCY = 3;
+// از ۳ به ۶ افزایش پیدا کرد تا صفِ درخواست‌ها (مخصوصاً موقعِ اضافه‌کردنِ یه
+// زبانِ مقصدِ تازه رویِ یه لیستِ ۶۰تایی) سریع‌تر خالی بشه و احتمالِ رسیدنِ
+// یه کار به تایمر (بالا) قبل از این‌که اصلاً نوبتش برسه کمتر بشه.
+const GLOBAL_TRANSLATE_CONCURRENCY = 6;
 const TRANSLATE_HARD_TIMEOUT_MS = 15000;
 let _translateActiveCount = 0;
 const _translateQueue = [];
@@ -1110,13 +1141,29 @@ async function translateFree(text, targetLang, sourceLang = "auto", aiSettings =
   // کش نبود — کارِ واقعیِ شبکه‌ای وارد صفِ سراسری می‌شه (نه بلافاصله اجرا)
   // تا سقفِ هم‌زمانی رعایت بشه؛ و کلِ این کار زیرِ یه سقفِ زمانیِ سخت قرار
   // می‌گیره تا رابط کاربری هیچ‌وقت بی‌نهایت منتظر نمونه.
-  const networkPromise = queueTranslateJob(() =>
-    translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify)
-  );
-  const timeoutPromise = new Promise((resolve) => {
-    setTimeout(() => resolve(text), TRANSLATE_HARD_TIMEOUT_MS);
+  //
+  // 🐛 باگِ اصلیِ «زبان‌های غیر از EN/FA/ES همیشه انگلیسی برمی‌گردوندن»
+  // دقیقاً همین‌جا بود: قبلاً تایمرِ ۱۵ثانیه‌ای همین که translateFree صدا
+  // زده می‌شد شروع می‌شد — یعنی از لحظه‌ی *صف‌شدن*، نه از لحظه‌ی *واقعاً
+  // اجراشدن*. توی تبِ «Vocabulary in Use» (یا هر لیستِ ۶۰تاییِ دیگه)،
+  // با انتخاب/اضافه‌کردنِ یه زبانِ مقصدِ تازه (که هنوز کش نشده، برخلافِ
+  // فارسی که مستقیم تویِ دیتاست هست و اصلاً وارد این صف نمی‌شه)، ده‌ها
+  // درخواستِ ترجمه هم‌زمان صف می‌شدن؛ ولی GLOBAL_TRANSLATE_CONCURRENCY
+  // فقط ۳تاشون رو هم‌زمان اجرا می‌کنه. نتیجه: کلمه‌های آخرِ صف تا نوبتشون
+  // برسه بیشتر از ۱۵ثانیه صف می‌موندن، تایمر زودتر از شروعِ کارِ واقعی‌شون
+  // فایر می‌شد، و resolve(text) یعنی *متنِ انگلیسیِ اصلی* بدونِ هیچ تلاشِ
+  // شبکه‌ای واقعی نمایش داده می‌شد — دقیقاً همون چیزی که با ES (که معمولاً
+  // زودتر/با صفِ کوتاه‌تر تست می‌شه) دیده نمی‌شد ولی با بقیه‌ی زبان‌ها
+  // (که صف‌شون شلوغ‌تره) دائم تکرار می‌شد. فیکس: تایمر رو می‌بریم *داخلِ*
+  // کارِ صف‌شده، تا فقط از لحظه‌ای که واقعاً اجرا شروع می‌شه بشمره؛ تا وقتی
+  // یه کار توی صف منتظره، هیچ‌وقت به‌خاطرِ صف‌شدن fail/fallback نمی‌شه.
+  return queueTranslateJob(() => {
+    const networkPromise = translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify);
+    const timeoutPromise = new Promise((resolve) => {
+      setTimeout(() => resolve(text), TRANSLATE_HARD_TIMEOUT_MS);
+    });
+    return Promise.race([networkPromise, timeoutPromise]);
   });
-  return Promise.race([networkPromise, timeoutPromise]);
 }
 
 async function translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify) {

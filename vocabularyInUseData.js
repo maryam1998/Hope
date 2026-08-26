@@ -3,11 +3,15 @@
 // حذفِ ۱۰ واحدِ کاملاً تکراری (sport-and-leisure تا sightseeing-holidays که در دو بخش کپی شده بودند)،
 // رفعِ یک کوتیشنِ نبسته در fa: "." که خطای سینتکسی ایجاد کرده بود،
 // و اصلاحِ یک تمرینِ mcq با گزینه‌ی ناقص/غلط (crisps vs chips).
+// و اصلاحِ سطحِ CEFR: قبلاً هر ۱۰۰ واحد یکسان "intermediate" بودن (باعثِ
+// خالی‌موندنِ همه‌ی ستون‌های A1..C2 به‌جز B1 توی تبِ Vocabulary in Use
+// می‌شد)؛ حالا هر واحد بر اساسِ موضوع/سختیِ لغاتش جداگانه سطح‌بندی شده:
+// A1×14، A2×35، B1×41، B2×10 (این کتاب اصلاً واحدِ سطحِ C1/C2 نداره).
 
 export const VOCAB_IN_USE_UNITS = [
   {
     id: "learning-vocabulary",
-    level: "intermediate",
+    level: "A1",
     topic: "Learning Vocabulary",
     topicFa: "یادگیری لغت",
     words: [
@@ -125,7 +129,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "keeping-a-vocabulary-notebook",
-    level: "intermediate",
+    level: "A2",
     topic: "Keeping a Vocabulary Notebook",
     topicFa: "داشتن دفترچه‌ی لغت",
     words: [
@@ -213,7 +217,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "using-a-dictionary",
-    level: "intermediate",
+    level: "A1",
     topic: "Using a Dictionary",
     topicFa: "استفاده از فرهنگ لغت",
     words: [
@@ -307,7 +311,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "english-language-words",
-    level: "intermediate",
+    level: "A1",
     topic: "English Language Words",
     topicFa: "واژگان مربوط به زبان انگلیسی",
     words: [
@@ -449,7 +453,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "country-nationality-language",
-    level: "intermediate",
+    level: "A1",
     topic: "Country, Nationality and Language",
     topicFa: "کشور، ملیت و زبان",
     words: [
@@ -537,7 +541,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "the-physical-world",
-    level: "intermediate",
+    level: "A2",
     topic: "The Physical World",
     topicFa: "دنیای فیزیکی (جغرافیا)",
     words: [
@@ -667,7 +671,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "weather",
-    level: "intermediate",
+    level: "A1",
     topic: "Weather",
     topicFa: "هوا و آب و هوا",
     words: [
@@ -785,7 +789,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "animals-and-insects",
-    level: "intermediate",
+    level: "A1",
     topic: "Animals and Insects",
     topicFa: "حیوانات و حشرات",
     words: [
@@ -879,7 +883,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "the-body-and-movement",
-    level: "intermediate",
+    level: "A2",
     topic: "The Body and Movement",
     topicFa: "بدن و حرکات",
     words: [
@@ -1027,7 +1031,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "describing-appearance",
-    level: "intermediate",
+    level: "A2",
     topic: "Describing Appearance",
     topicFa: "توصیف ظاهر",
     words: [
@@ -1157,7 +1161,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "describing-character",
-    level: "intermediate",
+    level: "B1",
     topic: "Describing Character",
     topicFa: "توصیف شخصیت",
     words: [
@@ -1371,7 +1375,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "feelings",
-    level: "intermediate",
+    level: "A2",
     topic: "Feelings",
     topicFa: "احساسات",
     words: [
@@ -1561,7 +1565,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "family-and-friends",
-    level: "intermediate",
+    level: "A1",
     topic: "Family and Friends",
     topicFa: "خانواده و دوستان",
     words: [
@@ -1715,7 +1719,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "growing-up",
-    level: "intermediate",
+    level: "A2",
     topic: "Growing Up",
     topicFa: "دوران رشد",
     words: [
@@ -1887,7 +1891,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "romance-marriage-divorce",
-    level: "intermediate",
+    level: "B1",
     topic: "Romance, Marriage and Divorce",
     topicFa: "عشق، ازدواج و طلاق",
     words: [
@@ -2047,7 +2051,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "daily-routines",
-    level: "intermediate",
+    level: "A1",
     topic: "Daily Routines",
     topicFa: "کارهای روزمره",
     words: [
@@ -2243,7 +2247,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "the-place-where-you-live",
-    level: "intermediate",
+    level: "B1",
     topic: "The Place Where You Live",
     topicFa: "محل زندگی",
     words: [
@@ -2415,7 +2419,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "around-the-home",
-    level: "intermediate",
+    level: "A2",
     topic: "Around the Home",
     topicFa: "داخل خانه",
     words: [
@@ -2605,7 +2609,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "money",
-    level: "intermediate",
+    level: "A2",
     topic: "Money",
     topicFa: "پول",
     words: [
@@ -2777,7 +2781,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "health",
-    level: "intermediate",
+    level: "A2",
     topic: "Health",
     topicFa: "سلامت",
     words: [
@@ -2967,7 +2971,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "clothes",
-    level: "intermediate",
+    level: "A1",
     topic: "Clothes",
     topicFa: "لباس",
     words: [
@@ -3211,7 +3215,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "fashion-and-buying-clothes",
-    level: "intermediate",
+    level: "B1",
     topic: "Fashion and Buying Clothes",
     topicFa: "مد و خرید لباس",
     words: [
@@ -3407,7 +3411,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "shopping",
-    level: "intermediate",
+    level: "A2",
     topic: "Shopping",
     topicFa: "خرید کردن",
     words: [
@@ -3573,7 +3577,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "food",
-    level: "intermediate",
+    level: "A1",
     topic: "Food",
     topicFa: "غذا و خوراک",
     words: [
@@ -3841,7 +3845,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "cooking",
-    level: "intermediate",
+    level: "B1",
     topic: "Cooking",
     topicFa: "آشپزی",
     words: [
@@ -4055,7 +4059,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "city-life",
-    level: "intermediate",
+    level: "A2",
     topic: "City Life",
     topicFa: "زندگی شهری",
     words: [
@@ -4221,7 +4225,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "life-in-the-country",
-    level: "intermediate",
+    level: "A2",
     topic: "Life in the Country",
     topicFa: "زندگی در روستا",
     words: [
@@ -4399,7 +4403,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "transport",
-    level: "intermediate",
+    level: "A2",
     topic: "Transport",
     topicFa: "حمل و نقل",
     words: [
@@ -4625,7 +4629,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "on-the-road",
-    level: "intermediate",
+    level: "B1",
     topic: "On the Road",
     topicFa: "در جاده",
     words: [
@@ -4839,7 +4843,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "notices-and-warnings",
-    level: "intermediate",
+    level: "B1",
     topic: "Notices and Warnings",
     topicFa: "اعلان‌ها و هشدارها",
     words: [
@@ -4993,7 +4997,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "classroom-language",
-    level: "intermediate",
+    level: "A2",
     topic: "Classroom Language",
     topicFa: "زبان کلاس درس",
     words: [
@@ -5189,7 +5193,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "school-education",
-    level: "intermediate",
+    level: "A2",
     topic: "School Education",
     topicFa: "آموزش مدرسه",
     words: [
@@ -5367,7 +5371,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "studying-english-and-exams",
-    level: "intermediate",
+    level: "B1",
     topic: "Studying English and Taking Exams",
     topicFa: "مطالعه‌ی انگلیسی و امتحان دادن",
     words: [
@@ -5545,7 +5549,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "university-education",
-    level: "intermediate",
+    level: "B1",
     topic: "University Education",
     topicFa: "تحصیلات دانشگاهی",
     words: [
@@ -5711,7 +5715,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "jobs",
-    level: "intermediate",
+    level: "A2",
     topic: "Jobs",
     topicFa: "مشاغل",
     words: [
@@ -5865,7 +5869,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "talking-about-your-work",
-    level: "intermediate",
+    level: "B1",
     topic: "Talking About Your Work",
     topicFa: "صحبت کردن درباره‌ی کار",
     words: [
@@ -6007,7 +6011,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "making-a-career",
-    level: "intermediate",
+    level: "B1",
     topic: "Making a Career",
     topicFa: "پیشرفت شغلی",
     words: [
@@ -6167,7 +6171,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "working-in-an-office",
-    level: "intermediate",
+    level: "B1",
     topic: "Working in an Office",
     topicFa: "کار در اداره",
     words: [
@@ -6339,7 +6343,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "running-a-company",
-    level: "intermediate",
+    level: "B2",
     topic: "Running a Company",
     topicFa: "مدیریت یک شرکت",
     words: [
@@ -6493,7 +6497,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "business-and-finance",
-    level: "intermediate",
+    level: "B2",
     topic: "Business and Finance",
     topicFa: "کسب و کار و امور مالی",
     words: [
@@ -6641,7 +6645,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "sport-and-leisure",
-    level: "intermediate",
+    level: "A2",
     topic: "Sport and Leisure",
     topicFa: "ورزش و اوقات فراغت",
     words: [
@@ -6831,7 +6835,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "competitive-sport",
-    level: "intermediate",
+    level: "B1",
     topic: "Competitive Sport",
     topicFa: "ورزش رقابتی",
     words: [
@@ -6985,7 +6989,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "books-and-films",
-    level: "intermediate",
+    level: "A2",
     topic: "Books and Films",
     topicFa: "کتاب‌ها و فیلم‌ها",
     words: [
@@ -7139,7 +7143,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "music",
-    level: "intermediate",
+    level: "A2",
     topic: "Music",
     topicFa: "موسیقی",
     words: [
@@ -7323,7 +7327,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "special-events",
-    level: "intermediate",
+    level: "A2",
     topic: "Special Events",
     topicFa: "رویدادهای ویژه",
     words: [
@@ -7453,7 +7457,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "travel-bookings",
-    level: "intermediate",
+    level: "A2",
     topic: "Travel Bookings",
     topicFa: "رزرو سفر",
     words: [
@@ -7571,7 +7575,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "air-travel",
-    level: "intermediate",
+    level: "A2",
     topic: "Air Travel",
     topicFa: "سفر هوایی",
     words: [
@@ -7743,7 +7747,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "hotels-and-restaurants",
-    level: "intermediate",
+    level: "A2",
     topic: "Hotels and Restaurants",
     topicFa: "هتل‌ها و رستوران‌ها",
     words: [
@@ -7909,7 +7913,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "cafes",
-    level: "intermediate",
+    level: "A2",
     topic: "Cafés",
     topicFa: "کافه‌ها",
     words: [
@@ -8105,7 +8109,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "sightseeing-holidays",
-    level: "intermediate",
+    level: "A2",
     topic: "Sightseeing Holidays",
     topicFa: "تعطیلات گشت‌وگذار",
     words: [
@@ -8283,7 +8287,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "holidays-by-the-sea",
-    level: "intermediate",
+    level: "A2",
     topic: "Holidays by the Sea",
     topicFa: "تعطیلات کنار دریا",
     words: [
@@ -8473,7 +8477,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "newspapers-and-television",
-    level: "intermediate",
+    level: "B1",
     topic: "Newspapers and Television",
     topicFa: "روزنامه و تلویزیون",
     words: [
@@ -8669,7 +8673,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "phoning-and-texting",
-    level: "intermediate",
+    level: "A2",
     topic: "Phoning and Texting",
     topicFa: "تلفن و پیامک",
     words: [
@@ -8835,7 +8839,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "computers",
-    level: "intermediate",
+    level: "A2",
     topic: "Computers",
     topicFa: "کامپیوتر",
     words: [
@@ -9121,7 +9125,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "email-and-the-internet",
-    level: "intermediate",
+    level: "B1",
     topic: "Email and the Internet",
     topicFa: "ایمیل و اینترنت",
     words: [
@@ -9359,7 +9363,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "crime",
-    level: "intermediate",
+    level: "B1",
     topic: "Crime",
     topicFa: "جرم و جنایت",
     words: [
@@ -9597,7 +9601,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "politics",
-    level: "intermediate",
+    level: "B2",
     topic: "Politics",
     topicFa: "سیاست",
     words: [
@@ -9763,7 +9767,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "climate-change",
-    level: "intermediate",
+    level: "B2",
     topic: "Climate Change",
     topicFa: "تغییرات آب و هوا",
     words: [
@@ -9899,7 +9903,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "war-and-violence",
-    level: "intermediate",
+    level: "B2",
     topic: "War and Violence",
     topicFa: "جنگ و خشونت",
     words: [
@@ -10083,7 +10087,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "time",
-    level: "intermediate",
+    level: "A1",
     topic: "Time",
     topicFa: "زمان",
     words: [
@@ -10291,7 +10295,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "numbers",
-    level: "intermediate",
+    level: "A1",
     topic: "Numbers",
     topicFa: "اعداد",
     words: [
@@ -10421,7 +10425,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "distance-dimensions-size",
-    level: "intermediate",
+    level: "A2",
     topic: "Distance, Dimensions and Size",
     topicFa: "فاصله، ابعاد و اندازه",
     words: [
@@ -10593,7 +10597,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "objects-materials-shapes-colour",
-    level: "intermediate",
+    level: "A1",
     topic: "Objects, Materials, Shapes and Colour",
     topicFa: "اشیاء، جنس، شکل و رنگ",
     words: [
@@ -10819,7 +10823,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "containers-and-quantities",
-    level: "intermediate",
+    level: "A2",
     topic: "Containers and Quantities",
     topicFa: "ظرف‌ها و مقدارها",
     words: [
@@ -11003,7 +11007,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "apologies-excuses-thanks",
-    level: "intermediate",
+    level: "A2",
     topic: "Apologies, Excuses and Thanks",
     topicFa: "عذرخواهی، بهانه و تشکر",
     words: [
@@ -11139,7 +11143,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "requests-permission-suggestions",
-    level: "intermediate",
+    level: "A2",
     topic: "Requests, Permission and Suggestions",
     topicFa: "درخواست، اجازه و پیشنهاد",
     words: [
@@ -11287,7 +11291,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "opinions-agreeing-disagreeing",
-    level: "intermediate",
+    level: "B1",
     topic: "Opinions, Agreeing and Disagreeing",
     topicFa: "نظر، موافقت و مخالفت",
     words: [
@@ -11423,7 +11427,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "likes-dislikes-attitudes",
-    level: "intermediate",
+    level: "B1",
     topic: "Likes, Dislikes, Attitudes and Preferences",
     topicFa: "علاقه، تنفر، نگرش و اولویت",
     words: [
@@ -11565,7 +11569,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "greetings-farewells-special",
-    level: "intermediate",
+    level: "A1",
     topic: "Greetings, Farewells and Special Expressions",
     topicFa: "سلام، خداحافظی و عبارات ویژه",
     words: [
@@ -11689,7 +11693,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "prefixes-changing-meaning",
-    level: "intermediate",
+    level: "B1",
     topic: "Prefixes: Changing Meaning",
     topicFa: "پیشوندها: تغییر معنی",
     words: [
@@ -11867,7 +11871,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "suffixes-forming-nouns",
-    level: "intermediate",
+    level: "B1",
     topic: "Suffixes: Forming Nouns",
     topicFa: "پسوندها: ساخت اسم",
     words: [
@@ -12045,7 +12049,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "suffixes-forming-adjectives",
-    level: "intermediate",
+    level: "B1",
     topic: "Suffixes: Forming Adjectives",
     topicFa: "پسوندها: ساخت صفت",
     words: [
@@ -12235,7 +12239,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "compound-nouns",
-    level: "intermediate",
+    level: "B1",
     topic: "Compound Nouns",
     topicFa: "اسم‌های مرکب",
     words: [
@@ -12401,7 +12405,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "word-partners-collocations",
-    level: "intermediate",
+    level: "B1",
     topic: "Word Partners (Collocations)",
     topicFa: "هم‌نشین‌های واژگانی (کالوکیشن)",
     words: [
@@ -12627,7 +12631,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "fixed-phrases",
-    level: "intermediate",
+    level: "B1",
     topic: "Fixed Phrases",
     topicFa: "عبارات ثابت",
     words: [
@@ -12829,7 +12833,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "fixed-phrases-in-conversation",
-    level: "intermediate",
+    level: "B1",
     topic: "Fixed Phrases in Conversation",
     topicFa: "عبارات ثابت در مکالمه",
     words: [
@@ -12995,7 +12999,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "verb-or-adjective-preposition",
-    level: "intermediate",
+    level: "B1",
     topic: "Verb or Adjective + Preposition",
     topicFa: "فعل یا صفت + حرف اضافه",
     words: [
@@ -13197,7 +13201,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "prepositional-phrases",
-    level: "intermediate",
+    level: "B1",
     topic: "Prepositional Phrases",
     topicFa: "عبارات حرف اضافه‌ای",
     words: [
@@ -13375,7 +13379,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "phrasal-verbs-1",
-    level: "intermediate",
+    level: "B1",
     topic: "Phrasal Verbs 1: Form and Meaning",
     topicFa: "افعال عبارتی ۱: شکل و معنی",
     words: [
@@ -13547,7 +13551,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "phrasal-verbs-2",
-    level: "intermediate",
+    level: "B2",
     topic: "Phrasal Verbs 2: Grammar and Style",
     topicFa: "افعال عبارتی ۲: دستور و سبک",
     words: [
@@ -13713,7 +13717,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "make-do-take",
-    level: "intermediate",
+    level: "B1",
     topic: "Make, Do and Take: Uses and Phrases",
     topicFa: "Make، Do و Take: کاربردها و عبارات",
     words: [
@@ -13933,7 +13937,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "give-keep-miss",
-    level: "intermediate",
+    level: "B1",
     topic: "Key Verbs: Give, Keep and Miss",
     topicFa: "افعال کلیدی: Give، Keep و Miss",
     words: [
@@ -14111,7 +14115,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "get-uses-phrases-phrasal",
-    level: "intermediate",
+    level: "B1",
     topic: "Get: Uses, Phrases and Phrasal Verbs",
     topicFa: "Get: کاربردها، عبارات و افعال عبارتی",
     words: [
@@ -14271,7 +14275,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "go-meanings-expressions",
-    level: "intermediate",
+    level: "B1",
     topic: "Go: Meanings and Expressions",
     topicFa: "Go: معانی و عبارات",
     words: [
@@ -14467,7 +14471,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "the-senses",
-    level: "intermediate",
+    level: "A2",
     topic: "The Senses",
     topicFa: "حواس پنج‌گانه",
     words: [
@@ -14651,7 +14655,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "uncountable-nouns",
-    level: "intermediate",
+    level: "B1",
     topic: "Uncountable Nouns",
     topicFa: "اسامی غیرقابل شمارش",
     words: [
@@ -14799,7 +14803,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "verb-constructions-1",
-    level: "intermediate",
+    level: "B1",
     topic: "Verb Constructions 1",
     topicFa: "ساختارهای فعلی ۱",
     words: [
@@ -14953,7 +14957,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "verb-constructions-2",
-    level: "intermediate",
+    level: "B2",
     topic: "Verb Constructions 2",
     topicFa: "ساختارهای فعلی ۲",
     words: [
@@ -15131,7 +15135,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "adjectives",
-    level: "intermediate",
+    level: "A2",
     topic: "Adjectives",
     topicFa: "صفت‌ها",
     words: [
@@ -15327,7 +15331,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "prepositions-place-movement",
-    level: "intermediate",
+    level: "B1",
     topic: "Prepositions: Place and Movement",
     topicFa: "حروف اضافه: مکان و حرکت",
     words: [
@@ -15523,7 +15527,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "adverbs",
-    level: "intermediate",
+    level: "A2",
     topic: "Adverbs",
     topicFa: "قیدها",
     words: [
@@ -15725,7 +15729,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "time-and-sequence",
-    level: "intermediate",
+    level: "B1",
     topic: "Time and Sequence",
     topicFa: "زمان و توالی",
     words: [
@@ -15891,7 +15895,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "addition-and-contrast",
-    level: "intermediate",
+    level: "B1",
     topic: "Addition and Contrast",
     topicFa: "افزودن و تضاد",
     words: [
@@ -16027,7 +16031,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "reason-purpose-result-condition",
-    level: "intermediate",
+    level: "B1",
     topic: "Reason, Purpose, Result, Condition",
     topicFa: "دلیل، هدف، نتیجه، شرط",
     words: [
@@ -16169,7 +16173,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "formal-and-informal-english",
-    level: "intermediate",
+    level: "B2",
     topic: "Formal and Informal English",
     topicFa: "انگلیسی رسمی و غیررسمی",
     words: [
@@ -16347,7 +16351,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "completing-forms-and-cvs",
-    level: "intermediate",
+    level: "B1",
     topic: "Completing Forms and CVs",
     topicFa: "تکمیل فرم‌ها و رزومه",
     words: [
@@ -16531,7 +16535,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "writing-an-essay",
-    level: "intermediate",
+    level: "B2",
     topic: "Writing an Essay",
     topicFa: "نوشتن مقاله/انشا",
     words: [
@@ -16697,7 +16701,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "formal-letters-emails",
-    level: "intermediate",
+    level: "B2",
     topic: "Formal Letters and Emails",
     topicFa: "نامه‌ها و ایمیل‌های رسمی",
     words: [
@@ -16851,7 +16855,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "informal-emails-messages",
-    level: "intermediate",
+    level: "B1",
     topic: "Informal Emails and Messages",
     topicFa: "ایمیل‌ها و پیام‌های غیررسمی",
     words: [
@@ -17011,7 +17015,7 @@ export const VOCAB_IN_USE_UNITS = [
   },
   {
     id: "abbreviations",
-    level: "intermediate",
+    level: "B1",
     topic: "Abbreviations",
     topicFa: "مخفف‌ها",
     words: [
