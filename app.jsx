@@ -8866,6 +8866,73 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   const [translatingAll, setTranslatingAll] = useState(false);
   const [vocabQuery, setVocabQuery] = useState("");
   const [paragraphs, setParagraphs] = useState([]); // [{ sentences: [{text, t:{lang:text}}] }]
+  // کلیدهای `${pi}-${si}-${code}`ای که الان دارن دوباره ترجمه می‌شن — برای
+  // نشون‌دادنِ اسپینر روی دکمه‌ی رفرشِ همون جمله، بدون قفل‌کردنِ کل صفحه.
+  const [retranslatingSentences, setRetranslatingSentences] = useState({});
+  // دکمه‌ی رفرشِ ترجمه‌ی هر جمله — اگه ترجمه‌ی خودکار یه جمله اشتباه از آب
+  // دراومد، کاربر می‌تونه فقط همون یکی رو (بدون دست‌زدن به بقیه‌ی داستان)
+  // دوباره از زنجیره‌ی translateFree بگیره؛ forceVerify=true یعنی حتی اگه
+  // نتیجه‌ی رایگان مشکوک نبود هم یه بار با AI بررسی/تأیید بشه.
+  // نسخه‌ی پاراگرافیِ رفرش — وقتی نمایش روی حالتِ «پاراگراف» (نه جمله‌به‌جمله)
+  // باشه، ترجمه‌ی کلِ پاراگراف از join همه‌ی s.t[code] ساخته می‌شه؛ پس رفرشِ
+  // اینجا یعنی همه‌ی جمله‌های همون پاراگراف رو برای این زبان دوباره بگیریم.
+  async function retranslateStoryParagraph(pi, code) {
+    const key = `${pi}-all-${code}`;
+    setRetranslatingSentences((prev) => ({ ...prev, [key]: true }));
+    try {
+      const sentences = paragraphs[pi]?.sentences || [];
+      await Promise.all(
+        sentences.map(async (s, si) => {
+          try {
+            const translated = await translateFree(s.text || "", code, storyLang, aiSettings, true);
+            setParagraphs((prevParagraphs) => {
+              const target = prevParagraphs[pi];
+              const targetSentence = target?.sentences?.[si];
+              if (!targetSentence) return prevParagraphs;
+              const updated = [...prevParagraphs];
+              const list = [...(target.sentences || [])];
+              list[si] = { ...targetSentence, t: { ...(targetSentence.t || {}), [code]: translated } };
+              updated[pi] = { ...target, sentences: list };
+              return updated;
+            });
+          } catch {
+            // این یکی شکست خورد؛ بقیه‌ی جمله‌ها همچنان ادامه می‌دن.
+          }
+        })
+      );
+    } finally {
+      setRetranslatingSentences((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  }
+  async function retranslateStorySentence(pi, si, code, text) {
+    const key = `${pi}-${si}-${code}`;
+    setRetranslatingSentences((prev) => ({ ...prev, [key]: true }));
+    try {
+      const translated = await translateFree(text || "", code, storyLang, aiSettings, true);
+      setParagraphs((prevParagraphs) => {
+        const target = prevParagraphs[pi];
+        const targetSentence = target?.sentences?.[si];
+        if (!targetSentence) return prevParagraphs;
+        const updated = [...prevParagraphs];
+        const sentences = [...(target.sentences || [])];
+        sentences[si] = { ...targetSentence, t: { ...(targetSentence.t || {}), [code]: translated } };
+        updated[pi] = { ...target, sentences };
+        return updated;
+      });
+    } catch {
+      // شکست خورد؛ ترجمه‌ی قبلی همون‌جا می‌مونه، کاربر می‌تونه دوباره امتحان کنه.
+    } finally {
+      setRetranslatingSentences((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  }
   // نمایش/ترجمه‌ی تدریجی: به‌جای رندر و صف‌کردنِ ترجمه‌ی همه‌ی پاراگراف‌ها
   // یه‌جا (که برای داستان‌های خیلی بلند — مثلاً از PDF — هم DOM رو سنگین
   // می‌کنه و هم صدها/هزاران درخواستِ ترجمه رو یه‌جا صف می‌کنه و کاربر تا
@@ -12162,6 +12229,32 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                       <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
                                     )}
                                   </p>
+                                  {translated && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        retranslateStorySentence(pi, si, code, s.text);
+                                      }}
+                                      disabled={!!retranslatingSentences[`${pi}-${si}-${code}`]}
+                                      title="اگه این ترجمه اشتباهه، دوباره امتحان کن"
+                                      aria-label="ترجمه‌ی دوباره"
+                                      style={{
+                                        background: "none",
+                                        border: "none",
+                                        padding: 4,
+                                        flexShrink: 0,
+                                        cursor: retranslatingSentences[`${pi}-${si}-${code}`] ? "default" : "pointer",
+                                        display: "flex",
+                                        alignItems: "center",
+                                      }}
+                                    >
+                                      {retranslatingSentences[`${pi}-${si}-${code}`] ? (
+                                        <Loader2 size={12} className="spin" color={translationColor} />
+                                      ) : (
+                                        <RotateCcw size={12} color={translationColor} style={{ opacity: 0.6 }} />
+                                      )}
+                                    </button>
+                                  )}
                                 </div>
                               );
                             })}
@@ -12299,6 +12392,32 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                   <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
                                 )}
                               </p>
+                              {translated && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    retranslateStoryParagraph(pi, code);
+                                  }}
+                                  disabled={!!retranslatingSentences[`${pi}-all-${code}`]}
+                                  title="اگه این ترجمه اشتباهه، دوباره امتحان کن"
+                                  aria-label="ترجمه‌ی دوباره"
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    padding: 4,
+                                    flexShrink: 0,
+                                    cursor: retranslatingSentences[`${pi}-all-${code}`] ? "default" : "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                  }}
+                                >
+                                  {retranslatingSentences[`${pi}-all-${code}`] ? (
+                                    <Loader2 size={12} className="spin" color={translationColor} />
+                                  ) : (
+                                    <RotateCcw size={12} color={translationColor} style={{ opacity: 0.6 }} />
+                                  )}
+                                </button>
+                              )}
                             </div>
                           );
                         })}
