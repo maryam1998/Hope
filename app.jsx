@@ -8850,6 +8850,41 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // برای خوانش» بالا، فقط منبعِ متن به‌جای فایل، تایپ‌شده/پیست‌شده‌ی خودِ کاربره.
   const [pastedReadingText, setPastedReadingText] = useState("");
   const [showPasteReading, setShowPasteReading] = useState(false);
+  // ویرایشِ متنِ داستانِ همین الان (بعد از این‌که پیست/PDF/لینک قبلاً به
+  // paragraphs تبدیل شده) — چون قبلاً تنها راهِ تصحیحِ یه غلط تو متنِ اصلی
+  // (نه ترجمه) این بود که کل داستان پاک بشه و از اول پیست بشه. با این
+  // دکمه، متنِ فعلی (با همون تقسیم‌بندیِ پاراگرافی‌ش) برمی‌گرده تو یه
+  // textarea قابل‌ویرایش؛ با تأیید، دوباره از splitTextIntoSentenceStrings
+  // رد می‌شه و paragraphs تازه می‌سازه (ترجمه‌های قبلی این‌جوری از نو
+  // گرفته می‌شن، چون متنِ اصلی عوض شده و دیگه معتبر نیستن).
+  const [editingStoryText, setEditingStoryText] = useState(false);
+  const [storyEditDraft, setStoryEditDraft] = useState("");
+  const startEditingStoryText = () => {
+    const draft = paragraphs.map((p) => (p.sentences || []).map((s) => s?.text || "").join(" ")).join("\n\n");
+    setStoryEditDraft(draft);
+    setEditingStoryText(true);
+  };
+  const cancelEditingStoryText = () => {
+    setEditingStoryText(false);
+    setStoryEditDraft("");
+  };
+  const applyEditedStoryText = () => {
+    const raw = storyEditDraft.trim();
+    if (!raw) return;
+    const rawParagraphs = raw.split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean);
+    const storyParagraphs = rawParagraphs
+      .map((paraText) => ({ sentences: splitTextIntoSentenceStrings(paraText).map((text) => ({ text })) }))
+      .filter((p) => p.sentences.length);
+    if (!storyParagraphs.length) return;
+    setParagraphs(storyParagraphs);
+    setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
+    setQuestions([]);
+    setAnswers({});
+    setSubmitted(false);
+    setRepeatNotice("");
+    setEditingStoryText(false);
+    setStoryEditDraft("");
+  };
   // وارد کردنِ یه لینک برای خوانش — به‌جای کپی/پیستِ دستیِ متن، کاربر فقط
   // آدرسِ صفحه رو می‌ده و خودِ برنامه متنِ اصلیِ صفحه (بدنه/بادیِ نوشته، نه
   // منو/فوتر/تبلیغ) رو استخراج می‌کنه. همون مسیرِ پردازشِ بعدیِ PDF/پیست
@@ -12025,6 +12060,23 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             <p style={{ fontWeight: 700 }}>داستان</p>
             <div className="flex items-center gap-3 flex-wrap" style={{ rowGap: 8 }}>
               <button
+                onClick={editingStoryText ? cancelEditingStoryText : startEditingStoryText}
+                title={editingStoryText ? "انصراف از ویرایش" : "ویرایشِ متنِ داستان"}
+                aria-label={editingStoryText ? "انصراف از ویرایش" : "ویرایشِ متنِ داستان"}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  color: editingStoryText ? colors.rose : colors.teal,
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 2,
+                  flexShrink: 0,
+                }}
+              >
+                {editingStoryText ? <X size={16} /> : <Pencil size={16} />}
+              </button>
+              <button
                 onClick={saveCurrentStory}
                 title={justSaved ? "ذخیره شد" : "ذخیره داستان"}
                 aria-label={justSaved ? "ذخیره شد" : "ذخیره داستان"}
@@ -12044,6 +12096,61 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             </div>
           </div>
 
+          {editingStoryText ? (
+            <div style={{ marginBottom: 8, textAlign: "start" }}>
+              <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>
+                متن رو ویرایش کن — برای جداکردنِ پاراگراف‌ها یه خط خالی بینشون بذار.
+              </p>
+              <textarea
+                value={storyEditDraft}
+                onChange={(e) => setStoryEditDraft(e.target.value)}
+                dir="auto"
+                rows={10}
+                style={{
+                  width: "100%",
+                  border: `1px solid ${colors.cardBorder}`,
+                  borderRadius: 10,
+                  padding: "8px 10px",
+                  fontSize: 13,
+                  outline: "none",
+                }}
+              />
+              <div className="flex items-center gap-2" style={{ marginTop: 6 }}>
+                <button
+                  onClick={applyEditedStoryText}
+                  disabled={!storyEditDraft.trim()}
+                  style={{
+                    flex: 1,
+                    backgroundColor: colors.teal,
+                    color: "white",
+                    borderRadius: 10,
+                    padding: "8px 10px",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    opacity: !storyEditDraft.trim() ? 0.5 : 1,
+                  }}
+                >
+                  ثبتِ ویرایش
+                </button>
+                <button
+                  onClick={cancelEditingStoryText}
+                  style={{
+                    flex: 1,
+                    border: `1px solid ${colors.cardBorder}`,
+                    borderRadius: 10,
+                    padding: "8px 10px",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: colors.inkSoft,
+                    background: "white",
+                  }}
+                >
+                  انصراف
+                </button>
+              </div>
+            </div>
+          ) : (
+          <>
           {/* انتخاب زبان‌های ترجمه از اینجا حذف شد — همون انتخاب بالای دکمه‌ی
               «بساز داستان» (قبل از ساخت) کافیه و دیگه دوباره اینجا تکرار
               نمی‌شه. فقط «نمایش ترجمه» (نحوه‌ی چیدمانش) اینجا می‌مونه. */}
@@ -12229,32 +12336,35 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                       <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
                                     )}
                                   </p>
-                                  {translated && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        retranslateStorySentence(pi, si, code, s.text);
-                                      }}
-                                      disabled={!!retranslatingSentences[`${pi}-${si}-${code}`]}
-                                      title="اگه این ترجمه اشتباهه، دوباره امتحان کن"
-                                      aria-label="ترجمه‌ی دوباره"
-                                      style={{
-                                        background: "none",
-                                        border: "none",
-                                        padding: 4,
-                                        flexShrink: 0,
-                                        cursor: retranslatingSentences[`${pi}-${si}-${code}`] ? "default" : "pointer",
-                                        display: "flex",
-                                        alignItems: "center",
-                                      }}
-                                    >
-                                      {retranslatingSentences[`${pi}-${si}-${code}`] ? (
-                                        <Loader2 size={12} className="spin" color={translationColor} />
-                                      ) : (
-                                        <RotateCcw size={12} color={translationColor} style={{ opacity: 0.6 }} />
-                                      )}
-                                    </button>
-                                  )}
+                                  {/* دکمه‌ی رفرش همیشه نشون داده می‌شه — حتی وقتی `translated`
+                                      خالیه (یعنی ترجمه‌ی خودکار اصلاً شکست خورده و برای همیشه
+                                      روی «در حال ترجمه...» گیر کرده)، چون قبلاً این دکمه فقط
+                                      وقتی translated پر بود رندر می‌شد و کاربر هیچ راهی برای
+                                      retry کردنِ جمله‌ای که ترجمه‌ش اصلاً نگرفته بود نداشت. */}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      retranslateStorySentence(pi, si, code, s.text);
+                                    }}
+                                    disabled={!!retranslatingSentences[`${pi}-${si}-${code}`]}
+                                    title={translated ? "اگه این ترجمه اشتباهه، دوباره امتحان کن" : "ترجمه نشده — برای امتحانِ دوباره بزن"}
+                                    aria-label="ترجمه‌ی دوباره"
+                                    style={{
+                                      background: "none",
+                                      border: "none",
+                                      padding: 4,
+                                      flexShrink: 0,
+                                      cursor: retranslatingSentences[`${pi}-${si}-${code}`] ? "default" : "pointer",
+                                      display: "flex",
+                                      alignItems: "center",
+                                    }}
+                                  >
+                                    {retranslatingSentences[`${pi}-${si}-${code}`] ? (
+                                      <Loader2 size={12} className="spin" color={translationColor} />
+                                    ) : (
+                                      <RotateCcw size={12} color={translationColor} style={{ opacity: translated ? 0.6 : 1 }} />
+                                    )}
+                                  </button>
                                 </div>
                               );
                             })}
@@ -12455,6 +12565,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               </span>
             ))}
           </div>
+          </>
+          )}
         </div>
       )}
 
