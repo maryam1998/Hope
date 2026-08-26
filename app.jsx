@@ -10263,7 +10263,13 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       // یه کپیِ جدا برای ذخیره‌سازی — چون pdf.js ممکنه بافرِ اصلی رو به
       // خودش «منتقل» (transfer/detach) کنه و بعدش دیگه قابلِ خوندن نباشه.
       const bufForStorage = buf.slice(0);
-      const srcDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+      // disableFontFace:true → به‌جای تکیه به موتورِ فونتِ خودِ مرورگر/وب‌ویو
+      // (که رویِ بعضی گوشی‌ها با فونت‌های embedded/subset این PDFها گلیف‌ها
+      // رو با فاصله‌ی غلط می‌چیند و کلمه‌ها تکه‌تکه/به‌هم‌ریخته نشون داده
+      // می‌شن)، خودِ pdf.js هر گلیف رو مستقیم به‌صورتِ مسیرِ برداری رسم
+      // می‌کنه — دقیقاً همون چیزی که تو PDFِ اصلی هست، بدونِ وابستگی به
+      // فونت‌شیپینگِ دستگاه.
+      const srcDoc = await pdfjsLib.getDocument({ data: buf, disableFontFace: true }).promise;
       const pageCount = srcDoc.numPages;
 
       // نمایشِ زنده از همین الان فعاله — کاربر منتظرِ ترجمه نمی‌مونه تا
@@ -10404,7 +10410,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       if (fileBytes) {
         try {
           const pdfjsLib = await getPdfjsLib();
-          const liveDoc = await pdfjsLib.getDocument({ data: fileBytes }).promise;
+          // نگاه کن به همین توضیح تو handlePdfViewImport — همون
+          // disableFontFace برای بازکردنِ PDFهای قبلاً ذخیره‌شده هم لازمه.
+          const liveDoc = await pdfjsLib.getDocument({ data: fileBytes, disableFontFace: true }).promise;
           setPdfViewLiveDoc({ docId: doc.id, doc: liveDoc });
           liveDocReady = true;
         } catch (liveErr) {
