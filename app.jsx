@@ -9,6 +9,10 @@ import { SLANG_WORDS } from "./SLANG_WORDS.js";
 import { VOCAB_IN_USE_UNITS } from "./vocabularyInUseData.js";
 import { DAILY_CONVERSATIONS,THEMATIC_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
 import DailyConversationsTab from "./DailyConversationsTab.jsx";
+// مکالمات روزمره + مکالمات موضوعی، یکجا مرج‌شده — تا هرجا که قبلاً از
+// DAILY_CONVERSATIONS استفاده می‌شد (تبِ مکالمه، استخرِ جستجوی داستان‌ساز،
+// نگاشتِ سطح‌بندیِ لغات)، مکالمات موضوعی هم به‌صورت خودکار دیده بشن.
+const ALL_DAILY_CONVERSATIONS = [...DAILY_CONVERSATIONS, ...(THEMATIC_CONVERSATIONS || [])];
 import RangeSliderFilter from "./RangeSliderFilter.jsx";
 
 // ---------------------------------------------------------------------------
@@ -26,7 +30,7 @@ const STORY_SEARCH_WORD_POOL = [
 // همه‌ی خط‌های دوطرفِ مکالمه‌های روزمره، مسطح‌شده به یه آرایه‌ی ساده — تا
 // کاربر بتونه یه عبارتِ کاملِ یه مکالمه رو هم به‌عنوان لغتِ هدفِ داستان
 // انتخاب کنه، نه فقط تک‌کلمه‌ها.
-const STORY_SEARCH_CONVERSATION_POOL = DAILY_CONVERSATIONS.flatMap((tp) =>
+const STORY_SEARCH_CONVERSATION_POOL = ALL_DAILY_CONVERSATIONS.flatMap((tp) =>
   tp.scenarios.flatMap((sc) => [...(sc.speakerA || []), ...(sc.speakerB || [])])
 ).map((it) => ({ term: it.en, fa: it.fa || "", source: "مکالمات روزمره" }));
 
@@ -5143,7 +5147,7 @@ const LEVEL_BY_EN_WORD = new Map();
   const key = normalizeWord(w.en);
   if (key && !LEVEL_BY_EN_WORD.has(key)) LEVEL_BY_EN_WORD.set(key, w.level);
 });
-(DAILY_CONVERSATIONS || []).forEach((sc) => {
+(ALL_DAILY_CONVERSATIONS || []).forEach((sc) => {
   [...(sc.speakerA || []), ...(sc.speakerB || [])].forEach((it) => {
     const key = normalizeWord(it.en);
     if (key && it.level && !LEVEL_BY_EN_WORD.has(key)) LEVEL_BY_EN_WORD.set(key, it.level);
@@ -16030,7 +16034,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       >
         {tab === "conversations" && (
   <DailyConversationsTab
-    data={DAILY_CONVERSATIONS}
+    data={ALL_DAILY_CONVERSATIONS}
     query={debouncedQuery}
     uiLang={appPrefs.uiLang || "fa"}
     nativeLang={nativeLang}
