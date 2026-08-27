@@ -1774,6 +1774,11 @@ const UI_STRINGS = {
   wordsClearedMsg: { fa: "{n} لغت پاک شد", en: "{n} word(s) cleared" },
   jumpedToOriginMsg: { fa: "رفتیم به همون بخشی که «{word}» ازش ذخیره شده بود", en: "Jumped to where \"{word}\" was saved from" },
   jumpToOriginUnknownMsg: { fa: "منبعِ این لغت مشخص نیست (احتمالاً قبل از این قابلیت ذخیره شده)", en: "This word's source isn't known (likely saved before this feature existed)" },
+  // پیام‌های حبابِ آدمکِ Lingova — طبقِ سیستمِ زبانِ نرم‌افزار (uiLang) انتخاب می‌شن
+  lingovaBubbleRead: { fa: "بخون دیگه! 📖", en: "Come on, keep reading! 📖" },
+  lingovaBubbleKeepGoing: { fa: "ادامه‌شو بخون!", en: "Keep going with it!" },
+  lingovaBubbleStillThere: { fa: "هنوز اونجایی؟ 👀", en: "Still there? 👀" },
+  lingovaBubbleHeyYou: { fa: "با توام‌ها، بخون!", en: "Hey, I'm talking to you — read!" },
 };
 // t(key, uiLang) — looks up a UI string in the current software language,
 // falling back to Persian if the key or language is missing.
@@ -15782,7 +15787,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         }}
         className="px-4 pt-6 pb-5"
       >
-        <LingovaMascot />
+        <LingovaMascot uiLang={appPrefs.uiLang} />
         <div className="flex items-center justify-end mb-1">
           <div className="flex items-center gap-2.5">
             {user?.picture ? (
@@ -19322,16 +19327,58 @@ function LoginScreen({ onAuthenticated, uiLang = "fa" }) {
 // کنه، برمی‌گرده به راه‌رفتنِ عادی.
 // ---------------------------------------------------------------------------
 const LINGOVA_MASCOT_WIDTH = 30;
+const LINGOVA_MASCOT_HEIGHT = 38;
 const LINGOVA_IDLE_MS = 45000; // بعدِ این‌قدر بی‌تعاملی، حالتِ «هشدار»
-const LINGOVA_BUBBLE_LINES = ["بخون دیگه! 📖", "ادامه‌شو بخون!", "هنوز اونجایی؟ 👀", "با توام‌ها، بخون!"];
+// کلیدهای UI_STRINGS برای پیام‌های حباب — به‌جای متنِ ثابتِ فارسی، از سیستمِ
+// زبانِ نرم‌افزار (tr/uiLang) خونده می‌شن تا با تغییرِ زبونِ اپ، این پیام‌ها
+// هم خودکار انگلیسی/فارسی بشن.
+const LINGOVA_BUBBLE_KEYS = ["lingovaBubbleRead", "lingovaBubbleKeepGoing", "lingovaBubbleStillThere", "lingovaBubbleHeyYou"];
 
-function useLingovaMascot(trackWidth) {
+// ---------------------------------------------------------------------------
+// «سنجاق‌شدنِ» آدمک با درگ‌کردن — وقتی کاربر با انگشت آدمک رو می‌گیره و
+// یه‌جای دیگه‌ی صفحه ول می‌کنه، دیگه تو نوارِ بالای صفحه راه نمی‌ره؛ همون‌جا
+// می‌مونه و سرِ پا قدم می‌زنه. موقعیت به‌صورتِ درصدِ عرض/ارتفاعِ صفحه توی
+// localStorage ذخیره می‌شه (نه پیکسلِ خام) تا با تغییرِ سایزِ صفحه/چرخشِ
+// گوشی هم نسبی درست بمونه؛ اگه کاربر هنوز هیچ‌وقت درگش نکرده باشه، این مقدار
+// خالیه و آدمک دقیقاً مثلِ قبل بالای صفحه راه می‌ره.
+const LINGOVA_POS_STORAGE_KEY = "lingova-mascot-pos-v1";
+
+function loadLingovaPinnedPos() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(LINGOVA_POS_STORAGE_KEY);
+    if (!raw) return null;
+    const { xPct, yPct } = JSON.parse(raw);
+    if (typeof xPct !== "number" || typeof yPct !== "number" || Number.isNaN(xPct) || Number.isNaN(yPct)) return null;
+    return {
+      left: Math.max(0, Math.min(window.innerWidth - LINGOVA_MASCOT_WIDTH, xPct * window.innerWidth)),
+      top: Math.max(0, Math.min(window.innerHeight - LINGOVA_MASCOT_HEIGHT, yPct * window.innerHeight)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveLingovaPinnedPos(left, top) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      LINGOVA_POS_STORAGE_KEY,
+      JSON.stringify({ xPct: left / window.innerWidth, yPct: top / window.innerHeight })
+    );
+  } catch {
+    // localStorage در دسترس نیست — مشکلی نیست، فقط موقعیت بینِ نشست‌ها یادش نمی‌مونه
+  }
+}
+
+function useLingovaMascot(trackWidth, uiLang, pinned) {
   const xRef = useRef(0);
   const targetRef = useRef(-1); // -1 یعنی هنوز مقصدی انتخاب نشده
   const speedRef = useRef(0.6);
   const facingRef = useRef(1);
   const modeRef = useRef("walk"); // 'walk' | 'read' | 'alert'
   const readUntilRef = useRef(0);
+  const pinnedPhaseUntilRef = useRef(0); // فقط تو حالتِ pinned: پایانِ فازِ فعلیِ walk/read
   const lastActivityRef = useRef(Date.now());
   const bubbleRef = useRef(null);
   const [, forceTick] = useReducer((n) => n + 1, 0);
@@ -19342,6 +19389,12 @@ function useLingovaMascot(trackWidth) {
     targetRef.current = t;
     speedRef.current = 0.35 + Math.random() * 0.85;
     facingRef.current = t >= fromX ? 1 : -1;
+  };
+
+  // یه پیامِ حبابِ تصادفی، طبقِ زبانِ فعلیِ نرم‌افزار (uiLang)
+  const pickBubbleLine = () => {
+    const key = LINGOVA_BUBBLE_KEYS[Math.floor(Math.random() * LINGOVA_BUBBLE_KEYS.length)];
+    return tr(key, uiLang);
   };
 
   // ثبتِ آخرین لحظه‌ی تعاملِ کاربر با کلِ اپ — هر نوع لمس/کلیک/اسکرول/کیبورد
@@ -19361,7 +19414,46 @@ function useLingovaMascot(trackWidth) {
     };
   }, []);
 
+  // حالتِ «سنجاق‌شده» (pinned) — کاربر آدمک رو یه‌جای دلخواهِ صفحه گذاشته.
+  // دیگه از این‌سمت به‌اون‌سمت رد نمی‌شه؛ همون‌جا سرِ پا «قدم می‌زنه» (فقط
+  // پاها/دستش انیمیشن می‌گیرن، x جابه‌جا نمی‌شه) و دقیقاً مثلِ قبل، بعدِ
+  // مدتی بی‌تعاملی، چماق‌به‌دست هشدار می‌ده.
   useEffect(() => {
+    if (!pinned) return undefined;
+    modeRef.current = "walk";
+    pinnedPhaseUntilRef.current = Date.now() + 1400 + Math.random() * 1400;
+
+    const id = setInterval(() => {
+      const idleMs = Date.now() - lastActivityRef.current;
+      const isIdle = idleMs > LINGOVA_IDLE_MS;
+
+      if (isIdle) {
+        if (modeRef.current !== "alert") {
+          modeRef.current = "alert";
+          bubbleRef.current = pickBubbleLine();
+        }
+        forceTick();
+        return;
+      }
+      if (modeRef.current === "alert") {
+        bubbleRef.current = null;
+        modeRef.current = "walk";
+        pinnedPhaseUntilRef.current = Date.now() + 1400 + Math.random() * 1400;
+      }
+
+      if (Date.now() >= pinnedPhaseUntilRef.current) {
+        modeRef.current = modeRef.current === "walk" ? "read" : "walk";
+        pinnedPhaseUntilRef.current =
+          Date.now() + (modeRef.current === "read" ? 1200 + Math.random() * 2200 : 1400 + Math.random() * 1400);
+      }
+      forceTick();
+    }, 45);
+
+    return () => clearInterval(id);
+  }, [pinned, uiLang]);
+
+  useEffect(() => {
+    if (pinned) return undefined;
     if (!trackWidth) return undefined;
     if (targetRef.current < 0) pickNewTarget(xRef.current, trackWidth);
 
@@ -19372,7 +19464,7 @@ function useLingovaMascot(trackWidth) {
       if (isIdle) {
         if (modeRef.current !== "alert") {
           modeRef.current = "alert";
-          bubbleRef.current = LINGOVA_BUBBLE_LINES[Math.floor(Math.random() * LINGOVA_BUBBLE_LINES.length)];
+          bubbleRef.current = pickBubbleLine();
         }
         forceTick();
         return;
@@ -19405,14 +19497,22 @@ function useLingovaMascot(trackWidth) {
     }, 45);
 
     return () => clearInterval(id);
-  }, [trackWidth]);
+  }, [trackWidth, pinned, uiLang]);
 
   return { x: xRef.current, facing: facingRef.current, mode: modeRef.current, bubble: bubbleRef.current };
 }
 
-function LingovaMascot() {
+function LingovaMascot({ uiLang }) {
   const trackRef = useRef(null);
   const [trackWidth, setTrackWidth] = useState(0);
+
+  // موقعیتِ «سنجاق‌شده» — اگه کاربر قبلاً آدمک رو یه‌جایی درگ کرده باشه،
+  // همون‌جا (بر اساسِ درصدِ ذخیره‌شده تو localStorage) بارگذاری می‌شه؛ وگرنه
+  // null می‌مونه و آدمک دقیقاً مثلِ قبل تو نوارِ بالای صفحه راه می‌ره.
+  const [pinnedPos, setPinnedPos] = useState(() => loadLingovaPinnedPos());
+  const [dragPos, setDragPos] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragOffsetRef = useRef({ dx: 0, dy: 0 });
 
   useEffect(() => {
     const el = trackRef.current;
@@ -19428,73 +19528,182 @@ function LingovaMascot() {
     return () => ro.disconnect();
   }, []);
 
-  const { x, facing, mode, bubble } = useLingovaMascot(trackWidth);
+  // اگه بعدِ سنجاق‌شدن، سایزِ صفحه عوض بشه (مثلاً چرخیدنِ گوشی)، موقعیت رو
+  // دوباره از همون درصدِ ذخیره‌شده حساب می‌کنیم تا همیشه داخلِ صفحه بمونه.
+  useEffect(() => {
+    if (!pinnedPos) return undefined;
+    const onResize = () => setPinnedPos(loadLingovaPinnedPos());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [pinnedPos]);
+
+  // موقعِ درگ‌کردن، حرکت/رهاشدنِ انگشت رو رویِ کلِ صفحه (window) گوش می‌دیم —
+  // نه فقط رویِ خودِ آدمک — چون همین‌که درگ شروع می‌شه، آدمک از نوارِ بالا
+  // بیرون میاد و تو یه پورتالِ دیگه رندر می‌شه؛ اگه فقط رویِ خودِ گره‌ی DOM
+  // قبلی گوش می‌دادیم، با این جابه‌جاییِ درخت، رویدادهای بعدی از دست می‌رفت.
+  useEffect(() => {
+    if (!isDragging) return undefined;
+    const clamp = (left, top) => ({
+      left: Math.max(0, Math.min(window.innerWidth - LINGOVA_MASCOT_WIDTH, left)),
+      top: Math.max(0, Math.min(window.innerHeight - LINGOVA_MASCOT_HEIGHT, top)),
+    });
+    const onMove = (e) => {
+      setDragPos(clamp(e.clientX - dragOffsetRef.current.dx, e.clientY - dragOffsetRef.current.dy));
+    };
+    const onUp = () => {
+      setIsDragging(false);
+      setDragPos((dp) => {
+        const finalPos = dp || { left: 0, top: 0 };
+        setPinnedPos(finalPos);
+        saveLingovaPinnedPos(finalPos.left, finalPos.top);
+        return null;
+      });
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [isDragging]);
+
+  const pinned = !!(pinnedPos || isDragging);
+  const { x, facing, mode, bubble } = useLingovaMascot(trackWidth, uiLang, pinned);
+
+  const handlePointerDown = (e) => {
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    dragOffsetRef.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
+    setDragPos({ left: rect.left, top: rect.top });
+    setIsDragging(true);
+  };
+
+  const activePos = isDragging ? dragPos : pinnedPos;
+  // اگه آدمک نزدیکِ لبه‌ی بالای صفحه سنجاق شده باشه، حباب رو به‌جای بالا،
+  // پایینِ آدمک نشون می‌دیم تا از صفحه بیرون نزنه.
+  const bubbleNearTop = pinned && activePos && activePos.top < 34;
+
+  const mascotBody = (
+    <div
+      onPointerDown={handlePointerDown}
+      style={{
+        position: "absolute",
+        top: 0,
+        left: pinned ? 0 : x,
+        width: LINGOVA_MASCOT_WIDTH,
+        height: LINGOVA_MASCOT_HEIGHT,
+        transform: `scaleX(${facing})`,
+        touchAction: "none",
+        pointerEvents: "auto",
+        cursor: isDragging ? "grabbing" : "grab",
+        filter: isDragging ? "drop-shadow(0 3px 6px rgba(0,0,0,.45))" : "none",
+      }}
+    >
+      {bubble && (
+        <div
+          className="lingova-bubble"
+          style={{
+            position: "absolute",
+            top: bubbleNearTop ? LINGOVA_MASCOT_HEIGHT + 2 : -22,
+            left: facing === 1 ? -4 : -34,
+            transform: facing === 1 ? "none" : "scaleX(-1)",
+            background: colors.paper,
+            color: colors.ink,
+            fontSize: 9,
+            fontWeight: 700,
+            padding: "2px 6px",
+            borderRadius: 8,
+            whiteSpace: "nowrap",
+            boxShadow: "0 1px 4px rgba(0,0,0,.3)",
+          }}
+        >
+          {bubble}
+        </div>
+      )}
+      <svg viewBox="0 0 30 38" width={LINGOVA_MASCOT_WIDTH} height={LINGOVA_MASCOT_HEIGHT} style={{ overflow: "visible", display: "block" }}>
+        {/* چماق — دستِ نگه‌دارنده‌اش وقتِ راه‌رفتن تاب می‌خوره، وقتِ
+            هشدار (بی‌تعاملیِ کاربر) بالا نگه داشته می‌شه */}
+        <g
+          className={mode === "alert" ? "lingova-arm-alert" : mode === "walk" ? "lingova-arm-walk" : ""}
+          style={{ transformOrigin: "18px 15px" }}
+        >
+          <rect x="17" y="3" width="2.6" height="11" rx="1.3" fill="#8a5a2b" />
+          <circle cx="18.3" cy="3" r="2.6" fill="#6b4423" />
+        </g>
+        {/* سر — موقعِ «خوندن» یکم به‌سمتِ پایین خم می‌شه، انگار حواسش به متنه */}
+        <g
+          style={{
+            transform: mode === "read" ? "rotate(18deg)" : "none",
+            transformOrigin: "15px 8px",
+            transition: "transform 0.35s ease",
+          }}
+        >
+          <circle cx="15" cy="8" r="5" fill={colors.gold} />
+          <circle cx="17" cy="7.2" r="0.8" fill={colors.ink} />
+        </g>
+        {/* تنه */}
+        <rect x="12" y="13" width="6" height="12" rx="3" fill={colors.teal} />
+        {/* پاها — فقط موقعِ راه‌رفتن (چه رویِ نوار، چه سرِ جا) تاب می‌خورن */}
+        <g className={mode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "13px 25px" }}>
+          <rect x="11.5" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+        </g>
+        <g className={mode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "17px 25px" }}>
+          <rect x="16" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+        </g>
+      </svg>
+    </div>
+  );
 
   return (
-    <div ref={trackRef} style={{ position: "relative", height: 40, marginBottom: 2 }}>
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: x,
-          width: LINGOVA_MASCOT_WIDTH,
-          height: 38,
-          transform: `scaleX(${facing})`,
-        }}
-      >
-        {bubble && (
+    <>
+      {/* جای‌گیرِ نامرئی — همون ارتفاعِ قبلی (40px) رو داخلِ هدر نگه می‌داره
+          تا چیدمانِ بقیه‌ی هدر (ردیفِ آواتار/تنظیمات و...) جابه‌جا نشه؛ عرضِ
+          همین‌جا برای اندازه‌گیریِ محدوده‌ی حرکتِ آدمک (trackWidth) استفاده
+          می‌شه. خودِ آدمک دیگه این‌جا رندر نمی‌شه — چون با اسکرول‌شدنِ هدر از
+          دیدِ کاربر خارج می‌شد؛ به‌جاش پایین‌تر با createPortal رندر می‌شه. */}
+      <div ref={trackRef} style={{ height: 40, marginBottom: 2 }} />
+
+      {/* حالتِ پیش‌فرض/راه‌رفتن: آدمک مستقیم زیرِ <body> (با createPortal) و
+          position: fixed رندر می‌شه — یه نوارِ باریکِ همیشه-ثابتِ بالای
+          صفحه، هم‌رنگِ گرادیانتِ هدر، که با اسکرول‌کردنِ بقیه‌ی صفحه از دید
+          خارج نمی‌شه. تا وقتی کاربر درگش نکرده، دقیقاً همینه. */}
+      {!pinned &&
+        createPortal(
           <div
-            className="lingova-bubble"
             style={{
-              position: "absolute",
-              top: -22,
-              left: facing === 1 ? -4 : -34,
-              transform: facing === 1 ? "none" : "scaleX(-1)",
-              background: colors.paper,
-              color: colors.ink,
-              fontSize: 9,
-              fontWeight: 700,
-              padding: "2px 6px",
-              borderRadius: 8,
-              whiteSpace: "nowrap",
-              boxShadow: "0 1px 4px rgba(0,0,0,.3)",
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 40,
+              zIndex: 60,
+              overflow: "hidden",
+              pointerEvents: "none",
+              background: `radial-gradient(120% 140% at 15% -10%, rgba(255,255,255,.07), transparent 55%), linear-gradient(165deg, ${colors.teal} 0%, ${colors.ink} 78%)`,
             }}
           >
-            {bubble}
-          </div>
+            <div className="px-4" style={{ position: "relative", height: "100%" }}>
+              {mascotBody}
+            </div>
+          </div>,
+          document.body
         )}
-        <svg viewBox="0 0 30 38" width={LINGOVA_MASCOT_WIDTH} height={38} style={{ overflow: "visible", display: "block" }}>
-          {/* چماق — دستِ نگه‌دارنده‌اش وقتِ راه‌رفتن تاب می‌خوره، وقتِ
-              هشدار (بی‌تعاملیِ کاربر) بالا نگه داشته می‌شه */}
-          <g
-            className={mode === "alert" ? "lingova-arm-alert" : mode === "walk" ? "lingova-arm-walk" : ""}
-            style={{ transformOrigin: "18px 15px" }}
-          >
-            <rect x="17" y="3" width="2.6" height="11" rx="1.3" fill="#8a5a2b" />
-            <circle cx="18.3" cy="3" r="2.6" fill="#6b4423" />
-          </g>
-          {/* سر — موقعِ «خوندن» یکم به‌سمتِ پایین خم می‌شه، انگار حواسش به متنه */}
-          <g
-            style={{
-              transform: mode === "read" ? "rotate(18deg)" : "none",
-              transformOrigin: "15px 8px",
-              transition: "transform 0.35s ease",
-            }}
-          >
-            <circle cx="15" cy="8" r="5" fill={colors.gold} />
-            <circle cx="17" cy="7.2" r="0.8" fill={colors.ink} />
-          </g>
-          {/* تنه */}
-          <rect x="12" y="13" width="6" height="12" rx="3" fill={colors.teal} />
-          {/* پاها — فقط موقعِ راه‌رفتن تاب می‌خورن */}
-          <g className={mode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "13px 25px" }}>
-            <rect x="11.5" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
-          </g>
-          <g className={mode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "17px 25px" }}>
-            <rect x="16" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
-          </g>
-        </svg>
-      </div>
+
+      {/* حالتِ سنجاق‌شده/درگ: آدمک از نوارِ بالا بیرون میاد و رویِ کلِ صفحه،
+          دقیقاً همون‌جایی که کاربر با انگشتش گذاشته/داره می‌بره، رندر می‌شه.
+          خودِ لایه‌ی بیرونی pointerEvents:none هست تا رویِ بقیه‌ی صفحه کلیک
+          رو نگیره؛ فقط خودِ آدمک (pointerEvents:auto) قابلِ‌گرفتنه. */}
+      {pinned &&
+        createPortal(
+          <div style={{ position: "fixed", inset: 0, zIndex: 70, pointerEvents: "none" }}>
+            <div style={{ position: "absolute", top: activePos ? activePos.top : 0, left: activePos ? activePos.left : 0 }}>
+              {mascotBody}
+            </div>
+          </div>,
+          document.body
+        )}
       <style>{`
         @keyframes lingovaLegL { 0%, 100% { transform: rotate(24deg); } 50% { transform: rotate(-24deg); } }
         @keyframes lingovaLegR { 0%, 100% { transform: rotate(-24deg); } 50% { transform: rotate(24deg); } }
@@ -19507,7 +19716,7 @@ function LingovaMascot() {
         .lingova-arm-alert { animation: lingovaArmAlert 0.6s ease-in-out infinite; }
         .lingova-bubble { animation: lingovaBubbleBob 1s ease-in-out infinite; }
       `}</style>
-    </div>
+    </>
   );
 }
 
