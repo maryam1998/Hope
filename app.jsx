@@ -8191,6 +8191,110 @@ function OrderChips({ order, languages, onReorder, onRemove }) {
 }
 
 // ---------------------------------------------------------------------------
+// شبکه‌ی چیپ‌های زبانِ داستان‌ساز («داستان همزمان به چه زبان‌هایی ترجمه
+// بشه؟») — هم با تپ، انتخاب/عدمِ انتخاب می‌شن (مثلِ قبل)، هم با
+// نگه‌داشتن‌وکشیدن (چه با ماوس چه با انگشت) جابه‌جا می‌شن — دقیقاً همون
+// تکنیکِ OrderChips بالا، با این تفاوت که این‌جا چون خودِ چیپ‌ها هم قابلِ
+// تپ‌کردن‌اند (نه فقط کشیدن)، تشخیصِ «تپ» از «کشیدن» کاملاً خودمون انجام
+// می‌دیم (نه با رویدادِ onClick): تا وقتی جابه‌جاییِ لمس/ماوس از یه آستانه‌ی
+// کوچیک بیشتر نشده، «تپ» حساب می‌شه و در پایانِ لمس/کلیک، انتخاب/عدمِ
+// انتخاب رو صدا می‌زنیم؛ اگه از اون آستانه گذشت، دیگه «کشیدن» حساب می‌شه و
+// چیدمانِ چیپ‌ها عوض می‌شه (بدونِ اینکه انتخابش عوض بشه).
+function DraggableToggleLangGrid({ order, onReorder, languages, selected, onToggle }) {
+  const [dragCode, setDragCode] = useState(null);
+  const stateRef = useRef({ code: null, x: 0, y: 0, dragging: false });
+
+  useEffect(() => {
+    const DRAG_THRESHOLD = 8; // px — کمتر از این، تپ حساب می‌شه نه کشیدن
+    const getPoint = (e) => (e.touches ? e.touches[0] : e);
+
+    const handleMove = (e) => {
+      const st = stateRef.current;
+      if (!st.code) return;
+      const point = getPoint(e);
+      if (!point) return;
+      const dx = point.clientX - st.x;
+      const dy = point.clientY - st.y;
+      if (!st.dragging) {
+        if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+        st.dragging = true;
+        setDragCode(st.code);
+      }
+      if (e.cancelable) e.preventDefault();
+      const el = document.elementFromPoint(point.clientX, point.clientY);
+      const chipEl = el && el.closest("[data-order-code]");
+      if (!chipEl) return;
+      const hoveredCode = chipEl.getAttribute("data-order-code");
+      if (hoveredCode === st.code) return;
+      const fromIndex = order.indexOf(st.code);
+      const toIndex = order.indexOf(hoveredCode);
+      if (fromIndex === -1 || toIndex === -1) return;
+      const next = [...order];
+      next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, st.code);
+      onReorder(next);
+    };
+
+    const handleUp = () => {
+      const st = stateRef.current;
+      // فقط اگه واقعاً کشیده نشده بود (یعنی همون‌جا رها شد)، تپ حساب
+      // می‌شه و انتخاب/عدمِ انتخابش عوض می‌شه.
+      if (st.code && !st.dragging) onToggle(st.code);
+      stateRef.current = { code: null, x: 0, y: 0, dragging: false };
+      setDragCode(null);
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("touchmove", handleMove, { passive: false });
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("touchend", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("touchend", handleUp);
+    };
+  }, [order, onReorder, onToggle]);
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {order.map((code) => {
+        const lang = languages.find((l) => l.code === code);
+        if (!lang) return null;
+        const isOn = selected.includes(code);
+        const isDragging = dragCode === code;
+        return (
+          <div
+            key={code}
+            data-order-code={code}
+            onMouseDown={(e) => {
+              stateRef.current = { code, x: e.clientX, y: e.clientY, dragging: false };
+            }}
+            onTouchStart={(e) => {
+              const t = e.touches[0];
+              stateRef.current = { code, x: t.clientX, y: t.clientY, dragging: false };
+            }}
+            style={{
+              touchAction: "none",
+              userSelect: "none",
+              padding: "3px 10px",
+              borderRadius: 20,
+              fontSize: 12,
+              border: `1px solid ${isDragging ? colors.gold : isOn ? colors.gold : colors.cardBorder}`,
+              backgroundColor: isDragging ? colors.gold : isOn ? colors.goldSoft : "white",
+              color: isDragging ? "white" : colors.ink,
+              cursor: "grab",
+            }}
+          >
+            {lang.label}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Story Builder — pick words, AI writes a story that repeats each word
 // several times (in different forms/meanings), reads it aloud, then quizzes
 // the user; wrong answers feed back into which words get suggested next time.
@@ -8783,7 +8887,7 @@ function PdfLivePageView({ pdfDoc, pdfjsLib, pageNum, fallbackImageUrl, onError 
   );
 }
 
-function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, onUserAudioStateChange, autoScrollActive, calendarSystem, highlightColor, uid, uiLang }) {
+function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, setLangPickerOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, onUserAudioStateChange, autoScrollActive, calendarSystem, highlightColor, uid, uiLang }) {
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
   // languages) — no separate picker duplicated here.
@@ -9231,7 +9335,12 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
     })();
     return () => { cancelled = true; };
   }, [showSaved, savedStories]);
-  const [justSaved, setJustSaved] = useState(false);
+  // نکته: قبلاً یه state جدا به‌اسمِ justSaved بود که فقط ۱.۸ ثانیه بعدِ
+  // سیو، تیک نشون می‌داد و بعدش خودش برمی‌گشت به حالتِ اولیه — کاربر گیج
+  // می‌شد که آیا واقعاً ذخیره شده یا نه. حالا به‌جاش مستقیم از
+  // currentStoryId استفاده می‌کنیم (پایین‌تر، دکمه‌ی ذخیره): تا وقتی همین
+  // داستان ذخیره‌شده باز مونده، تیک همیشه می‌مونه؛ فقط با ساختن/بازکردنِ
+  // یه داستانِ دیگه (currentStoryId => null/idِ دیگه) عوض می‌شه.
   // لغاتِ ذخیره‌شده‌ی همین زبان — به‌شکلِ چیپ‌های کوچیکِ قابل‌تپ همین‌جا هم
   // نشون داده می‌شن (نه فقط توی تبِ «لغات ذخیره‌شده») تا کاربر لازم نباشه
   // برای استفاده‌ی دوباره از یه لغتِ قبلاً ذخیره‌شده، تب عوض کنه.
@@ -9834,13 +9943,23 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, wordStats, setWord
   // always AI-generated fresh, so it isn't limited to the static phrase data.
   // نمایش همه‌ی زبان‌های اپ اینجا (نه فقط زبان‌های بالای صفحه)، تا کاربر
   // مجبور نباشه برای اضافه‌کردن یه زبون جدید بره بالا و اسکرول کنه.
-  const translationLangOptions = LANGUAGES.map((l) => l.code).filter((c) => c !== storyLang);
+  // ترتیبِ این چیپ‌ها از langPickerOrder (همون ترتیبِ سراسری/قابل‌کشیدنی که
+  // بالای تنظیمات هم استفاده می‌شه) میاد — تا کاربر بتونه با کشیدنِ چیپ‌ها
+  // (پایین‌تر، DraggableToggleLangGrid) جاشون رو عوض کنه، و همون ترتیب هم
+  // این‌جا هم توی خودِ متنِ ترجمه‌شده‌ی داستان رعایت بشه.
+  const translationLangOptions = (langPickerOrder && langPickerOrder.length ? langPickerOrder : LANGUAGES.map((l) => l.code)).filter(
+    (c) => c !== storyLang
+  );
 
   const toggleTranslationLang = (code) => {
     setTranslationLangs((prev) =>
       prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
     );
   };
+  // ترتیبِ نمایشِ خودِ ترجمه‌ها زیرِ هر جمله/پاراگراف — همیشه بر اساسِ همون
+  // ترتیبِ چیپ‌ها (نه بر اساسِ ترتیبِ تپ‌کردن/انتخاب‌کردن)، تا جابه‌جاکردنِ
+  // چیپ‌ها واقعاً روی چیدمانِ ترجمه‌های داستان هم اثر بذاره.
+  const orderedTranslationLangs = translationLangOptions.filter((c) => translationLangs.includes(c));
   const selectAllTranslationLangs = () => setTranslationLangs(translationLangOptions);
   const clearAllTranslationLangs = () => setTranslationLangs([]);
 
@@ -11153,6 +11272,10 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
 
   const saveCurrentStory = () => {
     if (!paragraphs.length) return;
+    // اگه همین داستان (بدونِ تغییر) از قبل ذخیره شده (currentStoryId ست
+    // شده)، دوباره یه کپیِ تکراری نساز — قبلاً هر بار کلیک، یه ورودیِ
+    // جدید و تکراری به «داستان‌های ذخیره‌شده» اضافه می‌کرد.
+    if (currentStoryId) return;
     const entry = {
       id: Date.now(),
       storyLang,
@@ -11166,8 +11289,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     };
     setSavedStories((prev) => [entry, ...prev]);
     setCurrentStoryId(entry.id);
-    setJustSaved(true);
-    setTimeout(() => setJustSaved(false), 1800);
   };
 
   const openSavedStory = (entry) => {
@@ -11859,7 +11980,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         <div className="mb-3" style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12, backgroundColor: colors.paper }}>
           <div className="flex items-center justify-between mb-2">
             <p style={{ fontSize: 12, color: colors.inkSoft }}>
-              داستان همزمان به چه زبان‌هایی ترجمه بشه؟ (می‌تونی چند تا انتخاب کنی)
+              داستان همزمان به چه زبان‌هایی ترجمه بشه؟ (می‌تونی چند تا انتخاب کنی — برای جابه‌جاییِ ترتیب، نگه‌دار و بکش)
             </p>
             <div className="flex gap-2">
               <button onClick={selectAllTranslationLangs} style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}>
@@ -11870,23 +11991,17 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               </button>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {translationLangOptions.map((code) => (
-              <button
-                key={code}
-                onClick={() => toggleTranslationLang(code)}
-                style={{
-                  padding: "3px 10px",
-                  borderRadius: 20,
-                  fontSize: 12,
-                  border: `1px solid ${translationLangs.includes(code) ? colors.gold : colors.cardBorder}`,
-                  backgroundColor: translationLangs.includes(code) ? colors.goldSoft : "white",
-                }}
-              >
-                {LANGUAGES.find((l) => l.code === code)?.label}
-              </button>
-            ))}
-          </div>
+          <DraggableToggleLangGrid
+            order={translationLangOptions}
+            onReorder={(next) => {
+              if (typeof setLangPickerOrder === "function") {
+                setLangPickerOrder((prev) => syncLangPickerFromTargetOrder(prev, next));
+              }
+            }}
+            languages={LANGUAGES}
+            selected={translationLangs}
+            onToggle={toggleTranslationLang}
+          />
         </div>
       )}
 
@@ -12312,20 +12427,20 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               </button>
               <button
                 onClick={saveCurrentStory}
-                title={justSaved ? "ذخیره شد" : "ذخیره داستان"}
-                aria-label={justSaved ? "ذخیره شد" : "ذخیره داستان"}
+                title={currentStoryId ? "ذخیره شد" : "ذخیره داستان"}
+                aria-label={currentStoryId ? "ذخیره شد" : "ذخیره داستان"}
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  color: justSaved ? colors.teal : colors.gold,
+                  color: currentStoryId ? colors.teal : colors.gold,
                   background: "none",
                   border: "none",
-                  cursor: "pointer",
+                  cursor: currentStoryId ? "default" : "pointer",
                   padding: 2,
                   flexShrink: 0,
                 }}
               >
-                {justSaved ? <Check size={16} /> : <Bookmark size={16} />}
+                {currentStoryId ? <Check size={16} /> : <Bookmark size={16} />}
               </button>
             </div>
           </div>
@@ -12562,7 +12677,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                             </p>
                           </div>
                           {showTranslations &&
-                            translationLangs.map((code) => {
+                            orderedTranslationLangs.map((code) => {
                               const translated = s.t?.[code];
                               // فعال بودنِ همین جمله‌ی ترجمه — یعنی همین الان
                               // دقیقاً همین زبان/جمله در حالِ پخشِ «کلِ ترجمه»ست؛
@@ -12728,7 +12843,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                         );
                       })()}
                       {showTranslations &&
-                        translationLangs.map((code) => {
+                        orderedTranslationLangs.map((code) => {
                           const sentencesList = p.sentences || [];
                           const translated = sentencesList.length && sentencesList.every((s) => s?.t?.[code])
                             ? sentencesList.map((s) => s.t[code]).join(" ")
@@ -16075,6 +16190,8 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
             targetOrder={targetOrder}
+            langPickerOrder={langPickerOrder}
+            setLangPickerOrder={setLangPickerOrder}
             wordStats={wordStats}
             setWordStats={setWordStats}
             savedStories={savedStories}
