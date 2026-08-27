@@ -15787,7 +15787,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         }}
         className="px-4 pt-6 pb-5"
       >
-        <LingovaMascot uiLang={appPrefs.uiLang} />
+        <LingovaMascot uiLang={appPrefs.uiLang} fontZoom={APP_FONT_SIZES[appPrefs.fontSize]?.zoom || 1} />
         <div className="flex items-center justify-end mb-1">
           <div className="flex items-center gap-2.5">
             {user?.picture ? (
@@ -19329,6 +19329,8 @@ function LoginScreen({ onAuthenticated, uiLang = "fa" }) {
 const LINGOVA_MASCOT_WIDTH = 30;
 const LINGOVA_MASCOT_HEIGHT = 38;
 const LINGOVA_IDLE_MS = 6000; // بعدِ این‌قدر بی‌تعاملی، حالتِ «هشدار»
+const LINGOVA_ALERT_MS = 3000; // پیامِ هشدار این‌قدر نمایش داده می‌شه، بعد
+// خودش (بدونِ نیاز به کلیکِ کاربر) به راه‌رفتنِ عادی برمی‌گرده.
 // کلیدهای UI_STRINGS برای پیام‌های حباب — به‌جای متنِ ثابتِ فارسی، از سیستمِ
 // زبانِ نرم‌افزار (tr/uiLang) خونده می‌شن تا با تغییرِ زبونِ اپ، این پیام‌ها
 // هم خودکار انگلیسی/فارسی بشن.
@@ -19380,6 +19382,7 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
   const readUntilRef = useRef(0);
   const pinnedXRef = useRef(0); // فقط تو حالتِ pinned+walking: موقعیتِ x رویِ کلِ عرضِ صفحه
   const pinnedTargetRef = useRef(0);
+  const alertUntilRef = useRef(0); // پایانِ نمایشِ حبابِ هشدار — بعدش خودکار برمی‌گرده به راه‌رفتن
   const lastActivityRef = useRef(Date.now());
   const bubbleRef = useRef(null);
   const [, forceTick] = useReducer((n) => n + 1, 0);
@@ -19451,6 +19454,15 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
         if (modeRef.current !== "alert") {
           modeRef.current = "alert";
           bubbleRef.current = pickBubbleLine();
+          alertUntilRef.current = Date.now() + LINGOVA_ALERT_MS;
+        } else if (Date.now() >= alertUntilRef.current) {
+          // بعدِ ۳ ثانیه، بدونِ نیاز به کلیک/تعاملِ واقعیِ کاربر، خودش
+          // برمی‌گرده به راه‌رفتن — و ساعتِ بی‌تعاملی رو ریست می‌کنیم تا
+          // بلافاصله دوباره هشدار نده، یه دورِ کاملِ دیگه راه بره.
+          modeRef.current = "walk";
+          bubbleRef.current = null;
+          lastActivityRef.current = Date.now();
+          pickNewPinnedTarget(pinnedXRef.current);
         }
         forceTick();
         return;
@@ -19471,11 +19483,11 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
       }
 
       // رفت‌وبرگشتِ واقعی رویِ کلِ عرضِ صفحه: تا رسیدن به مقصدِ فعلی
-      // جابه‌جا می‌شه، بعد یه مکثِ کوتاه (mode = read) و یه مقصدِ تازه.
+      // جابه‌جا می‌شه، بعد یه مکثِ کوتاهِ ۲ تا ۳ ثانیه‌ای و یه مقصدِ تازه.
       const dx = pinnedTargetRef.current - pinnedXRef.current;
       if (Math.abs(dx) < 1.5) {
         modeRef.current = "read";
-        readUntilRef.current = Date.now() + 1200 + Math.random() * 2200;
+        readUntilRef.current = Date.now() + 2000 + Math.random() * 1000;
         forceTick();
         return;
       }
@@ -19499,6 +19511,12 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
         if (modeRef.current !== "alert") {
           modeRef.current = "alert";
           bubbleRef.current = pickBubbleLine();
+          alertUntilRef.current = Date.now() + LINGOVA_ALERT_MS;
+        } else if (Date.now() >= alertUntilRef.current) {
+          modeRef.current = "walk";
+          bubbleRef.current = null;
+          lastActivityRef.current = Date.now();
+          pickNewTarget(xRef.current, trackWidth);
         }
         forceTick();
         return;
@@ -19520,9 +19538,9 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
 
       const dx = targetRef.current - xRef.current;
       if (Math.abs(dx) < 1.5) {
-        // رسید به مقصد — یه مکثِ کوتاه «انگار داره می‌خونه»، بعد یه مقصدِ تازه
+        // رسید به مقصد — یه مکثِ کوتاهِ ۲ تا ۳ ثانیه‌ای، بعد یه مقصدِ تازه
         modeRef.current = "read";
-        readUntilRef.current = Date.now() + 1200 + Math.random() * 2200;
+        readUntilRef.current = Date.now() + 2000 + Math.random() * 1000;
         forceTick();
         return;
       }
@@ -19541,7 +19559,7 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
   };
 }
 
-function LingovaMascot({ uiLang }) {
+function LingovaMascot({ uiLang, fontZoom = 1 }) {
   const trackRef = useRef(null);
   const [trackWidth, setTrackWidth] = useState(0);
 
@@ -19634,6 +19652,9 @@ function LingovaMascot({ uiLang }) {
   // پایینِ آدمک نشون می‌دیم تا از صفحه بیرون نزنه.
   const bubbleNearTop = pinned && activePos && activePos.top < 34;
 
+  const bubbleDir = APP_LANGUAGES[uiLang]?.dir || "ltr";
+  const bubbleFontFamily = uiLang === "fa" ? "var(--font-fa)" : "var(--font-latin)";
+
   const mascotBody = (
     <div
       onPointerDown={handlePointerDown}
@@ -19643,24 +19664,31 @@ function LingovaMascot({ uiLang }) {
         left: x,
         width: LINGOVA_MASCOT_WIDTH,
         height: LINGOVA_MASCOT_HEIGHT,
-        transform: `scaleX(${facing})`,
         touchAction: "none",
         pointerEvents: "auto",
         cursor: isDragging ? "grabbing" : "grab",
         filter: isDragging ? "drop-shadow(0 3px 6px rgba(0,0,0,.45))" : "none",
       }}
     >
+      {/* حبابِ پیام عمداً بیرونِ هر ظرفی‌ست که scaleX(facing) رو داره — قبلاً
+          هم خودِ حباب یه scaleX(-1) جبرانی می‌گرفت تا متنش با چرخشِ آدمک
+          آینه‌ای نشه، ولی ترکیبِ اون دو تبدیل باعث می‌شد متنِ فارسی (راست‌به‌چپ)
+          گاهی برعکس/جابه‌جا رندر بشه. حالا فقط خودِ کاراکتر (svg) می‌چرخه، پس
+          دیگه نیازی به هیچ تبدیلی رویِ حباب نیست و متنش همیشه طبیعی نمایش
+          داده می‌شه. جهتِ متن (rtl/ltr) و فونت هم از تنظیماتِ زبان/فونتِ خودِ
+          اپ (uiLang, fontFamily) خونده می‌شه، نه یه مقدارِ ثابت. */}
       {bubble && (
         <div
           className="lingova-bubble"
+          dir={bubbleDir}
           style={{
             position: "absolute",
             top: bubbleNearTop ? LINGOVA_MASCOT_HEIGHT + 2 : -22,
             left: facing === 1 ? -4 : -34,
-            transform: facing === 1 ? "none" : "scaleX(-1)",
             background: colors.paper,
             color: colors.ink,
-            fontSize: 9,
+            fontFamily: bubbleFontFamily,
+            fontSize: 9 * fontZoom,
             fontWeight: 700,
             padding: "2px 6px",
             borderRadius: 8,
@@ -19671,7 +19699,12 @@ function LingovaMascot({ uiLang }) {
           {bubble}
         </div>
       )}
-      <svg viewBox="0 0 30 38" width={LINGOVA_MASCOT_WIDTH} height={LINGOVA_MASCOT_HEIGHT} style={{ overflow: "visible", display: "block" }}>
+      <svg
+        viewBox="0 0 30 38"
+        width={LINGOVA_MASCOT_WIDTH}
+        height={LINGOVA_MASCOT_HEIGHT}
+        style={{ overflow: "visible", display: "block", transform: `scaleX(${facing})` }}
+      >
         {/* چماق — دستِ نگه‌دارنده‌اش وقتِ راه‌رفتن تاب می‌خوره، وقتِ
             هشدار (بی‌تعاملیِ کاربر) بالا نگه داشته می‌شه */}
         <g
