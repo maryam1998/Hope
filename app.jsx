@@ -15782,7 +15782,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         }}
         className="px-4 pt-6 pb-5"
       >
-        <LingovaMascot uiLang={appPrefs.uiLang} />
+        <LingovaReadingReminder uiLang={appPrefs.uiLang} />
         <div className="flex items-center justify-end mb-1">
           <div className="flex items-center gap-2.5">
             {user?.picture ? (
@@ -15808,9 +15808,13 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             <SettingsMenu appPrefs={appPrefs} setAppPrefs={setAppPrefs} user={user} onLogout={onLogout} aiSettings={aiSettings} />
           </div>
         </div>
-        <p style={{ color: colors.paper, opacity: 0.85, fontSize: 13.5 }}>
+        <p style={{ color: colors.paper, opacity: 0.85, fontSize: 13.5, marginBottom: 4 }}>
           از {nativeLabel} به {targetLabel} · {user?.name || user?.email}
         </p>
+        {/* آدمکِ Lingova درست پایینِ همین خط («از ... به ... · نامِ‌کاربر»)
+            راه می‌ره — پایین‌ترِ جای قبلی‌اش (بالای هدر)، هم‌راستا با اسمِ
+            کاربر؛ عرضِ کاملِ هدر رو داره تا محدوده‌ی راه‌رفتنش تنگ نشه. */}
+        <LingovaMascot uiLang={appPrefs.uiLang} />
 
         {/* Language pickers */}
         <div className="mt-4">
@@ -19313,51 +19317,108 @@ function LoginScreen({ onAuthenticated, uiLang = "fa" }) {
 }
 
 // ---------------------------------------------------------------------------
-// آدمکِ Lingova — یه شخصیتِ کوچیکِ SVG که دیگه دائم بالای هدر راه نمی‌ره (که
-// حواسِ آدم رو موقعِ خوندن/اسکرول‌کردن پرت می‌کرد)، بلکه فقط وقتی کاربر
-// چند ثانیه بی‌حرکت مونده (نه اسکرول، نه لمس، نه کیبورد) به‌شکلِ یه
-// «ایستراِگِ» کوچیک از گوشه ظاهر می‌شه: چند قدم راه می‌ره، می‌ایسته و
-// انگار داره متن رو می‌خونه (سرش خم می‌شه پایین)، و بعدِ چند ثانیه دوباره
-// محو می‌شه. با اولین اسکرول/لمس/کلیک/کیبورد فوراً ناپدید می‌شه — تا وقتِ
-// خوندنِ واقعی مزاحم نباشه. اگه کاربر خیلی طولانی (چند دقیقه) کلاً بی‌
-// تعامل بمونه، به‌جای این چرخه‌ی کوتاه، می‌ایسته، چماق رو بالا می‌گیره، و
-// یه حبابِ یادآوری («بخون دیگه!») نشون می‌ده تا کاربر دوباره تعامل کنه.
-// خودِ آدمک هم دیگه position:fixed/پورتال نیست — همون‌جای قبلی، تویِ
-// جریانِ عادیِ هدر رندر می‌شه (بدون نوارِ رنگیِ جداگانه) تا با اسکرول‌شدنِ
-// هدر خودش هم رد بشه، نه این‌که همیشه روی صفحه بچسبه.
+// آدمکِ Lingova — یه شخصیتِ کوچیکِ SVG که همیشه (نه فقط گاهی) بالای هدر
+// تصادفی راه می‌ره، یه چماق دستشه، و حواسش به «خوندن»ه: هر از گاهی می‌ایسته
+// و انگار داره متن رو می‌خونه (سرش خم می‌شه پایین)، بعد دوباره یه مقصدِ
+// تصادفیِ دیگه انتخاب می‌کنه و راه می‌افته. چون تویِ جریانِ عادیِ هدر
+// (نه position:fixed) رندر می‌شه، با اسکرول‌کردنِ صفحه خودش هم مثلِ بقیه‌ی
+// هدر از دید می‌ره — پس مزاحمِ خوندن نیست، ولی وقتی هدر دیده می‌شه، همیشه
+// در حالِ راه‌رفتنه، نه این‌که خودش محو/ظاهر بشه.
+//
+// یادآوریِ «بخون دیگه!» دیگه یه چیزِ جدا از آدمک نیست — خودِ آدمکه که این
+// جمله‌ها رو می‌گه، از دو مسیر:
+//   ۱) همین‌جا، توی هدر: هر از گاهی که آدمک وایمیسته (mode==='read')، با
+//      یه احتمالِ کم، یه حبابِ گفتارِ کوچیک بالای سرش ظاهر می‌شه و یکی از
+//      جمله‌های LINGOVA_REMINDER_LINES رو می‌گه — یعنی حتی موقعِ راه‌رفتنِ
+//      عادی هم گاهی «بخون دیگه» می‌گه، بدون این‌که منتظرِ بی‌تعاملیِ کاربر
+//      باشه.
+//   ۲) وقتی کاربر واقعاً چند ثانیه بی‌حرکته: LingovaReadingReminder (پایین‌تر)
+//      همینِ آدمک رو، از یکی از گوشه‌های صفحه (position:fixed)، با یه
+//      حبابِ گفتارِ همون جمله‌ها ظاهر می‌کنه — انگار خودِ آدمک اومده سراغِ
+//      کاربر. هر دو مسیر از همون SVG مشترک (LingovaMascotSVG) و همون
+//      استخرِ جمله‌ها استفاده می‌کنن؛ دیگه هیچ‌جا یه کادرِ متنیِ بی‌ربط به
+//      آدمک نداریم.
 // ---------------------------------------------------------------------------
 const LINGOVA_MASCOT_WIDTH = 30;
-const LINGOVA_IDLE_APPEAR_MS = 9000; // این‌قدر بی‌حرکتی لازمه تا آدمک ظاهر بشه
-const LINGOVA_VISIBLE_MS = 5000; // بعدِ ظاهرشدن، تا چند میلی‌ثانیه دیده می‌مونه
-const LINGOVA_REAPPEAR_GAP_MS = 7000; // فاصله‌ی حداقلی بینِ دو تا ظاهرشدنِ پشتِ‌هم
-const LINGOVA_ALERT_MS = 3 * 60 * 1000; // بعدِ این‌قدر بی‌تعاملیِ کلی، حالتِ «هشدار»
-// حالا هم‌زبانِ خودِ نرم‌افزار (uiLang) — نه همیشه فارسی؛ اگه زبانِ
-// نرم‌افزار روی English باشه، حباب‌ها انگلیسی نشون داده می‌شن.
-const LINGOVA_BUBBLE_LINES = {
-  fa: ["بخون دیگه! 📖", "ادامه‌شو بخون!", "هنوز اونجایی؟ 👀", "با توام‌ها، بخون!"],
-  en: ["Keep reading! 📖", "Come on, continue!", "Still there? 👀", "I'm talking to you, read!"],
-};
-function pickLingovaBubbleLine(uiLang) {
-  const lines = LINGOVA_BUBBLE_LINES[uiLang] || LINGOVA_BUBBLE_LINES.fa;
-  return lines[Math.floor(Math.random() * lines.length)];
+
+// بدنه‌ی SVG آدمک — از هم LingovaMascot (راه‌رونده‌ی هدر) و هم
+// LingovaReadingReminder (ظاهرشونده از گوشه‌ی صفحه) همین یکی رو صدا می‌زنن،
+// تا شکلِ آدمک همه‌جا یکی باشه. `mode` می‌تونه 'walk' (پاها/بازو تاب
+// می‌خورن)، 'read' (سر خم می‌شه پایین، انگار داره می‌خونه) یا هرچیزِ دیگه‌ای
+// (مثلاً 'idle' — کاملاً ثابت و رو‌به‌کاربر) باشه.
+function LingovaMascotSVG({ mode, size = LINGOVA_MASCOT_WIDTH }) {
+  const h = (size * 38) / 30;
+  return (
+    <svg viewBox="0 0 30 38" width={size} height={h} style={{ overflow: "visible", display: "block" }}>
+      {/* بازو + چماق — بازو یه خطِ سادَست (بدون دستبند/بست)، دستش فقط
+          یه دایره‌ی کوچیکِ دورِ دسته‌ست تا معلوم باشه خودش داره
+          نگهش می‌داره، و سرِ چماق گِرد و بزرگه تا از یه چوبِ نازک
+          متمایز باشه. وقتِ راه‌رفتن بازو تاب می‌خوره */}
+      <g className={mode === "walk" ? "lingova-arm-walk" : ""} style={{ transformOrigin: "16.5px 15px" }}>
+        {/* بازو — از شونه تا مچ، یه خطِ سادَه */}
+        <rect x="15.5" y="9" width="2.2" height="6.5" rx="1.1" fill={colors.ink} />
+        {/* دسته‌ی چماق */}
+        <rect x="15.8" y="4.5" width="1.7" height="8.5" rx="0.85" fill="#8a5a2b" />
+        {/* مشت — فقط یه دایره‌ی کوچیک دورِ دسته، بدون هیچ بند/تزئینِ اضافه */}
+        <circle cx="16.7" cy="9.4" r="1.9" fill={colors.ink} />
+        {/* سرِ گِردِ چماق — بزرگ و واضح، نه یه چوبِ نازک */}
+        <circle cx="16.7" cy="4" r="3.2" fill="#6b4423" stroke="#4a2d15" strokeWidth="0.5" />
+      </g>
+      {/* سر — موقعِ «خوندن» یکم به‌سمتِ پایین خم می‌شه، انگار حواسش به متنه */}
+      <g
+        style={{
+          transform: mode === "read" ? "rotate(18deg)" : "none",
+          transformOrigin: "15px 8px",
+          transition: "transform 0.35s ease",
+        }}
+      >
+        <circle cx="15" cy="8" r="5" fill={colors.gold} />
+        <circle cx="17" cy="7.2" r="0.8" fill={colors.ink} />
+      </g>
+      {/* تنه */}
+      <rect x="12" y="13" width="6" height="12" rx="3" fill={colors.teal} />
+      {/* پاها — فقط موقعِ راه‌رفتن تاب می‌خورن */}
+      <g className={mode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "13px 25px" }}>
+        <rect x="11.5" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+      </g>
+      <g className={mode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "17px 25px" }}>
+        <rect x="16" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+      </g>
+    </svg>
+  );
 }
 
-function useLingovaMascot(trackWidth, uiLang) {
+// حبابِ گفتارِ آدمک — یه تکه‌ی مشترکِ کوچیک که هم آدمکِ راه‌رونده‌ی هدر و هم
+// آدمکِ گوشه‌ای ازش استفاده می‌کنن، تا ظاهرِ پیام‌ها همه‌جا یکی باشه.
+function LingovaSpeechBubble({ text, small }) {
+  return (
+    <div
+      style={{
+        background: colors.paper,
+        color: colors.ink,
+        fontSize: small ? 10.5 : 12.5,
+        fontWeight: 700,
+        padding: small ? "5px 8px" : "8px 12px",
+        borderRadius: small ? 9 : 12,
+        whiteSpace: "nowrap",
+        boxShadow: "0 3px 10px rgba(0,0,0,.35)",
+        border: `1px solid ${colors.cardBorder}`,
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+function useLingovaMascot(trackWidth) {
   const xRef = useRef(0);
   const targetRef = useRef(-1); // -1 یعنی هنوز مقصدی انتخاب نشده
   const speedRef = useRef(0.6);
   const facingRef = useRef(1);
-  const modeRef = useRef("walk"); // 'walk' | 'read' | 'alert'
-  const visibleRef = useRef(false);
-  const phaseUntilRef = useRef(0); // مهلتِ دیده‌بودنِ فازِ فعلیِ ظاهرشدن
-  const nextAppearAtRef = useRef(0); // زودترین لحظه‌ای که دوباره حق داره ظاهر بشه
+  const modeRef = useRef("walk"); // 'walk' | 'read'
   const readUntilRef = useRef(0);
-  const lastActivityRef = useRef(Date.now());
-  const bubbleRef = useRef(null);
   const [, forceTick] = useReducer((n) => n + 1, 0);
 
-  // مقصدِ کامل (برای موقعیتِ اولیه) در برابرِ مقصدِ «چند قدم» (برای چرخه‌ی
-  // کوتاهِ ظاهرشدن) — دومی فقط یه‌کمی جابه‌جا می‌شه، نه سرتاسرِ عرضِ هدر
   const pickNewTarget = (fromX, w) => {
     const trackW = Math.max(w - LINGOVA_MASCOT_WIDTH, 24);
     const t = Math.random() * trackW;
@@ -19365,93 +19426,16 @@ function useLingovaMascot(trackWidth, uiLang) {
     speedRef.current = 0.35 + Math.random() * 0.85;
     facingRef.current = t >= fromX ? 1 : -1;
   };
-  const pickShortWalkTarget = (fromX, w) => {
-    const trackW = Math.max(w - LINGOVA_MASCOT_WIDTH, 24);
-    const step = 24 + Math.random() * 36; // چند قدمِ کوتاه، نه یه راهِ دور
-    let t = fromX + (Math.random() < 0.5 ? -step : step);
-    t = Math.min(Math.max(t, 0), trackW);
-    targetRef.current = t;
-    speedRef.current = 0.4 + Math.random() * 0.5;
-    facingRef.current = t >= fromX ? 1 : -1;
-  };
-
-  // ثبتِ آخرین لحظه‌ی تعاملِ کاربر با کلِ اپ — هر نوع لمس/کلیک/اسکرول/کیبورد.
-  // با هر تعاملی، اگه آدمک همون لحظه دیده می‌شد (و تو حالتِ هشدار نبود)
-  // فوراً محو می‌شه — چون دقیقاً همینه که نباید موقعِ خوندنِ واقعی حواس‌پرت‌کن باشه.
-  useEffect(() => {
-    const mark = () => {
-      lastActivityRef.current = Date.now();
-      if (visibleRef.current && modeRef.current !== "alert") {
-        visibleRef.current = false;
-        modeRef.current = "walk";
-        nextAppearAtRef.current = Date.now() + LINGOVA_REAPPEAR_GAP_MS;
-      }
-    };
-    window.addEventListener("touchstart", mark, { passive: true });
-    window.addEventListener("mousedown", mark);
-    window.addEventListener("keydown", mark);
-    window.addEventListener("scroll", mark, { passive: true, capture: true });
-    return () => {
-      window.removeEventListener("touchstart", mark);
-      window.removeEventListener("mousedown", mark);
-      window.removeEventListener("keydown", mark);
-      window.removeEventListener("scroll", mark, true);
-    };
-  }, []);
 
   useEffect(() => {
     if (!trackWidth) return undefined;
     if (targetRef.current < 0) pickNewTarget(xRef.current, trackWidth);
 
     const id = setInterval(() => {
-      const idleMs = Date.now() - lastActivityRef.current;
-
-      // بی‌تعاملیِ خیلی طولانی (چند دقیقه) اولویت داره — چه الان دیده بشه
-      // چه نه، بذار کاربر پیغامِ یادآوری رو ببینه
-      if (idleMs > LINGOVA_ALERT_MS) {
-        if (modeRef.current !== "alert") {
-          modeRef.current = "alert";
-          bubbleRef.current = pickLingovaBubbleLine(uiLang);
-          visibleRef.current = true;
-        }
-        forceTick();
-        return;
-      }
-      if (modeRef.current === "alert") {
-        // کاربر برگشت — آدمک محو می‌شه و منتظرِ چرخه‌ی بعدیِ بی‌حرکتی می‌مونه
-        modeRef.current = "walk";
-        bubbleRef.current = null;
-        visibleRef.current = false;
-        nextAppearAtRef.current = Date.now() + LINGOVA_REAPPEAR_GAP_MS;
-      }
-
-      if (!visibleRef.current) {
-        // فقط وقتی هم به‌قدرِ کافی بی‌حرکت مونده، هم فاصله‌ی لازم از دفعه‌ی
-        // قبلی گذشته — آدمک برای یه مدتِ کوتاه ظاهر می‌شه؛ مثلِ یه
-        // ایستراِگِ کوچیک، نه یه چیزِ همیشه‌حاضرِ حواس‌پرت‌کن
-        if (idleMs > LINGOVA_IDLE_APPEAR_MS && Date.now() >= nextAppearAtRef.current) {
-          visibleRef.current = true;
-          modeRef.current = "walk";
-          pickShortWalkTarget(xRef.current, trackWidth);
-          phaseUntilRef.current = Date.now() + LINGOVA_VISIBLE_MS;
-          forceTick();
-        }
-        return;
-      }
-
-      // الان دیده می‌شه — بعدِ مهلتِ نمایشِ این فاز، دوباره محو می‌شه
-      if (Date.now() >= phaseUntilRef.current) {
-        visibleRef.current = false;
-        modeRef.current = "walk";
-        nextAppearAtRef.current = Date.now() + LINGOVA_REAPPEAR_GAP_MS;
-        forceTick();
-        return;
-      }
-
       if (modeRef.current === "read") {
         if (Date.now() >= readUntilRef.current) {
           modeRef.current = "walk";
-          pickShortWalkTarget(xRef.current, trackWidth);
+          pickNewTarget(xRef.current, trackWidth);
         }
         forceTick();
         return;
@@ -19459,9 +19443,9 @@ function useLingovaMascot(trackWidth, uiLang) {
 
       const dx = targetRef.current - xRef.current;
       if (Math.abs(dx) < 1.5) {
-        // رسید به مقصد — می‌ایسته و انگار داره متن رو می‌خونه
+        // رسید به مقصد — یه مکثِ کوتاه «انگار داره می‌خونه»، بعد یه مقصدِ تازه
         modeRef.current = "read";
-        readUntilRef.current = Date.now() + 1200 + Math.random() * 1500;
+        readUntilRef.current = Date.now() + 1200 + Math.random() * 2200;
         forceTick();
         return;
       }
@@ -19470,15 +19454,9 @@ function useLingovaMascot(trackWidth, uiLang) {
     }, 45);
 
     return () => clearInterval(id);
-  }, [trackWidth, uiLang]);
+  }, [trackWidth]);
 
-  return {
-    x: xRef.current,
-    facing: facingRef.current,
-    mode: modeRef.current,
-    bubble: bubbleRef.current,
-    visible: visibleRef.current,
-  };
+  return { x: xRef.current, facing: facingRef.current, mode: modeRef.current };
 }
 
 function LingovaMascot({ uiLang }) {
@@ -19499,104 +19477,55 @@ function LingovaMascot({ uiLang }) {
     return () => ro.disconnect();
   }, []);
 
-  const { x, facing, mode, bubble, visible } = useLingovaMascot(trackWidth, uiLang);
+  const { x, facing, mode } = useLingovaMascot(trackWidth);
+
+  // حبابِ گفتار — هر بار که آدمک تازه وایمیسته (mode از 'walk' به 'read'
+  // عوض می‌شه)، با احتمالِ ۴۰٪ یکی از جمله‌های «بخون دیگه» رو بالای سرش
+  // نشون می‌ده و بعدِ یکی-دو ثانیه محو می‌شه. این‌جوری حتی موقعِ راه‌رفتنِ
+  // عادی (نه فقط وقتی کاربر بی‌حرکته) هم گاه‌به‌گاه یادآوری می‌کنه، بدون
+  // این‌که هر توقف رو (که خیلی زیاد اتفاق می‌افته) به یه پیام تبدیل کنه.
+  const [bubble, setBubble] = useState(null);
+  const prevModeRef = useRef(mode);
+  useEffect(() => {
+    let t;
+    if (mode === "read" && prevModeRef.current !== "read" && Math.random() < 0.4) {
+      setBubble(pickLingovaReminderLine(uiLang));
+      t = setTimeout(() => setBubble(null), 1600);
+    }
+    prevModeRef.current = mode;
+    return () => clearTimeout(t);
+  }, [mode, uiLang]);
 
   return (
     <>
-      {/* جای‌گیر + محلِ رندرِ خودِ آدمک — دقیقاً همون‌جایی که قبلاً بود
-          (داخلِ جریانِ عادیِ هدر، بدون position:fixed و بدون نوارِ
-          رنگیِ جداگانه)؛ چون آدمک دیگه فقط وقتی ظاهر می‌شه که کاربر
-          اسکرول نمی‌کنه، دیگه لازم نیست با createPortal بیرون از هدر
-          نگه‌داشته بشه تا با اسکرول از دید خارج نشه. */}
-      <div ref={trackRef} style={{ height: 40, marginBottom: 2, position: "relative", overflow: "visible" }}>
-        {visible && (
+      {/* جای‌گیر + محلِ رندرِ خودِ آدمک — تویِ جریانِ عادیِ هدر (بدون
+          position:fixed و بدون نوارِ رنگیِ جداگانه)، درست هم‌ردیفِ خطِ
+          «از ... به ... · نامِ‌کاربر» (جایی که این کامپوننت صدا زده می‌شه). */}
+      <div ref={trackRef} style={{ height: 40, position: "relative", overflow: "visible" }}>
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: x,
+            width: LINGOVA_MASCOT_WIDTH,
+            height: 38,
+            transform: `scaleX(${facing})`,
+          }}
+        >
+          <LingovaMascotSVG mode={mode} />
+        </div>
+        {bubble && (
           <div
             style={{
               position: "absolute",
-              top: 5,
-              left: x,
-              width: LINGOVA_MASCOT_WIDTH,
-              height: 38,
-              transform: `scaleX(${facing})`,
-              animation: "lingovaFadeIn 0.35s ease",
+              top: -32,
+              left: Math.max(0, x - 30),
+              zIndex: 5,
+              pointerEvents: "none",
+              animation: "lingovaBubblePop 0.25s ease",
             }}
           >
-            {bubble && (
-              // نکته‌ی مهم: خودِ حباب دو transform همزمان لازم داشت — یکی
-              // برای خنثی‌کردنِ آینه‌شدنِ کلِ آدمک وقتِ رو‌به‌چپ‌بودن
-              // (scaleX(-1))، یکی برای انیمیشنِ بالاوپایین‌رفتنِ حباب
-              // (کلاسِ lingova-bubble). چون انیمیشنِ CSS مقدارِ transform
-              // را کامل جایگزین می‌کند (نه اضافه)، گذاشتنِ هردو روی یک
-              // المنت باعث می‌شد transformِ خنثی‌سازی هر فریم پاک بشه و
-              // متنِ فارسی/چپ‌به‌راست برعکس دیده بشه. الان دو لایه‌ی
-              // جدا داریم: بیرونی فقط آینه رو خنثی می‌کنه، داخلی فقط
-              // انیمیشنِ بالاوپایین رو اجرا می‌کنه — این‌طوری هیچ‌کدوم
-              // مزاحمِ اون‌یکی نمی‌شه.
-              <div
-                style={{
-                  position: "absolute",
-                  top: -22,
-                  left: facing === 1 ? -4 : -34,
-                  transform: facing === 1 ? "none" : "scaleX(-1)",
-                }}
-              >
-                <div
-                  className="lingova-bubble"
-                  style={{
-                    background: colors.paper,
-                    color: colors.ink,
-                    fontSize: 9,
-                    fontWeight: 700,
-                    padding: "2px 6px",
-                    borderRadius: 8,
-                    whiteSpace: "nowrap",
-                    boxShadow: "0 1px 4px rgba(0,0,0,.3)",
-                  }}
-                >
-                  {bubble}
-                </div>
-              </div>
-            )}
-            <svg viewBox="0 0 30 38" width={LINGOVA_MASCOT_WIDTH} height={38} style={{ overflow: "visible", display: "block" }}>
-              {/* بازو + مشت + چماق — یه دستِ واضح دورِ دسته‌شو گرفته، و
-                  سرِ چماق (گِرد و بزرگ) اونو از یه چوبِ نازک متمایز می‌کنه.
-                  وقتِ راه‌رفتن بازو تاب می‌خوره، وقتِ هشدار بالا نگه داشته می‌شه */}
-              <g
-                className={mode === "alert" ? "lingova-arm-alert" : mode === "walk" ? "lingova-arm-walk" : ""}
-                style={{ transformOrigin: "16.5px 15px" }}
-              >
-                {/* بازو — از شونه تا مچ */}
-                <rect x="15.5" y="9" width="2.2" height="6.5" rx="1.1" fill={colors.ink} />
-                {/* دسته‌ی چماق، از تو مشت رد می‌شه */}
-                <rect x="15.8" y="4.5" width="1.7" height="8" rx="0.85" fill="#8a5a2b" />
-                {/* مشت — دورِ دسته رو گرفته، تا واضح باشه خودِ آدمک داره نگهش می‌داره */}
-                <circle cx="16.7" cy="9.4" r="2.1" fill={colors.gold} />
-                {/* بستِ چرمیِ دسته، زیرِ مشت */}
-                <rect x="15.6" y="11.3" width="2.2" height="1.3" rx="0.6" fill="#5c3a1a" />
-                {/* سرِ گِردِ چماق — بزرگ و واضح، نه یه چوبِ نازک */}
-                <circle cx="16.7" cy="4" r="3.2" fill="#6b4423" stroke="#4a2d15" strokeWidth="0.5" />
-              </g>
-              {/* سر — موقعِ «خوندن» یکم به‌سمتِ پایین خم می‌شه، انگار حواسش به متنه */}
-              <g
-                style={{
-                  transform: mode === "read" ? "rotate(18deg)" : "none",
-                  transformOrigin: "15px 8px",
-                  transition: "transform 0.35s ease",
-                }}
-              >
-                <circle cx="15" cy="8" r="5" fill={colors.gold} />
-                <circle cx="17" cy="7.2" r="0.8" fill={colors.ink} />
-              </g>
-              {/* تنه */}
-              <rect x="12" y="13" width="6" height="12" rx="3" fill={colors.teal} />
-              {/* پاها — فقط موقعِ راه‌رفتن تاب می‌خورن */}
-              <g className={mode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "13px 25px" }}>
-                <rect x="11.5" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
-              </g>
-              <g className={mode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "17px 25px" }}>
-                <rect x="16" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
-              </g>
-            </svg>
+            <LingovaSpeechBubble text={bubble} small />
           </div>
         )}
       </div>
@@ -19604,16 +19533,160 @@ function LingovaMascot({ uiLang }) {
         @keyframes lingovaLegL { 0%, 100% { transform: rotate(24deg); } 50% { transform: rotate(-24deg); } }
         @keyframes lingovaLegR { 0%, 100% { transform: rotate(-24deg); } 50% { transform: rotate(24deg); } }
         @keyframes lingovaArmWalk { 0%, 100% { transform: rotate(-10deg); } 50% { transform: rotate(10deg); } }
-        @keyframes lingovaArmAlert { 0%, 100% { transform: rotate(-95deg) translateY(0); } 50% { transform: rotate(-95deg) translateY(-2px); } }
-        @keyframes lingovaBubbleBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-        @keyframes lingovaFadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+        @keyframes lingovaBubblePop { 0% { opacity: 0; transform: scale(0.85) translateY(4px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
         .lingova-leg-l { animation: lingovaLegL 0.5s linear infinite; }
         .lingova-leg-r { animation: lingovaLegR 0.5s linear infinite; }
         .lingova-arm-walk { animation: lingovaArmWalk 0.5s linear infinite; }
-        .lingova-arm-alert { animation: lingovaArmAlert 0.6s ease-in-out infinite; }
-        .lingova-bubble { animation: lingovaBubbleBob 1s ease-in-out infinite; }
       `}</style>
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// یادآوریِ «بخون دیگه!» — کاملاً جدا از آدمکِ راه‌رونده‌ست. بعدِ چند ثانیه
+// بی‌تعاملیِ کاربر (نه اسکرول، نه لمس، نه کلیک، نه کیبورد) یه کادرِ کوچیک
+// از یه نقطه‌یِ رندومِ روی خودِ صفحه (نه از یه جای ثابت) ظاهر می‌شه — انگار
+// داره چک می‌کنه ببینه کاربر واقعاً داره می‌خونه یا نه — و بعدِ چند ثانیه
+// خودش محو می‌شه. با اولین تعاملِ کاربر هم فوراً ناپدید می‌شه.
+// ---------------------------------------------------------------------------
+const LINGOVA_REMINDER_IDLE_MS = 9000; // این‌قدر بی‌حرکتی لازمه تا کادر ظاهر بشه
+const LINGOVA_REMINDER_VISIBLE_MS = 4200; // چند میلی‌ثانیه دیده می‌مونه
+const LINGOVA_REMINDER_GAP_MS = 6000; // فاصله‌ی حداقلی تا دفعه‌ی بعدی (اگه هنوز بی‌حرکته)
+const LINGOVA_REMINDER_LINES = {
+  fa: [
+    "بخون دیگه! 📖 حواست به خوندن باشه",
+    "ادامه‌شو بخون! 👀",
+    "هنوز اونجایی؟ بخون دیگه!",
+    "با توام‌ها، حواست به خوندن باشه",
+    "بخون دیگه، یه‌کم دیگه مونده!",
+    "حواست پرت نشه‌ها 😉 بخون دیگه",
+    "من اینجام و منتظرتم، بخون دیگه",
+    "وقتشه دوباره شروع کنی، بخون دیگه",
+    "بی‌خیال نشو، بخون دیگه!",
+    "چشمات رو بیار رو متن، بخون دیگه",
+    "همین چندتا خط مونده، بخون دیگه",
+    "زود باش، وقت داره می‌گذره ⏳",
+    "پیشرفتت رو خراب نکن، بخون دیگه",
+    "یادت نره چرا اومدی اینجا 📚",
+    "یه نفس بکش و دوباره بخون دیگه",
+  ],
+  en: [
+    "Keep reading! 📖 Pay attention",
+    "Come on, continue reading!",
+    "Still there? Keep reading!",
+    "I'm talking to you — read!",
+    "Keep going, you're almost there!",
+    "Don't get distracted, keep reading!",
+    "I'm right here, keep reading!",
+    "Time to get back to it — read!",
+    "Don't give up, keep reading!",
+    "Bring your eyes back to the text!",
+    "Just a few more lines, keep reading!",
+    "Come on, time's ticking ⏳",
+    "Don't waste your progress, keep reading!",
+    "Remember why you're here 📚",
+    "Take a breath and keep reading!",
+  ],
+};
+function pickLingovaReminderLine(uiLang) {
+  const lines = LINGOVA_REMINDER_LINES[uiLang] || LINGOVA_REMINDER_LINES.fa;
+  return lines[Math.floor(Math.random() * lines.length)];
+}
+
+// چهار گوشه‌ای که آدمک می‌تونه ازش «سر بزنه»: هر بار یکی رندوم انتخاب
+// می‌شه. facing جهتِ رو‌به‌کاربر بودنشه (۱ = رو به راست، ‑۱ = رو به چپ)،
+// و vAlign/hAlign مشخص می‌کنن حبابِ گفتار کجای آدمک (بالا/پایین،
+// چپ‌چین/راست‌چین) بشینه تا از لبه‌ی صفحه بیرون نزنه.
+const LINGOVA_MASCOT_CORNERS = [
+  { style: { top: 18, left: 14 }, facing: 1, vAlign: "below", hAlign: "flex-start" },
+  { style: { top: 18, right: 14 }, facing: -1, vAlign: "below", hAlign: "flex-end" },
+  { style: { bottom: 18, left: 14 }, facing: 1, vAlign: "above", hAlign: "flex-start" },
+  { style: { bottom: 18, right: 14 }, facing: -1, vAlign: "above", hAlign: "flex-end" },
+];
+
+function LingovaReadingReminder({ uiLang }) {
+  const [reminder, setReminder] = useState(null); // { text, corner } | null
+  const lastActivityRef = useRef(Date.now());
+  const nextAllowedAtRef = useRef(0);
+  const reminderRef = useRef(null); // آینه‌ی reminder برای خوندن داخلِ setInterval بدون stale-closure
+
+  useEffect(() => {
+    reminderRef.current = reminder;
+  }, [reminder]);
+
+  useEffect(() => {
+    const mark = () => {
+      lastActivityRef.current = Date.now();
+      if (reminderRef.current) {
+        setReminder(null);
+        nextAllowedAtRef.current = Date.now() + LINGOVA_REMINDER_GAP_MS;
+      }
+    };
+    window.addEventListener("touchstart", mark, { passive: true });
+    window.addEventListener("mousedown", mark);
+    window.addEventListener("keydown", mark);
+    window.addEventListener("scroll", mark, { passive: true, capture: true });
+    return () => {
+      window.removeEventListener("touchstart", mark);
+      window.removeEventListener("mousedown", mark);
+      window.removeEventListener("keydown", mark);
+      window.removeEventListener("scroll", mark, true);
+    };
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const idleMs = Date.now() - lastActivityRef.current;
+      if (!reminderRef.current) {
+        if (idleMs > LINGOVA_REMINDER_IDLE_MS && Date.now() >= nextAllowedAtRef.current) {
+          // به‌جای یه کادرِ متنیِ بی‌ربط وسطِ صفحه، خودِ آدمک از یکی از
+          // چهارگوشه‌ی صفحه (رندوم) با پیامش ظاهر می‌شه — انگار اومده سراغِ
+          // کاربر تا یادش بندازه.
+          const corner = LINGOVA_MASCOT_CORNERS[Math.floor(Math.random() * LINGOVA_MASCOT_CORNERS.length)];
+          setReminder({ text: pickLingovaReminderLine(uiLang), corner });
+        }
+        return;
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [uiLang]);
+
+  useEffect(() => {
+    if (!reminder) return undefined;
+    const t = setTimeout(() => {
+      setReminder(null);
+      nextAllowedAtRef.current = Date.now() + LINGOVA_REMINDER_GAP_MS;
+    }, LINGOVA_REMINDER_VISIBLE_MS);
+    return () => clearTimeout(t);
+  }, [reminder]);
+
+  if (!reminder) return null;
+  const { corner } = reminder;
+
+  return createPortal(
+    <div
+      style={{
+        position: "fixed",
+        ...corner.style,
+        zIndex: 70,
+        pointerEvents: "none",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: corner.hAlign,
+        gap: 6,
+        animation: "lingovaCornerPop 0.35s ease",
+      }}
+    >
+      {corner.vAlign === "above" && <LingovaSpeechBubble text={reminder.text} />}
+      <div style={{ width: 46, height: (46 * 38) / 30, transform: `scaleX(${corner.facing})` }}>
+        <LingovaMascotSVG mode="idle" size={46} />
+      </div>
+      {corner.vAlign === "below" && <LingovaSpeechBubble text={reminder.text} />}
+      <style>{`
+        @keyframes lingovaCornerPop { 0% { opacity: 0; transform: scale(0.75); } 100% { opacity: 1; transform: scale(1); } }
+      `}</style>
+    </div>,
+    document.body
   );
 }
 
