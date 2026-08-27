@@ -19481,7 +19481,16 @@ function saveLingovaPinnedPos(left, top) {
   }
 }
 
-function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
+function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX, paused) {
+  // پارک/توقف — با یه تپِ ساده رویِ آدمک (وقتی سنجاق‌شده) یا با یه تپِ ساده
+  // بعدِ کوتاه‌مدت‌منتظرماندن برایِ دابل‌تپ (وقتی رویِ نوارِ بالاست) toggle
+  // می‌شه؛ دقیقاً مثلِ دکمه‌ی توقف/پخشِ یه پلیر. با رفرنس نگه‌ش می‌داریم تا
+  // تیکِ داخلِ setInterval بدونِ نیاز به ری‌استارت‌شدنِ خودِ تایمر، همیشه
+  // آخرین مقدارش رو ببینه.
+  const pausedRef = useRef(false);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
   const xRef = useRef(0);
   const targetRef = useRef(-1); // -1 یعنی هنوز هیچ مسیری شروع نشده
   const speedRef = useRef(0.55);
@@ -19630,6 +19639,7 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
     pinnedTargetRef.current = -1;
 
     const id = setInterval(() => {
+      if (pausedRef.current) return; // پارک‌شده — هیچ حرکت/تیکِ منطقی انجام نشه
       const w = typeof window !== "undefined" ? window.innerWidth : 320;
       const edge1 = Math.max(w - LINGOVA_MASCOT_WIDTH, 24);
       stepLeg(pinnedXRef, pinnedTargetRef, pinnedCheckpointsRef, pinnedCheckpointIdxRef, 0, edge1);
@@ -19645,6 +19655,7 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
     targetRef.current = -1;
 
     const id = setInterval(() => {
+      if (pausedRef.current) return; // پارک‌شده — هیچ حرکت/تیکِ منطقی انجام نشه
       const edge1 = Math.max(trackWidth - LINGOVA_MASCOT_WIDTH, 24);
       stepLeg(xRef, targetRef, checkpointsRef, checkpointIdxRef, 0, edge1);
       forceTick();
@@ -19678,8 +19689,19 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
   // خارج می‌شه. راه‌رفتنِ خودش (تایمر/state تویِ useLingovaMascot) مستقلِ
   // از این پرچمه و همچنان پشتِ صحنه ادامه پیدا می‌کنه، حتی وقتی دیده نمی‌شه.
   const [pageAttached, setPageAttached] = useState(false);
+  // پارک/توقف — دقیقاً مثلِ دکمه‌ی توقف/پخشِ یه پلیر: یه تپِ ساده رویِ
+  // آدمک همین‌جا نگهش می‌داره (بدونِ جابه‌جایی)، یه تپِ دیگه دوباره راه
+  // می‌ندازتش. غیرِ ذخیره‌شونده‌ست (هر بارگذاریِ صفحه از نو راه می‌ره).
+  const [paused, setPaused] = useState(false);
   const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
   const pointerStartRef = useRef({ x: 0, y: 0 });
+  // وقتی آدمک هنوز سنجاق نشده (رویِ نوارِ بالا)، یه تپِ ساده باید یه‌کم صبر
+  // کنه ببینه تپِ دومی (برایِ دابل‌تپِ چسبیدن‌به‌هدر) از راه می‌رسه یا نه،
+  // قبل از این‌که به‌عنوانِ toggleِ پارک حساب بشه؛ این تایمر همون صبرِ کوتاهه.
+  const singleTapTimeoutRef = useRef(null);
+  useEffect(() => () => {
+    if (singleTapTimeoutRef.current) clearTimeout(singleTapTimeoutRef.current);
+  }, []);
 
   useEffect(() => {
     const el = trackRef.current;
@@ -19741,10 +19763,29 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
       const sinceLastTap = now - last.time;
       const tapDist = Math.hypot((e.clientX ?? pointerStartRef.current.x) - last.x, (e.clientY ?? pointerStartRef.current.y) - last.y);
       if (!pinnedPos && sinceLastTap < LINGOVA_DOUBLE_TAP_MS && tapDist < LINGOVA_DOUBLE_TAP_DIST_TOLERANCE) {
+        // دابل‌تپ — اگه یه توگلِ پارکِ معلق (از تپِ اول) منتظرِ اجراست،
+        // لغوش کن؛ این دو تپ برایِ چسبیدن/جداشدن از هدره، نه پارک‌کردن.
+        if (singleTapTimeoutRef.current) {
+          clearTimeout(singleTapTimeoutRef.current);
+          singleTapTimeoutRef.current = null;
+        }
         lastTapRef.current = { time: 0, x: 0, y: 0 };
         setPageAttached((v) => !v);
       } else {
         lastTapRef.current = { time: now, x: e.clientX ?? pointerStartRef.current.x, y: e.clientY ?? pointerStartRef.current.y };
+        if (pinnedPos) {
+          // سنجاق‌شده — این‌جا هیچ دابل‌تپی معنی نداره (بالا هم شرطش
+          // !pinnedPos بود)، پس هر تپِ ساده بی‌درنگ پارک/ادامه رو toggle می‌کنه.
+          setPaused((p) => !p);
+        } else {
+          // رویِ نوارِ بالا — قبل از toggleِ پارک، یه‌کم صبر کن ببین تپِ
+          // دومی (دابل‌تپِ چسبیدن‌به‌هدر) از راه می‌رسه یا نه.
+          if (singleTapTimeoutRef.current) clearTimeout(singleTapTimeoutRef.current);
+          singleTapTimeoutRef.current = setTimeout(() => {
+            singleTapTimeoutRef.current = null;
+            setPaused((p) => !p);
+          }, LINGOVA_DOUBLE_TAP_MS + 30);
+        }
       }
     };
     window.addEventListener("pointermove", onMove);
@@ -19767,8 +19808,14 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
     uiLang,
     pinned,
     walking,
-    pinnedPos ? pinnedPos.left : 0
+    pinnedPos ? pinnedPos.left : 0,
+    paused
   );
+  // پارک‌شده که باشه، مُد رو به یه حالتِ ایستاده‌ی ساده (نه walk/read/alert)
+  // برمی‌گردونیم تا نه پاها تاب بخورن نه دست، و حبابِ پیام هم مخفی می‌شه —
+  // دقیقاً مثلِ فریزشدنِ تصویر با دکمه‌ی توقفِ یه پلیر.
+  const effectiveMode = paused ? "parked" : mode;
+  const effectiveBubble = paused ? null : bubble;
 
   const handlePointerDown = (e) => {
     e.preventDefault();
@@ -19818,7 +19865,7 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
           دیگه نیازی به هیچ تبدیلی رویِ حباب نیست و متنش همیشه طبیعی نمایش
           داده می‌شه. جهتِ متن (rtl/ltr) و فونت هم از تنظیماتِ زبان/فونتِ خودِ
           اپ (uiLang, fontFamily) خونده می‌شه، نه یه مقدارِ ثابت. */}
-      {bubble && (
+      {effectiveBubble && (
         <div
           className="lingova-bubble"
           dir={bubbleDir}
@@ -19837,7 +19884,37 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
             boxShadow: "0 1px 4px rgba(0,0,0,.3)",
           }}
         >
-          {bubble}
+          {effectiveBubble}
+        </div>
+      )}
+      {/* نشونه‌ی کوچیکِ پارک‌بودن — یه آیکونِ پلیِ ریز بالای آدمک، تا کاربر
+          بفهمه با تپِ بعدی دوباره راه می‌افته (دقیقاً مثلِ حالتِ Pause یه پلیر) */}
+      {paused && (
+        <div
+          style={{
+            position: "absolute",
+            top: -16,
+            left: facing === 1 ? 6 : -6,
+            width: 14,
+            height: 14,
+            borderRadius: "50%",
+            background: colors.ink,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 1px 3px rgba(0,0,0,.4)",
+          }}
+        >
+          <div
+            style={{
+              width: 0,
+              height: 0,
+              borderTop: "3.5px solid transparent",
+              borderBottom: "3.5px solid transparent",
+              borderLeft: `5px solid ${colors.paper}`,
+              marginLeft: 2,
+            }}
+          />
         </div>
       )}
       <svg
@@ -19849,7 +19926,7 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
         {/* چماق — دستِ نگه‌دارنده‌اش وقتِ راه‌رفتن تاب می‌خوره، وقتِ
             هشدار (بی‌تعاملیِ کاربر) بالا نگه داشته می‌شه */}
         <g
-          className={mode === "alert" ? "lingova-arm-alert" : mode === "walk" ? "lingova-arm-walk" : ""}
+          className={effectiveMode === "alert" ? "lingova-arm-alert" : effectiveMode === "walk" ? "lingova-arm-walk" : ""}
           style={{ transformOrigin: "18px 15px" }}
         >
           <rect x="17" y="3" width="2.6" height="11" rx="1.3" fill="#8a5a2b" />
@@ -19858,7 +19935,7 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
         {/* سر — موقعِ «خوندن» یکم به‌سمتِ پایین خم می‌شه، انگار حواسش به متنه */}
         <g
           style={{
-            transform: mode === "read" ? "rotate(18deg)" : "none",
+            transform: effectiveMode === "read" ? "rotate(18deg)" : "none",
             transformOrigin: "15px 8px",
             transition: "transform 0.35s ease",
           }}
@@ -19869,10 +19946,10 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
         {/* تنه (پیراهن) */}
         <rect x="12" y="13" width="6" height="12" rx="3" fill={shirtColor} />
         {/* پاها (شلوار) — فقط موقعِ راه‌رفتن (چه رویِ نوار، چه سرِ جا) تاب می‌خورن */}
-        <g className={mode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "13px 25px" }}>
+        <g className={effectiveMode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "13px 25px" }}>
           <rect x="11.5" y="25" width="2.4" height="10" rx="1.2" fill={pantsColor} />
         </g>
-        <g className={mode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "17px 25px" }}>
+        <g className={effectiveMode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "17px 25px" }}>
           <rect x="16" y="25" width="2.4" height="10" rx="1.2" fill={pantsColor} />
         </g>
       </svg>
