@@ -1818,9 +1818,10 @@ function loadAppPrefs() {
       uiLang: APP_LANGUAGES[parsed.uiLang] ? parsed.uiLang : "fa",
       calendarSystem: CALENDAR_SYSTEMS.includes(parsed.calendarSystem) ? parsed.calendarSystem : "jalali",
       highlightColor: (parsed.highlightColor === "none" || HIGHLIGHT_COLOR_PALETTE.includes(parsed.highlightColor)) ? parsed.highlightColor : HIGHLIGHT_COLOR_PALETTE[0],
+      mascotOutfit: LINGOVA_OUTFIT_KEYS.includes(parsed.mascotOutfit) ? parsed.mascotOutfit : "classic",
     };
   } catch (e) {
-    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali", highlightColor: HIGHLIGHT_COLOR_PALETTE[0] };
+    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali", highlightColor: HIGHLIGHT_COLOR_PALETTE[0], mascotOutfit: "classic" };
   }
 }
 function saveAppPrefs(prefs) {
@@ -6019,6 +6020,51 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
                 style={swatchButtonStyle(hex, appPrefs.highlightColor === hex, 30)}
               />
             ))}
+          </div>
+
+          {/* لباسِ آدمکِ Lingova — سه دست‌لباسِ آماده؛ هر دکمه با دو نقطه‌رنگ
+              (پیراهن/شلوار) پیش‌نمایش داده می‌شه. گزینه‌ی «کلاسیک» از رنگِ
+              تمِ فعلیِ اپ پیروی می‌کنه، دو تای دیگه رنگِ ثابت دارن. */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
+            {uiLang === "en" ? "Mascot outfit" : "لباسِ آدمک"}
+          </p>
+          <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
+            {LINGOVA_OUTFIT_KEYS.map((key) => {
+              const outfit = LINGOVA_OUTFITS[key];
+              const shirtPreview = outfit.shirt || colors.teal;
+              const pantsPreview = outfit.pants || colors.ink;
+              const selected = (appPrefs.mascotOutfit || "classic") === key;
+              const outfitLabelKeys = {
+                classic: uiLang === "en" ? "Classic" : "کلاسیک",
+                scout: uiLang === "en" ? "Scout" : "کاوشگر",
+                royal: uiLang === "en" ? "Royal" : "درباری",
+              };
+              return (
+                <button
+                  key={key}
+                  onClick={() => update("mascotOutfit", key)}
+                  aria-pressed={selected}
+                  title={outfitLabelKeys[key]}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "6px 12px",
+                    borderRadius: 20,
+                    fontSize: 12,
+                    border: `1px solid ${selected ? colors.gold : colors.cardBorder}`,
+                    backgroundColor: selected ? colors.goldSoft : "white",
+                    color: colors.ink,
+                  }}
+                >
+                  <span style={{ display: "flex", gap: 2 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: shirtPreview, border: "1px solid rgba(0,0,0,.15)" }} />
+                    <span style={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: pantsPreview, border: "1px solid rgba(0,0,0,.15)" }} />
+                  </span>
+                  {outfitLabelKeys[key]}
+                </button>
+              );
+            })}
           </div>
 
           {/* «زبان‌های خواندن با صدای بلند» (پنلِ نصب بسته‌ی زبان) از تنظیمات
@@ -15787,7 +15833,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         }}
         className="px-4 pt-6 pb-5"
       >
-        <LingovaMascot uiLang={appPrefs.uiLang} fontZoom={APP_FONT_SIZES[appPrefs.fontSize]?.zoom || 1} />
+        <LingovaMascot uiLang={appPrefs.uiLang} fontZoom={APP_FONT_SIZES[appPrefs.fontSize]?.zoom || 1} outfitKey={appPrefs.mascotOutfit} />
         <div className="flex items-center justify-end mb-1">
           <div className="flex items-center gap-2.5">
             {user?.picture ? (
@@ -19343,6 +19389,23 @@ const LINGOVA_TURN_PAUSE_MS = 400; // مکثِ خیلی کوتاه سرِ لبه
 // هم خودکار انگلیسی/فارسی بشن.
 const LINGOVA_BUBBLE_KEYS = ["lingovaBubbleRead", "lingovaBubbleKeepGoing", "lingovaBubbleStillThere", "lingovaBubbleHeyYou"];
 
+// فشارِ طولانی (نگه‌داشتنِ انگشت/موس رویِ آدمک بدونِ حرکت) — بینِ حالتِ
+// «همیشه رویِ صفحه، حتی موقعِ اسکرول» (پیش‌فرض) و حالتِ «چسبیده به هدر،
+// با اسکرول‌کردنِ صفحه از دید خارج می‌شه» جابه‌جا می‌کنه.
+const LINGOVA_LONG_PRESS_MS = 1500;
+const LINGOVA_LONG_PRESS_MOVE_TOLERANCE = 8; // px — بیشتر از این یعنی درگه، نه فشارِ طولانی
+
+// سه دست‌لباسِ متنوع برای آدمک — روی تنه (پیراهن) و پاها (شلوار) اعمال
+// می‌شه. گزینه‌ی اول از رنگِ تمِ فعلیِ اپ پیروی می‌کنه (دقیقاً همون ظاهرِ
+// قبلی)؛ دو گزینه‌ی بعدی رنگ‌های ثابت دارن تا مستقل از تمِ انتخابی، همیشه
+// قابلِ‌تشخیص و متفاوت از هم باشن.
+const LINGOVA_OUTFITS = {
+  classic: { shirt: null, pants: null }, // null یعنی از colors.teal/colors.ink (رنگِ تم) استفاده کن
+  scout: { shirt: "#c0562f", pants: "#33302b" },
+  royal: { shirt: "#6a3fb5", pants: "#142c46" },
+};
+const LINGOVA_OUTFIT_KEYS = Object.keys(LINGOVA_OUTFITS);
+
 // ---------------------------------------------------------------------------
 // «سنجاق‌شدنِ» آدمک با درگ‌کردن — وقتی کاربر با انگشت آدمک رو می‌گیره و
 // یه‌جای دیگه‌ی صفحه ول می‌کنه، دیگه تو نوارِ بالای صفحه راه نمی‌ره؛ همون‌جا
@@ -19560,7 +19623,7 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
   };
 }
 
-function LingovaMascot({ uiLang, fontZoom = 1 }) {
+function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic" }) {
   const trackRef = useRef(null);
   const [trackWidth, setTrackWidth] = useState(0);
 
@@ -19571,6 +19634,15 @@ function LingovaMascot({ uiLang, fontZoom = 1 }) {
   const [dragPos, setDragPos] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragOffsetRef = useRef({ dx: 0, dy: 0 });
+  // حالتِ «چسبیده به هدر» — با فشارِ طولانی رویِ آدمک toggle می‌شه. وقتی
+  // true، آدمک دیگه position:fixed نیست و مستقیم داخلِ هدر رندر می‌شه؛ پس
+  // با اسکرول‌کردنِ صفحه، مثلِ بقیه‌ی محتوایِ هدر از دید خارج می‌شه. راه‌
+  // رفتنِ خودش (تایمر/state تویِ useLingovaMascot) مستقلِ از این پرچمه و
+  // همچنان پشتِ صحنه ادامه پیدا می‌کنه، حتی وقتی دیده نمی‌شه.
+  const [pageAttached, setPageAttached] = useState(false);
+  const longPressTimerRef = useRef(null);
+  const longPressFiredRef = useRef(false);
+  const pointerStartRef = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
     const el = trackRef.current;
@@ -19606,10 +19678,30 @@ function LingovaMascot({ uiLang, fontZoom = 1 }) {
       top: Math.max(0, Math.min(window.innerHeight - LINGOVA_MASCOT_HEIGHT, top)),
     });
     const onMove = (e) => {
+      // اگه حرکت از یه آستانه‌ی کوچیک بیشتر شد، یعنی کاربر داره درگ می‌کنه
+      // نه فشارِ طولانی می‌ده — تایمرِ فشارِ طولانی رو لغو می‌کنیم.
+      if (longPressTimerRef.current) {
+        const moved = Math.hypot(e.clientX - pointerStartRef.current.x, e.clientY - pointerStartRef.current.y);
+        if (moved > LINGOVA_LONG_PRESS_MOVE_TOLERANCE) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+      }
       setDragPos(clamp(e.clientX - dragOffsetRef.current.dx, e.clientY - dragOffsetRef.current.dy));
     };
     const onUp = () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
       setIsDragging(false);
+      // اگه فشارِ طولانی قبلاً حالتِ چسبیده‌به‌هدر رو toggle کرده، این
+      // رهاشدنِ انگشت دیگه نباید مثلِ یه درگِ معمولی، جایی رو سنجاق کنه.
+      if (longPressFiredRef.current) {
+        longPressFiredRef.current = false;
+        setDragPos(null);
+        return;
+      }
       setDragPos((dp) => {
         const finalPos = dp || { left: 0, top: 0 };
         setPinnedPos(finalPos);
@@ -19624,6 +19716,10 @@ function LingovaMascot({ uiLang, fontZoom = 1 }) {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
     };
   }, [isDragging]);
 
@@ -19644,6 +19740,18 @@ function LingovaMascot({ uiLang, fontZoom = 1 }) {
     e.preventDefault();
     const rect = e.currentTarget.getBoundingClientRect();
     dragOffsetRef.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
+    pointerStartRef.current = { x: e.clientX, y: e.clientY };
+    longPressFiredRef.current = false;
+    // فشارِ طولانی فقط وقتی معنی داره که آدمک هنوز جایِ دلخواهی سنجاق نشده
+    // (رویِ نوارِ بالا/چسبیده‌به‌هدرِ پیش‌فرضه) — حالتِ سنجاق‌شده (درگ‌شده به
+    // یه‌جای دلخواهِ صفحه) قبلاً خودش همیشه فیکسه، این toggle براش معنی نداره.
+    if (!pinnedPos) {
+      longPressTimerRef.current = setTimeout(() => {
+        longPressTimerRef.current = null;
+        longPressFiredRef.current = true;
+        setPageAttached((v) => !v);
+      }, LINGOVA_LONG_PRESS_MS);
+    }
     setDragPos({ left: rect.left, top: rect.top });
     setIsDragging(true);
   };
@@ -19655,6 +19763,10 @@ function LingovaMascot({ uiLang, fontZoom = 1 }) {
 
   const bubbleDir = APP_LANGUAGES[uiLang]?.dir || "ltr";
   const bubbleFontFamily = uiLang === "fa" ? "var(--font-fa)" : "var(--font-latin)";
+
+  const outfit = LINGOVA_OUTFITS[outfitKey] || LINGOVA_OUTFITS.classic;
+  const shirtColor = outfit.shirt || colors.teal;
+  const pantsColor = outfit.pants || colors.ink;
 
   const mascotBody = (
     <div
@@ -19726,14 +19838,14 @@ function LingovaMascot({ uiLang, fontZoom = 1 }) {
           <circle cx="15" cy="8" r="5" fill={colors.gold} />
           <circle cx="17" cy="7.2" r="0.8" fill={colors.ink} />
         </g>
-        {/* تنه */}
-        <rect x="12" y="13" width="6" height="12" rx="3" fill={colors.teal} />
-        {/* پاها — فقط موقعِ راه‌رفتن (چه رویِ نوار، چه سرِ جا) تاب می‌خورن */}
+        {/* تنه (پیراهن) */}
+        <rect x="12" y="13" width="6" height="12" rx="3" fill={shirtColor} />
+        {/* پاها (شلوار) — فقط موقعِ راه‌رفتن (چه رویِ نوار، چه سرِ جا) تاب می‌خورن */}
         <g className={mode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "13px 25px" }}>
-          <rect x="11.5" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+          <rect x="11.5" y="25" width="2.4" height="10" rx="1.2" fill={pantsColor} />
         </g>
         <g className={mode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "17px 25px" }}>
-          <rect x="16" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+          <rect x="16" y="25" width="2.4" height="10" rx="1.2" fill={pantsColor} />
         </g>
       </svg>
     </div>
@@ -19741,18 +19853,25 @@ function LingovaMascot({ uiLang, fontZoom = 1 }) {
 
   return (
     <>
-      {/* جای‌گیرِ نامرئی — همون ارتفاعِ قبلی (40px) رو داخلِ هدر نگه می‌داره
-          تا چیدمانِ بقیه‌ی هدر (ردیفِ آواتار/تنظیمات و...) جابه‌جا نشه؛ عرضِ
+      {/* جای‌گیر — همون ارتفاعِ قبلی (40px) رو داخلِ هدر نگه می‌داره تا
+          چیدمانِ بقیه‌ی هدر (ردیفِ آواتار/تنظیمات و...) جابه‌جا نشه؛ عرضِ
           همین‌جا برای اندازه‌گیریِ محدوده‌ی حرکتِ آدمک (trackWidth) استفاده
-          می‌شه. خودِ آدمک دیگه این‌جا رندر نمی‌شه — چون با اسکرول‌شدنِ هدر از
-          دیدِ کاربر خارج می‌شد؛ به‌جاش پایین‌تر با createPortal رندر می‌شه. */}
-      <div ref={trackRef} style={{ height: 40, marginBottom: 2 }} />
+          می‌شه. تو حالتِ پیش‌فرض، آدمک این‌جا رندر نمی‌شه (چون با اسکرول‌شدنِ
+          هدر از دیدِ کاربر خارج می‌شد؛ به‌جاش پایین‌تر با createPortal رندر
+          می‌شه)، ولی تو حالتِ «چسبیده به هدر» (pageAttached، با فشارِ طولانی
+          فعال می‌شه)، دقیقاً همین‌جا و به‌صورتِ معمولی (نه پورتال/فیکس) رندر
+          می‌شه تا با اسکرول‌کردنِ صفحه، مثلِ بقیه‌ی هدر از دید خارج بشه. */}
+      <div ref={trackRef} style={{ height: 40, marginBottom: 2, position: "relative" }}>
+        {pageAttached && !pinned && mascotBody}
+      </div>
 
       {/* حالتِ پیش‌فرض/راه‌رفتن: آدمک مستقیم زیرِ <body> (با createPortal) و
           position: fixed رندر می‌شه — یه نوارِ باریکِ همیشه-ثابتِ بالای
           صفحه، هم‌رنگِ گرادیانتِ هدر، که با اسکرول‌کردنِ بقیه‌ی صفحه از دید
-          خارج نمی‌شه. تا وقتی کاربر درگش نکرده، دقیقاً همینه. */}
+          خارج نمی‌شه. با فشارِ طولانی رویِ آدمک می‌شه از این حالت به حالتِ
+          «چسبیده به هدر» بالا سوییچ کرد و برعکس. */}
       {!pinned &&
+        !pageAttached &&
         createPortal(
           <div
             style={{
