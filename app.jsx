@@ -19464,34 +19464,41 @@ function LingovaMascot() {
           </div>
         )}
         <svg viewBox="0 0 30 38" width={LINGOVA_MASCOT_WIDTH} height={38} style={{ overflow: "visible", display: "block" }}>
-          {/* چماق — دستِ نگه‌دارنده‌اش وقتِ راه‌رفتن تاب می‌خوره، وقتِ
-              هشدار (بی‌تعاملیِ کاربر) بالا نگه داشته می‌شه */}
-          <g
-            className={mode === "alert" ? "lingova-arm-alert" : mode === "walk" ? "lingova-arm-walk" : ""}
-            style={{ transformOrigin: "18px 15px" }}
-          >
-            <rect x="17" y="3" width="2.6" height="11" rx="1.3" fill="#8a5a2b" />
-            <circle cx="18.3" cy="3" r="2.6" fill="#6b4423" />
-          </g>
-          {/* سر — موقعِ «خوندن» یکم به‌سمتِ پایین خم می‌شه، انگار حواسش به متنه */}
+          {/* سر — موقعِ «خوندن» یکم به‌سمتِ پایین خم می‌شه، انگار حواسش به متنه.
+              چشم‌ها و دهن این‌جا به‌عنوانِ فرزندِ همین گروه رسم می‌شن تا همیشه
+              با چرخشِ سر جابه‌جا بشن. */}
           <g
             style={{
               transform: mode === "read" ? "rotate(18deg)" : "none",
-              transformOrigin: "15px 8px",
+              transformOrigin: "14px 8px",
               transition: "transform 0.35s ease",
             }}
           >
-            <circle cx="15" cy="8" r="5" fill={colors.gold} />
-            <circle cx="17" cy="7.2" r="0.8" fill={colors.ink} />
+            <circle cx="14" cy="8" r="5" fill={colors.gold} />
+            {/* دو چشم */}
+            <circle cx="12.1" cy="7.3" r="1" fill={colors.ink} />
+            <circle cx="15.9" cy="7.3" r="1" fill={colors.ink} />
+            {/* دهن — یه لبخندِ ساده */}
+            <path d="M11.6 10.4 Q14 12.4 16.4 10.4" stroke={colors.ink} strokeWidth="1" fill="none" strokeLinecap="round" />
           </g>
           {/* تنه */}
-          <rect x="12" y="13" width="6" height="12" rx="3" fill={colors.teal} />
+          <rect x="11" y="13" width="6" height="12" rx="3" fill={colors.teal} />
           {/* پاها — فقط موقعِ راه‌رفتن تاب می‌خورن */}
-          <g className={mode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "13px 25px" }}>
-            <rect x="11.5" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+          <g className={mode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "12px 25px" }}>
+            <rect x="10.5" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
           </g>
-          <g className={mode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "17px 25px" }}>
-            <rect x="16" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+          <g className={mode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "16px 25px" }}>
+            <rect x="15" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+          </g>
+          {/* چماق — کنارِ سر (نه روش) رسم می‌شه تا هیچ‌وقت زیرِ سر گم نشه؛
+              دستِ نگه‌دارنده‌اش وقتِ راه‌رفتن تاب می‌خوره، وقتِ هشدار
+              (بی‌تعاملیِ کاربر) بالا نگه داشته می‌شه */}
+          <g
+            className={mode === "alert" ? "lingova-arm-alert" : mode === "walk" ? "lingova-arm-walk" : ""}
+            style={{ transformOrigin: "20px 15px" }}
+          >
+            <rect x="19.2" y="4" width="2.6" height="11.5" rx="1.3" fill="#8a5a2b" />
+            <circle cx="20.5" cy="3.5" r="3" fill="#6b4423" />
           </g>
         </svg>
       </div>
