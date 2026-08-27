@@ -7,7 +7,7 @@ import { WORDS_AZ } from "./WORDS_AZ.js";
 import { DAILY_WORDS } from "./DAILY_WORDS.js";
 import { SLANG_WORDS } from "./SLANG_WORDS.js";
 import { VOCAB_IN_USE_UNITS } from "./vocabularyInUseData.js";
-import { DAILY_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
+import { DAILY_CONVERSATIONS,THEMATIC_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
 import DailyConversationsTab from "./DailyConversationsTab.jsx";
 import RangeSliderFilter from "./RangeSliderFilter.jsx";
 
