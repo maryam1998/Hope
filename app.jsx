@@ -19389,11 +19389,12 @@ const LINGOVA_TURN_PAUSE_MS = 400; // مکثِ خیلی کوتاه سرِ لبه
 // هم خودکار انگلیسی/فارسی بشن.
 const LINGOVA_BUBBLE_KEYS = ["lingovaBubbleRead", "lingovaBubbleKeepGoing", "lingovaBubbleStillThere", "lingovaBubbleHeyYou"];
 
-// فشارِ طولانی (نگه‌داشتنِ انگشت/موس رویِ آدمک بدونِ حرکت) — بینِ حالتِ
-// «همیشه رویِ صفحه، حتی موقعِ اسکرول» (پیش‌فرض) و حالتِ «چسبیده به هدر،
-// با اسکرول‌کردنِ صفحه از دید خارج می‌شه» جابه‌جا می‌کنه.
-const LINGOVA_LONG_PRESS_MS = 1500;
-const LINGOVA_LONG_PRESS_MOVE_TOLERANCE = 8; // px — بیشتر از این یعنی درگه، نه فشارِ طولانی
+// دو‌بار‌زدنِ سریع (بدونِ حرکتِ محسوس بینِ دوتاش) رویِ آدمک — بینِ حالتِ
+// «همیشه رویِ صفحه، حتی موقعِ اسکرول» (پیش‌فرض) و حالتِ «چسبیده به هدر، با
+// اسکرول‌کردنِ صفحه از دید خارج می‌شه» جابه‌جا می‌کنه.
+const LINGOVA_DOUBLE_TAP_MS = 350; // حداکثر فاصله‌ی زمانیِ بینِ دو تپ
+const LINGOVA_TAP_MOVE_TOLERANCE = 10; // px — بیشتر از این یعنی درگه، نه یه تپِ ساده
+const LINGOVA_DOUBLE_TAP_DIST_TOLERANCE = 26; // px — حداکثر فاصله‌ی مکانیِ بینِ دو تپ
 
 // سه دست‌لباسِ متنوع برای آدمک — روی تنه (پیراهن) و پاها (شلوار) اعمال
 // می‌شه. گزینه‌ی اول از رنگِ تمِ فعلیِ اپ پیروی می‌کنه (دقیقاً همون ظاهرِ
@@ -19634,14 +19635,13 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic" }) {
   const [dragPos, setDragPos] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragOffsetRef = useRef({ dx: 0, dy: 0 });
-  // حالتِ «چسبیده به هدر» — با فشارِ طولانی رویِ آدمک toggle می‌شه. وقتی
-  // true، آدمک دیگه position:fixed نیست و مستقیم داخلِ هدر رندر می‌شه؛ پس
-  // با اسکرول‌کردنِ صفحه، مثلِ بقیه‌ی محتوایِ هدر از دید خارج می‌شه. راه‌
-  // رفتنِ خودش (تایمر/state تویِ useLingovaMascot) مستقلِ از این پرچمه و
-  // همچنان پشتِ صحنه ادامه پیدا می‌کنه، حتی وقتی دیده نمی‌شه.
+  // حالتِ «چسبیده به هدر» — با دو‌بار‌زدنِ سریع (دابل‌تپ) رویِ آدمک toggle
+  // می‌شه. وقتی true، آدمک دیگه position:fixed نیست و مستقیم داخلِ هدر
+  // رندر می‌شه؛ پس با اسکرول‌کردنِ صفحه، مثلِ بقیه‌ی محتوایِ هدر از دید
+  // خارج می‌شه. راه‌رفتنِ خودش (تایمر/state تویِ useLingovaMascot) مستقلِ
+  // از این پرچمه و همچنان پشتِ صحنه ادامه پیدا می‌کنه، حتی وقتی دیده نمی‌شه.
   const [pageAttached, setPageAttached] = useState(false);
-  const longPressTimerRef = useRef(null);
-  const longPressFiredRef = useRef(false);
+  const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
   const pointerStartRef = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
@@ -19678,36 +19678,37 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic" }) {
       top: Math.max(0, Math.min(window.innerHeight - LINGOVA_MASCOT_HEIGHT, top)),
     });
     const onMove = (e) => {
-      // اگه حرکت از یه آستانه‌ی کوچیک بیشتر شد، یعنی کاربر داره درگ می‌کنه
-      // نه فشارِ طولانی می‌ده — تایمرِ فشارِ طولانی رو لغو می‌کنیم.
-      if (longPressTimerRef.current) {
-        const moved = Math.hypot(e.clientX - pointerStartRef.current.x, e.clientY - pointerStartRef.current.y);
-        if (moved > LINGOVA_LONG_PRESS_MOVE_TOLERANCE) {
-          clearTimeout(longPressTimerRef.current);
-          longPressTimerRef.current = null;
-        }
-      }
       setDragPos(clamp(e.clientX - dragOffsetRef.current.dx, e.clientY - dragOffsetRef.current.dy));
     };
-    const onUp = () => {
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
+    const onUp = (e) => {
       setIsDragging(false);
-      // اگه فشارِ طولانی قبلاً حالتِ چسبیده‌به‌هدر رو toggle کرده، این
-      // رهاشدنِ انگشت دیگه نباید مثلِ یه درگِ معمولی، جایی رو سنجاق کنه.
-      if (longPressFiredRef.current) {
-        longPressFiredRef.current = false;
-        setDragPos(null);
+      // اگه بینِ گذاشتن و برداشتنِ انگشت، حرکتِ محسوسی رخ داده، این یه
+      // درگِ واقعیه — نه یه تپِ ساده — پس مثلِ قبل، جایی که رها شده رو
+      // سنجاق می‌کنیم و به منطقِ دابل‌تپ اصلاً کاری نداریم.
+      const movedDist = Math.hypot((e.clientX ?? pointerStartRef.current.x) - pointerStartRef.current.x, (e.clientY ?? pointerStartRef.current.y) - pointerStartRef.current.y);
+      if (movedDist > LINGOVA_TAP_MOVE_TOLERANCE) {
+        lastTapRef.current = { time: 0, x: 0, y: 0 };
+        setDragPos((dp) => {
+          const finalPos = dp || { left: 0, top: 0 };
+          setPinnedPos(finalPos);
+          saveLingovaPinnedPos(finalPos.left, finalPos.top);
+          return null;
+        });
         return;
       }
-      setDragPos((dp) => {
-        const finalPos = dp || { left: 0, top: 0 };
-        setPinnedPos(finalPos);
-        saveLingovaPinnedPos(finalPos.left, finalPos.top);
-        return null;
-      });
+      // یه تپِ ساده (بدونِ حرکتِ محسوس) — دیگه مثلِ قبل بلافاصله سنجاق‌ش
+      // نمی‌کنیم؛ فقط چک می‌کنیم آیا این، دومین تپِ یه دابل‌تپِ سریعه یا نه.
+      setDragPos(null);
+      const now = Date.now();
+      const last = lastTapRef.current;
+      const sinceLastTap = now - last.time;
+      const tapDist = Math.hypot((e.clientX ?? pointerStartRef.current.x) - last.x, (e.clientY ?? pointerStartRef.current.y) - last.y);
+      if (!pinnedPos && sinceLastTap < LINGOVA_DOUBLE_TAP_MS && tapDist < LINGOVA_DOUBLE_TAP_DIST_TOLERANCE) {
+        lastTapRef.current = { time: 0, x: 0, y: 0 };
+        setPageAttached((v) => !v);
+      } else {
+        lastTapRef.current = { time: now, x: e.clientX ?? pointerStartRef.current.x, y: e.clientY ?? pointerStartRef.current.y };
+      }
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -19716,10 +19717,6 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic" }) {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
     };
   }, [isDragging]);
 
@@ -19741,17 +19738,6 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic" }) {
     const rect = e.currentTarget.getBoundingClientRect();
     dragOffsetRef.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
     pointerStartRef.current = { x: e.clientX, y: e.clientY };
-    longPressFiredRef.current = false;
-    // فشارِ طولانی فقط وقتی معنی داره که آدمک هنوز جایِ دلخواهی سنجاق نشده
-    // (رویِ نوارِ بالا/چسبیده‌به‌هدرِ پیش‌فرضه) — حالتِ سنجاق‌شده (درگ‌شده به
-    // یه‌جای دلخواهِ صفحه) قبلاً خودش همیشه فیکسه، این toggle براش معنی نداره.
-    if (!pinnedPos) {
-      longPressTimerRef.current = setTimeout(() => {
-        longPressTimerRef.current = null;
-        longPressFiredRef.current = true;
-        setPageAttached((v) => !v);
-      }, LINGOVA_LONG_PRESS_MS);
-    }
     setDragPos({ left: rect.left, top: rect.top });
     setIsDragging(true);
   };
@@ -19858,7 +19844,7 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic" }) {
           همین‌جا برای اندازه‌گیریِ محدوده‌ی حرکتِ آدمک (trackWidth) استفاده
           می‌شه. تو حالتِ پیش‌فرض، آدمک این‌جا رندر نمی‌شه (چون با اسکرول‌شدنِ
           هدر از دیدِ کاربر خارج می‌شد؛ به‌جاش پایین‌تر با createPortal رندر
-          می‌شه)، ولی تو حالتِ «چسبیده به هدر» (pageAttached، با فشارِ طولانی
+          می‌شه)، ولی تو حالتِ «چسبیده به هدر» (pageAttached، با دابل‌تپ
           فعال می‌شه)، دقیقاً همین‌جا و به‌صورتِ معمولی (نه پورتال/فیکس) رندر
           می‌شه تا با اسکرول‌کردنِ صفحه، مثلِ بقیه‌ی هدر از دید خارج بشه. */}
       <div ref={trackRef} style={{ height: 40, marginBottom: 2, position: "relative" }}>
@@ -19868,7 +19854,7 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic" }) {
       {/* حالتِ پیش‌فرض/راه‌رفتن: آدمک مستقیم زیرِ <body> (با createPortal) و
           position: fixed رندر می‌شه — یه نوارِ باریکِ همیشه-ثابتِ بالای
           صفحه، هم‌رنگِ گرادیانتِ هدر، که با اسکرول‌کردنِ بقیه‌ی صفحه از دید
-          خارج نمی‌شه. با فشارِ طولانی رویِ آدمک می‌شه از این حالت به حالتِ
+          خارج نمی‌شه. با دابل‌تپ رویِ آدمک می‌شه از این حالت به حالتِ
           «چسبیده به هدر» بالا سوییچ کرد و برعکس. */}
       {!pinned &&
         !pageAttached &&
