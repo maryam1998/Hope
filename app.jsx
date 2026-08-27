@@ -19371,16 +19371,14 @@ function saveLingovaPinnedPos(left, top) {
   }
 }
 
-const LINGOVA_PINNED_WALK_RANGE = 34; // px به هر طرفِ نقطه‌ای که کاربر آدمک رو اونجا رها کرده
-
-function useLingovaMascot(trackWidth, uiLang, pinned, walking) {
+function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
   const xRef = useRef(0);
   const targetRef = useRef(-1); // -1 یعنی هنوز مقصدی انتخاب نشده
   const speedRef = useRef(0.6);
   const facingRef = useRef(1);
   const modeRef = useRef("walk"); // 'walk' | 'read' | 'alert'
   const readUntilRef = useRef(0);
-  const pinnedXRef = useRef(0); // فقط تو حالتِ pinned: افستِ رفت‌وبرگشتی نسبت به نقطه‌ی سنجاق‌شده
+  const pinnedXRef = useRef(0); // فقط تو حالتِ pinned+walking: موقعیتِ x رویِ کلِ عرضِ صفحه
   const pinnedTargetRef = useRef(0);
   const lastActivityRef = useRef(Date.now());
   const bubbleRef = useRef(null);
@@ -19394,12 +19392,15 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking) {
     facingRef.current = t >= fromX ? 1 : -1;
   };
 
-  // مقصدِ تازه برای رفت‌وبرگشتِ آدمکِ سنجاق‌شده — همیشه در بازه‌ی
-  // [-RANGE, +RANGE] نسبت به نقطه‌ای که کاربر رهاش کرده، نه رویِ کلِ صفحه.
+  // مقصدِ تازه برای رفت‌وبرگشتِ آدمکِ سنجاق‌شده — رویِ کلِ عرضِ صفحه (نه فقط
+  // یه بازه‌ی کوچیک دورِ نقطه‌ی رهاشدن)؛ دقیقاً مثلِ منطقِ راه‌رفتنِ آزاد،
+  // فقط با محورِ y ثابت (همون ارتفاعی که کاربر رهاش کرده).
   const pickNewPinnedTarget = (fromX) => {
-    const t = (Math.random() * 2 - 1) * LINGOVA_PINNED_WALK_RANGE;
+    const w = typeof window !== "undefined" ? window.innerWidth : 320;
+    const trackW = Math.max(w - LINGOVA_MASCOT_WIDTH, 24);
+    const t = Math.random() * trackW;
     pinnedTargetRef.current = t;
-    speedRef.current = 0.3 + Math.random() * 0.5;
+    speedRef.current = 0.35 + Math.random() * 0.85;
     facingRef.current = t >= fromX ? 1 : -1;
   };
 
@@ -19427,21 +19428,20 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking) {
   }, []);
 
   // حالتِ «سنجاق‌شده» (pinned) — کاربر آدمک رو یه‌جای دلخواهِ صفحه گذاشته.
-  // دیگه رویِ کلِ نوارِ بالای صفحه رد نمی‌شه، ولی همون‌جا هم بیکار
-  // نمی‌مونه: تو یه بازه‌ی کوچیکِ رفت‌وبرگشتی (± LINGOVA_PINNED_WALK_RANGE
-  // پیکسل) دورِ همون نقطه قدم می‌زنه، و دقیقاً مثلِ قبل، بعدِ مدتی
-  // بی‌تعاملی، چماق‌به‌دست هشدار می‌ده.
+  // دیگه رویِ نوارِ بالای صفحه نیست، ولی همچنان تو همون ارتفاع (y ثابت)
+  // کاملِ عرضِ صفحه رو رفت‌وبرگشت قدم می‌زنه — دقیقاً مثلِ راه‌رفتنِ آزادِ
+  // نوارِ بالا، فقط رویِ محورِ y ثابت‌شده. مثلِ قبل، بعدِ مدتی بی‌تعاملی
+  // چماق‌به‌دست هشدار می‌ده.
   useEffect(() => {
     // موقعِ خودِ درگ‌کردن (pinned=true ولی walking=false، چون هنوز رها نشده)
-    // آدمک باید دقیقاً زیرِ انگشتِ کاربر بمونه؛ افستِ رفت‌وبرگشتی صفر و
-    // ثابت می‌مونه و هیچ تایمری روشن نمی‌شه.
+    // آدمک باید دقیقاً زیرِ انگشتِ کاربر بمونه؛ جابه‌جا نمی‌شه و هیچ تایمری
+    // روشن نمی‌شه.
     if (!pinned || !walking) {
-      pinnedXRef.current = 0;
       return undefined;
     }
     modeRef.current = "walk";
-    pinnedXRef.current = 0;
-    pickNewPinnedTarget(0);
+    pinnedXRef.current = pinStartX || 0;
+    pickNewPinnedTarget(pinnedXRef.current);
 
     const id = setInterval(() => {
       const idleMs = Date.now() - lastActivityRef.current;
@@ -19470,10 +19470,10 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking) {
         return;
       }
 
-      // رفت‌وبرگشتِ واقعی: تا رسیدن به مقصدِ فعلی جابه‌جا می‌شه، بعد یه
-      // مکثِ کوتاه (mode = read) و مقصدِ تازه‌ی دیگه‌ای تو همون بازه.
+      // رفت‌وبرگشتِ واقعی رویِ کلِ عرضِ صفحه: تا رسیدن به مقصدِ فعلی
+      // جابه‌جا می‌شه، بعد یه مکثِ کوتاه (mode = read) و یه مقصدِ تازه.
       const dx = pinnedTargetRef.current - pinnedXRef.current;
-      if (Math.abs(dx) < 1) {
+      if (Math.abs(dx) < 1.5) {
         modeRef.current = "read";
         readUntilRef.current = Date.now() + 1200 + Math.random() * 2200;
         forceTick();
@@ -19534,7 +19534,7 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking) {
   }, [trackWidth, pinned, uiLang]);
 
   return {
-    x: pinned ? pinnedXRef.current : xRef.current,
+    x: walking ? pinnedXRef.current : pinned ? 0 : xRef.current,
     facing: facingRef.current,
     mode: pinned && !walking ? "walk" : modeRef.current,
     bubble: pinned && !walking ? null : bubbleRef.current,
@@ -19613,7 +19613,13 @@ function LingovaMascot({ uiLang }) {
   // بمونه، نه این‌که هم‌زمان رفت‌وبرگشتِ خودکار هم بکنه؛ رفت‌وبرگشت فقط
   // بعدِ رهاشدن (pinnedPos ثبت شده) شروع می‌شه.
   const walking = !!pinnedPos && !isDragging;
-  const { x, facing, mode, bubble } = useLingovaMascot(trackWidth, uiLang, pinned, walking);
+  const { x, facing, mode, bubble } = useLingovaMascot(
+    trackWidth,
+    uiLang,
+    pinned,
+    walking,
+    pinnedPos ? pinnedPos.left : 0
+  );
 
   const handlePointerDown = (e) => {
     e.preventDefault();
@@ -19627,12 +19633,6 @@ function LingovaMascot({ uiLang }) {
   // اگه آدمک نزدیکِ لبه‌ی بالای صفحه سنجاق شده باشه، حباب رو به‌جای بالا،
   // پایینِ آدمک نشون می‌دیم تا از صفحه بیرون نزنه.
   const bubbleNearTop = pinned && activePos && activePos.top < 34;
-  // افستِ رفت‌وبرگشتیِ x رو طوری کلمپ می‌کنیم که با موقعیتِ سنجاق‌شده جمع
-  // بشه ولی از لبه‌های صفحه بیرون نزنه (نزدیکِ لبه‌ها، دامنه‌ی نوسان کمتر می‌شه).
-  const clampedX =
-    walking && activePos && typeof window !== "undefined"
-      ? Math.max(-activePos.left, Math.min(window.innerWidth - LINGOVA_MASCOT_WIDTH - activePos.left, x))
-      : x;
 
   const mascotBody = (
     <div
@@ -19640,7 +19640,7 @@ function LingovaMascot({ uiLang }) {
       style={{
         position: "absolute",
         top: 0,
-        left: clampedX,
+        left: x,
         width: LINGOVA_MASCOT_WIDTH,
         height: LINGOVA_MASCOT_HEIGHT,
         transform: `scaleX(${facing})`,
@@ -19747,7 +19747,7 @@ function LingovaMascot({ uiLang }) {
       {pinned &&
         createPortal(
           <div style={{ position: "fixed", inset: 0, zIndex: 70, pointerEvents: "none" }}>
-            <div style={{ position: "absolute", top: activePos ? activePos.top : 0, left: activePos ? activePos.left : 0 }}>
+            <div style={{ position: "absolute", top: activePos ? activePos.top : 0, left: walking ? 0 : activePos ? activePos.left : 0 }}>
               {mascotBody}
             </div>
           </div>,
