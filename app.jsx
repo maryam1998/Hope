@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useReducer } from "react";
 import { createPortal } from "react-dom";
 import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
@@ -15782,6 +15782,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         }}
         className="px-4 pt-6 pb-5"
       >
+        <LingovaMascot />
         <div className="flex items-center justify-end mb-1">
           <div className="flex items-center gap-2.5">
             {user?.picture ? (
@@ -19307,6 +19308,205 @@ function LoginScreen({ onAuthenticated, uiLang = "fa" }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// آدمکِ Lingova — یه شخصیتِ کوچیکِ SVG که بالای هدر، تصادفی راه می‌ره، یه
+// چماق دستشه، و حواسش به «خوندن»ه: هر از گاهی می‌ایسته و انگار داره متن رو
+// می‌خونه (سرش خم می‌شه پایین)، بعد دوباره یه مقصدِ تصادفیِ دیگه انتخاب
+// می‌کنه و راه می‌افته. اگه کاربر چند دقیقه هیچ تعاملی (لمس/اسکرول/کلیک/
+// کیبورد) با صفحه نداشته باشه، آدمک وایمیسته، چماق رو بالا می‌گیره، و یه
+// حبابِ کوچیکِ یادآوری («بخون دیگه!») نشون می‌ده — تا کاربر دوباره تعامل
+// کنه، برمی‌گرده به راه‌رفتنِ عادی.
+// ---------------------------------------------------------------------------
+const LINGOVA_MASCOT_WIDTH = 30;
+const LINGOVA_IDLE_MS = 45000; // بعدِ این‌قدر بی‌تعاملی، حالتِ «هشدار»
+const LINGOVA_BUBBLE_LINES = ["بخون دیگه! 📖", "ادامه‌شو بخون!", "هنوز اونجایی؟ 👀", "با توام‌ها، بخون!"];
+
+function useLingovaMascot(trackWidth) {
+  const xRef = useRef(0);
+  const targetRef = useRef(-1); // -1 یعنی هنوز مقصدی انتخاب نشده
+  const speedRef = useRef(0.6);
+  const facingRef = useRef(1);
+  const modeRef = useRef("walk"); // 'walk' | 'read' | 'alert'
+  const readUntilRef = useRef(0);
+  const lastActivityRef = useRef(Date.now());
+  const bubbleRef = useRef(null);
+  const [, forceTick] = useReducer((n) => n + 1, 0);
+
+  const pickNewTarget = (fromX, w) => {
+    const trackW = Math.max(w - LINGOVA_MASCOT_WIDTH, 24);
+    const t = Math.random() * trackW;
+    targetRef.current = t;
+    speedRef.current = 0.35 + Math.random() * 0.85;
+    facingRef.current = t >= fromX ? 1 : -1;
+  };
+
+  // ثبتِ آخرین لحظه‌ی تعاملِ کاربر با کلِ اپ — هر نوع لمس/کلیک/اسکرول/کیبورد
+  useEffect(() => {
+    const mark = () => {
+      lastActivityRef.current = Date.now();
+    };
+    window.addEventListener("touchstart", mark, { passive: true });
+    window.addEventListener("mousedown", mark);
+    window.addEventListener("keydown", mark);
+    window.addEventListener("scroll", mark, { passive: true, capture: true });
+    return () => {
+      window.removeEventListener("touchstart", mark);
+      window.removeEventListener("mousedown", mark);
+      window.removeEventListener("keydown", mark);
+      window.removeEventListener("scroll", mark, true);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!trackWidth) return undefined;
+    if (targetRef.current < 0) pickNewTarget(xRef.current, trackWidth);
+
+    const id = setInterval(() => {
+      const idleMs = Date.now() - lastActivityRef.current;
+      const isIdle = idleMs > LINGOVA_IDLE_MS;
+
+      if (isIdle) {
+        if (modeRef.current !== "alert") {
+          modeRef.current = "alert";
+          bubbleRef.current = LINGOVA_BUBBLE_LINES[Math.floor(Math.random() * LINGOVA_BUBBLE_LINES.length)];
+        }
+        forceTick();
+        return;
+      }
+      if (modeRef.current === "alert") {
+        modeRef.current = "walk";
+        bubbleRef.current = null;
+        pickNewTarget(xRef.current, trackWidth);
+      }
+
+      if (modeRef.current === "read") {
+        if (Date.now() >= readUntilRef.current) {
+          modeRef.current = "walk";
+          pickNewTarget(xRef.current, trackWidth);
+        }
+        forceTick();
+        return;
+      }
+
+      const dx = targetRef.current - xRef.current;
+      if (Math.abs(dx) < 1.5) {
+        // رسید به مقصد — یه مکثِ کوتاه «انگار داره می‌خونه»، بعد یه مقصدِ تازه
+        modeRef.current = "read";
+        readUntilRef.current = Date.now() + 1200 + Math.random() * 2200;
+        forceTick();
+        return;
+      }
+      xRef.current += Math.sign(dx) * speedRef.current;
+      forceTick();
+    }, 45);
+
+    return () => clearInterval(id);
+  }, [trackWidth]);
+
+  return { x: xRef.current, facing: facingRef.current, mode: modeRef.current, bubble: bubbleRef.current };
+}
+
+function LingovaMascot() {
+  const trackRef = useRef(null);
+  const [trackWidth, setTrackWidth] = useState(0);
+
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return undefined;
+    const measure = () => setTrackWidth(el.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const { x, facing, mode, bubble } = useLingovaMascot(trackWidth);
+
+  return (
+    <div ref={trackRef} style={{ position: "relative", height: 40, marginBottom: 2 }}>
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: x,
+          width: LINGOVA_MASCOT_WIDTH,
+          height: 38,
+          transform: `scaleX(${facing})`,
+        }}
+      >
+        {bubble && (
+          <div
+            className="lingova-bubble"
+            style={{
+              position: "absolute",
+              top: -22,
+              left: facing === 1 ? -4 : -34,
+              transform: facing === 1 ? "none" : "scaleX(-1)",
+              background: colors.paper,
+              color: colors.ink,
+              fontSize: 9,
+              fontWeight: 700,
+              padding: "2px 6px",
+              borderRadius: 8,
+              whiteSpace: "nowrap",
+              boxShadow: "0 1px 4px rgba(0,0,0,.3)",
+            }}
+          >
+            {bubble}
+          </div>
+        )}
+        <svg viewBox="0 0 30 38" width={LINGOVA_MASCOT_WIDTH} height={38} style={{ overflow: "visible", display: "block" }}>
+          {/* چماق — دستِ نگه‌دارنده‌اش وقتِ راه‌رفتن تاب می‌خوره، وقتِ
+              هشدار (بی‌تعاملیِ کاربر) بالا نگه داشته می‌شه */}
+          <g
+            className={mode === "alert" ? "lingova-arm-alert" : mode === "walk" ? "lingova-arm-walk" : ""}
+            style={{ transformOrigin: "18px 15px" }}
+          >
+            <rect x="17" y="3" width="2.6" height="11" rx="1.3" fill="#8a5a2b" />
+            <circle cx="18.3" cy="3" r="2.6" fill="#6b4423" />
+          </g>
+          {/* سر — موقعِ «خوندن» یکم به‌سمتِ پایین خم می‌شه، انگار حواسش به متنه */}
+          <g
+            style={{
+              transform: mode === "read" ? "rotate(18deg)" : "none",
+              transformOrigin: "15px 8px",
+              transition: "transform 0.35s ease",
+            }}
+          >
+            <circle cx="15" cy="8" r="5" fill={colors.gold} />
+            <circle cx="17" cy="7.2" r="0.8" fill={colors.ink} />
+          </g>
+          {/* تنه */}
+          <rect x="12" y="13" width="6" height="12" rx="3" fill={colors.teal} />
+          {/* پاها — فقط موقعِ راه‌رفتن تاب می‌خورن */}
+          <g className={mode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "13px 25px" }}>
+            <rect x="11.5" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+          </g>
+          <g className={mode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "17px 25px" }}>
+            <rect x="16" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+          </g>
+        </svg>
+      </div>
+      <style>{`
+        @keyframes lingovaLegL { 0%, 100% { transform: rotate(24deg); } 50% { transform: rotate(-24deg); } }
+        @keyframes lingovaLegR { 0%, 100% { transform: rotate(-24deg); } 50% { transform: rotate(24deg); } }
+        @keyframes lingovaArmWalk { 0%, 100% { transform: rotate(-10deg); } 50% { transform: rotate(10deg); } }
+        @keyframes lingovaArmAlert { 0%, 100% { transform: rotate(-95deg) translateY(0); } 50% { transform: rotate(-95deg) translateY(-2px); } }
+        @keyframes lingovaBubbleBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+        .lingova-leg-l { animation: lingovaLegL 0.5s linear infinite; }
+        .lingova-leg-r { animation: lingovaLegR 0.5s linear infinite; }
+        .lingova-arm-walk { animation: lingovaArmWalk 0.5s linear infinite; }
+        .lingova-arm-alert { animation: lingovaArmAlert 0.6s ease-in-out infinite; }
+        .lingova-bubble { animation: lingovaBubbleBob 1s ease-in-out infinite; }
+      `}</style>
     </div>
   );
 }
