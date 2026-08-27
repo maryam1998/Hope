@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useReducer } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic, Pin, PinOff } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -19697,6 +19697,18 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
   // آدمک همین‌جا نگهش می‌داره (بدونِ جابه‌جایی)، یه تپِ دیگه دوباره راه
   // می‌ندازتش. غیرِ ذخیره‌شونده‌ست (هر بارگذاریِ صفحه از نو راه می‌ره).
   const [paused, setPaused] = useState(false);
+  // «قدم‌زدنِ سرِ جا» — با دکمه‌ی مخصوصِ بالای سرِ آدمک روشن/خاموش می‌شه (نه
+  // با درگ یا تپ‌های قبلی). وقتی روشنه، آدمک دقیقاً همون‌جایی که الان
+  // رویِ صفحه‌ست (مختصاتِ ثابتِ نسبت‌به‌ویوپورت، نه سندِ صفحه) قفل می‌شه و
+  // فقط انیمیشنِ راه‌رفتن (تابِ پا/دست) اجرا می‌شه، بدونِ جابه‌جاییِ x — و
+  // چون position:fixed نسبت‌به‌ویوپورته، با اسکرول‌کردنِ بقیه‌ی صفحه هیچ
+  // تکونی نمی‌خوره. با شروعِ پخشِ پلیر (speechController → "playing")
+  // خودکار خاموش می‌شه تا آدمک دوباره «آزاد» بشه (برگرده به همون رفتارِ
+  // قبلیِ خودش نسبت‌به‌اسکرول: نوارِ بالا/چسبیده‌به‌هدر/سنجاق‌شده — هرکدوم
+  // که قبلاً بوده).
+  const [stepInPlace, setStepInPlace] = useState(false);
+  const [stepInPlacePos, setStepInPlacePos] = useState(null); // {left, top} — مختصاتِ ویوپورت در لحظه‌ی روشن‌شدن
+  const mascotElRef = useRef(null);
   const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
   const pointerStartRef = useRef({ x: 0, y: 0 });
   // وقتی آدمک هنوز سنجاق نشده (رویِ نوارِ بالا)، یه تپِ ساده باید یه‌کم صبر
@@ -19817,9 +19829,39 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
   );
   // پارک‌شده که باشه، مُد رو به یه حالتِ ایستاده‌ی ساده (نه walk/read/alert)
   // برمی‌گردونیم تا نه پاها تاب بخورن نه دست، و حبابِ پیام هم مخفی می‌شه —
-  // دقیقاً مثلِ فریزشدنِ تصویر با دکمه‌ی توقفِ یه پلیر.
-  const effectiveMode = paused ? "parked" : mode;
-  const effectiveBubble = paused ? null : bubble;
+  // دقیقاً مثلِ فریزشدنِ تصویر با دکمه‌ی توقفِ یه پلیر. تویِ حالتِ
+  // «قدم‌زدنِ سرِ جا» هم، صرفِ‌نظر از هر چیزِ دیگه، همیشه باید انیمیشنِ
+  // راه‌رفتن نشون داده بشه (نه پارک، نه خوندن، نه هشدار) — پس اولویتِ
+  // بالاتری نسبت‌به paused/mode داره.
+  const effectiveMode = stepInPlace ? "walk" : paused ? "parked" : mode;
+  const effectiveBubble = stepInPlace ? null : paused ? null : bubble;
+
+  // با شروعِ پخشِ پلیرِ صدا (دکمه‌ی پلیِ نوارِ پایین)، اگه آدمک «سرِ جا قفل»
+  // بود، خودکار آزادش می‌کنیم — یعنی از حالتِ ثابت‌نسبت‌به‌ویوپورتِ این
+  // دکمه بیرون میاد و برمی‌گرده به همون رفتارِ عادیِ خودش نسبت‌به‌اسکرول
+  // (نوارِ بالا / چسبیده‌به‌هدر / سنجاق‌شده — هرکدوم که قبلاً فعال بوده).
+  useEffect(() => {
+    return speechController.subscribe((s) => {
+      if (s.status === "playing") setStepInPlace(false);
+    });
+  }, []);
+
+  // دکمه‌ی بالایِ سرِ آدمک: تپ روش «قدم‌زدنِ سرِ جا» رو toggle می‌کنه. موقعِ
+  // روشن‌کردن، مختصاتِ فعلیِ خودِ آدمک رو نسبت‌به‌ویوپورت (نه سندِ صفحه)
+  // می‌گیریم و ثابت نگه‌ش می‌داریم — همین باعث می‌شه با اسکرول‌کردنِ بقیه‌ی
+  // صفحه، آدمک هیچ تکونی نخوره.
+  const toggleStepInPlace = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setStepInPlace((v) => {
+      const next = !v;
+      if (next && mascotElRef.current) {
+        const rect = mascotElRef.current.getBoundingClientRect();
+        setStepInPlacePos({ left: rect.left, top: rect.top });
+      }
+      return next;
+    });
+  };
 
   const handlePointerDown = (e) => {
     e.preventDefault();
@@ -19842,13 +19884,21 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
   const shirtColor = outfit.shirt || colors.teal;
   const pantsColor = outfit.pants || colors.ink;
 
+  // تویِ حالتِ «قدم‌زدنِ سرِ جا»، x رو کاملاً نادیده می‌گیریم و رویِ صفر
+  // قفل می‌کنیم — چون این‌جا خودِ ظرفِ بیرونی (پایین‌تر، تویِ createPortal)
+  // با مختصاتِ ثابتِ ویوپورت جابه‌جا می‌شه، نه این المان؛ اگه x واقعی رو
+  // هم اینجا اعمال می‌کردیم، آدمک هم‌زمان هم می‌رفت‌وبرگشت می‌کرد هم قفل
+  // بود — که دقیقاً برخلافِ «همون‌جا فقط قدم بزنه»ست.
+  const displayX = stepInPlace ? 0 : x;
+
   const mascotBody = (
     <div
-      onPointerDown={enabled ? handlePointerDown : undefined}
+      ref={mascotElRef}
+      onPointerDown={enabled && !stepInPlace ? handlePointerDown : undefined}
       style={{
         position: "absolute",
         top: 0,
-        left: x,
+        left: displayX,
         width: LINGOVA_MASCOT_WIDTH,
         height: LINGOVA_MASCOT_HEIGHT,
         touchAction: "none",
@@ -19921,6 +19971,48 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
           />
         </div>
       )}
+      {/* دکمه‌ی «قدم‌زدنِ سرِ جا» — همیشه بالایِ سرِ آدمک نمایش داده می‌شه
+          (مستقل از پارک/سنجاق‌بودن). یه تپِ ساده روش، آدمک رو دقیقاً همون‌جا
+          که الان رویِ صفحه‌ست قفل می‌کنه (بدونِ رفت‌وبرگشت، فقط انیمیشنِ
+          قدم‌زدن) و از اسکرول‌شدنِ بقیه‌ی صفحه بی‌تأثیر می‌مونه؛ تپِ دوباره
+          رهاش می‌کنه. با شروعِ پخشِ پلیر هم خودکار آزاد می‌شه. */}
+      <button
+        type="button"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={toggleStepInPlace}
+        aria-label={
+          stepInPlace
+            ? uiLang === "en"
+              ? "Unlock mascot from this spot"
+              : "آزادکردنِ آدمک از این نقطه"
+            : uiLang === "en"
+            ? "Lock mascot here, walking in place"
+            : "قفل‌کردنِ آدمک همین‌جا، فقط قدم‌زدن"
+        }
+        style={{
+          position: "absolute",
+          top: -30,
+          left: LINGOVA_MASCOT_WIDTH / 2 - 9,
+          width: 18,
+          height: 18,
+          borderRadius: "50%",
+          border: "none",
+          padding: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: stepInPlace ? colors.gold : colors.ink,
+          boxShadow: "0 1px 3px rgba(0,0,0,.4)",
+          cursor: "pointer",
+          touchAction: "none",
+        }}
+      >
+        {stepInPlace ? (
+          <PinOff size={11} color={colors.ink} strokeWidth={2.5} />
+        ) : (
+          <Pin size={11} color={colors.paper} strokeWidth={2.5} />
+        )}
+      </button>
       <svg
         viewBox="0 0 30 38"
         width={LINGOVA_MASCOT_WIDTH}
@@ -19971,7 +20063,7 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
           فعال می‌شه)، دقیقاً همین‌جا و به‌صورتِ معمولی (نه پورتال/فیکس) رندر
           می‌شه تا با اسکرول‌کردنِ صفحه، مثلِ بقیه‌ی هدر از دید خارج بشه. */}
       <div ref={trackRef} style={{ height: 40, marginBottom: 2, position: "relative" }}>
-        {pageAttached && !pinned && mascotBody}
+        {!stepInPlace && pageAttached && !pinned && mascotBody}
       </div>
 
       {/* حالتِ پیش‌فرض/راه‌رفتن: آدمک مستقیم زیرِ <body> (با createPortal) و
@@ -19979,7 +20071,8 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
           صفحه، هم‌رنگِ گرادیانتِ هدر، که با اسکرول‌کردنِ بقیه‌ی صفحه از دید
           خارج نمی‌شه. با دابل‌تپ رویِ آدمک می‌شه از این حالت به حالتِ
           «چسبیده به هدر» بالا سوییچ کرد و برعکس. */}
-      {!pinned &&
+      {!stepInPlace &&
+        !pinned &&
         !pageAttached &&
         createPortal(
           <div
@@ -20006,10 +20099,28 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
           دقیقاً همون‌جایی که کاربر با انگشتش گذاشته/داره می‌بره، رندر می‌شه.
           خودِ لایه‌ی بیرونی pointerEvents:none هست تا رویِ بقیه‌ی صفحه کلیک
           رو نگیره؛ فقط خودِ آدمک (pointerEvents:auto) قابلِ‌گرفتنه. */}
-      {pinned &&
+      {!stepInPlace &&
+        pinned &&
         createPortal(
           <div style={{ position: "fixed", inset: 0, zIndex: 70, pointerEvents: "none" }}>
             <div style={{ position: "absolute", top: activePos ? activePos.top : 0, left: walking ? 0 : activePos ? activePos.left : 0 }}>
+              {mascotBody}
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* حالتِ «قدم‌زدنِ سرِ جا» — با دکمه‌ی بالایِ سرِ آدمک فعال می‌شه.
+          صرفِ‌نظر از این‌که قبلش آدمک تو کدوم حالت بود (نوارِ بالا/
+          چسبیده‌به‌هدر/سنجاق‌شده)، حالا مستقیماً با مختصاتِ ثابتِ نسبت‌به‌
+          ویوپورت (گرفته‌شده در لحظه‌ی تپ‌زدن رویِ دکمه) رندر می‌شه — یعنی
+          دقیقاً همون‌جای رویِ صفحه که بود می‌مونه و با اسکرول‌کردنِ بقیه‌ی
+          صفحه هیچ تکونی نمی‌خوره، فقط انیمیشنِ قدم‌زدن (تابِ پا/دست) اجرا
+          می‌شه، بدونِ رفت‌وبرگشتِ واقعی. */}
+      {stepInPlace &&
+        createPortal(
+          <div style={{ position: "fixed", inset: 0, zIndex: 75, pointerEvents: "none" }}>
+            <div style={{ position: "absolute", top: stepInPlacePos ? stepInPlacePos.top : 0, left: stepInPlacePos ? stepInPlacePos.left : 0 }}>
               {mascotBody}
             </div>
           </div>,
