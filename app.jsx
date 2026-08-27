@@ -15782,7 +15782,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         }}
         className="px-4 pt-6 pb-5"
       >
-        <LingovaMascot />
+        <LingovaMascot uiLang={appPrefs.uiLang} />
         <div className="flex items-center justify-end mb-1">
           <div className="flex items-center gap-2.5">
             {user?.picture ? (
@@ -19323,9 +19323,18 @@ function LoginScreen({ onAuthenticated, uiLang = "fa" }) {
 // ---------------------------------------------------------------------------
 const LINGOVA_MASCOT_WIDTH = 30;
 const LINGOVA_IDLE_MS = 45000; // بعدِ این‌قدر بی‌تعاملی، حالتِ «هشدار»
-const LINGOVA_BUBBLE_LINES = ["بخون دیگه! 📖", "ادامه‌شو بخون!", "هنوز اونجایی؟ 👀", "با توام‌ها، بخون!"];
+// حالا هم‌زبانِ خودِ نرم‌افزار (uiLang) — نه همیشه فارسی؛ اگه زبانِ
+// نرم‌افزار روی English باشه، حباب‌ها انگلیسی نشون داده می‌شن.
+const LINGOVA_BUBBLE_LINES = {
+  fa: ["بخون دیگه! 📖", "ادامه‌شو بخون!", "هنوز اونجایی؟ 👀", "با توام‌ها، بخون!"],
+  en: ["Keep reading! 📖", "Come on, continue!", "Still there? 👀", "I'm talking to you, read!"],
+};
+function pickLingovaBubbleLine(uiLang) {
+  const lines = LINGOVA_BUBBLE_LINES[uiLang] || LINGOVA_BUBBLE_LINES.fa;
+  return lines[Math.floor(Math.random() * lines.length)];
+}
 
-function useLingovaMascot(trackWidth) {
+function useLingovaMascot(trackWidth, uiLang) {
   const xRef = useRef(0);
   const targetRef = useRef(-1); // -1 یعنی هنوز مقصدی انتخاب نشده
   const speedRef = useRef(0.6);
@@ -19372,7 +19381,7 @@ function useLingovaMascot(trackWidth) {
       if (isIdle) {
         if (modeRef.current !== "alert") {
           modeRef.current = "alert";
-          bubbleRef.current = LINGOVA_BUBBLE_LINES[Math.floor(Math.random() * LINGOVA_BUBBLE_LINES.length)];
+          bubbleRef.current = pickLingovaBubbleLine(uiLang);
         }
         forceTick();
         return;
@@ -19405,12 +19414,12 @@ function useLingovaMascot(trackWidth) {
     }, 45);
 
     return () => clearInterval(id);
-  }, [trackWidth]);
+  }, [trackWidth, uiLang]);
 
   return { x: xRef.current, facing: facingRef.current, mode: modeRef.current, bubble: bubbleRef.current };
 }
 
-function LingovaMascot() {
+function LingovaMascot({ uiLang }) {
   const trackRef = useRef(null);
   const [trackWidth, setTrackWidth] = useState(0);
 
@@ -19428,80 +19437,121 @@ function LingovaMascot() {
     return () => ro.disconnect();
   }, []);
 
-  const { x, facing, mode, bubble } = useLingovaMascot(trackWidth);
+  const { x, facing, mode, bubble } = useLingovaMascot(trackWidth, uiLang);
 
   return (
-    <div ref={trackRef} style={{ position: "relative", height: 40, marginBottom: 2 }}>
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: x,
-          width: LINGOVA_MASCOT_WIDTH,
-          height: 38,
-          transform: `scaleX(${facing})`,
-        }}
-      >
-        {bubble && (
-          <div
-            className="lingova-bubble"
-            style={{
-              position: "absolute",
-              top: -22,
-              left: facing === 1 ? -4 : -34,
-              transform: facing === 1 ? "none" : "scaleX(-1)",
-              background: colors.paper,
-              color: colors.ink,
-              fontSize: 9,
-              fontWeight: 700,
-              padding: "2px 6px",
-              borderRadius: 8,
-              whiteSpace: "nowrap",
-              boxShadow: "0 1px 4px rgba(0,0,0,.3)",
-            }}
-          >
-            {bubble}
+    <>
+      {/* جای‌گیرِ نامرئی — همون ارتفاعِ قبلی (40px) رو داخلِ هدر نگه می‌داره
+          تا چیدمانِ بقیه‌ی هدر (ردیفِ آواتار/تنظیمات و...) جابه‌جا نشه؛ عرضِ
+          همین‌جا برای اندازه‌گیریِ محدوده‌ی حرکتِ آدمک (trackWidth) استفاده
+          می‌شه. خودِ آدمک دیگه این‌جا رندر نمی‌شه — چون با اسکرول‌شدنِ هدر از
+          دیدِ کاربر خارج می‌شد؛ به‌جاش پایین‌تر با createPortal رندر می‌شه. */}
+      <div ref={trackRef} style={{ height: 40, marginBottom: 2 }} />
+
+      {/* آدمکِ واقعی حالا مستقیم زیرِ <body> (با createPortal) و
+          position: fixed رندر می‌شه — یه نوارِ باریکِ همیشه-ثابتِ بالای
+          صفحه، هم‌رنگِ گرادیانتِ هدر، که با اسکرول‌کردنِ بقیه‌ی صفحه (از
+          جمله خودِ هدر) از دید خارج نمی‌شه و همیشه روی صفحه باقی می‌مونه. */}
+      {createPortal(
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            // ارتفاعِ نوار کمی بیشتر از خودِ آدمک (38px) + یه حاشیه‌ی امن
+            // بالا/پایین، تا موقعِ چرخشِ دست/چماق (حالتِ راه‌رفتن یا
+            // هشدار) هیچ‌بخشی از انیمیشن بریده/قایم نشه.
+            height: 48,
+            zIndex: 60,
+            overflow: "visible",
+            pointerEvents: "none",
+            background: `radial-gradient(120% 140% at 15% -10%, rgba(255,255,255,.07), transparent 55%), linear-gradient(165deg, ${colors.teal} 0%, ${colors.ink} 78%)`,
+          }}
+        >
+          <div className="px-4" style={{ position: "relative", height: "100%" }}>
+            <div
+              style={{
+                position: "absolute",
+                top: 5,
+                left: x,
+                width: LINGOVA_MASCOT_WIDTH,
+                height: 38,
+                transform: `scaleX(${facing})`,
+              }}
+            >
+              {bubble && (
+                // نکته‌ی مهم: خودِ حباب دو transform همزمان لازم داشت — یکی
+                // برای خنثی‌کردنِ آینه‌شدنِ کلِ آدمک وقتِ رو‌به‌چپ‌بودن
+                // (scaleX(-1))، یکی برای انیمیشنِ بالاوپایین‌رفتنِ حباب
+                // (کلاسِ lingova-bubble). چون انیمیشنِ CSS مقدارِ transform
+                // را کامل جایگزین می‌کند (نه اضافه)، گذاشتنِ هردو روی یک
+                // المنت باعث می‌شد transformِ خنثی‌سازی هر فریم پاک بشه و
+                // متنِ فارسی/چپ‌به‌راست برعکس دیده بشه. الان دو لایه‌ی
+                // جدا داریم: بیرونی فقط آینه رو خنثی می‌کنه، داخلی فقط
+                // انیمیشنِ بالاوپایین رو اجرا می‌کنه — این‌طوری هیچ‌کدوم
+                // مزاحمِ اون‌یکی نمی‌شه.
+                <div
+                  style={{
+                    position: "absolute",
+                    top: -22,
+                    left: facing === 1 ? -4 : -34,
+                    transform: facing === 1 ? "none" : "scaleX(-1)",
+                  }}
+                >
+                  <div
+                    className="lingova-bubble"
+                    style={{
+                      background: colors.paper,
+                      color: colors.ink,
+                      fontSize: 9,
+                      fontWeight: 700,
+                      padding: "2px 6px",
+                      borderRadius: 8,
+                      whiteSpace: "nowrap",
+                      boxShadow: "0 1px 4px rgba(0,0,0,.3)",
+                    }}
+                  >
+                    {bubble}
+                  </div>
+                </div>
+              )}
+              <svg viewBox="0 0 30 38" width={LINGOVA_MASCOT_WIDTH} height={38} style={{ overflow: "visible", display: "block" }}>
+                {/* چماق — دستِ نگه‌دارنده‌اش وقتِ راه‌رفتن تاب می‌خوره، وقتِ
+                    هشدار (بی‌تعاملیِ کاربر) بالا نگه داشته می‌شه */}
+                <g
+                  className={mode === "alert" ? "lingova-arm-alert" : mode === "walk" ? "lingova-arm-walk" : ""}
+                  style={{ transformOrigin: "18px 15px" }}
+                >
+                  <rect x="17" y="3" width="2.6" height="11" rx="1.3" fill="#8a5a2b" />
+                  <circle cx="18.3" cy="3" r="2.6" fill="#6b4423" />
+                </g>
+                {/* سر — موقعِ «خوندن» یکم به‌سمتِ پایین خم می‌شه، انگار حواسش به متنه */}
+                <g
+                  style={{
+                    transform: mode === "read" ? "rotate(18deg)" : "none",
+                    transformOrigin: "15px 8px",
+                    transition: "transform 0.35s ease",
+                  }}
+                >
+                  <circle cx="15" cy="8" r="5" fill={colors.gold} />
+                  <circle cx="17" cy="7.2" r="0.8" fill={colors.ink} />
+                </g>
+                {/* تنه */}
+                <rect x="12" y="13" width="6" height="12" rx="3" fill={colors.teal} />
+                {/* پاها — فقط موقعِ راه‌رفتن تاب می‌خورن */}
+                <g className={mode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "13px 25px" }}>
+                  <rect x="11.5" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+                </g>
+                <g className={mode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "17px 25px" }}>
+                  <rect x="16" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+                </g>
+              </svg>
+            </div>
           </div>
-        )}
-        <svg viewBox="0 0 30 38" width={LINGOVA_MASCOT_WIDTH} height={38} style={{ overflow: "visible", display: "block" }}>
-          {/* سر — موقعِ «خوندن» یکم به‌سمتِ پایین خم می‌شه، انگار حواسش به متنه.
-              چشم‌ها و دهن این‌جا به‌عنوانِ فرزندِ همین گروه رسم می‌شن تا همیشه
-              با چرخشِ سر جابه‌جا بشن. */}
-          <g
-            style={{
-              transform: mode === "read" ? "rotate(18deg)" : "none",
-              transformOrigin: "14px 8px",
-              transition: "transform 0.35s ease",
-            }}
-          >
-            <circle cx="14" cy="8" r="5" fill={colors.gold} />
-            {/* دو چشم */}
-            <circle cx="12.1" cy="7.3" r="1" fill={colors.ink} />
-            <circle cx="15.9" cy="7.3" r="1" fill={colors.ink} />
-            {/* دهن — یه لبخندِ ساده */}
-            <path d="M11.6 10.4 Q14 12.4 16.4 10.4" stroke={colors.ink} strokeWidth="1" fill="none" strokeLinecap="round" />
-          </g>
-          {/* تنه */}
-          <rect x="11" y="13" width="6" height="12" rx="3" fill={colors.teal} />
-          {/* پاها — فقط موقعِ راه‌رفتن تاب می‌خورن */}
-          <g className={mode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "12px 25px" }}>
-            <rect x="10.5" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
-          </g>
-          <g className={mode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "16px 25px" }}>
-            <rect x="15" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
-          </g>
-          {/* چماق — کنارِ سر (نه روش) رسم می‌شه تا هیچ‌وقت زیرِ سر گم نشه؛
-              دستِ نگه‌دارنده‌اش وقتِ راه‌رفتن تاب می‌خوره، وقتِ هشدار
-              (بی‌تعاملیِ کاربر) بالا نگه داشته می‌شه */}
-          <g
-            className={mode === "alert" ? "lingova-arm-alert" : mode === "walk" ? "lingova-arm-walk" : ""}
-            style={{ transformOrigin: "20px 15px" }}
-          >
-            <rect x="19.2" y="4" width="2.6" height="11.5" rx="1.3" fill="#8a5a2b" />
-            <circle cx="20.5" cy="3.5" r="3" fill="#6b4423" />
-          </g>
-        </svg>
-      </div>
+        </div>,
+        document.body
+      )}
       <style>{`
         @keyframes lingovaLegL { 0%, 100% { transform: rotate(24deg); } 50% { transform: rotate(-24deg); } }
         @keyframes lingovaLegR { 0%, 100% { transform: rotate(-24deg); } 50% { transform: rotate(24deg); } }
@@ -19514,7 +19564,7 @@ function LingovaMascot() {
         .lingova-arm-alert { animation: lingovaArmAlert 0.6s ease-in-out infinite; }
         .lingova-bubble { animation: lingovaBubbleBob 1s ease-in-out infinite; }
       `}</style>
-    </div>
+    </>
   );
 }
 
