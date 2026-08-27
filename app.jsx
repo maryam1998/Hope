@@ -19328,7 +19328,7 @@ function LoginScreen({ onAuthenticated, uiLang = "fa" }) {
 // ---------------------------------------------------------------------------
 const LINGOVA_MASCOT_WIDTH = 30;
 const LINGOVA_MASCOT_HEIGHT = 38;
-const LINGOVA_IDLE_MS = 45000; // بعدِ این‌قدر بی‌تعاملی، حالتِ «هشدار»
+const LINGOVA_IDLE_MS = 6000; // بعدِ این‌قدر بی‌تعاملی، حالتِ «هشدار»
 // کلیدهای UI_STRINGS برای پیام‌های حباب — به‌جای متنِ ثابتِ فارسی، از سیستمِ
 // زبانِ نرم‌افزار (tr/uiLang) خونده می‌شن تا با تغییرِ زبونِ اپ، این پیام‌ها
 // هم خودکار انگلیسی/فارسی بشن.
@@ -19371,14 +19371,17 @@ function saveLingovaPinnedPos(left, top) {
   }
 }
 
-function useLingovaMascot(trackWidth, uiLang, pinned) {
+const LINGOVA_PINNED_WALK_RANGE = 34; // px به هر طرفِ نقطه‌ای که کاربر آدمک رو اونجا رها کرده
+
+function useLingovaMascot(trackWidth, uiLang, pinned, walking) {
   const xRef = useRef(0);
   const targetRef = useRef(-1); // -1 یعنی هنوز مقصدی انتخاب نشده
   const speedRef = useRef(0.6);
   const facingRef = useRef(1);
   const modeRef = useRef("walk"); // 'walk' | 'read' | 'alert'
   const readUntilRef = useRef(0);
-  const pinnedPhaseUntilRef = useRef(0); // فقط تو حالتِ pinned: پایانِ فازِ فعلیِ walk/read
+  const pinnedXRef = useRef(0); // فقط تو حالتِ pinned: افستِ رفت‌وبرگشتی نسبت به نقطه‌ی سنجاق‌شده
+  const pinnedTargetRef = useRef(0);
   const lastActivityRef = useRef(Date.now());
   const bubbleRef = useRef(null);
   const [, forceTick] = useReducer((n) => n + 1, 0);
@@ -19388,6 +19391,15 @@ function useLingovaMascot(trackWidth, uiLang, pinned) {
     const t = Math.random() * trackW;
     targetRef.current = t;
     speedRef.current = 0.35 + Math.random() * 0.85;
+    facingRef.current = t >= fromX ? 1 : -1;
+  };
+
+  // مقصدِ تازه برای رفت‌وبرگشتِ آدمکِ سنجاق‌شده — همیشه در بازه‌ی
+  // [-RANGE, +RANGE] نسبت به نقطه‌ای که کاربر رهاش کرده، نه رویِ کلِ صفحه.
+  const pickNewPinnedTarget = (fromX) => {
+    const t = (Math.random() * 2 - 1) * LINGOVA_PINNED_WALK_RANGE;
+    pinnedTargetRef.current = t;
+    speedRef.current = 0.3 + Math.random() * 0.5;
     facingRef.current = t >= fromX ? 1 : -1;
   };
 
@@ -19415,13 +19427,21 @@ function useLingovaMascot(trackWidth, uiLang, pinned) {
   }, []);
 
   // حالتِ «سنجاق‌شده» (pinned) — کاربر آدمک رو یه‌جای دلخواهِ صفحه گذاشته.
-  // دیگه از این‌سمت به‌اون‌سمت رد نمی‌شه؛ همون‌جا سرِ پا «قدم می‌زنه» (فقط
-  // پاها/دستش انیمیشن می‌گیرن، x جابه‌جا نمی‌شه) و دقیقاً مثلِ قبل، بعدِ
-  // مدتی بی‌تعاملی، چماق‌به‌دست هشدار می‌ده.
+  // دیگه رویِ کلِ نوارِ بالای صفحه رد نمی‌شه، ولی همون‌جا هم بیکار
+  // نمی‌مونه: تو یه بازه‌ی کوچیکِ رفت‌وبرگشتی (± LINGOVA_PINNED_WALK_RANGE
+  // پیکسل) دورِ همون نقطه قدم می‌زنه، و دقیقاً مثلِ قبل، بعدِ مدتی
+  // بی‌تعاملی، چماق‌به‌دست هشدار می‌ده.
   useEffect(() => {
-    if (!pinned) return undefined;
+    // موقعِ خودِ درگ‌کردن (pinned=true ولی walking=false، چون هنوز رها نشده)
+    // آدمک باید دقیقاً زیرِ انگشتِ کاربر بمونه؛ افستِ رفت‌وبرگشتی صفر و
+    // ثابت می‌مونه و هیچ تایمری روشن نمی‌شه.
+    if (!pinned || !walking) {
+      pinnedXRef.current = 0;
+      return undefined;
+    }
     modeRef.current = "walk";
-    pinnedPhaseUntilRef.current = Date.now() + 1400 + Math.random() * 1400;
+    pinnedXRef.current = 0;
+    pickNewPinnedTarget(0);
 
     const id = setInterval(() => {
       const idleMs = Date.now() - lastActivityRef.current;
@@ -19438,19 +19458,33 @@ function useLingovaMascot(trackWidth, uiLang, pinned) {
       if (modeRef.current === "alert") {
         bubbleRef.current = null;
         modeRef.current = "walk";
-        pinnedPhaseUntilRef.current = Date.now() + 1400 + Math.random() * 1400;
+        pickNewPinnedTarget(pinnedXRef.current);
       }
 
-      if (Date.now() >= pinnedPhaseUntilRef.current) {
-        modeRef.current = modeRef.current === "walk" ? "read" : "walk";
-        pinnedPhaseUntilRef.current =
-          Date.now() + (modeRef.current === "read" ? 1200 + Math.random() * 2200 : 1400 + Math.random() * 1400);
+      if (modeRef.current === "read") {
+        if (Date.now() >= readUntilRef.current) {
+          modeRef.current = "walk";
+          pickNewPinnedTarget(pinnedXRef.current);
+        }
+        forceTick();
+        return;
       }
+
+      // رفت‌وبرگشتِ واقعی: تا رسیدن به مقصدِ فعلی جابه‌جا می‌شه، بعد یه
+      // مکثِ کوتاه (mode = read) و مقصدِ تازه‌ی دیگه‌ای تو همون بازه.
+      const dx = pinnedTargetRef.current - pinnedXRef.current;
+      if (Math.abs(dx) < 1) {
+        modeRef.current = "read";
+        readUntilRef.current = Date.now() + 1200 + Math.random() * 2200;
+        forceTick();
+        return;
+      }
+      pinnedXRef.current += Math.sign(dx) * speedRef.current;
       forceTick();
     }, 45);
 
     return () => clearInterval(id);
-  }, [pinned, uiLang]);
+  }, [pinned, walking, uiLang]);
 
   useEffect(() => {
     if (pinned) return undefined;
@@ -19499,7 +19533,12 @@ function useLingovaMascot(trackWidth, uiLang, pinned) {
     return () => clearInterval(id);
   }, [trackWidth, pinned, uiLang]);
 
-  return { x: xRef.current, facing: facingRef.current, mode: modeRef.current, bubble: bubbleRef.current };
+  return {
+    x: pinned ? pinnedXRef.current : xRef.current,
+    facing: facingRef.current,
+    mode: pinned && !walking ? "walk" : modeRef.current,
+    bubble: pinned && !walking ? null : bubbleRef.current,
+  };
 }
 
 function LingovaMascot({ uiLang }) {
@@ -19570,7 +19609,11 @@ function LingovaMascot({ uiLang }) {
   }, [isDragging]);
 
   const pinned = !!(pinnedPos || isDragging);
-  const { x, facing, mode, bubble } = useLingovaMascot(trackWidth, uiLang, pinned);
+  // موقعِ خودِ درگ‌کردن (isDragging) آدمک باید دقیقاً زیرِ انگشتِ کاربر
+  // بمونه، نه این‌که هم‌زمان رفت‌وبرگشتِ خودکار هم بکنه؛ رفت‌وبرگشت فقط
+  // بعدِ رهاشدن (pinnedPos ثبت شده) شروع می‌شه.
+  const walking = !!pinnedPos && !isDragging;
+  const { x, facing, mode, bubble } = useLingovaMascot(trackWidth, uiLang, pinned, walking);
 
   const handlePointerDown = (e) => {
     e.preventDefault();
@@ -19584,6 +19627,12 @@ function LingovaMascot({ uiLang }) {
   // اگه آدمک نزدیکِ لبه‌ی بالای صفحه سنجاق شده باشه، حباب رو به‌جای بالا،
   // پایینِ آدمک نشون می‌دیم تا از صفحه بیرون نزنه.
   const bubbleNearTop = pinned && activePos && activePos.top < 34;
+  // افستِ رفت‌وبرگشتیِ x رو طوری کلمپ می‌کنیم که با موقعیتِ سنجاق‌شده جمع
+  // بشه ولی از لبه‌های صفحه بیرون نزنه (نزدیکِ لبه‌ها، دامنه‌ی نوسان کمتر می‌شه).
+  const clampedX =
+    walking && activePos && typeof window !== "undefined"
+      ? Math.max(-activePos.left, Math.min(window.innerWidth - LINGOVA_MASCOT_WIDTH - activePos.left, x))
+      : x;
 
   const mascotBody = (
     <div
@@ -19591,7 +19640,7 @@ function LingovaMascot({ uiLang }) {
       style={{
         position: "absolute",
         top: 0,
-        left: pinned ? 0 : x,
+        left: clampedX,
         width: LINGOVA_MASCOT_WIDTH,
         height: LINGOVA_MASCOT_HEIGHT,
         transform: `scaleX(${facing})`,
