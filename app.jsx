@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useReducer } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic, Pin, PinOff } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from "./WORDS_AZ.js";
@@ -20008,9 +20008,18 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
         }}
       >
         {stepInPlace ? (
-          <PinOff size={11} color={colors.ink} strokeWidth={2.5} />
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={colors.ink} strokeWidth="2.5" strokeLinecap="round">
+            <line x1="3" y1="3" x2="21" y2="21" />
+            <path d="M9 9v3l-4 4h12" />
+            <path d="M12 16v6" />
+            <path d="M9 3h6l1 6-4 3-4-3z" opacity="0.55" />
+          </svg>
         ) : (
-          <Pin size={11} color={colors.paper} strokeWidth={2.5} />
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={colors.paper} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 3h6l1 6-4 3-4-3z" fill={colors.paper} />
+            <path d="M12 12v9" />
+            <path d="M6 15h12" />
+          </svg>
         )}
       </button>
       <svg
