@@ -19331,6 +19331,12 @@ const LINGOVA_MASCOT_HEIGHT = 38;
 const LINGOVA_IDLE_MS = 6000; // بعدِ این‌قدر بی‌تعاملی، پیام‌های یادآوری فعال می‌شن
 const LINGOVA_LEG_MSG_COUNT = 2; // تعدادِ پیامی که تو هر «رفت» یا هر «برگشت» نشون داده می‌شه
 const LINGOVA_LEG_MSG_PAUSE_MS = 2000; // مکثِ کوتاهِ نمایشِ هر پیام
+// بازه‌ی تصادفیِ فاصله (بر حسبِ میلی‌ثانیه، از لحظه‌ای که کاربر بی‌تعامل
+// می‌شه) که هر کدوم از دو پیامِ هر پا سرِ اون لحظه ظاهر می‌شه — کاملاً
+// زمان‌محوره، نه موقعیت‌محور، پس به مکانِ آدمک رویِ صفحه (و درنتیجه به
+// عرضِ گوشی) هیچ ربطی نداره.
+const LINGOVA_LEG_MSG_MIN_DELAY_MS = 500;
+const LINGOVA_LEG_MSG_MAX_DELAY_MS = 7000;
 const LINGOVA_TURN_PAUSE_MS = 400; // مکثِ خیلی کوتاه سرِ لبه، قبلِ از برگشتن
 // کلیدهای UI_STRINGS برای پیام‌های حباب — به‌جای متنِ ثابتِ فارسی، از سیستمِ
 // زبانِ نرم‌افزار (tr/uiLang) خونده می‌شن تا با تغییرِ زبونِ اپ، این پیام‌ها
@@ -19393,14 +19399,19 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
 
   // شروعِ یه «پا»ی تازه از رفت‌وبرگشت — همیشه تا دقیقاً لبه‌ی مقابل (۰ یا
   // انتهای عرض)، نه یه نقطه‌ی تصادفیِ وسط‌راه؛ همین باعث می‌شه آدمک هیچ‌وقت
-  // وسطِ راه مسیرش عوض نشه. دو چک‌پوینت (۳۳٪ و ۶۶٪ از طولِ همین پا) هم این‌جا
-  // ثبت می‌شن — دقیقاً همون‌جاها، اگه کاربر بی‌تعامل باشه، یه پیامِ کوتاه
-  // نشون داده می‌شه، بدونِ این‌که مقصد/مسیر عوض بشه.
+  // وسطِ راه مسیرش عوض نشه. دو فاصله‌ی زمانیِ تصادفی هم این‌جا برای همین پا
+  // ثبت می‌شن (نه دو موقعیتِ ثابتِ رویِ مسیر) — هر کدوم یعنی «چند میلی‌ثانیه
+  // بعدِ بی‌تعامل‌شدنِ کاربر» یه پیامِ کوتاه نشون داده بشه، مستقل از این‌که
+  // آدمک دقیقاً کجای مسیره؛ همین باعث می‌شه محلِ نمایشِ پیام‌ها تصادفی و
+  // غیرقابل‌پیش‌بینی باشه، نه همیشه سرِ یه نقطه‌ی مشخص (مثلاً لبه‌ی صفحه).
   const startLeg = (fromX, toX, tgtRef, cpRef, cpIdxRef) => {
     tgtRef.current = toX;
     facingRef.current = toX >= fromX ? 1 : -1;
     speedRef.current = 0.45 + Math.random() * 0.3;
-    cpRef.current = [fromX + (toX - fromX) * 0.33, fromX + (toX - fromX) * 0.66];
+    cpRef.current = [
+      LINGOVA_LEG_MSG_MIN_DELAY_MS + Math.random() * (LINGOVA_LEG_MSG_MAX_DELAY_MS - LINGOVA_LEG_MSG_MIN_DELAY_MS),
+      LINGOVA_LEG_MSG_MIN_DELAY_MS + Math.random() * (LINGOVA_LEG_MSG_MAX_DELAY_MS - LINGOVA_LEG_MSG_MIN_DELAY_MS),
+    ].sort((a, b) => a - b);
     cpIdxRef.current = 0;
   };
 
@@ -19427,10 +19438,27 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
     };
   }, []);
 
+  // پخش‌شدنِ پلیر هم مثلِ لمس/کلیک/اسکرول/کیبورد یه تعاملِ حساب می‌شه —
+  // فقط وضعیتِ فعلی رو تو یه رفرنس نگه می‌داریم؛ خودِ رفرش‌کردنِ
+  // lastActivityRef تو تیکِ stepLeg (پایین) انجام می‌شه، تا تا وقتی پخش
+  // ادامه داره، بی‌تعاملی هیچ‌وقت فعال نشه.
+  const playerPlayingRef = useRef(false);
+  useEffect(() => {
+    return speechController.subscribe((s) => {
+      playerPlayingRef.current = s.status === "playing";
+    });
+  }, []);
+
   // یه تیکِ مشترک برای هر دو حالت (سنجاق‌شده رویِ کلِ عرضِ صفحه، یا آزادِ
   // رویِ عرضِ نوارِ بالا) — چون منطقشون کاملاً یکیه، فقط بازه‌ی حرکت/رفرنس‌ها
   // فرق می‌کنه.
   const stepLeg = (posRef, tgtRef, cpRef, cpIdxRef, edge0, edge1) => {
+    // وقتی پلیر داره پخش می‌کنه، دقیقاً مثلِ یه تعاملِ واقعی، لحظه‌ی
+    // «آخرین تعامل» رو مدام تازه نگه می‌داریم — یعنی تا پخش ادامه داره،
+    // بی‌تعاملی هیچ‌وقت شمرده نمی‌شه.
+    if (playerPlayingRef.current) {
+      lastActivityRef.current = Date.now();
+    }
     const isIdle = Date.now() - lastActivityRef.current > LINGOVA_IDLE_MS;
 
     if (tgtRef.current < 0) {
@@ -19465,13 +19493,15 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
       return;
     }
 
-    // فقط اگه کاربر واقعاً بی‌تعامل باشه و هنوز چک‌پوینتی از این پا نموندهٔ
-    // نمایش‌داده‌نشده باشه، سرِ همون چک‌پوینت (نه هر جایِ دیگه) یه پیامِ کوتاه
-    // نشون می‌ده و به همون مسیر/مقصدِ قبلی ادامه می‌ده.
+    // فقط اگه کاربر واقعاً بی‌تعامل باشه و هنوز هر دو پیامِ این پا نشون داده
+    // نشده باشن، بعدِ گذشتنِ فاصله‌ی زمانیِ تصادفیِ همون پیام (از لحظه‌ای که
+    // کاربر بی‌تعامل شد) یه پیامِ کوتاه نشون می‌ده و به همون مسیر/مقصدِ قبلی
+    // ادامه می‌ده. این فاصله کاملاً زمانیه، نه بر اساسِ موقعیتِ آدمک رویِ
+    // مسیر — پس محلِ نمایشِ پیام رندوم و غیرقابل‌پیش‌بینیه.
     if (isIdle && cpIdxRef.current < LINGOVA_LEG_MSG_COUNT) {
-      const cp = cpRef.current[cpIdxRef.current];
-      const passed = facingRef.current === 1 ? posRef.current >= cp : posRef.current <= cp;
-      if (passed) {
+      const idleSince = lastActivityRef.current + LINGOVA_IDLE_MS;
+      const dueAt = idleSince + cpRef.current[cpIdxRef.current];
+      if (Date.now() >= dueAt) {
         cpIdxRef.current += 1;
         modeRef.current = "alert";
         bubbleRef.current = pickBubbleLine();
