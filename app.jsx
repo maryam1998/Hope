@@ -1819,9 +1819,13 @@ function loadAppPrefs() {
       calendarSystem: CALENDAR_SYSTEMS.includes(parsed.calendarSystem) ? parsed.calendarSystem : "jalali",
       highlightColor: (parsed.highlightColor === "none" || HIGHLIGHT_COLOR_PALETTE.includes(parsed.highlightColor)) ? parsed.highlightColor : HIGHLIGHT_COLOR_PALETTE[0],
       mascotOutfit: LINGOVA_OUTFIT_KEYS.includes(parsed.mascotOutfit) ? parsed.mascotOutfit : "classic",
+      // آیا آدمکِ متحرکِ Lingova نمایش داده بشه یا نه — پیش‌فرض روشنه؛ خاموش
+      // کردنش آدمک رو حذف نمی‌کنه، فقط با ترنزیشنِ opacity محو می‌شه (خودِ
+      // راه‌رفتن/تایمرهاش پشتِ صحنه ادامه دارن، فقط دیده نمی‌شه).
+      mascotEnabled: parsed.mascotEnabled !== false,
     };
   } catch (e) {
-    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali", highlightColor: HIGHLIGHT_COLOR_PALETTE[0], mascotOutfit: "classic" };
+    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali", highlightColor: HIGHLIGHT_COLOR_PALETTE[0], mascotOutfit: "classic", mascotEnabled: true };
   }
 }
 function saveAppPrefs(prefs) {
@@ -6062,6 +6066,39 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
                     <span style={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: pantsPreview, border: "1px solid rgba(0,0,0,.15)" }} />
                   </span>
                   {outfitLabelKeys[key]}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* نمایش/محوشدنِ آدمکِ متحرک — خاموش‌کردنش آدمک رو یهو حذف
+              نمی‌کنه، با یه ترنزیشنِ نرمِ opacity محو می‌شه (به همین دلیل
+              تویِ LingovaMascot با opacity کنترل می‌شه نه رندرِ شرطی). */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
+            {uiLang === "en" ? "Walking mascot" : "آدمکِ متحرک"}
+          </p>
+          <div className="flex gap-2" style={{ marginBottom: 16 }}>
+            {[
+              { key: true, labelFa: "نمایش داده بشه", labelEn: "Show" },
+              { key: false, labelFa: "محو بشه", labelEn: "Fade out" },
+            ].map((opt) => {
+              const selected = (appPrefs.mascotEnabled !== false) === opt.key;
+              return (
+                <button
+                  key={String(opt.key)}
+                  onClick={() => update("mascotEnabled", opt.key)}
+                  aria-pressed={selected}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 20,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    border: `1px solid ${selected ? colors.gold : colors.cardBorder}`,
+                    backgroundColor: selected ? colors.goldSoft : "white",
+                    color: colors.ink,
+                  }}
+                >
+                  {uiLang === "en" ? opt.labelEn : opt.labelFa}
                 </button>
               );
             })}
@@ -15833,7 +15870,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         }}
         className="px-4 pt-6 pb-5"
       >
-        <LingovaMascot uiLang={appPrefs.uiLang} fontZoom={APP_FONT_SIZES[appPrefs.fontSize]?.zoom || 1} outfitKey={appPrefs.mascotOutfit} />
+        <LingovaMascot uiLang={appPrefs.uiLang} fontZoom={APP_FONT_SIZES[appPrefs.fontSize]?.zoom || 1} outfitKey={appPrefs.mascotOutfit} enabled={appPrefs.mascotEnabled !== false} />
         <div className="flex items-center justify-end mb-1">
           <div className="flex items-center gap-2.5">
             {user?.picture ? (
@@ -19624,7 +19661,7 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
   };
 }
 
-function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic" }) {
+function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = true }) {
   const trackRef = useRef(null);
   const [trackWidth, setTrackWidth] = useState(0);
 
@@ -19756,7 +19793,7 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic" }) {
 
   const mascotBody = (
     <div
-      onPointerDown={handlePointerDown}
+      onPointerDown={enabled ? handlePointerDown : undefined}
       style={{
         position: "absolute",
         top: 0,
@@ -19764,7 +19801,12 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic" }) {
         width: LINGOVA_MASCOT_WIDTH,
         height: LINGOVA_MASCOT_HEIGHT,
         touchAction: "none",
-        pointerEvents: "auto",
+        // به‌جایِ حذفِ شرطیِ آدمک، وقتی کاربر از تنظیمات خاموشش کنه فقط
+        // opacity‌ش با یه ترنزیشنِ نرم صفر می‌شه (محو شدن) — راه‌رفتن/تایمرها
+        // پشتِ صحنه ادامه پیدا می‌کنن، فقط دیگه دیده/قابلِ‌درگ‌کردن نیست.
+        opacity: enabled ? 1 : 0,
+        transition: "opacity 0.6s ease",
+        pointerEvents: enabled ? "auto" : "none",
         cursor: isDragging ? "grabbing" : "grab",
         filter: isDragging ? "drop-shadow(0 3px 6px rgba(0,0,0,.45))" : "none",
       }}
