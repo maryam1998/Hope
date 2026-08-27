@@ -50,6 +50,29 @@ const TOPIC_META_LIST = [
   ["Neighbors and Community", "همسایه‌ها و جامعه", "🏘️"],
   ["Future Plans and Dreams", "برنامه‌های آینده و رویاها", "🌅"],
   ["Memories and Past Experiences", "خاطرات و تجربیات گذشته", "🕰️"],
+  // مکالمات موضوعی (THEMATIC_CONVERSATIONS) — همون توپیک‌ها به‌عنوان کارتِ
+  // مستقل، کنار موضوعاتِ روزمره، تو همین گرید نشون داده می‌شن.
+  ["طبیعت (Nature)", "طبیعت", "🌿"],
+  ["احساسات (Emotions)", "احساسات", "❤️"],
+  ["مذهب و سیاست (Religion and Politics)", "مذهب و سیاست", "🕊️"],
+  ["خرید (Retail)", "خرید", "🛒"],
+  ["علوم (Science)", "علوم", "🔬"],
+  ["مسائل اجتماعی (Social Issues)", "مسائل اجتماعی", "🌍"],
+  ["فناوری (Technology)", "فناوری", "💻"],
+  ["سفر و گردشگری (Travel and Tourism)", "سفر و گردشگری", "🧳"],
+  ["غذا و آشپزی (Food and Cooking)", "غذا و آشپزی", "🍲"],
+  ["جنگ و درگیری (War and Conflict)", "جنگ و درگیری", "⚔️"],
+  ["شغل (Work)", "شغل", "💼"],
+  ["شخصیت (Personality)", "شخصیت", "🎭"],
+  ["بدن انسان (Body)", "بدن انسان", "🫀"],
+  ["کسب و کار (Business)", "کسب و کار", "📈"],
+  ["لباس و مد (Clothes and Fashion)", "لباس و مد", "👗"],
+  ["جرم و قانون (Crime and Law)", "جرم و قانون", "⚖️"],
+  ["فرهنگ (Culture)", "فرهنگ", "🏛️"],
+  ["آموزش و تحصیل (Education)", "آموزش و تحصیل", "🎓"],
+  ["رسانه (The Media)", "رسانه", "📰"],
+  ["حیوانات (Animals)", "حیوانات", "🐾"],
+  ["خانه (Home and Housing)", "خانه", "🏡"],
 ];
 const TOPIC_META = {};
 TOPIC_META_LIST.forEach(([en, fa, icon]) => (TOPIC_META[en] = { fa, icon }));
