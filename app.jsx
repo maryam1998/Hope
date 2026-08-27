@@ -19328,9 +19328,10 @@ function LoginScreen({ onAuthenticated, uiLang = "fa" }) {
 // ---------------------------------------------------------------------------
 const LINGOVA_MASCOT_WIDTH = 30;
 const LINGOVA_MASCOT_HEIGHT = 38;
-const LINGOVA_IDLE_MS = 6000; // بعدِ این‌قدر بی‌تعاملی، حالتِ «هشدار»
-const LINGOVA_ALERT_MS = 3000; // پیامِ هشدار این‌قدر نمایش داده می‌شه، بعد
-// خودش (بدونِ نیاز به کلیکِ کاربر) به راه‌رفتنِ عادی برمی‌گرده.
+const LINGOVA_IDLE_MS = 6000; // بعدِ این‌قدر بی‌تعاملی، پیام‌های یادآوری فعال می‌شن
+const LINGOVA_LEG_MSG_COUNT = 2; // تعدادِ پیامی که تو هر «رفت» یا هر «برگشت» نشون داده می‌شه
+const LINGOVA_LEG_MSG_PAUSE_MS = 2000; // مکثِ کوتاهِ نمایشِ هر پیام
+const LINGOVA_TURN_PAUSE_MS = 400; // مکثِ خیلی کوتاه سرِ لبه، قبلِ از برگشتن
 // کلیدهای UI_STRINGS برای پیام‌های حباب — به‌جای متنِ ثابتِ فارسی، از سیستمِ
 // زبانِ نرم‌افزار (tr/uiLang) خونده می‌شن تا با تغییرِ زبونِ اپ، این پیام‌ها
 // هم خودکار انگلیسی/فارسی بشن.
@@ -19375,36 +19376,32 @@ function saveLingovaPinnedPos(left, top) {
 
 function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
   const xRef = useRef(0);
-  const targetRef = useRef(-1); // -1 یعنی هنوز مقصدی انتخاب نشده
-  const speedRef = useRef(0.6);
+  const targetRef = useRef(-1); // -1 یعنی هنوز هیچ مسیری شروع نشده
+  const speedRef = useRef(0.55);
   const facingRef = useRef(1);
-  const modeRef = useRef("walk"); // 'walk' | 'read' | 'alert'
-  const readUntilRef = useRef(0);
+  const modeRef = useRef("walk"); // 'walk' | 'read' (مکثِ سرِ لبه) | 'alert' (نمایشِ پیام)
+  const pauseUntilRef = useRef(0); // پایانِ مکثِ فعلی، چه سرِ لبه چه موقعِ نمایشِ پیام
+  const checkpointsRef = useRef([]); // دو نقطه‌ی چک‌پوینت رویِ مسیرِ «رفت» یا «برگشتِ» جاری، برای نمایشِ پیام
+  const checkpointIdxRef = useRef(0);
   const pinnedXRef = useRef(0); // فقط تو حالتِ pinned+walking: موقعیتِ x رویِ کلِ عرضِ صفحه
-  const pinnedTargetRef = useRef(0);
-  const alertUntilRef = useRef(0); // پایانِ نمایشِ حبابِ هشدار — بعدش خودکار برمی‌گرده به راه‌رفتن
+  const pinnedTargetRef = useRef(-1);
+  const pinnedCheckpointsRef = useRef([]);
+  const pinnedCheckpointIdxRef = useRef(0);
   const lastActivityRef = useRef(Date.now());
   const bubbleRef = useRef(null);
   const [, forceTick] = useReducer((n) => n + 1, 0);
 
-  const pickNewTarget = (fromX, w) => {
-    const trackW = Math.max(w - LINGOVA_MASCOT_WIDTH, 24);
-    const t = Math.random() * trackW;
-    targetRef.current = t;
-    speedRef.current = 0.35 + Math.random() * 0.85;
-    facingRef.current = t >= fromX ? 1 : -1;
-  };
-
-  // مقصدِ تازه برای رفت‌وبرگشتِ آدمکِ سنجاق‌شده — رویِ کلِ عرضِ صفحه (نه فقط
-  // یه بازه‌ی کوچیک دورِ نقطه‌ی رهاشدن)؛ دقیقاً مثلِ منطقِ راه‌رفتنِ آزاد،
-  // فقط با محورِ y ثابت (همون ارتفاعی که کاربر رهاش کرده).
-  const pickNewPinnedTarget = (fromX) => {
-    const w = typeof window !== "undefined" ? window.innerWidth : 320;
-    const trackW = Math.max(w - LINGOVA_MASCOT_WIDTH, 24);
-    const t = Math.random() * trackW;
-    pinnedTargetRef.current = t;
-    speedRef.current = 0.35 + Math.random() * 0.85;
-    facingRef.current = t >= fromX ? 1 : -1;
+  // شروعِ یه «پا»ی تازه از رفت‌وبرگشت — همیشه تا دقیقاً لبه‌ی مقابل (۰ یا
+  // انتهای عرض)، نه یه نقطه‌ی تصادفیِ وسط‌راه؛ همین باعث می‌شه آدمک هیچ‌وقت
+  // وسطِ راه مسیرش عوض نشه. دو چک‌پوینت (۳۳٪ و ۶۶٪ از طولِ همین پا) هم این‌جا
+  // ثبت می‌شن — دقیقاً همون‌جاها، اگه کاربر بی‌تعامل باشه، یه پیامِ کوتاه
+  // نشون داده می‌شه، بدونِ این‌که مقصد/مسیر عوض بشه.
+  const startLeg = (fromX, toX, tgtRef, cpRef, cpIdxRef) => {
+    tgtRef.current = toX;
+    facingRef.current = toX >= fromX ? 1 : -1;
+    speedRef.current = 0.45 + Math.random() * 0.3;
+    cpRef.current = [fromX + (toX - fromX) * 0.33, fromX + (toX - fromX) * 0.66];
+    cpIdxRef.current = 0;
   };
 
   // یه پیامِ حبابِ تصادفی، طبقِ زبانِ فعلیِ نرم‌افزار (uiLang)
@@ -19430,11 +19427,66 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
     };
   }, []);
 
+  // یه تیکِ مشترک برای هر دو حالت (سنجاق‌شده رویِ کلِ عرضِ صفحه، یا آزادِ
+  // رویِ عرضِ نوارِ بالا) — چون منطقشون کاملاً یکیه، فقط بازه‌ی حرکت/رفرنس‌ها
+  // فرق می‌کنه.
+  const stepLeg = (posRef, tgtRef, cpRef, cpIdxRef, edge0, edge1) => {
+    const isIdle = Date.now() - lastActivityRef.current > LINGOVA_IDLE_MS;
+
+    if (tgtRef.current < 0) {
+      startLeg(posRef.current, edge1, tgtRef, cpRef, cpIdxRef);
+    }
+
+    if (modeRef.current === "alert") {
+      // پیام در حالِ نمایشه — با تعاملِ واقعیِ کاربر زودتر قطع می‌شه، وگرنه
+      // بعدِ ۲ ثانیه خودش تمومِ و بدونِ تغییرِ مسیر ادامه‌ی راه رو می‌گیره.
+      if (!isIdle || Date.now() >= pauseUntilRef.current) {
+        modeRef.current = "walk";
+        bubbleRef.current = null;
+      }
+      return;
+    }
+
+    if (modeRef.current === "read") {
+      // مکثِ خیلی‌کوتاهِ سرِ لبه — بعدش برمی‌گرده به سمتِ لبه‌ی مقابل.
+      if (Date.now() >= pauseUntilRef.current) {
+        const next = tgtRef.current === edge0 ? edge1 : edge0;
+        startLeg(posRef.current, next, tgtRef, cpRef, cpIdxRef);
+        modeRef.current = "walk";
+      }
+      return;
+    }
+
+    const dx = tgtRef.current - posRef.current;
+    if (Math.abs(dx) < 1.5) {
+      // رسید به لبه — یه مکثِ خیلی‌کوتاه، بعد برمی‌گرده برای پاهای بعدی
+      modeRef.current = "read";
+      pauseUntilRef.current = Date.now() + LINGOVA_TURN_PAUSE_MS;
+      return;
+    }
+
+    // فقط اگه کاربر واقعاً بی‌تعامل باشه و هنوز چک‌پوینتی از این پا نموندهٔ
+    // نمایش‌داده‌نشده باشه، سرِ همون چک‌پوینت (نه هر جایِ دیگه) یه پیامِ کوتاه
+    // نشون می‌ده و به همون مسیر/مقصدِ قبلی ادامه می‌ده.
+    if (isIdle && cpIdxRef.current < LINGOVA_LEG_MSG_COUNT) {
+      const cp = cpRef.current[cpIdxRef.current];
+      const passed = facingRef.current === 1 ? posRef.current >= cp : posRef.current <= cp;
+      if (passed) {
+        cpIdxRef.current += 1;
+        modeRef.current = "alert";
+        bubbleRef.current = pickBubbleLine();
+        pauseUntilRef.current = Date.now() + LINGOVA_LEG_MSG_PAUSE_MS;
+        return;
+      }
+    }
+
+    posRef.current += Math.sign(dx) * speedRef.current;
+  };
+
   // حالتِ «سنجاق‌شده» (pinned) — کاربر آدمک رو یه‌جای دلخواهِ صفحه گذاشته.
   // دیگه رویِ نوارِ بالای صفحه نیست، ولی همچنان تو همون ارتفاع (y ثابت)
   // کاملِ عرضِ صفحه رو رفت‌وبرگشت قدم می‌زنه — دقیقاً مثلِ راه‌رفتنِ آزادِ
-  // نوارِ بالا، فقط رویِ محورِ y ثابت‌شده. مثلِ قبل، بعدِ مدتی بی‌تعاملی
-  // چماق‌به‌دست هشدار می‌ده.
+  // نوارِ بالا، فقط رویِ محورِ y ثابت‌شده.
   useEffect(() => {
     // موقعِ خودِ درگ‌کردن (pinned=true ولی walking=false، چون هنوز رها نشده)
     // آدمک باید دقیقاً زیرِ انگشتِ کاربر بمونه؛ جابه‌جا نمی‌شه و هیچ تایمری
@@ -19444,54 +19496,12 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
     }
     modeRef.current = "walk";
     pinnedXRef.current = pinStartX || 0;
-    pickNewPinnedTarget(pinnedXRef.current);
+    pinnedTargetRef.current = -1;
 
     const id = setInterval(() => {
-      const idleMs = Date.now() - lastActivityRef.current;
-      const isIdle = idleMs > LINGOVA_IDLE_MS;
-
-      if (isIdle) {
-        if (modeRef.current !== "alert") {
-          modeRef.current = "alert";
-          bubbleRef.current = pickBubbleLine();
-          alertUntilRef.current = Date.now() + LINGOVA_ALERT_MS;
-        } else if (Date.now() >= alertUntilRef.current) {
-          // بعدِ ۳ ثانیه، بدونِ نیاز به کلیک/تعاملِ واقعیِ کاربر، خودش
-          // برمی‌گرده به راه‌رفتن — و ساعتِ بی‌تعاملی رو ریست می‌کنیم تا
-          // بلافاصله دوباره هشدار نده، یه دورِ کاملِ دیگه راه بره.
-          modeRef.current = "walk";
-          bubbleRef.current = null;
-          lastActivityRef.current = Date.now();
-          pickNewPinnedTarget(pinnedXRef.current);
-        }
-        forceTick();
-        return;
-      }
-      if (modeRef.current === "alert") {
-        bubbleRef.current = null;
-        modeRef.current = "walk";
-        pickNewPinnedTarget(pinnedXRef.current);
-      }
-
-      if (modeRef.current === "read") {
-        if (Date.now() >= readUntilRef.current) {
-          modeRef.current = "walk";
-          pickNewPinnedTarget(pinnedXRef.current);
-        }
-        forceTick();
-        return;
-      }
-
-      // رفت‌وبرگشتِ واقعی رویِ کلِ عرضِ صفحه: تا رسیدن به مقصدِ فعلی
-      // جابه‌جا می‌شه، بعد یه مکثِ کوتاهِ ۲ تا ۳ ثانیه‌ای و یه مقصدِ تازه.
-      const dx = pinnedTargetRef.current - pinnedXRef.current;
-      if (Math.abs(dx) < 1.5) {
-        modeRef.current = "read";
-        readUntilRef.current = Date.now() + 2000 + Math.random() * 1000;
-        forceTick();
-        return;
-      }
-      pinnedXRef.current += Math.sign(dx) * speedRef.current;
+      const w = typeof window !== "undefined" ? window.innerWidth : 320;
+      const edge1 = Math.max(w - LINGOVA_MASCOT_WIDTH, 24);
+      stepLeg(pinnedXRef, pinnedTargetRef, pinnedCheckpointsRef, pinnedCheckpointIdxRef, 0, edge1);
       forceTick();
     }, 45);
 
@@ -19501,50 +19511,11 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX) {
   useEffect(() => {
     if (pinned) return undefined;
     if (!trackWidth) return undefined;
-    if (targetRef.current < 0) pickNewTarget(xRef.current, trackWidth);
+    targetRef.current = -1;
 
     const id = setInterval(() => {
-      const idleMs = Date.now() - lastActivityRef.current;
-      const isIdle = idleMs > LINGOVA_IDLE_MS;
-
-      if (isIdle) {
-        if (modeRef.current !== "alert") {
-          modeRef.current = "alert";
-          bubbleRef.current = pickBubbleLine();
-          alertUntilRef.current = Date.now() + LINGOVA_ALERT_MS;
-        } else if (Date.now() >= alertUntilRef.current) {
-          modeRef.current = "walk";
-          bubbleRef.current = null;
-          lastActivityRef.current = Date.now();
-          pickNewTarget(xRef.current, trackWidth);
-        }
-        forceTick();
-        return;
-      }
-      if (modeRef.current === "alert") {
-        modeRef.current = "walk";
-        bubbleRef.current = null;
-        pickNewTarget(xRef.current, trackWidth);
-      }
-
-      if (modeRef.current === "read") {
-        if (Date.now() >= readUntilRef.current) {
-          modeRef.current = "walk";
-          pickNewTarget(xRef.current, trackWidth);
-        }
-        forceTick();
-        return;
-      }
-
-      const dx = targetRef.current - xRef.current;
-      if (Math.abs(dx) < 1.5) {
-        // رسید به مقصد — یه مکثِ کوتاهِ ۲ تا ۳ ثانیه‌ای، بعد یه مقصدِ تازه
-        modeRef.current = "read";
-        readUntilRef.current = Date.now() + 2000 + Math.random() * 1000;
-        forceTick();
-        return;
-      }
-      xRef.current += Math.sign(dx) * speedRef.current;
+      const edge1 = Math.max(trackWidth - LINGOVA_MASCOT_WIDTH, 24);
+      stepLeg(xRef, targetRef, checkpointsRef, checkpointIdxRef, 0, edge1);
       forceTick();
     }, 45);
 
