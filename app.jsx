@@ -19699,15 +19699,16 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
   const [paused, setPaused] = useState(false);
   // «قدم‌زدنِ سرِ جا» — با دکمه‌ی مخصوصِ بالای سرِ آدمک روشن/خاموش می‌شه (نه
   // با درگ یا تپ‌های قبلی). وقتی روشنه، آدمک دقیقاً همون‌جایی که الان
-  // رویِ صفحه‌ست (مختصاتِ ثابتِ نسبت‌به‌ویوپورت، نه سندِ صفحه) قفل می‌شه و
-  // فقط انیمیشنِ راه‌رفتن (تابِ پا/دست) اجرا می‌شه، بدونِ جابه‌جاییِ x — و
-  // چون position:fixed نسبت‌به‌ویوپورته، با اسکرول‌کردنِ بقیه‌ی صفحه هیچ
-  // تکونی نمی‌خوره. با شروعِ پخشِ پلیر (speechController → "playing")
+  // رویِ «سندِ صفحه» بوده (مختصاتش نسبت‌به‌بالایِ کلِ صفحه، نه ویوپورت)
+  // قفل می‌شه و فقط انیمیشنِ راه‌رفتن (تابِ پا/دست) اجرا می‌شه، بدونِ
+  // جابه‌جاییِ x — و چونِ این مختصات نسبت‌به‌سندِ صفحه‌ست نه ویوپورت، با
+  // اسکرول‌کردنِ صفحه، خودِ آدمک هم دقیقاً هم‌زمان با همون بخش از صفحه
+  // پیمایش می‌شه (نه این‌که رویِ صفحه ثابت بمونه و از روی محتواهایِ
+  // مختلف رد بشه). با شروعِ پخشِ پلیر (speechController → "playing")
   // خودکار خاموش می‌شه تا آدمک دوباره «آزاد» بشه (برگرده به همون رفتارِ
-  // قبلیِ خودش نسبت‌به‌اسکرول: نوارِ بالا/چسبیده‌به‌هدر/سنجاق‌شده — هرکدوم
-  // که قبلاً بوده).
+  // قبلیِ خودش: نوارِ بالا/چسبیده‌به‌هدر/سنجاق‌شده — هرکدوم که قبلاً بوده).
   const [stepInPlace, setStepInPlace] = useState(false);
-  const [stepInPlacePos, setStepInPlacePos] = useState(null); // {left, top} — مختصاتِ ویوپورت در لحظه‌ی روشن‌شدن
+  const [stepInPlacePos, setStepInPlacePos] = useState(null); // {left, top} — مختصاتِ سندِ صفحه (نه ویوپورت) در لحظه‌ی روشن‌شدن
   const mascotElRef = useRef(null);
   const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
   const pointerStartRef = useRef({ x: 0, y: 0 });
@@ -19847,9 +19848,11 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
   }, []);
 
   // دکمه‌ی بالایِ سرِ آدمک: تپ روش «قدم‌زدنِ سرِ جا» رو toggle می‌کنه. موقعِ
-  // روشن‌کردن، مختصاتِ فعلیِ خودِ آدمک رو نسبت‌به‌ویوپورت (نه سندِ صفحه)
-  // می‌گیریم و ثابت نگه‌ش می‌داریم — همین باعث می‌شه با اسکرول‌کردنِ بقیه‌ی
-  // صفحه، آدمک هیچ تکونی نخوره.
+  // روشن‌کردن، مختصاتِ فعلیِ خودِ آدمک رو نسبت‌به‌بالایِ کلِ سندِ صفحه
+  // (rect + مقدارِ فعلیِ اسکرول) حساب می‌کنیم، نه نسبت‌به‌ویوپورت — همین
+  // باعث می‌شه با اسکرول‌کردنِ صفحه، آدمک دقیقاً هم‌زمان با همون نقطه از
+  // صفحه بالا/پایین بره (سرِ جاش رویِ صفحه بمونه)، نه این‌که رویِ ویوپورت
+  // ثابت بمونه و از رویِ محتوایِ مختلف رد بشه.
   const toggleStepInPlace = (e) => {
     e.stopPropagation();
     e.preventDefault();
@@ -19857,7 +19860,10 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
       const next = !v;
       if (next && mascotElRef.current) {
         const rect = mascotElRef.current.getBoundingClientRect();
-        setStepInPlacePos({ left: rect.left, top: rect.top });
+        setStepInPlacePos({
+          left: rect.left + window.scrollX,
+          top: rect.top + window.scrollY,
+        });
       }
       return next;
     });
@@ -19876,6 +19882,11 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
   // اگه آدمک نزدیکِ لبه‌ی بالای صفحه سنجاق شده باشه، حباب رو به‌جای بالا،
   // پایینِ آدمک نشون می‌دیم تا از صفحه بیرون نزنه.
   const bubbleNearTop = pinned && activePos && activePos.top < 34;
+  // همین منطق برایِ دکمه‌ی «قدم‌زدنِ سرِ جا» هم لازمه: تویِ حالتِ پیش‌فرض
+  // (نوارِ نازکِ بالایِ صفحه) اصلاً جایی بالایِ سرِ آدمک نیست (خودِ آدمک
+  // دقیقاً چسبیده به لبه‌ی بالایِ ویوپورته) — پس اونجا، و هر جایِ دیگه‌ای که
+  // نزدیکِ لبه‌ی بالاست، دکمه رو می‌بریم پایینِ آدمک به‌جایِ بالاش.
+  const pinBtnBelow = (!pageAttached && !pinned) || (pinned && activePos && activePos.top < 34);
 
   const bubbleDir = APP_LANGUAGES[uiLang]?.dir || "ltr";
   const bubbleFontFamily = uiLang === "fa" ? "var(--font-fa)" : "var(--font-latin)";
@@ -19991,7 +20002,7 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
         }
         style={{
           position: "absolute",
-          top: -30,
+          top: pinBtnBelow ? LINGOVA_MASCOT_HEIGHT + 4 : -22,
           left: LINGOVA_MASCOT_WIDTH / 2 - 9,
           width: 18,
           height: 18,
@@ -20121,17 +20132,27 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
 
       {/* حالتِ «قدم‌زدنِ سرِ جا» — با دکمه‌ی بالایِ سرِ آدمک فعال می‌شه.
           صرفِ‌نظر از این‌که قبلش آدمک تو کدوم حالت بود (نوارِ بالا/
-          چسبیده‌به‌هدر/سنجاق‌شده)، حالا مستقیماً با مختصاتِ ثابتِ نسبت‌به‌
-          ویوپورت (گرفته‌شده در لحظه‌ی تپ‌زدن رویِ دکمه) رندر می‌شه — یعنی
-          دقیقاً همون‌جای رویِ صفحه که بود می‌مونه و با اسکرول‌کردنِ بقیه‌ی
-          صفحه هیچ تکونی نمی‌خوره، فقط انیمیشنِ قدم‌زدن (تابِ پا/دست) اجرا
-          می‌شه، بدونِ رفت‌وبرگشتِ واقعی. */}
+          چسبیده‌به‌هدر/سنجاق‌شده)، حالا مستقیماً با مختصاتِ سندِ صفحه
+          (گرفته‌شده در لحظه‌ی تپ‌زدن رویِ دکمه، نه ویوپورت) رندر می‌شه.
+          این div به‌طورِ مستقیم زیرِ <body> پورتال شده و position:absolute
+          داره — یعنی هیچ اجدادِ position:fixed/relative‌ای بینِ خودش و
+          سندِ صفحه نیست، پس containing-blockِ واقعیش خودِ سندِ صفحه‌ست، نه
+          ویوپورت. نتیجه: با اسکرول‌کردنِ صفحه، این المان هم دقیقاً هم‌زمان
+          با همون بخش از صفحه بالا/پایین می‌ره و سرِ جاش (همون نقطه‌ای که
+          کاربر انتخاب کرده) می‌مونه — نه این‌که رویِ ویوپورت ثابت بمونه و
+          از رویِ محتوایِ مختلف رد بشه. فقط انیمیشنِ قدم‌زدن (تابِ پا/دست)
+          اجرا می‌شه، بدونِ رفت‌وبرگشتِ واقعیِ x. */}
       {stepInPlace &&
         createPortal(
-          <div style={{ position: "fixed", inset: 0, zIndex: 75, pointerEvents: "none" }}>
-            <div style={{ position: "absolute", top: stepInPlacePos ? stepInPlacePos.top : 0, left: stepInPlacePos ? stepInPlacePos.left : 0 }}>
-              {mascotBody}
-            </div>
+          <div
+            style={{
+              position: "absolute",
+              top: stepInPlacePos ? stepInPlacePos.top : 0,
+              left: stepInPlacePos ? stepInPlacePos.left : 0,
+              zIndex: 75,
+            }}
+          >
+            {mascotBody}
           </div>,
           document.body
         )}
