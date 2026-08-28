@@ -1476,6 +1476,13 @@ const colors = {
   teal: "var(--c-teal)",
   rose: "var(--c-rose)",
   cardBorder: "var(--c-cardBorder)",
+  // رنگ‌های اختصاصیِ گرادیانتِ هدرِ بالا — هر تم رنگِ خودش رو داره (به‌جای
+  // اینکه هدر همیشه از teal→ink بسازه، که چون ink توی همه‌ی تم‌ها تیره‌ست
+  // باعث می‌شد هدر همیشه تقریباً یه شکلِ تیره‌ی یکسان داشته باشه، فارغ از
+  // اینکه کدوم تم انتخاب شده).
+  headerFrom: "var(--c-headerFrom)",
+  headerTo: "var(--c-headerTo)",
+  headerText: "var(--c-headerText)",
 };
 // طبق درخواست: متن اصلیِ لغت/جمله مشکی-سورمه‌ای پررنگ و بولد، و متنِ
 // ترجمه‌ها سبزِ پررنگ و بولد. این دو ثابتن (نه وابسته به تم رنگی
@@ -1579,48 +1586,52 @@ const APP_THEMES = {
   vintage: {
     label: { fa: "کلاسیک (پیش‌فرض)", en: "Classic (default)" },
     swatch: "#C99A2E",
-    values: { paper: "#EFE6C9", paperDark: "#E6DAB2", ink: "#1E2A26", inkSoft: "#4B5551", gold: "#C99A2E", goldSoft: "#E3C77E", teal: "#1B4640", rose: "#9E3B3B", cardBorder: "#E7DEC1" },
+    // هدرِ همین تمِ پیش‌فرض دست‌نخورده موند (همون چیزی که کاربر می‌پسندید)؛
+    // فقط به‌جای اینکه از teal→ink ساخته بشه، حالا مستقیماً به headerFrom/To
+    // منتقل شد تا با بقیه‌ی تم‌ها هم‌شکل باشه.
+    values: { paper: "#EFE6C9", paperDark: "#E6DAB2", ink: "#1E2A26", inkSoft: "#4B5551", gold: "#C99A2E", goldSoft: "#E3C77E", teal: "#1B4640", rose: "#9E3B3B", cardBorder: "#E7DEC1", headerFrom: "#1B4640", headerTo: "#1E2A26", headerText: "#EFE6C9" },
   },
   ocean: {
     label: { fa: "اقیانوسی", en: "Ocean" },
-    // ⚡️ سواچِ پیکِ تم (فقط پیش‌نمایشِ دکمه، نه رنگ‌های واقعیِ تم) به یه
-    // آبیِ واضح‌تر و تمیزتر تغییر کرد — طبقِ درخواستِ کاربر که سواچ‌های
-    // غیرِ پیش‌فرض کدر/زشت به‌نظر می‌رسیدن. رنگ‌های واقعیِ تم (values) دست‌نخورده موند.
+    // ⚡️ طبقِ درخواستِ کاربر: تم‌های غیرِ پیش‌فرض تیره/کدر بودن، مخصوصاً
+    // هدرِ بالا که همیشه تقریباً سیاه به‌نظر می‌رسید (چون از teal→ink
+    // ساخته می‌شد و ink توی همه‌ی تم‌ها خیلی تیره‌ست). حالا هدر یه
+    // گرادیانتِ روشن و زنده‌ی مخصوصِ خودِ این تم داره (آبیِ واضح → فیروزه‌ای)،
+    // نه یه رنگِ تقریباً مشکیِ یکسان با بقیه‌ی تم‌ها.
     swatch: "#2E86DE",
-    values: { paper: "#EAF4F4", paperDark: "#D7E9EA", ink: "#0F2A38", inkSoft: "#2A4E5C", gold: "#1C7C93", goldSoft: "#8FCBD8", teal: "#1C7C93", rose: "#B4533F", cardBorder: "#BBD6D8" },
+    values: { paper: "#EAF4F4", paperDark: "#D7E9EA", ink: "#0F2A38", inkSoft: "#2A4E5C", gold: "#1C7C93", goldSoft: "#8FCBD8", teal: "#1C7C93", rose: "#B4533F", cardBorder: "#BBD6D8", headerFrom: "#3AA0F2", headerTo: "#1C7C93", headerText: "#F4FBFD" },
   },
   forest: {
     label: { fa: "جنگلی", en: "Forest" },
     swatch: "#2FA84F",
-    values: { paper: "#F1F0E4", paperDark: "#E2E0CC", ink: "#26321D", inkSoft: "#41522C", gold: "#8A6D2F", goldSoft: "#C9B77E", teal: "#5C7A3A", rose: "#9C4A3A", cardBorder: "#CBCBA8" },
+    values: { paper: "#F1F0E4", paperDark: "#E2E0CC", ink: "#26321D", inkSoft: "#41522C", gold: "#8A6D2F", goldSoft: "#C9B77E", teal: "#5C7A3A", rose: "#9C4A3A", cardBorder: "#CBCBA8", headerFrom: "#3FAE5C", headerTo: "#2C6B3D", headerText: "#F5F8EC" },
   },
   rosewine: {
     label: { fa: "گلبهی", en: "Rosewine" },
     swatch: "#C2185B",
-    values: { paper: "#F7EAEA", paperDark: "#EBD6D8", ink: "#3A1F26", inkSoft: "#5C3540", gold: "#A34960", goldSoft: "#E3AFBC", teal: "#6E5A78", rose: "#A34960", cardBorder: "#DDBFC4" },
+    values: { paper: "#F7EAEA", paperDark: "#EBD6D8", ink: "#3A1F26", inkSoft: "#5C3540", gold: "#A34960", goldSoft: "#E3AFBC", teal: "#6E5A78", rose: "#A34960", cardBorder: "#DDBFC4", headerFrom: "#D45079", headerTo: "#9C2E56", headerText: "#FDF1F2" },
   },
   midnight: {
     label: { fa: "تیره (شب)", en: "Midnight" },
-    // ⚡️ قبلاً سواچِ این تم هم طلایی بود (D9A441) — تقریباً هم‌رنگِ خودِ
-    // پیش‌فرض (vintage) و به‌سختی قابلِ‌تشخیص. حالا یه بنفشِ‌آبیِ متمایز
-    // (periwinkle/indigo، شبیهِ یکی از رنگ‌های ردیفِ اسکرین‌شات) داره.
+    // این یگانه تمِ عمداً تیره‌ست (شب) — پس هدرش هم تیره می‌مونه، ولی حالا
+    // با یه گرادیانتِ بنفشِ‌آبیِ واضح به‌جای رنگِ صافِ نزدیک‌به‌مشکی.
     swatch: "#3F51B5",
-    values: { paper: "#1B1F2A", paperDark: "#262C3B", ink: "#F1E8D6", inkSoft: "#C9C2AE", gold: "#D9A441", goldSoft: "#8A6A2C", teal: "#5FA997", rose: "#D9776A", cardBorder: "#3A4258" },
+    values: { paper: "#1B1F2A", paperDark: "#262C3B", ink: "#F1E8D6", inkSoft: "#C9C2AE", gold: "#D9A441", goldSoft: "#8A6A2C", teal: "#5FA997", rose: "#D9776A", cardBorder: "#3A4258", headerFrom: "#4A5AC4", headerTo: "#232A3D", headerText: "#F1E8D6" },
   },
   sunset: {
     label: { fa: "غروب", en: "Sunset" },
     swatch: "#E8622C",
-    values: { paper: "#FCEFE2", paperDark: "#F5DFC6", ink: "#3A2313", inkSoft: "#6B4A2C", gold: "#D9752E", goldSoft: "#F0B784", teal: "#4E7A6E", rose: "#B23A3A", cardBorder: "#E6C79E" },
+    values: { paper: "#FCEFE2", paperDark: "#F5DFC6", ink: "#3A2313", inkSoft: "#6B4A2C", gold: "#D9752E", goldSoft: "#F0B784", teal: "#4E7A6E", rose: "#B23A3A", cardBorder: "#E6C79E", headerFrom: "#F0793D", headerTo: "#C24A34", headerText: "#FDF3E7" },
   },
   lavender: {
     label: { fa: "بنفش (اسطوخودوس)", en: "Lavender" },
     swatch: "#8E44AD",
-    values: { paper: "#F1EEF8", paperDark: "#E1DAF0", ink: "#2C2140", inkSoft: "#4C3E68", gold: "#7A5FA8", goldSoft: "#C5B3E3", teal: "#4C7A8A", rose: "#A8517F", cardBorder: "#D2C5EA" },
+    values: { paper: "#F1EEF8", paperDark: "#E1DAF0", ink: "#2C2140", inkSoft: "#4C3E68", gold: "#7A5FA8", goldSoft: "#C5B3E3", teal: "#4C7A8A", rose: "#A8517F", cardBorder: "#D2C5EA", headerFrom: "#9C5FC4", headerTo: "#6A3F92", headerText: "#F8F3FC" },
   },
   mint: {
     label: { fa: "نعنایی", en: "Mint" },
     swatch: "#1AAE8C",
-    values: { paper: "#EAF7F1", paperDark: "#D6EEE2", ink: "#12332A", inkSoft: "#2E5548", gold: "#2E9E7B", goldSoft: "#9BDCC3", teal: "#2E9E7B", rose: "#B25353", cardBorder: "#BEE0D0" },
+    values: { paper: "#EAF7F1", paperDark: "#D6EEE2", ink: "#12332A", inkSoft: "#2E5548", gold: "#2E9E7B", goldSoft: "#9BDCC3", teal: "#2E9E7B", rose: "#B25353", cardBorder: "#BEE0D0", headerFrom: "#2BC49E", headerTo: "#1B8F71", headerText: "#F2FBF7" },
   },
 };
 
@@ -15864,13 +15875,14 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         .textLayer ::selection { background: ${colors.gold}; opacity: 0.35; }
       `}</style>
 
-      {/* Header — همون گرادیانتِ ملایمِ سبزِ تیره‌ی طرحِ مرجع (radial highlight +
-          linear teal-900→teal-950) به‌جای رنگِ تخت، تا حسِ عمق/نرمیِ همون
-          هدر رو داشته باشه. */}
+      {/* Header — گرادیانتِ اختصاصیِ هر تم (headerFrom→headerTo)، به‌جای اینکه
+          همیشه از teal→ink ساخته بشه؛ قبلاً چون ink توی همه‌ی تم‌ها خیلی
+          تیره بود، هدر فارغ از تمِ انتخابی همیشه تقریباً یه‌شکل و تیره بود.
+          radial highlight همون‌جوری برای حسِ عمق/نرمی نگه داشته شده. */}
       <header
         style={{
-          background: `radial-gradient(120% 140% at 15% -10%, rgba(255,255,255,.07), transparent 55%), linear-gradient(165deg, ${colors.teal} 0%, ${colors.ink} 78%)`,
-          color: colors.paper,
+          background: `radial-gradient(120% 140% at 15% -10%, rgba(255,255,255,.14), transparent 55%), linear-gradient(165deg, ${colors.headerFrom} 0%, ${colors.headerTo} 100%)`,
+          color: colors.headerText,
         }}
         className="px-4 pt-6 pb-5"
       >
@@ -15900,15 +15912,15 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             <SettingsMenu appPrefs={appPrefs} setAppPrefs={setAppPrefs} user={user} onLogout={onLogout} aiSettings={aiSettings} />
           </div>
         </div>
-        <p style={{ color: colors.paper, opacity: 0.85, fontSize: 13.5 }}>
+        <p style={{ color: colors.headerText, opacity: 0.85, fontSize: 13.5 }}>
           از {nativeLabel} به {targetLabel} · {user?.name || user?.email}
         </p>
 
         {/* Language pickers */}
         <div className="mt-4">
-          <p style={{ fontSize: 13.5, color: colors.paper, opacity: 0.85, marginBottom: 10, lineHeight: 1.9 }}>
+          <p style={{ fontSize: 13.5, color: colors.headerText, opacity: 0.85, marginBottom: 10, lineHeight: 1.9 }}>
             زبان مادری{" "}
-            <b style={{ color: colors.gold, fontWeight: 600 }}>(برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)</b>
+            <b style={{ color: colors.headerText, fontWeight: 700 }}>(برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)</b>
           </p>
           <DraggableLangRow
             order={langPickerOrder}
@@ -15921,9 +15933,9 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             onClick={(code) => setNativeLang(code)}
           />
           <div style={{ height: 1, background: "rgba(255,255,255,.14)", margin: "18px 0 14px" }} />
-          <p style={{ fontSize: 13.5, color: colors.paper, opacity: 0.85, marginBottom: 10, lineHeight: 1.9 }}>
+          <p style={{ fontSize: 13.5, color: colors.headerText, opacity: 0.85, marginBottom: 10, lineHeight: 1.9 }}>
             زبان‌های مقصد{" "}
-            <b style={{ color: colors.gold, fontWeight: 600 }}>
+            <b style={{ color: colors.headerText, fontWeight: 700 }}>
               (چند تا رو می‌تونی هم‌زمان انتخاب کنی — برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)
             </b>
           </p>
@@ -19971,6 +19983,36 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
   // نقطه‌ی ثابت (نه رویِ کلِ صفحه).
   const displayX = x;
 
+  // حبابِ پیام گاهی که آدمک تا انتهای عرضِ صفحه می‌ره، از کادرِ گوشی بیرون
+  // می‌زد و متنش کامل دیده نمی‌شد. راه‌رفتنِ آدمک تا لبه‌ی صفحه خودش درسته
+  // و دست‌نخورده می‌مونه؛ فقط خودِ حباب رو بعدِ رندر با getBoundingClientRect
+  // اندازه می‌گیریم و اگه از عرضِ ویوپورت بیرون زده باشه (چپ یا راست)، با یه
+  // translateX افقی به داخلِ صفحه هلش می‌دیم — بدونِ اینکه به موقعیتِ خودِ
+  // آدمک یا انیمیشنِ بالا/پایین‌رفتنِ حباب (که رویِ همین transform ولی جدا،
+  // رویِ یه div تو در تو، کار می‌کنه) دست بزنیم.
+  const bubbleWrapRef = useRef(null);
+  const [bubbleShiftX, setBubbleShiftX] = useState(0);
+  useLayoutEffect(() => {
+    if (!effectiveBubble) {
+      setBubbleShiftX(0);
+      return;
+    }
+    const el = bubbleWrapRef.current;
+    if (!el) return;
+    const prevTransform = el.style.transform;
+    el.style.transform = "translateX(0px)";
+    const rect = el.getBoundingClientRect();
+    const margin = 8;
+    let shift = 0;
+    if (rect.left < margin) {
+      shift = margin - rect.left;
+    } else if (rect.right > window.innerWidth - margin) {
+      shift = window.innerWidth - margin - rect.right;
+    }
+    el.style.transform = prevTransform;
+    setBubbleShiftX(shift);
+  }, [effectiveBubble, displayX, facing, bubbleNearTop]);
+
   const mascotBody = (
     <div
       ref={mascotElRef}
@@ -20001,24 +20043,32 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
           اپ (uiLang, fontFamily) خونده می‌شه، نه یه مقدارِ ثابت. */}
       {effectiveBubble && (
         <div
-          className="lingova-bubble"
-          dir={bubbleDir}
+          ref={bubbleWrapRef}
           style={{
             position: "absolute",
             top: bubbleNearTop ? LINGOVA_MASCOT_HEIGHT + 2 : -22,
             left: facing === 1 ? -4 : -34,
-            background: colors.paper,
-            color: colors.ink,
-            fontFamily: bubbleFontFamily,
-            fontSize: 9 * fontZoom,
-            fontWeight: 700,
-            padding: "2px 6px",
-            borderRadius: 8,
-            whiteSpace: "nowrap",
-            boxShadow: "0 1px 4px rgba(0,0,0,.3)",
+            transform: `translateX(${bubbleShiftX}px)`,
+            transition: "transform 0.15s ease",
           }}
         >
-          {effectiveBubble}
+          <div
+            className="lingova-bubble"
+            dir={bubbleDir}
+            style={{
+              background: colors.paper,
+              color: colors.ink,
+              fontFamily: bubbleFontFamily,
+              fontSize: 9 * fontZoom,
+              fontWeight: 700,
+              padding: "2px 6px",
+              borderRadius: 8,
+              whiteSpace: "nowrap",
+              boxShadow: "0 1px 4px rgba(0,0,0,.3)",
+            }}
+          >
+            {effectiveBubble}
+          </div>
         </div>
       )}
       {/* نشونه‌ی کوچیکِ پارک‌بودن — یه آیکونِ پلیِ ریز بالای آدمک، تا کاربر
@@ -20270,6 +20320,9 @@ export default function App() {
     el.setProperty("--c-teal", theme.teal);
     el.setProperty("--c-rose", theme.rose);
     el.setProperty("--c-cardBorder", theme.cardBorder);
+    el.setProperty("--c-headerFrom", theme.headerFrom);
+    el.setProperty("--c-headerTo", theme.headerTo);
+    el.setProperty("--c-headerText", theme.headerText);
     el.setProperty("--font-fa", font.fa);
     el.setProperty("--font-latin", font.latin);
   }, [theme, font]);
@@ -20287,6 +20340,9 @@ export default function App() {
     "--c-teal": theme.teal,
     "--c-rose": theme.rose,
     "--c-cardBorder": theme.cardBorder,
+    "--c-headerFrom": theme.headerFrom,
+    "--c-headerTo": theme.headerTo,
+    "--c-headerText": theme.headerText,
     "--font-fa": font.fa,
     "--font-latin": font.latin,
     zoom: fontSize.zoom,
