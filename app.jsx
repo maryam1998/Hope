@@ -19486,7 +19486,7 @@ function saveLingovaPinnedPos(left, top) {
   }
 }
 
-function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX, paused) {
+function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX, paused, localAnchor) {
   // پارک/توقف — با یه تپِ ساده رویِ آدمک (وقتی سنجاق‌شده) یا با یه تپِ ساده
   // بعدِ کوتاه‌مدت‌منتظرماندن برایِ دابل‌تپ (وقتی رویِ نوارِ بالاست) toggle
   // می‌شه؛ دقیقاً مثلِ دکمه‌ی توقف/پخشِ یه پلیر. با رفرنس نگه‌ش می‌داریم تا
@@ -19508,6 +19508,13 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX, paused
   const pinnedTargetRef = useRef(-1);
   const pinnedCheckpointsRef = useRef([]);
   const pinnedCheckpointIdxRef = useRef(0);
+  // فقط تو حالتِ «قفل‌شده به یه نقطه‌ی مشخصِ صفحه» (localAnchor): رفت‌وبرگشتِ
+  // واقعیِ آدمک، ولی محدود به یه بازه‌ی کوچیک دورِ همون نقطه (نه کلِ عرضِ
+  // صفحه) — چون قراره «سرِ همون مختصات» بمونه، نه جایِ دیگه بره.
+  const localXRef = useRef(0);
+  const localTargetRef = useRef(-1);
+  const localCheckpointsRef = useRef([]);
+  const localCheckpointIdxRef = useRef(0);
   const lastActivityRef = useRef(Date.now());
   const bubbleRef = useRef(null);
   const [, forceTick] = useReducer((n) => n + 1, 0);
@@ -19635,8 +19642,10 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX, paused
   useEffect(() => {
     // موقعِ خودِ درگ‌کردن (pinned=true ولی walking=false، چون هنوز رها نشده)
     // آدمک باید دقیقاً زیرِ انگشتِ کاربر بمونه؛ جابه‌جا نمی‌شه و هیچ تایمری
-    // روشن نمی‌شه.
-    if (!pinned || !walking) {
+    // روشن نمی‌شه. اگه localAnchor فعال باشه هم این حلقه رو خاموش نگه
+    // می‌داریم — اون یکی حلقه (پایین‌تر) مسئولِ حرکته تا با هم تداخل نکنن
+    // (هر دو از modeRef/bubbleRef/pauseUntilRef مشترک استفاده می‌کنن).
+    if (!pinned || !walking || localAnchor) {
       return undefined;
     }
     modeRef.current = "walk";
@@ -19652,10 +19661,10 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX, paused
     }, 45);
 
     return () => clearInterval(id);
-  }, [pinned, walking, uiLang]);
+  }, [pinned, walking, localAnchor, uiLang]);
 
   useEffect(() => {
-    if (pinned) return undefined;
+    if (pinned || localAnchor) return undefined;
     if (!trackWidth) return undefined;
     targetRef.current = -1;
 
@@ -19667,10 +19676,33 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX, paused
     }, 45);
 
     return () => clearInterval(id);
-  }, [trackWidth, pinned, uiLang]);
+  }, [trackWidth, pinned, localAnchor, uiLang]);
+
+  // حالتِ «قفل‌شده به یه نقطه‌ی مشخصِ صفحه» — با long-press رویِ آدمک فعال
+  // می‌شه. خودِ نقطه (مختصاتِ سندِ صفحه) بیرون از این هوک، تویِ کامپوننت
+  // نگه‌داری می‌شه؛ این‌جا فقط رفت‌وبرگشتِ محلیِ x رو، تویِ یه بازه‌ی کوچیکِ
+  // دورِ همون نقطه، اجرا می‌کنیم — یه راه‌رفتنِ واقعی رویِ کلِ عرضِ صفحه
+  // (دقیقاً مثلِ حالتِ سنجاق‌شده)، فقط با این تفاوت که ارتفاعِ (y) لنگر
+  // نسبت‌به‌سندِ صفحه‌ست، نه ویوپورت.
+  useEffect(() => {
+    if (!localAnchor) return undefined;
+    modeRef.current = "walk";
+    localXRef.current = 0;
+    localTargetRef.current = -1;
+
+    const id = setInterval(() => {
+      if (pausedRef.current) return;
+      const w = typeof window !== "undefined" ? window.innerWidth : 320;
+      const edge1 = Math.max(w - LINGOVA_MASCOT_WIDTH, 24);
+      stepLeg(localXRef, localTargetRef, localCheckpointsRef, localCheckpointIdxRef, 0, edge1);
+      forceTick();
+    }, 45);
+
+    return () => clearInterval(id);
+  }, [localAnchor, uiLang]);
 
   return {
-    x: walking ? pinnedXRef.current : pinned ? 0 : xRef.current,
+    x: localAnchor ? localXRef.current : walking ? pinnedXRef.current : pinned ? 0 : xRef.current,
     facing: facingRef.current,
     mode: pinned && !walking ? "walk" : modeRef.current,
     bubble: pinned && !walking ? null : bubbleRef.current,
@@ -19698,18 +19730,19 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
   // آدمک همین‌جا نگهش می‌داره (بدونِ جابه‌جایی)، یه تپِ دیگه دوباره راه
   // می‌ندازتش. غیرِ ذخیره‌شونده‌ست (هر بارگذاریِ صفحه از نو راه می‌ره).
   const [paused, setPaused] = useState(false);
-  // «قدم‌زدنِ سرِ جا» — با دکمه‌ی مخصوصِ بالای سرِ آدمک روشن/خاموش می‌شه (نه
-  // با درگ یا تپ‌های قبلی). وقتی روشنه، آدمک دقیقاً همون‌جایی که الان
-  // رویِ «سندِ صفحه» بوده (مختصاتش نسبت‌به‌بالایِ کلِ صفحه، نه ویوپورت)
-  // قفل می‌شه و فقط انیمیشنِ راه‌رفتن (تابِ پا/دست) اجرا می‌شه، بدونِ
-  // جابه‌جاییِ x — و چونِ این مختصات نسبت‌به‌سندِ صفحه‌ست نه ویوپورت، با
-  // اسکرول‌کردنِ صفحه، خودِ آدمک هم دقیقاً هم‌زمان با همون بخش از صفحه
-  // پیمایش می‌شه (نه این‌که رویِ صفحه ثابت بمونه و از روی محتواهایِ
-  // مختلف رد بشه). با شروعِ پخشِ پلیر (speechController → "playing")
-  // خودکار خاموش می‌شه تا آدمک دوباره «آزاد» بشه (برگرده به همون رفتارِ
-  // قبلیِ خودش: نوارِ بالا/چسبیده‌به‌هدر/سنجاق‌شده — هرکدوم که قبلاً بوده).
+  // «قفل‌شده به یه ارتفاعِ مشخصِ صفحه» — با نگه‌داشتنِ انگشت (long-press)
+  // رویِ خودِ آدمک روشن/خاموش می‌شه (نه با درگ یا تپ‌های قبلی). وقتی روشنه،
+  // ارتفاعِ (y) همون لحظه نسبت‌به‌کلِ سندِ صفحه (نه ویوپورت) ذخیره می‌شه و
+  // آدمک رویِ کلِ عرضِ صفحه رفت‌وبرگشتِ واقعی قدم می‌زنه — دقیقاً مثلِ
+  // حالتِ سنجاق‌شده — با این فرق که چون ارتفاعش نسبت‌به‌سندِ صفحه‌ست نه
+  // ویوپورت، با اسکرول‌کردنِ صفحه، خودِ اون ارتفاع هم دقیقاً هم‌زمان با
+  // همون بخش از صفحه پیمایش می‌شه (نه این‌که رویِ ویوپورت ثابت بمونه). با
+  // شروعِ پخشِ پلیر (speechController → "playing") خودکار خاموش می‌شه تا
+  // آدمک دوباره «آزاد» بشه (برگرده به همون رفتارِ قبلیِ خودش: نوارِ بالا/
+  // چسبیده‌به‌هدر/سنجاق‌شده — هرکدوم که قبلاً بوده).
+  // سنجاق‌شده — هرکدوم که قبلاً بوده).
   const [stepInPlace, setStepInPlace] = useState(false);
-  const [stepInPlacePos, setStepInPlacePos] = useState(null); // {left, top} — مختصاتِ سندِ صفحه (نه ویوپورت) در لحظه‌ی روشن‌شدن
+  const [stepInPlacePos, setStepInPlacePos] = useState(null); // {top} — ارتفاعِ سندِ صفحه (نه ویوپورت) در لحظه‌ی روشن‌شدن
   const mascotElRef = useRef(null);
   const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
   const pointerStartRef = useRef({ x: 0, y: 0 });
@@ -19850,16 +19883,16 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
     pinned,
     walking,
     pinnedPos ? pinnedPos.left : 0,
-    paused
+    paused,
+    stepInPlace
   );
   // پارک‌شده که باشه، مُد رو به یه حالتِ ایستاده‌ی ساده (نه walk/read/alert)
   // برمی‌گردونیم تا نه پاها تاب بخورن نه دست، و حبابِ پیام هم مخفی می‌شه —
   // دقیقاً مثلِ فریزشدنِ تصویر با دکمه‌ی توقفِ یه پلیر. تویِ حالتِ
-  // «قدم‌زدنِ سرِ جا» هم، صرفِ‌نظر از هر چیزِ دیگه، همیشه باید انیمیشنِ
-  // راه‌رفتن نشون داده بشه (نه پارک، نه خوندن، نه هشدار) — پس اولویتِ
-  // بالاتری نسبت‌به paused/mode داره.
-  const effectiveMode = stepInPlace ? "walk" : paused ? "parked" : mode;
-  const effectiveBubble = stepInPlace ? null : paused ? null : bubble;
+  // «قفل‌شده به یه نقطه‌ی مشخص» نیازی به override نیست — mode/bubble رو
+  // خودِ هوک، از رویِ همون رفت‌وبرگشتِ محلی، درست حساب می‌کنه.
+  const effectiveMode = paused ? "parked" : mode;
+  const effectiveBubble = paused ? null : bubble;
 
   // با شروعِ پخشِ پلیرِ صدا (دکمه‌ی پلیِ نوارِ پایین)، اگه آدمک «سرِ جا قفل»
   // بود، خودکار آزادش می‌کنیم — یعنی از حالتِ ثابت‌نسبت‌به‌ویوپورتِ این
@@ -19871,19 +19904,17 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
     });
   }, []);
 
-  // نگه‌داشتنِ انگشت رویِ آدمک (long-press، بدونِ حرکتِ محسوس) «قدم‌زدنِ
-  // سرِ جا» رو toggle می‌کنه. موقعِ روشن‌کردن، مختصاتِ فعلیِ خودِ آدمک رو
-  // نسبت‌به‌بالایِ کلِ سندِ صفحه (rect + مقدارِ فعلیِ اسکرول) حساب می‌کنیم،
-  // نه نسبت‌به‌ویوپورت — همین باعث می‌شه با اسکرول‌کردنِ صفحه، آدمک دقیقاً
-  // هم‌زمان با همون نقطه از صفحه بالا/پایین بره (سرِ جاش رویِ صفحه بمونه)،
-  // نه این‌که رویِ ویوپورت ثابت بمونه و از رویِ محتوایِ مختلف رد بشه.
+  // نگه‌داشتنِ انگشت رویِ آدمک (long-press، بدونِ حرکتِ محسوس) «قفل‌شدن به
+  // همین ارتفاع» رو toggle می‌کنه. موقعِ روشن‌کردن، فقط ارتفاعِ (y) فعلیِ
+  // خودِ آدمک رو نسبت‌به‌بالایِ کلِ سندِ صفحه (rect.top + مقدارِ فعلیِ
+  // اسکرول) حساب می‌کنیم، نه نسبت‌به‌ویوپورت — همین باعث می‌شه با
+  // اسکرول‌کردنِ صفحه، اون ارتفاع دقیقاً هم‌زمان با همون نقطه از صفحه
+  // بالا/پایین بره؛ x رو دست‌نخورده می‌ذاریم چون قراره آدمک رویِ کلِ عرضِ
+  // صفحه (نه فقط همون x فعلی) رفت‌وبرگشت کنه.
   const activateStepInPlace = () => {
     if (mascotElRef.current) {
       const rect = mascotElRef.current.getBoundingClientRect();
-      setStepInPlacePos({
-        left: rect.left + window.scrollX,
-        top: rect.top + window.scrollY,
-      });
+      setStepInPlacePos({ top: rect.top + window.scrollY });
     }
     setStepInPlace(true);
   };
@@ -19934,12 +19965,11 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
   const shirtColor = outfit.shirt || colors.teal;
   const pantsColor = outfit.pants || colors.ink;
 
-  // تویِ حالتِ «قدم‌زدنِ سرِ جا»، x رو کاملاً نادیده می‌گیریم و رویِ صفر
-  // قفل می‌کنیم — چون این‌جا خودِ ظرفِ بیرونی (پایین‌تر، تویِ createPortal)
-  // با مختصاتِ ثابتِ ویوپورت جابه‌جا می‌شه، نه این المان؛ اگه x واقعی رو
-  // هم اینجا اعمال می‌کردیم، آدمک هم‌زمان هم می‌رفت‌وبرگشت می‌کرد هم قفل
-  // بود — که دقیقاً برخلافِ «همون‌جا فقط قدم بزنه»ست.
-  const displayX = stepInPlace ? 0 : x;
+  // تویِ حالتِ «قفل‌شده به یه نقطه‌ی مشخصِ صفحه»، x همون رفت‌وبرگشتِ محلیِ
+  // واقعیه که خودِ هوک (بالاتر) حساب کرده — نه صفرِ ثابت — یعنی آدمک واقعاً
+  // قدم برمی‌داره و می‌ره‌وبرمی‌گرده، فقط تویِ یه بازه‌ی کوچیکِ دورِ همون
+  // نقطه‌ی ثابت (نه رویِ کلِ صفحه).
+  const displayX = x;
 
   const mascotBody = (
     <div
@@ -20118,29 +20148,31 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
           document.body
         )}
 
-      {/* حالتِ «قدم‌زدنِ سرِ جا» — با دکمه‌ی بالایِ سرِ آدمک فعال می‌شه.
-          صرفِ‌نظر از این‌که قبلش آدمک تو کدوم حالت بود (نوارِ بالا/
-          چسبیده‌به‌هدر/سنجاق‌شده)، حالا مستقیماً با مختصاتِ سندِ صفحه
-          (گرفته‌شده در لحظه‌ی تپ‌زدن رویِ دکمه، نه ویوپورت) رندر می‌شه.
-          این div به‌طورِ مستقیم زیرِ <body> پورتال شده و position:absolute
-          داره — یعنی هیچ اجدادِ position:fixed/relative‌ای بینِ خودش و
-          سندِ صفحه نیست، پس containing-blockِ واقعیش خودِ سندِ صفحه‌ست، نه
-          ویوپورت. نتیجه: با اسکرول‌کردنِ صفحه، این المان هم دقیقاً هم‌زمان
-          با همون بخش از صفحه بالا/پایین می‌ره و سرِ جاش (همون نقطه‌ای که
-          کاربر انتخاب کرده) می‌مونه — نه این‌که رویِ ویوپورت ثابت بمونه و
-          از رویِ محتوایِ مختلف رد بشه. فقط انیمیشنِ قدم‌زدن (تابِ پا/دست)
-          اجرا می‌شه، بدونِ رفت‌وبرگشتِ واقعیِ x. */}
+      {/* حالتِ «قفل‌شده به یه ارتفاعِ مشخص» — با نگه‌داشتنِ انگشت (long-press)
+          رویِ آدمک فعال می‌شه. صرفِ‌نظر از این‌که قبلش تو کدوم حالت بود
+          (نوارِ بالا/چسبیده‌به‌هدر/سنجاق‌شده)، حالا مستقیماً با ارتفاعِ سندِ
+          صفحه (گرفته‌شده در لحظه‌ی long-press، نه ویوپورت) و left:0 (کلِ
+          عرضِ صفحه) رندر می‌شه. این div به‌طورِ مستقیم زیرِ <body> پورتال
+          شده و position:absolute داره — یعنی هیچ اجدادِ position:fixed/
+          relative‌ای بینِ خودش و سندِ صفحه نیست، پس containing-blockِ
+          واقعیش خودِ سندِ صفحه‌ست، نه ویوپورت. نتیجه: با اسکرول‌کردنِ صفحه،
+          این ارتفاع هم دقیقاً هم‌زمان با همون بخش از صفحه بالا/پایین
+          می‌ره — نه این‌که رویِ ویوپورت ثابت بمونه. آدمک خودش رویِ کلِ عرضِ
+          صفحه واقعاً رفت‌وبرگشت قدم می‌زنه (x از هوکِ useLingovaMascot،
+          دقیقاً مثلِ حالتِ سنجاق‌شده). */}
       {stepInPlace &&
         createPortal(
           <div
             style={{
               position: "absolute",
               top: stepInPlacePos ? stepInPlacePos.top : 0,
-              left: stepInPlacePos ? stepInPlacePos.left : 0,
+              left: 0,
+              right: 0,
               zIndex: 75,
+              pointerEvents: "none",
             }}
           >
-            {mascotBody}
+            <div style={{ position: "relative", pointerEvents: "auto" }}>{mascotBody}</div>
           </div>,
           document.body
         )}
