@@ -8404,6 +8404,13 @@ function OrderChips({ order, languages, onReorder, onRemove }) {
 function DraggableToggleLangGrid({ order, onReorder, languages, selected, onToggle }) {
   const [dragCode, setDragCode] = useState(null);
   const stateRef = useRef({ code: null, x: 0, y: 0, dragging: false });
+  // اگه واقعاً کشیده شده بود، رویدادِ click ای که مرورگر خودش بعد از
+  // mouseup/touchend می‌سازه نباید باعثِ toggle بشه — این پرچم همون یک تپ
+  // بعدی رو خنثی می‌کنه (خودِ toggle حالا از رویِ onClick واقعیِ عنصر انجام
+  // می‌شه، نه از رویِ شنونده‌های window، که رویِ بعضی webviewها/موبایل‌ها
+  // قابل‌اعتماد نبود و باعث می‌شد تپ‌کردن روی زبون‌ها اصلاً چیزی رو
+  // انتخاب نکنه).
+  const suppressClickRef = useRef(false);
 
   useEffect(() => {
     const DRAG_THRESHOLD = 8; // px — کمتر از این، تپ حساب می‌شه نه کشیدن
@@ -8438,9 +8445,9 @@ function DraggableToggleLangGrid({ order, onReorder, languages, selected, onTogg
 
     const handleUp = () => {
       const st = stateRef.current;
-      // فقط اگه واقعاً کشیده نشده بود (یعنی همون‌جا رها شد)، تپ حساب
-      // می‌شه و انتخاب/عدمِ انتخابش عوض می‌شه.
-      if (st.code && !st.dragging) onToggle(st.code);
+      // اگه واقعاً کشیده شده بود، همون تک‌تپِ بعدیِ click (که خودِ مرورگر
+      // بعد از mouseup/touchend می‌سازه) نباید toggle کنه.
+      if (st.dragging) suppressClickRef.current = true;
       stateRef.current = { code: null, x: 0, y: 0, dragging: false };
       setDragCode(null);
     };
@@ -8474,6 +8481,16 @@ function DraggableToggleLangGrid({ order, onReorder, languages, selected, onTogg
             onTouchStart={(e) => {
               const t = e.touches[0];
               stateRef.current = { code, x: t.clientX, y: t.clientY, dragging: false };
+            }}
+            onClick={() => {
+              // خودِ toggle این‌جا انجام می‌شه (رویِ onClickِ واقعیِ عنصر)،
+              // نه با شنودِ mouseup/touchendِ روی window — همون چیزی که قبلاً
+              // باعث می‌شد تپ‌کردن روی چیپ‌ها هیچ زبونی رو انتخاب نکنه.
+              if (suppressClickRef.current) {
+                suppressClickRef.current = false;
+                return;
+              }
+              onToggle(code);
             }}
             style={{
               touchAction: "none",
