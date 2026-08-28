@@ -1633,6 +1633,39 @@ const APP_THEMES = {
     swatch: "#1AAE8C",
     values: { paper: "#EAF7F1", paperDark: "#D6EEE2", ink: "#12332A", inkSoft: "#2E5548", gold: "#2E9E7B", goldSoft: "#9BDCC3", teal: "#2E9E7B", rose: "#B25353", cardBorder: "#BEE0D0", headerFrom: "#2BC49E", headerTo: "#1B8F71", headerText: "#F2FBF7" },
   },
+  // ۶ تمِ جدید — طبقِ درخواستِ کاربر برای تنوعِ بیشترِ رنگی؛ هرکدوم دقیقاً
+  // با همون ساختارِ کاملِ تم‌های بالا (paper/ink/gold/teal/... + رنگِ
+  // اختصاصیِ هدر) طراحی شدن، نه فقط یه سواچِ تکی.
+  amber: {
+    label: { fa: "کهربایی", en: "Amber" },
+    swatch: "#F0A202",
+    values: { paper: "#FDF4E3", paperDark: "#F7E7C4", ink: "#3D2B0E", inkSoft: "#6B4F22", gold: "#D98E04", goldSoft: "#F3C567", teal: "#4E7A3A", rose: "#B23A3A", cardBorder: "#EEDBA6", headerFrom: "#F5A623", headerTo: "#C77800", headerText: "#FFF8EC" },
+  },
+  coral: {
+    label: { fa: "مرجانی", en: "Coral" },
+    swatch: "#FF6F61",
+    values: { paper: "#FDECE9", paperDark: "#F8D7D0", ink: "#3A1B15", inkSoft: "#6B3A2E", gold: "#E0644F", goldSoft: "#F5AFA0", teal: "#3F8E85", rose: "#E0644F", cardBorder: "#F0C4B8", headerFrom: "#FF7A62", headerTo: "#D9432E", headerText: "#FFF3EF" },
+  },
+  sky: {
+    label: { fa: "آسمانی", en: "Sky" },
+    swatch: "#4FC3F7",
+    values: { paper: "#EAF7FD", paperDark: "#D5EEFA", ink: "#123244", inkSoft: "#2E5568", gold: "#2B93C4", goldSoft: "#9BD8EF", teal: "#2B93C4", rose: "#C0504F", cardBorder: "#BFE3F3", headerFrom: "#63C8F5", headerTo: "#1E86B8", headerText: "#F2FBFE" },
+  },
+  berry: {
+    label: { fa: "توتی", en: "Berry" },
+    swatch: "#9C1F5C",
+    values: { paper: "#F8ECF1", paperDark: "#EED8E2", ink: "#350F22", inkSoft: "#5E2C42", gold: "#A8356E", goldSoft: "#DE9AB9", teal: "#6C3B57", rose: "#A8356E", cardBorder: "#E0C0D0", headerFrom: "#B93A79", headerTo: "#7A1E4C", headerText: "#FCF0F5" },
+  },
+  olive: {
+    label: { fa: "زیتونی", en: "Olive" },
+    swatch: "#6B8E23",
+    values: { paper: "#F3F2E6", paperDark: "#E6E4CC", ink: "#2B2E17", inkSoft: "#4C512C", gold: "#8A7A2F", goldSoft: "#C9BE7E", teal: "#6B8E23", rose: "#A15A3A", cardBorder: "#D8D6B0", headerFrom: "#7FA02E", headerTo: "#556B1B", headerText: "#F6F8EA" },
+  },
+  slate: {
+    label: { fa: "دودی", en: "Slate" },
+    swatch: "#5B7C99",
+    values: { paper: "#EEF2F5", paperDark: "#DFE6EB", ink: "#1D2C38", inkSoft: "#3D5566", gold: "#4E7B99", goldSoft: "#A9C6D6", teal: "#4E7B99", rose: "#B0524A", cardBorder: "#CBD8E0", headerFrom: "#6E93B0", headerTo: "#3E5F78", headerText: "#F3F7FA" },
+  },
 };
 
 // Font-family presets. Loaded in index.html via Google Fonts <link>.
@@ -3223,7 +3256,7 @@ const speechController = (() => {
         // رو زده)، این «برگشتِ خودکار» بی‌معنیه؛ پس فقط وقتی سشنِ جدید
         // تک‌ضربه‌ایه (بدونِ loop) این حافظه نگه داشته می‌شه.
         clearPendingResume();
-        if (status === "playing" && loopWholeText && !forceLoop && key) {
+        if ((status === "playing" || status === "paused") && loopWholeText && !forceLoop && key) {
           pendingResume = {
             text: fullText,
             code: currentCode,
@@ -3342,6 +3375,37 @@ const speechController = (() => {
       abChunkA = null;
       abChunkB = null;
       notify();
+    },
+    // فقط وقتی متنِ اصلی (loopWholeText) در حال پخشه صدا می‌زنیم — مثلاً
+    // همون لحظه که کاربر روی یه لغت/محدوده لمسِ طولانی می‌کنه و پاپ‌آپ باز
+    // می‌شه، حتی اگه هنوز روی 🔊ِ خودِ پاپ‌آپ نزده باشه. پخشِ اصلی رو فوراً
+    // مکث می‌کنیم و نقطه‌ی دقیقِ توقف رو (مثلِ همون منطقِ توقفِ toggle) به
+    // pendingResume می‌سپاریم، بعد سه ثانیه بعد خودکار از همونجا ادامه پیدا
+    // می‌کنه — مگر اینکه تا اون موقع کاربر خودش 🔊ِ پاپ‌آپ رو بزنه، که اونجا
+    // toggle خودش (پایین‌تر) این pendingResume رو با نسخه‌ی تازه‌تر
+    // (بعد از تمومِ خواندنِ همون لغت) جایگزین می‌کنه.
+    pauseForFocus() {
+      if (status !== "playing" || !loopWholeText) return false;
+      clearPendingResume();
+      pendingResume = {
+        text: fullText,
+        code: currentCode,
+        offset: chunks[chunkIndex] ? chunks[chunkIndex].start : 0,
+      };
+      if (mode === "online") {
+        if (onlineAudio) {
+          try {
+            onlineAudio.pause();
+          } catch (e) {}
+        }
+      } else {
+        clearGapTimer();
+        cancelSpeech();
+      }
+      status = "paused";
+      notify();
+      scheduleResumeIfPending();
+      return true;
     },
     getRate() {
       return rate;
@@ -14749,7 +14813,13 @@ function GrammarPanel({
                 ? "بازکردنِ گفتگوی تمرین جمله‌سازی و گرامر"
                 : "جمع‌کردنِ گفتگوی تمرین جمله‌سازی و گرامر"
             }
-            style={{ backgroundColor: colors.teal, cursor: "grab", userSelect: "none", flexShrink: 0, touchAction: "none" }}
+            style={{
+              background: `linear-gradient(165deg, ${colors.headerFrom} 0%, ${colors.headerTo} 100%)`,
+              cursor: "grab",
+              userSelect: "none",
+              flexShrink: 0,
+              touchAction: "none",
+            }}
           >
             {/* دستگیره‌ی کوچیکِ بالا — نشونه‌ی بصریِ این‌که قابلِ‌کشیدنه. */}
             <div
@@ -16346,15 +16416,31 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             right: 0,
             bottom: practicePanelHeight,
             zIndex: 40,
-            backgroundColor: colors.paper,
+            // پس‌زمینه‌ی خودِ نوارِ پلیر، طبقِ درخواستِ کاربر، حالا با همون
+            // گرادیانتِ اختصاصیِ تمِ فعلی که هدرِ بالای صفحه ازش استفاده
+            // می‌کنه «ست» شده — به‌جایِ رنگِ صافِ paper. کنترل‌های خودِ پلیر
+            // (نوارِ پیشرفت، دکمه‌ها) داخلِ یه پنلِ روشنِ داخلی می‌مونن (پایین‌تر)
+            // تا کنتراست/خوانایی‌شون که برایِ زمینه‌ی روشن طراحی شده بود
+            // دست‌نخورده بمونه، و فقط قابِ بیرونیِ نوار رنگِ هدر رو بگیره.
+            background: `radial-gradient(120% 140% at 15% -10%, rgba(255,255,255,.14), transparent 55%), linear-gradient(165deg, ${colors.headerFrom} 0%, ${colors.headerTo} 100%)`,
             opacity: playerOpacity / 100,
-            borderTop: `1px solid ${colors.cardBorder}`,
-            boxShadow: "0 -4px 14px rgba(28,37,65,0.12)",
+            padding: "7px 7px 0",
+            borderTopLeftRadius: 16,
+            borderTopRightRadius: 16,
+            boxShadow: "0 -4px 14px rgba(28,37,65,0.18)",
             WebkitUserSelect: "none",
             userSelect: "none",
             WebkitTouchCallout: "none",
           }}
         >
+          <div
+            style={{
+              backgroundColor: colors.paper,
+              borderTopLeftRadius: 12,
+              borderTopRightRadius: 12,
+              overflow: "hidden",
+            }}
+          >
           {/* ردیفِ سوییچِ TTS⇄صوتِ من — فقط تبِ داستان‌ساز؛ اگه این تب نباشه
               اصلاً رندر نمی‌شه که فضایِ خالی نمونه. */}
           {tab === "story" && (
@@ -16465,6 +16551,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               </button>
             </div>
           )}
+          </div>
         </div>
         {/* دکمه‌ی «بازنشانیِ شفافیت» — وقتی شفافیتِ پلیر خیلی پایین میاد (زیرِ
             ۷۰٪)، خودِ نوار (و اسلایدرِ توش) هم کم‌رنگ/کم‌کنتراست می‌شه و
@@ -17238,6 +17325,12 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       const p = pendingRef.current;
       if (!p) return;
       openedAtRef.current = Date.now();
+      // همون لحظه‌ای که پاپ‌آپ باز می‌شه (نه فقط وقتی کاربر خودش 🔊ِ داخلش
+      // رو می‌زنه) پخشِ پیوسته‌ی متنِ اصلی رو مکث می‌کنیم — تا حواسِ کاربر
+      // که رفته سراغِ پاپ‌آپ، با خواندنِ همزمانِ پلیر قاطی نشه. بعد از سه
+      // ثانیه (اگه خودِ کاربر تا اون‌موقع 🔊ِ پاپ‌آپ رو نزده باشه) خودکار از
+      // همون نقطه ادامه پیدا می‌کنه.
+      speechController.pauseForFocus();
       setPopup(p);
       pendingRef.current = null;
       setPendingActive(false);
