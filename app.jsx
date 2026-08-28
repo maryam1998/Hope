@@ -10915,11 +10915,13 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     if (!file) return;
     setBilingualPdfError("");
     if (file.size > BILINGUAL_PDF_MAX_BYTES) {
-      setBilingualPdfError(`حجمِ فایل بیشتر از ${Math.round(BILINGUAL_PDF_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه`);
+      setBilingualPdfError(uiLang === "en"
+        ? `File size exceeds the ${Math.round(BILINGUAL_PDF_MAX_BYTES / (1024 * 1024))}MB limit`
+        : `حجمِ فایل بیشتر از ${Math.round(BILINGUAL_PDF_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه`);
       return;
     }
     setBilingualPdfBusy(true);
-    setBilingualPdfProgress("در حال آماده‌سازی...");
+    setBilingualPdfProgress(uiLang === "en" ? "Preparing..." : "در حال آماده‌سازی...");
     try {
       const [pdfjsLib, pdfLib] = await Promise.all([import("pdfjs-dist"), import("pdf-lib")]);
       const { PDFDocument } = pdfLib;
@@ -10950,7 +10952,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         });
 
       for (let i = 1; i <= pageCount; i++) {
-        setBilingualPdfProgress(`صفحه‌ی ${i} از ${pageCount}: رندرِ صفحه‌ی اصلی...`);
+        setBilingualPdfProgress(uiLang === "en"
+          ? `Page ${i} of ${pageCount}: rendering original page...`
+          : `صفحه‌ی ${i} از ${pageCount}: رندرِ صفحه‌ی اصلی...`);
         await new Promise((r) => setTimeout(r, 0)); // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — تا UI قفل نشه
 
         const page = await srcDoc.getPage(i);
@@ -10968,7 +10972,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         }
 
         // متنِ همین صفحه رو دربیار و ترجمه کن
-        setBilingualPdfProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
+        setBilingualPdfProgress(uiLang === "en"
+          ? `Page ${i} of ${pageCount}: translating...`
+          : `صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
         const content = await page.getTextContent();
         const pageText = extractPdfPageTextFlat(content);
         let translatedText = "";
@@ -11011,14 +11017,14 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
 
         txCtx.fillStyle = "#8a6d1f";
         txCtx.font = `bold 26px Vazirmatn, Tahoma, sans-serif`;
-        txCtx.fillText(`ترجمه — صفحه‌ی ${i}`, startX, y);
+        txCtx.fillText(uiLang === "en" ? `Translation — page ${i}` : `ترجمه — صفحه‌ی ${i}`, startX, y);
         y += 46;
 
         txCtx.fillStyle = "#242018";
         const fontSizePx = 21;
         const lineHeight = Math.round(fontSizePx * 1.7);
         txCtx.font = `${fontSizePx}px Vazirmatn, Tahoma, sans-serif`;
-        const words = (translatedText || "متنی برای ترجمه در این صفحه پیدا نشد.").split(/\s+/).filter(Boolean);
+        const words = (translatedText || (uiLang === "en" ? "No text found to translate on this page." : "متنی برای ترجمه در این صفحه پیدا نشد.")).split(/\s+/).filter(Boolean);
         let line = "";
         for (const w of words) {
           const test = line ? `${line} ${w}` : w;
@@ -11046,7 +11052,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${file.name.replace(/\.pdf$/i, "")} - دوزبانه.pdf`;
+      a.download = `${file.name.replace(/\.pdf$/i, "")} - ${uiLang === "en" ? "bilingual" : "دوزبانه"}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -11054,12 +11060,16 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
 
       setBilingualPdfError(
         truncated
-          ? `توجه: چون فایل بیشتر از ${BILINGUAL_PDF_MAX_PAGES} صفحه بود، فقط ${BILINGUAL_PDF_MAX_PAGES} صفحه‌ی اول پردازش و دانلود شد`
+          ? (uiLang === "en"
+              ? `Note: the file had more than ${BILINGUAL_PDF_MAX_PAGES} pages, so only the first ${BILINGUAL_PDF_MAX_PAGES} pages were processed and downloaded`
+              : `توجه: چون فایل بیشتر از ${BILINGUAL_PDF_MAX_PAGES} صفحه بود، فقط ${BILINGUAL_PDF_MAX_PAGES} صفحه‌ی اول پردازش و دانلود شد`)
           : ""
       );
     } catch (err) {
       console.error(err);
-      setBilingualPdfError("ساختِ PDFِ دوزبانه مشکل داشت — فایل ممکنه خراب باشه یا حجم/تعدادِ صفحاتش برای مرورگر زیاد باشه");
+      setBilingualPdfError(uiLang === "en"
+        ? "There was a problem creating the bilingual PDF — the file may be corrupted, or too large/many pages for the browser"
+        : "ساختِ PDFِ دوزبانه مشکل داشت — فایل ممکنه خراب باشه یا حجم/تعدادِ صفحاتش برای مرورگر زیاد باشه");
     } finally {
       setBilingualPdfBusy(false);
       setBilingualPdfProgress("");
@@ -11904,7 +11914,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                               {getStoryEntryPreview(s) && (
                                 <p style={{ fontSize: 12, color: colors.ink, marginTop: 2 }}>{getStoryEntryPreview(s)}</p>
                               )}
-                              <p style={{ fontSize: 12, color: colors.inkSoft }}>{s.selectedWords.join("، ")}</p>
+                              <p style={{ fontSize: 12, color: colors.inkSoft }}>{s.selectedWords.join(uiLang === "en" ? ", " : "، ")}</p>
                             </>
                           )}
                         </div>
@@ -12416,7 +12426,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                       pageNum={pdfViewIndex + 1}
                       fallbackImageUrl={pdfViewPages[pdfViewIndex]?.imageUrl}
                       onError={() =>
-                        setPdfViewError("رندرِ زنده‌ی این صفحه مشکل داشت — ممکنه فایل خراب یا رمزگذاری‌شده باشه")
+                        setPdfViewError(uiLang === "en"
+                          ? "There was a problem rendering this page live — the file may be corrupted or encrypted"
+                          : "رندرِ زنده‌ی این صفحه مشکل داشت — ممکنه فایل خراب یا رمزگذاری‌شده باشه")
                       }
                     />
                   </div>
