@@ -1722,6 +1722,7 @@ const UI_STRINGS = {
   calendarBoth: { fa: "هر دو", en: "Both" },
   sortByLabel: { fa: "مرتب‌سازی", en: "Sort" },
   storyLangLevelSection: { fa: "۱. زبان و سطح داستان", en: "1. Story language & level" },
+  storyWordsSection: { fa: "۲. انتخاب لغت‌ها", en: "2. Select words" },
   storyLevelLabel: { fa: "سطح داستان", en: "Story level" },
   storyContentTypeLabel: { fa: "نوع محتوا", en: "Content type" },
   storyLengthLabel: { fa: "طول داستان", en: "Story length" },
@@ -10006,7 +10007,9 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     if (!file) return;
     setPdfError("");
     if (file.size > PDF_MAX_BYTES) {
-      setPdfError(`حجمِ فایل بیشتر از ${Math.round(PDF_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه`);
+      setPdfError(uiLang === "en"
+        ? `File size exceeds the ${Math.round(PDF_MAX_BYTES / (1024 * 1024))}MB limit`
+        : `حجمِ فایل بیشتر از ${Math.round(PDF_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه`);
       return;
     }
     setPdfBusy(true);
@@ -10044,7 +10047,9 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
         truncated = true;
       }
       if (!text.trim()) {
-        setPdfError("متنی از این PDF استخراج نشد — شاید این فایل اسکن/عکسه، نه متنِ واقعی");
+        setPdfError(uiLang === "en"
+          ? "No text was extracted from this PDF — it might be a scan/image, not real text"
+          : "متنی از این PDF استخراج نشد — شاید این فایل اسکن/عکسه، نه متنِ واقعی");
         return;
       }
       setNewCollectionText(text);
@@ -10053,10 +10058,14 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
       }
       setShowAddCollection(true);
       if (truncated) {
-        setPdfError("توجه: چون فایل بزرگ بود، فقط بخشی از متنش خونده شد — قبل از ذخیره می‌تونی ویرایشش کنی");
+        setPdfError(uiLang === "en"
+          ? "Note: the file was large, so only part of its text was read — you can edit it before saving"
+          : "توجه: چون فایل بزرگ بود، فقط بخشی از متنش خونده شد — قبل از ذخیره می‌تونی ویرایشش کنی");
       }
     } catch (err) {
-      setPdfError("خوندنِ این PDF مشکل داشت — فایل ممکنه خراب یا رمزگذاری‌شده باشه");
+      setPdfError(uiLang === "en"
+        ? "There was a problem reading this PDF — the file may be corrupted or encrypted"
+        : "خوندنِ این PDF مشکل داشت — فایل ممکنه خراب یا رمزگذاری‌شده باشه");
     } finally {
       setPdfBusy(false);
     }
@@ -10133,7 +10142,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
       }
       refreshCollections();
     } catch (e) {
-      alert("ترجمه‌ی خودکار انجام نشد، دوباره امتحان کن.");
+      alert(uiLang === "en" ? "Automatic translation failed, please try again." : "ترجمه‌ی خودکار انجام نشد، دوباره امتحان کن.");
     } finally {
       setTranslatingAll(false);
     }
@@ -10384,7 +10393,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     if (detectPastedTextLanguage(w) === storyLang) {
       setSelectedWords((prev) => [...prev, w]);
       ensureSavedStoryWord(w, storyLang);
-      setTranslateNote(`«${w}» به داستان‌ساز اضافه شد`);
+      setTranslateNote(uiLang === "en" ? `"${w}" added to Story Builder` : `«${w}» به داستان‌ساز اضافه شد`);
       setTimeout(() => setTranslateNote(""), 3000);
       return;
     }
@@ -10398,8 +10407,8 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
       }
       setTranslateNote(
         normalizeWord(translated) !== normalizeWord(w)
-          ? `«${w}» → «${translated}» اضافه شد`
-          : `«${w}» به داستان‌ساز اضافه شد`
+          ? (uiLang === "en" ? `"${w}" → "${translated}" added` : `«${w}» → «${translated}» اضافه شد`)
+          : (uiLang === "en" ? `"${w}" added to Story Builder` : `«${w}» به داستان‌ساز اضافه شد`)
       );
       setTimeout(() => setTranslateNote(""), 3000);
     } catch (err) {
@@ -10407,7 +10416,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
         setSelectedWords((prev) => [...prev, w]);
         ensureSavedStoryWord(w, storyLang);
       }
-      setTranslateNote(`ترجمه‌ی خودکار ناموفق بود؛ «${w}» به‌همون شکل اضافه شد`);
+      setTranslateNote(uiLang === "en" ? `Automatic translation failed; "${w}" added as-is` : `ترجمه‌ی خودکار ناموفق بود؛ «${w}» به‌همون شکل اضافه شد`);
       setTimeout(() => setTranslateNote(""), 3000);
     } finally {
       setWordTranslating(false);
@@ -10442,7 +10451,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
         ensureSavedStoryWord(translated, storyLang);
       }
       if (normalizeWord(translated) !== normalizeWord(w)) {
-        setTranslateNote(`«${w}» → «${translated}» اضافه شد`);
+        setTranslateNote(uiLang === "en" ? `"${w}" → "${translated}" added` : `«${w}» → «${translated}» اضافه شد`);
         setTimeout(() => setTranslateNote(""), 3000);
       }
     } catch (e) {
@@ -10451,7 +10460,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
         setSelectedWords((prev) => [...prev, w]);
         ensureSavedStoryWord(w, storyLang);
       }
-      setTranslateNote(`ترجمه‌ی خودکار ناموفق بود؛ «${w}» به‌همون شکل اضافه شد`);
+      setTranslateNote(uiLang === "en" ? `Automatic translation failed; "${w}" added as-is` : `ترجمه‌ی خودکار ناموفق بود؛ «${w}» به‌همون شکل اضافه شد`);
       setTimeout(() => setTranslateNote(""), 3000);
     } finally {
       setWordTranslating(false);
@@ -10470,7 +10479,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     if (detectPastedTextLanguage(w) === storyLang) {
       setSelectedWords((prev) => [...prev, w]);
       ensureSavedStoryWord(w, storyLang);
-      setTranslateNote(`«${w}» به داستان‌ساز اضافه شد`);
+      setTranslateNote(uiLang === "en" ? `"${w}" added to Story Builder` : `«${w}» به داستان‌ساز اضافه شد`);
       setTimeout(() => setTranslateNote(""), 3000);
       return;
     }
@@ -10484,8 +10493,8 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
       }
       setTranslateNote(
         normalizeWord(translated) !== normalizeWord(w)
-          ? `«${w}» → «${translated}» اضافه شد`
-          : `«${w}» به داستان‌ساز اضافه شد`
+          ? (uiLang === "en" ? `"${w}" → "${translated}" added` : `«${w}» → «${translated}» اضافه شد`)
+          : (uiLang === "en" ? `"${w}" added to Story Builder` : `«${w}» به داستان‌ساز اضافه شد`)
       );
       setTimeout(() => setTranslateNote(""), 3000);
     } catch (e) {
@@ -10493,7 +10502,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
         setSelectedWords((prev) => [...prev, w]);
         ensureSavedStoryWord(w, storyLang);
       }
-      setTranslateNote(`ترجمه‌ی خودکار ناموفق بود؛ «${w}» به‌همون شکل اضافه شد`);
+      setTranslateNote(uiLang === "en" ? `Automatic translation failed; "${w}" added as-is` : `ترجمه‌ی خودکار ناموفق بود؛ «${w}» به‌همون شکل اضافه شد`);
       setTimeout(() => setTranslateNote(""), 3000);
     } finally {
       setWordTranslating(false);
@@ -10632,7 +10641,9 @@ After the story, write 5 multiple-choice comprehension/vocabulary questions in $
         try {
           return JSON.parse(cleaned);
         } catch (parseErr) {
-          throw new Error("parse-error: پاسخ هوش مصنوعی کامل یا JSON معتبر نبود — دوباره امتحان کن.");
+        throw new Error(uiLang === "en"
+          ? "parse-error: The AI's response wasn't complete or valid JSON — try again."
+          : "parse-error: پاسخ هوش مصنوعی کامل یا JSON معتبر نبود — دوباره امتحان کن.");
         }
       };
 
@@ -10746,8 +10757,10 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       // نرسیده بودن، شفاف به کاربر می‌گیم — داستان رو (بهترین نسخه‌ی موجود)
       // بازم نشون می‌دیم، فقط دیگه ادعا نمی‌کنیم که تکرارها ۱۰۰٪ دقیقن.
       if (best.offenders && best.offenders.length > 0) {
-        const detail = best.offenders.map((o) => `«${o.word}»: ${o.count} بار`).join("، ");
-        setRepeatNotice(`تعداد تکرار این لغت‌ها با ${repeatCount} بار خواسته‌شده فاصله‌ی زیادی داره — ${detail}. می‌تونی دوباره «بساز داستان» رو بزنی.`);
+        const detail = best.offenders.map((o) => uiLang === "en" ? `"${o.word}": ${o.count} times` : `«${o.word}»: ${o.count} بار`).join(uiLang === "en" ? ", " : "، ");
+        setRepeatNotice(uiLang === "en"
+          ? `The repeat count for these words is far off the requested ${repeatCount} — ${detail}. You can hit "Generate story" again.`
+          : `تعداد تکرار این لغت‌ها با ${repeatCount} بار خواسته‌شده فاصله‌ی زیادی داره — ${detail}. می‌تونی دوباره «بساز داستان» رو بزنی.`);
       }
 
       const storyParagraphs = enforceSentenceSplit(parsed.paragraphs || []);
@@ -10775,11 +10788,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     } catch (e) {
       const msg = String(e?.message || "");
       if (msg.startsWith("ai-backend-error:")) {
-        setError(`خطای سرور: ${msg.replace("ai-backend-error: ", "")}`);
+        setError(uiLang === "en" ? `Server error: ${msg.replace("ai-backend-error: ", "")}` : `خطای سرور: ${msg.replace("ai-backend-error: ", "")}`);
       } else if (msg.startsWith("parse-error:")) {
         setError(msg.replace("parse-error: ", ""));
       } else {
-        setError(`خطای اتصال: ${msg || "دلیل نامشخص"}`);
+        setError(uiLang === "en" ? `Connection error: ${msg || "unknown reason"}` : `خطای اتصال: ${msg || "دلیل نامشخص"}`);
       }
     } finally {
       setGenerating(false);
@@ -10805,7 +10818,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     if (!file) return;
     setPdfReadError("");
     if (file.size > PDF_READ_MAX_BYTES) {
-      setPdfReadError(`حجمِ فایل بیشتر از ${Math.round(PDF_READ_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه`);
+      setPdfReadError(uiLang === "en"
+        ? `File size exceeds the ${Math.round(PDF_READ_MAX_BYTES / (1024 * 1024))}MB limit`
+        : `حجمِ فایل بیشتر از ${Math.round(PDF_READ_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه`);
       return;
     }
     setPdfReadBusy(true);
@@ -10831,7 +10846,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         // واقعیه و بهِ مرورگر اجازه‌ی رندر/پاسخ به لمس رو می‌ده) تا هم UI
         // فریز نشه، هم کاربر بفهمه داره کار می‌کنه (نه هنگ کرده).
         if (i % 3 === 0 || i === pageCount) {
-          setPdfReadProgress(`صفحه‌ی ${i} از ${pageCount}...`);
+          setPdfReadProgress(uiLang === "en" ? `Page ${i} of ${pageCount}...` : `صفحه‌ی ${i} از ${pageCount}...`);
           await new Promise((resolve) => setTimeout(resolve, 0));
         }
         if (allSentences.length > PDF_READ_MAX_SENTENCES) break;
@@ -10842,7 +10857,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         truncated = true;
       }
       if (!allSentences.length) {
-        setPdfReadError("متنی از این PDF استخراج نشد — شاید این فایل اسکن/عکسه، نه متنِ واقعی");
+        setPdfReadError(uiLang === "en"
+          ? "No text was extracted from this PDF — it might be a scan/image, not real text"
+          : "متنی از این PDF استخراج نشد — شاید این فایل اسکن/عکسه، نه متنِ واقعی");
         return;
       }
       const fullRawText = allSentences.join(" ");
@@ -10865,10 +10882,14 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setError("");
       setRepeatNotice("");
       if (truncated) {
-        setPdfReadError("توجه: چون فایل بزرگ بود، فقط بخشی از متنش خونده و آماده‌ی خوانش شد");
+        setPdfReadError(uiLang === "en"
+          ? "Note: the file was large, so only part of its text was read and made ready to read"
+          : "توجه: چون فایل بزرگ بود، فقط بخشی از متنش خونده و آماده‌ی خوانش شد");
       }
     } catch (err) {
-      setPdfReadError("خوندنِ این PDF مشکل داشت — فایل ممکنه خراب یا رمزگذاری‌شده باشه");
+      setPdfReadError(uiLang === "en"
+        ? "There was a problem reading this PDF — the file may be corrupted or encrypted"
+        : "خوندنِ این PDF مشکل داشت — فایل ممکنه خراب یا رمزگذاری‌شده باشه");
     } finally {
       setPdfReadBusy(false);
       setPdfReadProgress("");
@@ -11065,7 +11086,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     if (!file) return;
     setPdfViewError("");
     if (file.size > PDF_VIEW_MAX_BYTES) {
-      setPdfViewError(`حجمِ فایل بیشتر از ${Math.round(PDF_VIEW_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه`);
+      setPdfViewError(uiLang === "en"
+        ? `File size exceeds the ${Math.round(PDF_VIEW_MAX_BYTES / (1024 * 1024))}MB limit`
+        : `حجمِ فایل بیشتر از ${Math.round(PDF_VIEW_MAX_BYTES / (1024 * 1024))} مگابایتِ مجازه`);
       return;
     }
     // قبل از شروعِ فایلِ تازه، عکسِ فرمتِ قدیمی (اگه بود) و نمونه‌ی زنده‌ی
@@ -11077,7 +11100,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setPdfViewPages([]);
     setPdfViewIndex(0);
     setPdfViewBusy(true);
-    setPdfViewProgress("در حال آماده‌سازی...");
+    setPdfViewProgress(uiLang === "en" ? "Preparing..." : "در حال آماده‌سازی...");
     // شناسه‌ی تازه برای این سند — همین از همین الان تو IndexedDB ثبت می‌شه
     // و صفحه‌به‌صفحه که آماده می‌شن بهش اضافه می‌شن، تا اگه کاربر وسطِ کار
     // هم اپ رو ببنده، صفحاتِ تا اون‌جا پردازش‌شده از دست نره.
@@ -11128,7 +11151,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       let firstErrorName = (!metaSaved.ok && metaSaved.errorName) || (!fileSaved.ok && fileSaved.errorName) || "";
 
       for (let i = 1; i <= pageCount; i++) {
-        setPdfViewProgress(`صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
+        setPdfViewProgress(uiLang === "en" ? `Page ${i} of ${pageCount}: translating...` : `صفحه‌ی ${i} از ${pageCount}: در حال ترجمه...`);
         await new Promise((r) => setTimeout(r, 0)); // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — تا UI قفل نشه
 
         const page = await srcDoc.getPage(i);
@@ -11144,7 +11167,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         const newPage = {
           pageNum: i,
           originalText: pageText,
-          translatedText: translatedText || "متنی برای ترجمه در این صفحه پیدا نشد.",
+          translatedText: translatedText || (uiLang === "en" ? "No text found to translate on this page." : "متنی برای ترجمه در این صفحه پیدا نشد."),
         };
 
         // بلافاصله همین صفحه رو نشون بده — کاربر منتظرِ کلِ فایل نمی‌مونه،
@@ -11172,13 +11195,15 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         // بلکه خودِ بازکردنِ دیتابیس رو رد می‌کنه).
         const estimate = await estimatePdfViewStorage();
         const details = [
-          firstErrorName ? `نوعِ خطا: ${firstErrorName}` : "",
-          estimate ? `فضای استفاده‌شده: ${estimate.usageMB} از ${estimate.quotaMB} مگابایت (${estimate.pct}%)` : "",
+          firstErrorName ? (uiLang === "en" ? `Error type: ${firstErrorName}` : `نوعِ خطا: ${firstErrorName}`) : "",
+          estimate ? (uiLang === "en" ? `Space used: ${estimate.usageMB} of ${estimate.quotaMB}MB (${estimate.pct}%)` : `فضای استفاده‌شده: ${estimate.usageMB} از ${estimate.quotaMB} مگابایت (${estimate.pct}%)`) : "",
         ]
           .filter(Boolean)
           .join(" — ");
         setPdfViewError(
-          "این PDF فقط تا وقتی همین صفحه بازه قابلِ خوندنه — حافظه‌ی محلیِ مرورگر/اپ اجازه‌ی ذخیره‌ی دائمی رو نداد (مثلاً به‌خاطرِ حالتِ خصوصی یا پُر بودنِ فضا)، پس بعد از بستن یا رفرش از دست می‌ره. دکمه‌ی «ذخیره در داستان‌ها» هم به همین دلیل غیرفعاله — چون چیزی برای بازکردنِ بعدی نمی‌مونه." +
+          (uiLang === "en"
+            ? "This PDF is only readable while this page stays open — the browser/app's local storage didn't allow permanent saving (e.g. private mode or full storage), so it'll be lost after closing or refreshing. The \"Save to stories\" button is disabled for the same reason — there's nothing left to reopen later."
+            : "این PDF فقط تا وقتی همین صفحه بازه قابلِ خوندنه — حافظه‌ی محلیِ مرورگر/اپ اجازه‌ی ذخیره‌ی دائمی رو نداد (مثلاً به‌خاطرِ حالتِ خصوصی یا پُر بودنِ فضا)، پس بعد از بستن یا رفرش از دست می‌ره. دکمه‌ی «ذخیره در داستان‌ها» هم به همین دلیل غیرفعاله — چون چیزی برای بازکردنِ بعدی نمی‌مونه.") +
             (details ? ` (${details})` : "")
         );
         setPdfViewPersisted(false);
@@ -11189,7 +11214,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       refreshPdfViewDocs();
     } catch (err) {
       console.error(err);
-      setPdfViewError("بازکردنِ این PDF مشکل داشت — فایل ممکنه خراب یا رمزگذاری‌شده باشه");
+      setPdfViewError(uiLang === "en"
+        ? "There was a problem opening this PDF — the file may be corrupted or encrypted"
+        : "بازکردنِ این PDF مشکل داشت — فایل ممکنه خراب یا رمزگذاری‌شده باشه");
     } finally {
       setPdfViewBusy(false);
       setPdfViewProgress("");
@@ -11212,7 +11239,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setPdfViewIndex(0);
     setPdfViewError("");
     setPdfViewBusy(true);
-    setPdfViewProgress("در حال بازکردنِ PDFِ ذخیره‌شده...");
+    setPdfViewProgress(uiLang === "en" ? "Opening saved PDF..." : "در حال بازکردنِ PDFِ ذخیره‌شده...");
     try {
       // 🩹 doc.pageCount ممکنه نامعلوم باشه (مثلاً کارتی که از قبل، پیش از
       // اضافه‌شدنِ این فیلد، ساخته شده) — بدونِ این fallback، حلقه‌ی
@@ -11263,16 +11290,20 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         // صفحات هیچ‌وقت به سرور فرستاده نمی‌شه، پس روی دستگاهِ تازه در
         // دسترس نیست.
         setPdfViewError(
-          "این PDF دیگه روی این گوشی/مرورگر در دسترس نیست (چون فقط همینجا ذخیره شده بود، نه روی سرور) — احتمالاً حافظه‌ی مرورگر پاک شده یا داری از یه دستگاهِ دیگه وارد می‌شی. برای دیدنش دوباره، فایلِ PDF رو از اول آپلود کن."
+          uiLang === "en"
+            ? "This PDF is no longer available on this phone/browser (it was only stored here, not on the server) — the browser storage was probably cleared, or you're signing in on a different device. To see it again, upload the PDF file from scratch."
+            : "این PDF دیگه روی این گوشی/مرورگر در دسترس نیست (چون فقط همینجا ذخیره شده بود، نه روی سرور) — احتمالاً حافظه‌ی مرورگر پاک شده یا داری از یه دستگاهِ دیگه وارد می‌شی. برای دیدنش دوباره، فایلِ PDF رو از اول آپلود کن."
         );
       } else if (pages.length > 0 && doc.doneCount < doc.pageCount) {
         setPdfViewError(
-          `توجه: دفعه‌ی قبل فقط ${doc.doneCount} صفحه از ${doc.pageCount} صفحه پردازش شده بود؛ برای بقیه دوباره فایل رو آپلود کن`
+          uiLang === "en"
+            ? `Note: last time only ${doc.doneCount} of ${doc.pageCount} pages were processed; upload the file again for the rest`
+            : `توجه: دفعه‌ی قبل فقط ${doc.doneCount} صفحه از ${doc.pageCount} صفحه پردازش شده بود؛ برای بقیه دوباره فایل رو آپلود کن`
         );
       }
     } catch (err) {
       console.error(err);
-      setPdfViewError("بازکردنِ این PDFِ ذخیره‌شده مشکل داشت");
+      setPdfViewError(uiLang === "en" ? "There was a problem opening this saved PDF" : "بازکردنِ این PDFِ ذخیره‌شده مشکل داشت");
     } finally {
       setPdfViewBusy(false);
       setPdfViewProgress("");
@@ -11326,7 +11357,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     if (!raw) return;
     const allSentences = splitTextIntoSentenceStrings(raw);
     if (!allSentences.length) {
-      setPdfReadError("متنی برای خوندن پیدا نشد");
+      setPdfReadError(uiLang === "en" ? "No text found to read" : "متنی برای خوندن پیدا نشد");
       return;
     }
     const detectedLang = detectPastedTextLanguage(raw);
@@ -11398,7 +11429,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     try {
       normalizedUrl = new URL(raw).toString();
     } catch {
-      setLinkReadError("این لینک معتبر نیست — لطفاً آدرسِ کامل صفحه رو وارد کن");
+      setLinkReadError(uiLang === "en" ? "This link isn't valid — please enter the full page address" : "این لینک معتبر نیست — لطفاً آدرسِ کامل صفحه رو وارد کن");
       return;
     }
     setLinkReadBusy(true);
@@ -11424,12 +11455,14 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       }
       const bodyText = extractMainBodyText(html).replace(/\s+/g, " ").trim();
       if (!bodyText) {
-        setLinkReadError("متنی از این صفحه استخراج نشد — شاید محتوای این سایت با جاوااسکریپت ساخته می‌شه");
+        setLinkReadError(uiLang === "en"
+          ? "No text was extracted from this page — the site's content might be built with JavaScript"
+          : "متنی از این صفحه استخراج نشد — شاید محتوای این سایت با جاوااسکریپت ساخته می‌شه");
         return;
       }
       let allSentences = splitTextIntoSentenceStrings(bodyText);
       if (!allSentences.length) {
-        setLinkReadError("متنی برای خوندن پیدا نشد");
+        setLinkReadError(uiLang === "en" ? "No text found to read" : "متنی برای خوندن پیدا نشد");
         return;
       }
       let truncated = false;
@@ -11457,13 +11490,13 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setLinkReadUrl("");
       setShowLinkReading(false);
       if (truncated) {
-        setLinkReadError("توجه: چون متنِ صفحه زیاد بود، فقط بخشی از اون آماده‌ی خوانش شد");
+        setLinkReadError(uiLang === "en" ? "Note: the page text was long, so only part of it was made ready to read" : "توجه: چون متنِ صفحه زیاد بود، فقط بخشی از اون آماده‌ی خوانش شد");
       }
     } catch (err) {
       setLinkReadError(
         err?.message === "fetch-url-not-configured"
-          ? "خوندنِ این لینک نیاز به یه تنظیمِ اضافه تو سرور داره — فعلاً از کپی/پیستِ متن استفاده کن"
-          : "این لینک قابلِ خوندن نبود — یا سایت اجازه‌ی دسترسیِ مستقیم نمی‌ده، یا آدرس اشتباهه"
+          ? (uiLang === "en" ? "Reading this link needs an extra server setting — use copy/paste for now" : "خوندنِ این لینک نیاز به یه تنظیمِ اضافه تو سرور داره — فعلاً از کپی/پیستِ متن استفاده کن")
+          : (uiLang === "en" ? "This link couldn't be read — either the site doesn't allow direct access, or the address is wrong" : "این لینک قابلِ خوندن نبود — یا سایت اجازه‌ی دسترسیِ مستقیم نمی‌ده، یا آدرس اشتباهه")
       );
     } finally {
       setLinkReadBusy(false);
@@ -11599,7 +11632,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               color: showSaved ? "white" : colors.ink,
             }}
           >
-            داستان‌های ذخیره‌شده ({savedStories.length})
+            {uiLang === "en" ? `Saved stories (${savedStories.length})` : `داستان‌های ذخیره‌شده (${savedStories.length})`}
           </button>
         </div>
       </div>
@@ -11613,7 +11646,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               پایینِ صفحه‌ی اصلیِ داستان‌ساز. */}
           {pdfViewDocs.length > 0 && (
             <div style={{ textAlign: "start" }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>PDFهای ذخیره‌شده</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>{uiLang === "en" ? "Saved PDFs" : "PDFهای ذخیره‌شده"}</span>
               <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
                 {pdfViewDocs.map((doc) => (
                   <div
@@ -11635,7 +11668,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                       {doc.title}
                       <span style={{ color: colors.inkSoft, fontWeight: 400 }}>
                         {" "}
-                        — {doc.doneCount === doc.pageCount ? `${doc.pageCount} صفحه` : `${doc.doneCount} از ${doc.pageCount} صفحه`}
+                        — {doc.doneCount === doc.pageCount
+                          ? (uiLang === "en" ? `${doc.pageCount} pages` : `${doc.pageCount} صفحه`)
+                          : (uiLang === "en" ? `${doc.doneCount} of ${doc.pageCount} pages` : `${doc.doneCount} از ${doc.pageCount} صفحه`)}
                       </span>
                     </button>
                     <button
@@ -11643,7 +11678,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                       disabled={pdfViewBusy}
                       style={{ color: colors.rose, fontSize: 11, textDecoration: "underline", marginInlineStart: 8 }}
                     >
-                      حذف
+                      {uiLang === "en" ? "Delete" : "حذف"}
                     </button>
                   </div>
                 ))}
@@ -11662,12 +11697,12 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               <input
                 value={savedStoriesSearch}
                 onChange={(e) => setSavedStoriesSearch(e.target.value)}
-                placeholder="جستجو در داستان‌های ذخیره‌شده..."
+                placeholder={uiLang === "en" ? "Search saved stories..." : "جستجو در داستان‌های ذخیره‌شده..."}
                 dir="auto"
                 style={{ flex: 1, border: "none", outline: "none", fontSize: 13, backgroundColor: "transparent" }}
               />
               {savedStoriesSearch && (
-                <button onClick={() => setSavedStoriesSearch("")} aria-label="پاک کردن جستجو" style={{ display: "flex" }}>
+                <button onClick={() => setSavedStoriesSearch("")} aria-label={uiLang === "en" ? "Clear search" : "پاک کردن جستجو"} style={{ display: "flex" }}>
                   <X size={15} color={colors.inkSoft} />
                 </button>
               )}
@@ -11683,7 +11718,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             </div>
           )}
           {savedStories.length === 0 && (
-            <p style={{ fontSize: 13, color: colors.inkSoft }}>هنوز داستانی ذخیره نکردی.</p>
+            <p style={{ fontSize: 13, color: colors.inkSoft }}>{uiLang === "en" ? "You haven't saved any stories yet." : "هنوز داستانی ذخیره نکردی."}</p>
           )}
           {savedStories.length > 0 && (() => {
             // جستجو، مستقلِ از زبانِ داستان — یه include سادهٔ رشته‌ست، پس
@@ -11702,7 +11737,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               : savedStories;
             if (q && searched.length === 0) {
               return (
-                <p style={{ fontSize: 13, color: colors.inkSoft }}>چیزی با این جستجو پیدا نشد.</p>
+                <p style={{ fontSize: 13, color: colors.inkSoft }}>{uiLang === "en" ? "Nothing found for this search." : "چیزی با این جستجو پیدا نشد."}</p>
               );
             }
             // هر داستان از قبل با سطحِ خودش (storyLevel) ذخیره شده. وقتی فیلترِ
@@ -11719,7 +11754,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             if (!groups.length || groups.every(([, list]) => list.length === 0)) {
               return (
                 <p style={{ fontSize: 13, color: colors.inkSoft }}>
-                  داستانی با سطح {savedStoriesLevelFilter} ذخیره نشده.
+                  {uiLang === "en"
+                    ? `No stories saved at level ${savedStoriesLevelFilter}.`
+                    : `داستانی با سطح ${savedStoriesLevelFilter} ذخیره نشده.`}
                 </p>
               );
             }
@@ -11761,8 +11798,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                   readCount={readCountInRange}
                   totalInRange={visibleTotal}
                   readCountTotal={readCountTotal}
-                  label="داستان‌ها"
-                  uiLang="fa"
+                  label={uiLang === "en" ? "Stories" : "داستان‌ها"}
+                  uiLang={uiLang}
                   colors={colors}
                 />
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
@@ -11771,14 +11808,14 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                     onClick={() => markStoryRangeRead(allInRangeFlat, true)}
                     style={{ fontSize: 11, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "4px 12px", background: "#fff", cursor: "pointer" }}
                   >
-                    علامت‌گذاری همه به خوانده‌شده
+                    {uiLang === "en" ? "Mark range read" : "علامت‌گذاری همه به خوانده‌شده"}
                   </button>
                   <button
                     type="button"
                     onClick={() => markStoryRangeRead(allInRangeFlat, false)}
                     style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "4px 12px", background: "#fff", cursor: "pointer" }}
                   >
-                    پاک‌کردن علامت این بازه
+                    {uiLang === "en" ? "Clear range" : "پاک‌کردن علامت این بازه"}
                   </button>
                 </div>
                 {rangedGroups.map(([lv, list]) => (
@@ -11827,7 +11864,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => toggleSavedStoryRead(s.id)}
-                          aria-label="علامت‌زدن به‌عنوان خوانده‌شده"
+                          aria-label={uiLang === "en" ? "Toggle read" : "علامت‌زدن به‌عنوان خوانده‌شده"}
                           style={{
                             flexShrink: 0,
                             width: 20,
@@ -11845,18 +11882,18 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                         <div>
                           <p style={{ fontWeight: 700, fontSize: 13 }}>
                             {savedStoriesAudioMap[s.id] && (
-                              <span title="صوتِ آپلودی داره" style={{ marginLeft: 6 }}>🎵</span>
+                              <span title={uiLang === "en" ? "Has uploaded audio" : "صوتِ آپلودی داره"} style={{ marginLeft: 6 }}>🎵</span>
                             )}
                             {s.pdfDocId && (
-                              <span title="فایلِ PDF" style={{ marginLeft: 6 }}>📄</span>
+                              <span title={uiLang === "en" ? "PDF file" : "فایلِ PDF"} style={{ marginLeft: 6 }}>📄</span>
                             )}
                             {s.pdfDocId ? (
-                              <>PDF{s.pageCount ? ` · ${s.pageCount} صفحه` : ""}</>
+                              <>PDF{s.pageCount ? ` · ${s.pageCount} ${uiLang === "en" ? "pages" : "صفحه"}` : ""}</>
                             ) : (
                               <>
                                 {LANGUAGES.find((l) => l.code === s.storyLang)?.label} · {s.storyLevel} ·{" "}
-                                {CONTENT_TYPES.find((c) => c.key === s.contentType)?.label || "عمومی"} ·{" "}
-                                {STORY_LENGTHS.find((l) => l.key === s.storyLength)?.label || "متوسط"}
+                                {CONTENT_TYPES.find((c) => c.key === s.contentType)?.label || (uiLang === "en" ? "General" : "عمومی")} ·{" "}
+                                {STORY_LENGTHS.find((l) => l.key === s.storyLength)?.label || (uiLang === "en" ? "Medium" : "متوسط")}
                               </>
                             )}
                           </p>
@@ -11877,9 +11914,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                           onClick={() => openSavedStory(s)}
                           style={{ fontSize: 12, color: colors.teal, textDecoration: "underline" }}
                         >
-                          باز کردن
+                          {uiLang === "en" ? "Open" : "باز کردن"}
                         </button>
-                        <button onClick={() => deleteSavedStory(s.id)} aria-label="حذف">
+                        <button onClick={() => deleteSavedStory(s.id)} aria-label={uiLang === "en" ? "Delete" : "حذف"}>
                           <X size={16} color={colors.rose} />
                         </button>
                       </div>
@@ -12009,12 +12046,12 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }}
       >
         <div className="flex items-center justify-between mb-2">
-          <p style={{ fontWeight: 700 }}>۲. انتخاب لغت‌ها</p>
+          <p style={{ fontWeight: 700, fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{tr("storyWordsSection", uiLang)}</p>
           <button
             onClick={suggestForgottenWords}
             style={{ fontSize: 12, color: colors.teal, textDecoration: "underline" }}
           >
-            پیشنهاد بر اساس فراموشی
+            {uiLang === "en" ? "Suggest based on forgetting" : "پیشنهاد بر اساس فراموشی"}
           </button>
         </div>
 
@@ -12023,7 +12060,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             value={customWord}
             onChange={(e) => setCustomWord(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && !wordTranslating && addCustomWord()}
-            placeholder={`یه لغت بنویس (به هر زبونی) — به ${storyLangLabel} ترجمه و اضافه می‌شه...`}
+            placeholder={
+              uiLang === "en"
+                ? `Type a word (in any language) — it'll be translated and added to ${storyLangLabel}...`
+                : `یه لغت بنویس (به هر زبونی) — به ${storyLangLabel} ترجمه و اضافه می‌شه...`
+            }
             dir="auto"
             disabled={wordTranslating}
             style={{
@@ -12054,7 +12095,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           value={vocabQuery}
           onChange={(e) => setVocabQuery(e.target.value)}
           onPaste={handleVocabPaste}
-          placeholder="یا از لغات، مکالمات روزمره، لغات و اخبار، اسلنگ، لغات ذخیره‌شده جستجو کن..."
+          placeholder={
+            uiLang === "en"
+              ? "Or search vocab, daily conversations, words & news, slang, saved words..."
+              : "یا از لغات، مکالمات روزمره، لغات و اخبار، اسلنگ، لغات ذخیره‌شده جستجو کن..."
+          }
           style={{
             width: "100%",
             border: `1px solid ${colors.cardBorder}`,
@@ -12094,7 +12139,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               <button
                 key={`saved-${e.word}`}
                 onClick={() => toggleWord(e.word)}
-                title="از لغات ذخیره‌شده"
+                title={uiLang === "en" ? "From saved words" : "از لغات ذخیره‌شده"}
                 className="flex items-center gap-1"
                 style={{
                   padding: "5px 12px",
@@ -12164,7 +12209,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                   }}
                 >
                   {w}
-                  <button onClick={() => toggleWord(w)} aria-label="حذف">
+                  <button onClick={() => toggleWord(w)} aria-label={uiLang === "en" ? "Remove" : "حذف"}>
                     <X size={12} />
                   </button>
                 </span>
@@ -12175,7 +12220,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 onClick={() => setSelectedWords([])}
                 style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}
               >
-                پاک کردن همه
+                {tr("clearAllWords", uiLang)}
               </button>
             </div>
           </div>
@@ -12186,14 +12231,16 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         <div className="mb-3" style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12, backgroundColor: colors.paper }}>
           <div className="flex items-center justify-between mb-2">
             <p style={{ fontSize: 12, color: colors.inkSoft }}>
-              داستان همزمان به چه زبان‌هایی ترجمه بشه؟ (می‌تونی چند تا انتخاب کنی — برای جابه‌جاییِ ترتیب، نگه‌دار و بکش)
+              {uiLang === "en"
+                ? "Translate the story into which languages at once? (You can pick several — hold and drag to reorder)"
+                : "داستان همزمان به چه زبان‌هایی ترجمه بشه؟ (می‌تونی چند تا انتخاب کنی — برای جابه‌جاییِ ترتیب، نگه‌دار و بکش)"}
             </p>
             <div className="flex gap-2">
               <button onClick={selectAllTranslationLangs} style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}>
-                انتخاب همه
+                {tr("selectAll", uiLang)}
               </button>
               <button onClick={clearAllTranslationLangs} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
-                پاک کردن همه
+                {tr("clearAllWords", uiLang)}
               </button>
             </div>
           </div>
@@ -12228,7 +12275,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         }}
       >
         <Sparkles size={18} />
-        {generating ? "در حال ساخت داستان..." : "بساز داستان"}
+        {uiLang === "en" ? (generating ? "Generating story..." : "Generate story") : (generating ? "در حال ساخت داستان..." : "بساز داستان")}
       </button>
 
       <div style={{ textAlign: "center" }}>
@@ -12255,7 +12302,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           }}
         >
           {pdfReadBusy ? <Loader2 size={16} className="spin" /> : <span>📖</span>}
-          {pdfReadBusy ? (pdfReadProgress || "در حال خوندنِ PDF...") : "به‌جاش یه PDF برای خوانش وارد کن"}
+          {pdfReadBusy
+            ? (pdfReadProgress || (uiLang === "en" ? "Reading PDF..." : "در حال خوندنِ PDF..."))
+            : (uiLang === "en" ? "Import a PDF to read instead" : "به‌جاش یه PDF برای خوانش وارد کن")}
         </button>
         {pdfReadError && (
           <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfReadError}</p>
@@ -12285,7 +12334,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           }}
         >
           {pdfViewBusy ? <Loader2 size={16} className="spin" /> : <span>📑</span>}
-          {pdfViewBusy ? (pdfViewProgress || "در حال بارگذاریِ PDF...") : "PDF رو با عکسِ اصلی + ترجمه همینجا نشون بده"}
+          {pdfViewBusy
+            ? (pdfViewProgress || (uiLang === "en" ? "Loading PDF..." : "در حال بارگذاریِ PDF..."))
+            : (uiLang === "en" ? "Show the PDF here with original image + translation" : "PDF رو با عکسِ اصلی + ترجمه همینجا نشون بده")}
         </button>
         {pdfViewError && (
           <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfViewError}</p>
@@ -12299,16 +12350,18 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           <div style={{ marginTop: 12, textAlign: "start" }}>
             <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>
-                {pdfViewTitle} — صفحه‌ی {pdfViewIndex + 1} از {pdfViewPages.length}
+                {uiLang === "en"
+                  ? <>{pdfViewTitle} — page {pdfViewIndex + 1} of {pdfViewPages.length}</>
+                  : <>{pdfViewTitle} — صفحه‌ی {pdfViewIndex + 1} از {pdfViewPages.length}</>}
                 {pdfViewBusy && pdfViewDocId && (
-                  <span style={{ color: colors.inkSoft, fontWeight: 400 }}> (بقیه‌ی صفحات در حالِ پردازش...)</span>
+                  <span style={{ color: colors.inkSoft, fontWeight: 400 }}> {uiLang === "en" ? "(remaining pages processing...)" : "(بقیه‌ی صفحات در حالِ پردازش...)"}</span>
                 )}
               </span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={savePdfToStories}
                   disabled={!pdfViewDocId || !pdfViewPersisted || savedStories.some((s) => s.pdfDocId === pdfViewDocId)}
-                  title={!pdfViewPersisted ? "چون ذخیره‌سازیِ محلی ناموفق بود، این PDF قابلِ اضافه‌کردن به لیست نیست" : undefined}
+                  title={!pdfViewPersisted ? (uiLang === "en" ? "Local storage failed, so this PDF can't be added to the list" : "چون ذخیره‌سازیِ محلی ناموفق بود، این PDF قابلِ اضافه‌کردن به لیست نیست") : undefined}
                   style={{
                     fontSize: 11,
                     fontWeight: 700,
@@ -12317,14 +12370,20 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                     opacity: !pdfViewDocId || !pdfViewPersisted ? 0.5 : 1,
                   }}
                 >
-                  {savedStories.some((s) => s.pdfDocId === pdfViewDocId)
-                    ? "ذخیره شد ✓"
-                    : !pdfViewPersisted
-                    ? "قابلِ ذخیره نیست"
-                    : "ذخیره در داستان‌ها"}
+                  {uiLang === "en"
+                    ? (savedStories.some((s) => s.pdfDocId === pdfViewDocId)
+                        ? "Saved ✓"
+                        : !pdfViewPersisted
+                        ? "Can't be saved"
+                        : "Save to stories")
+                    : (savedStories.some((s) => s.pdfDocId === pdfViewDocId)
+                        ? "ذخیره شد ✓"
+                        : !pdfViewPersisted
+                        ? "قابلِ ذخیره نیست"
+                        : "ذخیره در داستان‌ها")}
                 </button>
                 <button onClick={closePdfView} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
-                  بستن
+                  {uiLang === "en" ? "Close" : "بستن"}
                 </button>
               </div>
             </div>
@@ -12390,7 +12449,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                   onClick={() => setShowPdfOriginalWords((v) => !v)}
                   style={{ fontSize: 12, fontWeight: 700, color: colors.teal }}
                 >
-                  {showPdfOriginalWords ? "بستنِ متنِ اصلی" : "نمایشِ متنِ اصلی (کلیک‌پذیر)"}
+                  {uiLang === "en"
+                    ? (showPdfOriginalWords ? "Hide original text" : "Show original text (clickable)")
+                    : (showPdfOriginalWords ? "بستنِ متنِ اصلی" : "نمایشِ متنِ اصلی (کلیک‌پذیر)")}
                 </button>
                 {showPdfOriginalWords && (
                   <div
@@ -12423,7 +12484,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                         textAlign: dirFor(nativeLang) === "rtl" ? "right" : "left",
                       }}
                     >
-                      روی هر کلمه بزن تا ترجمه‌اش رو ببینی؛ از همون‌جا می‌تونی به داستانِ بعدی، یادگیریِ گرامر یا جعبه‌ی لایتنر هم اضافه‌اش کنی.
+                      {uiLang === "en"
+                        ? "Tap a word to see its translation; from there you can also add it to the next story, grammar practice, or the Leitner box."
+                        : "روی هر کلمه بزن تا ترجمه‌اش رو ببینی؛ از همون‌جا می‌تونی به داستانِ بعدی، یادگیریِ گرامر یا جعبه‌ی لایتنر هم اضافه‌اش کنی."}
                     </p>
                     <ClickableSentence
                       text={pdfViewPages[pdfViewIndex].originalText}
@@ -12445,14 +12508,14 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 disabled={pdfViewIndex === 0}
                 style={{ fontSize: 12, fontWeight: 700, color: colors.teal, opacity: pdfViewIndex === 0 ? 0.4 : 1 }}
               >
-                ◀ صفحه‌ی قبل
+                ◀ {uiLang === "en" ? "Previous page" : "صفحه‌ی قبل"}
               </button>
               <button
                 onClick={() => setPdfViewIndex((i) => Math.min(pdfViewPages.length - 1, i + 1))}
                 disabled={pdfViewIndex === pdfViewPages.length - 1}
                 style={{ fontSize: 12, fontWeight: 700, color: colors.teal, opacity: pdfViewIndex === pdfViewPages.length - 1 ? 0.4 : 1 }}
               >
-                صفحه‌ی بعد ▶
+                {uiLang === "en" ? "Next page" : "صفحه‌ی بعد"} ▶
               </button>
             </div>
           </div>
@@ -12474,7 +12537,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             }}
           >
             <span>🔗</span>
-            {showLinkReading ? "بستنِ وارد کردنِ لینک" : "یا لینکِ یه صفحه رو وارد کن"}
+            {uiLang === "en"
+              ? (showLinkReading ? "Close link import" : "Or enter a page link")
+              : (showLinkReading ? "بستنِ وارد کردنِ لینک" : "یا لینکِ یه صفحه رو وارد کن")}
           </button>
           {showLinkReading && (
             <div style={{ marginTop: 8 }}>
@@ -12495,7 +12560,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 }}
               />
               <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
-                فقط متنِ اصلیِ صفحه (بدنه‌ی نوشته) استخراج می‌شه — منو، هدر، فوتر و تبلیغ‌ها نادیده گرفته می‌شن.
+                {uiLang === "en"
+                  ? "Only the page's main text (body content) is extracted — menus, headers, footers, and ads are ignored."
+                  : "فقط متنِ اصلیِ صفحه (بدنه‌ی نوشته) استخراج می‌شه — منو، هدر، فوتر و تبلیغ‌ها نادیده گرفته می‌شن."}
               </p>
               <button
                 onClick={handleLinkImportForReading}
@@ -12514,7 +12581,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 }}
               >
                 {linkReadBusy ? <Loader2 size={16} className="spin" /> : <span>🔗</span>}
-                {linkReadBusy ? "در حال خوندنِ صفحه..." : "دریافتِ متن از لینک"}
+                {uiLang === "en"
+                  ? (linkReadBusy ? "Reading the page..." : "Get text from link")
+                  : (linkReadBusy ? "در حال خوندنِ صفحه..." : "دریافتِ متن از لینک")}
               </button>
               {linkReadError && (
                 <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{linkReadError}</p>
@@ -12538,7 +12607,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           }}
         >
           <span>📋</span>
-          {showPasteReading ? "بستنِ پیست متن" : "یا یه متن/داستان رو اینجا پیست کن"}
+          {uiLang === "en"
+            ? (showPasteReading ? "Close text paste" : "Or paste a text/story here")
+            : (showPasteReading ? "بستنِ پیست متن" : "یا یه متن/داستان رو اینجا پیست کن")}
         </button>
 
         {showPasteReading && (
@@ -12546,7 +12617,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             <textarea
               value={pastedReadingText}
               onChange={(e) => setPastedReadingText(e.target.value)}
-              placeholder="متن یا داستانی که می‌خوای بخونی رو اینجا پیست کن..."
+              placeholder={uiLang === "en" ? "Paste the text or story you want to read here..." : "متن یا داستانی که می‌خوای بخونی رو اینجا پیست کن..."}
               dir="auto"
               rows={6}
               style={{
@@ -12573,7 +12644,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 opacity: !pastedReadingText.trim() ? 0.5 : 1,
               }}
             >
-              📖 آماده‌ی خوانش کن
+              📖 {uiLang === "en" ? "Ready to read" : "آماده‌ی خوانش کن"}
             </button>
           </div>
         )}
@@ -12586,7 +12657,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             onClick={() => generateStory()}
             disabled={generating}
             style={{
-              fontFamily: fontFa,
+              fontFamily: uiLang === "en" ? fontLatin : fontFa,
               fontSize: 12,
               fontWeight: 700,
               color: "white",
@@ -12596,7 +12667,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               opacity: generating ? 0.6 : 1,
             }}
           >
-            تلاش دوباره
+            {uiLang === "en" ? "Try again" : "تلاش دوباره"}
           </button>
         </div>
       )}
@@ -12612,12 +12683,12 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }}
         >
           <div className="flex items-center justify-between mb-3">
-            <p style={{ fontWeight: 700 }}>داستان</p>
+            <p style={{ fontWeight: 700 }}>{uiLang === "en" ? "Story" : "داستان"}</p>
             <div className="flex items-center gap-3 flex-wrap" style={{ rowGap: 8 }}>
               <button
                 onClick={editingStoryText ? cancelEditingStoryText : startEditingStoryText}
-                title={editingStoryText ? "انصراف از ویرایش" : "ویرایشِ متنِ داستان"}
-                aria-label={editingStoryText ? "انصراف از ویرایش" : "ویرایشِ متنِ داستان"}
+                title={editingStoryText ? (uiLang === "en" ? "Cancel editing" : "انصراف از ویرایش") : (uiLang === "en" ? "Edit story text" : "ویرایشِ متنِ داستان")}
+                aria-label={editingStoryText ? (uiLang === "en" ? "Cancel editing" : "انصراف از ویرایش") : (uiLang === "en" ? "Edit story text" : "ویرایشِ متنِ داستان")}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -12633,8 +12704,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               </button>
               <button
                 onClick={saveCurrentStory}
-                title={currentStoryId ? "ذخیره شد" : "ذخیره داستان"}
-                aria-label={currentStoryId ? "ذخیره شد" : "ذخیره داستان"}
+                title={currentStoryId ? (uiLang === "en" ? "Saved" : "ذخیره شد") : (uiLang === "en" ? "Save story" : "ذخیره داستان")}
+                aria-label={currentStoryId ? (uiLang === "en" ? "Saved" : "ذخیره شد") : (uiLang === "en" ? "Save story" : "ذخیره داستان")}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -12662,14 +12733,14 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                   type="text"
                   value={storySearchQuery}
                   onChange={(e) => setStorySearchQuery(e.target.value)}
-                  placeholder="جستجو داخلِ متنِ داستان — به هر زبانی"
+                  placeholder={uiLang === "en" ? "Search inside the story text — any language" : "جستجو داخلِ متنِ داستان — به هر زبانی"}
                   dir="auto"
                   style={{ flex: 1, minWidth: 0, border: "none", outline: "none", fontSize: 13, background: "transparent", color: colors.ink }}
                 />
                 {!!storySearchQuery && (
                   <button
                     onClick={() => setStorySearchQuery("")}
-                    aria-label="پاک‌کردنِ جستجو"
+                    aria-label={uiLang === "en" ? "Clear search" : "پاک‌کردنِ جستجو"}
                     style={{ display: "flex", alignItems: "center", background: "none", border: "none", color: colors.inkSoft, cursor: "pointer", flexShrink: 0 }}
                   >
                     <X size={14} />
@@ -12679,10 +12750,10 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               {!!storySearchQuery.trim() && (
                 <div style={{ marginTop: 6 }}>
                   {storySearchMatches.length === 0 ? (
-                    <p style={{ fontSize: 12, color: colors.inkSoft }}>چیزی پیدا نشد.</p>
+                    <p style={{ fontSize: 12, color: colors.inkSoft }}>{uiLang === "en" ? "Nothing found." : "چیزی پیدا نشد."}</p>
                   ) : (
                     <div className="flex flex-col gap-1">
-                      <p style={{ fontSize: 11, color: colors.inkSoft }}>{storySearchMatches.length} نتیجه:</p>
+                      <p style={{ fontSize: 11, color: colors.inkSoft }}>{uiLang === "en" ? `${storySearchMatches.length} results:` : `${storySearchMatches.length} نتیجه:`}</p>
                       {storySearchMatches.map((m, idx) => (
                         <button
                           key={`${m.pi}-${m.si}-${idx}`}
@@ -12715,7 +12786,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           {editingStoryText ? (
             <div style={{ marginBottom: 8, textAlign: "start" }}>
               <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>
-                متن رو ویرایش کن — برای جداکردنِ پاراگراف‌ها یه خط خالی بینشون بذار.
+                {uiLang === "en"
+                  ? "Edit the text — leave a blank line between paragraphs."
+                  : "متن رو ویرایش کن — برای جداکردنِ پاراگراف‌ها یه خط خالی بینشون بذار."}
               </p>
               <textarea
                 value={storyEditDraft}
@@ -12746,7 +12819,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                     opacity: !storyEditDraft.trim() ? 0.5 : 1,
                   }}
                 >
-                  ثبتِ ویرایش
+                  {uiLang === "en" ? "Apply edit" : "ثبتِ ویرایش"}
                 </button>
                 <button
                   onClick={cancelEditingStoryText}
@@ -12761,7 +12834,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                     background: "white",
                   }}
                 >
-                  انصراف
+                  {uiLang === "en" ? "Cancel" : "انصراف"}
                 </button>
               </div>
             </div>
@@ -12772,12 +12845,12 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               نمی‌شه. فقط «نمایش ترجمه» (نحوه‌ی چیدمانش) اینجا می‌مونه. */}
           {translationLangOptions.length > 0 && (
             <div className="mb-3">
-              <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>نمایش ترجمه:</p>
+              <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>{uiLang === "en" ? "Translation display:" : "نمایش ترجمه:"}</p>
               <div className="flex flex-wrap gap-2">
                 {[
-                  { key: "sentence", label: "جمله به جمله" },
-                  { key: "paragraph", label: "پاراگراف به پاراگراف" },
-                  { key: "none", label: "هیچکدام" },
+                  { key: "sentence", label: uiLang === "en" ? "Sentence by sentence" : "جمله به جمله" },
+                  { key: "paragraph", label: uiLang === "en" ? "Paragraph by paragraph" : "پاراگراف به پاراگراف" },
+                  { key: "none", label: uiLang === "en" ? "None" : "هیچکدام" },
                 ].map((opt) => (
                   <button
                     key={opt.key}
@@ -12949,7 +13022,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                         />
                                       </span>
                                     ) : (
-                                      <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
+                                      <span style={{ color: colors.inkSoft, opacity: 0.7 }}>{uiLang === "en" ? "(translating...)" : "(در حال ترجمه...)"}</span>
                                     )}
                                   </p>
                                   {/* دکمه‌ی رفرش همیشه نشون داده می‌شه — حتی وقتی `translated`
@@ -12963,8 +13036,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                       retranslateStorySentence(pi, si, code, s.text);
                                     }}
                                     disabled={!!retranslatingSentences[`${pi}-${si}-${code}`]}
-                                    title={translated ? "اگه این ترجمه اشتباهه، دوباره امتحان کن" : "ترجمه نشده — برای امتحانِ دوباره بزن"}
-                                    aria-label="ترجمه‌ی دوباره"
+                                    title={translated ? (uiLang === "en" ? "If this translation is wrong, try again" : "اگه این ترجمه اشتباهه، دوباره امتحان کن") : (uiLang === "en" ? "Not translated — tap to retry" : "ترجمه نشده — برای امتحانِ دوباره بزن")}
+                                    aria-label={uiLang === "en" ? "Retranslate" : "ترجمه‌ی دوباره"}
                                     style={{
                                       background: "none",
                                       border: "none",
@@ -13115,7 +13188,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                     />
                                   </span>
                                 ) : (
-                                  <span style={{ color: colors.inkSoft, opacity: 0.7 }}>(در حال ترجمه...)</span>
+                                  <span style={{ color: colors.inkSoft, opacity: 0.7 }}>{uiLang === "en" ? "(translating...)" : "(در حال ترجمه...)"}</span>
                                 )}
                               </p>
                               {translated && (
@@ -13125,8 +13198,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                     retranslateStoryParagraph(pi, code);
                                   }}
                                   disabled={!!retranslatingSentences[`${pi}-all-${code}`]}
-                                  title="اگه این ترجمه اشتباهه، دوباره امتحان کن"
-                                  aria-label="ترجمه‌ی دوباره"
+                                  title={uiLang === "en" ? "If this translation is wrong, try again" : "اگه این ترجمه اشتباهه، دوباره امتحان کن"}
+                                  aria-label={uiLang === "en" ? "Retranslate" : "ترجمه‌ی دوباره"}
                                   style={{
                                     background: "none",
                                     border: "none",
@@ -13170,28 +13243,30 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 color: colors.teal,
               }}
             >
-              نمایش بیشتر ({paragraphs.length - visibleParagraphCount} پاراگرافِ دیگه)
+              {uiLang === "en"
+                ? `Show more (${paragraphs.length - visibleParagraphCount} more paragraphs)`
+                : `نمایش بیشتر (${paragraphs.length - visibleParagraphCount} پاراگرافِ دیگه)`}
             </button>
           )}
 
           <div className="flex flex-wrap gap-2 mt-4" style={{ borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 10 }}>
             {selectedWords.map((w) => (
               <span key={w} style={{ fontSize: 11, color: colors.inkSoft, backgroundColor: colors.paper, borderRadius: 10, padding: "3px 8px" }}>
-                {w}: {countOccurrences(fullStoryText, w)} بار
+                {w}: {countOccurrences(fullStoryText, w)} {uiLang === "en" ? "times" : "بار"}
               </span>
             ))}
           </div>
 
           <div style={{ marginTop: 14, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 12 }}>
             <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>
-              یادداشتِ من دربارهٔ این داستان
+              {uiLang === "en" ? "My notes about this story" : "یادداشتِ من دربارهٔ این داستان"}
             </p>
             <textarea
               value={storyNote}
               onChange={(e) => setStoryNote(e.target.value)}
               dir="auto"
               rows={5}
-              placeholder="هرچی می‌خوای دربارهٔ این داستان یادداشت کن — بدونِ محدودیتِ تعدادِ کلمه…"
+              placeholder={uiLang === "en" ? "Write anything you want about this story — no word limit…" : "هرچی می‌خوای دربارهٔ این داستان یادداشت کن — بدونِ محدودیتِ تعدادِ کلمه…"}
               style={{
                 width: "100%",
                 border: `1px solid ${colors.cardBorder}`,
@@ -13213,7 +13288,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         <div
           style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }}
         >
-          <p style={{ fontWeight: 700, marginBottom: 12 }}>تمرین درک مطلب</p>
+          <p style={{ fontWeight: 700, marginBottom: 12 }}>{uiLang === "en" ? "Comprehension practice" : "تمرین درک مطلب"}</p>
           <div className="flex flex-col gap-4">
             {questions.map((q, i) => (
               <div key={i}>
@@ -13264,12 +13339,17 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 opacity: Object.keys(answers).length < questions.length ? 0.6 : 1,
               }}
             >
-              بررسی جواب‌ها
+              {uiLang === "en" ? "Check answers" : "بررسی جواب‌ها"}
             </button>
           ) : (
             <p style={{ marginTop: 16, fontSize: 14, fontWeight: 700 }}>
-              {questions.filter((q, i) => answers[i] === q.answerIndex).length} از {questions.length} درست بود.
-              لغاتی که اشتباه زدی خودکار برای داستان بعدی «پیشنهاد بر اساس فراموشی» می‌شن.
+              {uiLang === "en" ? (
+                <>{questions.filter((q, i) => answers[i] === q.answerIndex).length} of {questions.length} correct.
+                Words you got wrong will automatically show up under "Suggest based on forgetting" for your next story.</>
+              ) : (
+                <>{questions.filter((q, i) => answers[i] === q.answerIndex).length} از {questions.length} درست بود.
+                لغاتی که اشتباه زدی خودکار برای داستان بعدی «پیشنهاد بر اساس فراموشی» می‌شن.</>
+              )}
             </p>
           )}
         </div>
@@ -16321,6 +16401,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             setIndex={setReviewIndex}
             showAnswer={showAnswer}
             setShowAnswer={setShowAnswer}
+            uiLang={appPrefs.uiLang}
           />
         )}
 
@@ -19031,10 +19112,10 @@ function WordExampleRow({ example, word, langCode, nativeLang, targetLangs, aiSe
 // چیپ‌های فیلترِ سطح برای جعبه‌ی لایتنر: «همه» + جعبه‌های ۱ تا ۴ (جعبه‌ی ۵
 // یعنی «بلد شدی»، پس اصلاً تو مرور نمی‌آد). هر چیپ تعدادِ موردهای همون سطح
 // رو هم نشون می‌ده.
-function LevelFilterChips({ levelFilter, setLevelFilter, levelCounts }) {
+function LevelFilterChips({ levelFilter, setLevelFilter, levelCounts, uiLang }) {
   const chips = [
-    { key: "all", label: "همه", count: levelCounts.reduce((a, b) => a + b, 0) },
-    ...[1, 2, 3, 4].map((lvl) => ({ key: lvl, label: `جعبه‌ی ${lvl}`, count: levelCounts[lvl - 1] })),
+    { key: "all", label: uiLang === "en" ? "All" : "همه", count: levelCounts.reduce((a, b) => a + b, 0) },
+    ...[1, 2, 3, 4].map((lvl) => ({ key: lvl, label: uiLang === "en" ? `Box ${lvl}` : `جعبه‌ی ${lvl}`, count: levelCounts[lvl - 1] })),
   ];
   return (
     <div className="flex flex-wrap justify-center gap-2">
@@ -19062,7 +19143,7 @@ function LevelFilterChips({ levelFilter, setLevelFilter, levelCounts }) {
 // ---------------------------------------------------------------------------
 // Leitner review box
 // ---------------------------------------------------------------------------
-function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, index, setIndex, showAnswer, setShowAnswer }) {
+function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, index, setIndex, showAnswer, setShowAnswer, uiLang }) {
   // نکته‌ی مهمِ رفعِ باگ: boxes[p.id] برای عبارتی که هنوز اصلاً مرور نشده
   // undefined هست، و «undefined < 5» توی جاوااسکریپت به‌جای true، false
   // برمی‌گرده (چون undefined به NaN تبدیل می‌شه و هر مقایسه‌ای با NaN
@@ -19113,10 +19194,12 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
     return (
       <div className="flex flex-col items-center gap-3 mt-6">
         {levelFilter !== "all" && (
-          <LevelFilterChips levelFilter={levelFilter} setLevelFilter={setLevelFilter} levelCounts={levelCounts} />
+          <LevelFilterChips levelFilter={levelFilter} setLevelFilter={setLevelFilter} levelCounts={levelCounts} uiLang={uiLang} />
         )}
         <p style={{ textAlign: "center", color: colors.teal, marginTop: 20, fontWeight: 600 }}>
-          {levelFilter === "all" ? "همه‌ی عبارات رو بلدی! 🎉" : "چیزی تو این سطح برای مرور نمونده! 🎉"}
+          {levelFilter === "all"
+            ? (uiLang === "en" ? "You know all the phrases! 🎉" : "همه‌ی عبارات رو بلدی! 🎉")
+            : (uiLang === "en" ? "Nothing left to review at this level! 🎉" : "چیزی تو این سطح برای مرور نمونده! 🎉")}
         </p>
       </div>
     );
@@ -19136,10 +19219,13 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
 
   return (
     <div className="flex flex-col items-center gap-4 mt-6">
-      <LevelFilterChips levelFilter={levelFilter} setLevelFilter={setLevelFilter} levelCounts={levelCounts} />
+      <LevelFilterChips levelFilter={levelFilter} setLevelFilter={setLevelFilter} levelCounts={levelCounts} uiLang={uiLang} />
       <p style={{ fontSize: 12, color: colors.inkSoft }}>
-        باقی‌مانده برای مرور: {active.length}
-        {" · "}جعبه‌ی {currentLevel} از ۵
+        {uiLang === "en" ? (
+          <>Left to review: {active.length}{" · "}Box {currentLevel} of 5</>
+        ) : (
+          <>باقی‌مانده برای مرور: {active.length}{" · "}جعبه‌ی {currentLevel} از ۵</>
+        )}
       </p>
       <div
         className="w-full max-w-sm rounded-xl p-8 text-center"
@@ -19153,7 +19239,7 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
           </div>
           {!showAnswer && (
             <p style={{ color: colors.cardBorder, fontSize: 12, marginTop: 14 }}>
-              (برای دیدن ترجمه لمس کن)
+              {uiLang === "en" ? "(tap to see translation)" : "(برای دیدن ترجمه لمس کن)"}
             </p>
           )}
         </div>
@@ -19189,16 +19275,16 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
           <button
             onClick={() => handle(false)}
             className="flex items-center gap-1 px-4 py-2 rounded-full"
-            style={{ backgroundColor: colors.rose, color: "white", fontFamily: fontFa }}
+            style={{ backgroundColor: colors.rose, color: "white", fontFamily: uiLang === "en" ? fontLatin : fontFa }}
           >
-            <X size={16} /> بلد نبودم
+            <X size={16} /> {uiLang === "en" ? "Didn't know it" : "بلد نبودم"}
           </button>
           <button
             onClick={() => handle(true)}
             className="flex items-center gap-1 px-4 py-2 rounded-full"
-            style={{ backgroundColor: colors.teal, color: "white", fontFamily: fontFa }}
+            style={{ backgroundColor: colors.teal, color: "white", fontFamily: uiLang === "en" ? fontLatin : fontFa }}
           >
-            <Check size={16} /> بلد بودم
+            <Check size={16} /> {uiLang === "en" ? "Knew it" : "بلد بودم"}
           </button>
         </div>
       )}
