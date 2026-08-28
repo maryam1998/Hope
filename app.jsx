@@ -11877,7 +11877,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         {storyLangOptions.length > 1 ? (
           <>
             <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>
-              زبان داستان (از بین زبان‌های مقصدی که بالای صفحه انتخاب کردی)
+              {uiLang === "en"
+                ? "Story language (from the target languages picked above)"
+                : "زبان داستان (از بین زبان‌های مقصدی که بالای صفحه انتخاب کردی)"}
             </p>
             <div className="flex flex-wrap gap-2 mb-3">
               {storyLangOptions.map((code) => (
@@ -11893,14 +11895,16 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                     color: colors.ink,
                   }}
                 >
-                  {LANGUAGES.find((l) => l.code === code)?.label}
+                  {uiLang === "en" ? englishLangName(code) : LANGUAGES.find((l) => l.code === code)?.label}
                 </button>
               ))}
             </div>
           </>
         ) : (
           <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 10 }}>
-            زبان داستان: {storyLangLabel} (طبق زبان مقصدی که بالای صفحه انتخاب کردی)
+            {uiLang === "en"
+              ? `Story language: ${englishLangName(storyLang)} (based on the target language picked above)`
+              : `زبان داستان: ${storyLangLabel} (طبق زبان مقصدی که بالای صفحه انتخاب کردی)`}
           </p>
         )}
         <p style={{ fontSize: 12, color: colors.inkSoft, margin: "0 0 6px" }}>سطح داستان</p>
@@ -15997,21 +16001,8 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
         {/* Language pickers */}
         <div className="mt-4">
-          <p
-            style={{
-              fontSize: "clamp(9.5px, 3.1vw, 13.5px)",
-              color: colors.headerText,
-              opacity: 0.85,
-              marginBottom: 10,
-              lineHeight: 1.9,
-              whiteSpace: "nowrap",
-              overflowX: "auto",
-              WebkitOverflowScrolling: "touch",
-              scrollbarWidth: "none",
-            }}
-          >
-            زبان مادری{" "}
-            <b style={{ color: colors.headerText, fontWeight: 700 }}>(برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)</b>
+          <p style={{ fontSize: 13.5, color: colors.headerText, opacity: 0.85, marginBottom: 10, lineHeight: 1.9 }}>
+            زبان مادری
           </p>
           <DraggableLangRow
             order={langPickerOrder}
@@ -16024,23 +16015,8 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             onClick={(code) => setNativeLang(code)}
           />
           <div style={{ height: 1, background: "rgba(255,255,255,.14)", margin: "18px 0 14px" }} />
-          <p
-            style={{
-              fontSize: "clamp(9.5px, 3.1vw, 13.5px)",
-              color: colors.headerText,
-              opacity: 0.85,
-              marginBottom: 10,
-              lineHeight: 1.9,
-              whiteSpace: "nowrap",
-              overflowX: "auto",
-              WebkitOverflowScrolling: "touch",
-              scrollbarWidth: "none",
-            }}
-          >
-            زبان‌های مقصد{" "}
-            <b style={{ color: colors.headerText, fontWeight: 700 }}>
-              (چند تا رو می‌تونی هم‌زمان انتخاب کنی — برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)
-            </b>
+          <p style={{ fontSize: 13.5, color: colors.headerText, opacity: 0.85, marginBottom: 10, lineHeight: 1.9 }}>
+            زبان‌های مقصد
           </p>
           <DraggableLangRow
             order={langPickerOrder}
