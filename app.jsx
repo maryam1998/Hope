@@ -19436,6 +19436,7 @@ const LINGOVA_BUBBLE_KEYS = ["lingovaBubbleRead", "lingovaBubbleKeepGoing", "lin
 const LINGOVA_DOUBLE_TAP_MS = 350; // حداکثر فاصله‌ی زمانیِ بینِ دو تپ
 const LINGOVA_TAP_MOVE_TOLERANCE = 10; // px — بیشتر از این یعنی درگه، نه یه تپِ ساده
 const LINGOVA_DOUBLE_TAP_DIST_TOLERANCE = 26; // px — حداکثر فاصله‌ی مکانیِ بینِ دو تپ
+const LINGOVA_LONG_PRESS_MS = 550; // نگه‌داشتنِ بیشتر از این (بدونِ حرکتِ محسوس) یعنی long-press
 
 // سه دست‌لباسِ متنوع برای آدمک — روی تنه (پیراهن) و پاها (شلوار) اعمال
 // می‌شه. گزینه‌ی اول از رنگِ تمِ فعلیِ اپ پیروی می‌کنه (دقیقاً همون ظاهرِ
@@ -19712,12 +19713,17 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
   const mascotElRef = useRef(null);
   const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
   const pointerStartRef = useRef({ x: 0, y: 0 });
+  // برایِ فعال/غیرفعال‌کردنِ «قدم‌زدنِ سرِ جا» با نگه‌داشتنِ انگشت (long-press)
+  // رویِ آدمک — بدونِ نیاز به هیچ دکمه‌ی جداگانه‌ای رویِ صفحه.
+  const longPressTimerRef = useRef(null);
+  const longPressFiredRef = useRef(false);
   // وقتی آدمک هنوز سنجاق نشده (رویِ نوارِ بالا)، یه تپِ ساده باید یه‌کم صبر
   // کنه ببینه تپِ دومی (برایِ دابل‌تپِ چسبیدن‌به‌هدر) از راه می‌رسه یا نه،
   // قبل از این‌که به‌عنوانِ toggleِ پارک حساب بشه؛ این تایمر همون صبرِ کوتاهه.
   const singleTapTimeoutRef = useRef(null);
   useEffect(() => () => {
     if (singleTapTimeoutRef.current) clearTimeout(singleTapTimeoutRef.current);
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -19755,8 +19761,26 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
     });
     const onMove = (e) => {
       setDragPos(clamp(e.clientX - dragOffsetRef.current.dx, e.clientY - dragOffsetRef.current.dy));
+      // حرکتِ محسوس یعنی این یه درگه، نه long-press؛ تایمرِ قدم‌زدنِ سرِ جا
+      // رو لغو کن.
+      const movedDist = Math.hypot(e.clientX - pointerStartRef.current.x, e.clientY - pointerStartRef.current.y);
+      if (movedDist > LINGOVA_TAP_MOVE_TOLERANCE && longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
     };
     const onUp = (e) => {
+      // اگه long-press همین الان (تویِ همون فشار) فعال شده، این رهاشدنِ
+      // انگشت رو اصلاً به‌عنوانِ تپ/درگِ عادی حساب نکن — فقط استیت رو تمیز کن.
+      if (longPressFiredRef.current) {
+        longPressFiredRef.current = false;
+        setIsDragging(false);
+        return;
+      }
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
       setIsDragging(false);
       // اگه بینِ گذاشتن و برداشتنِ انگشت، حرکتِ محسوسی رخ داده، این یه
       // درگِ واقعیه — نه یه تپِ ساده — پس مثلِ قبل، جایی که رها شده رو
@@ -19847,46 +19871,61 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
     });
   }, []);
 
-  // دکمه‌ی بالایِ سرِ آدمک: تپ روش «قدم‌زدنِ سرِ جا» رو toggle می‌کنه. موقعِ
-  // روشن‌کردن، مختصاتِ فعلیِ خودِ آدمک رو نسبت‌به‌بالایِ کلِ سندِ صفحه
-  // (rect + مقدارِ فعلیِ اسکرول) حساب می‌کنیم، نه نسبت‌به‌ویوپورت — همین
-  // باعث می‌شه با اسکرول‌کردنِ صفحه، آدمک دقیقاً هم‌زمان با همون نقطه از
-  // صفحه بالا/پایین بره (سرِ جاش رویِ صفحه بمونه)، نه این‌که رویِ ویوپورت
-  // ثابت بمونه و از رویِ محتوایِ مختلف رد بشه.
-  const toggleStepInPlace = (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setStepInPlace((v) => {
-      const next = !v;
-      if (next && mascotElRef.current) {
-        const rect = mascotElRef.current.getBoundingClientRect();
-        setStepInPlacePos({
-          left: rect.left + window.scrollX,
-          top: rect.top + window.scrollY,
-        });
-      }
-      return next;
-    });
+  // نگه‌داشتنِ انگشت رویِ آدمک (long-press، بدونِ حرکتِ محسوس) «قدم‌زدنِ
+  // سرِ جا» رو toggle می‌کنه. موقعِ روشن‌کردن، مختصاتِ فعلیِ خودِ آدمک رو
+  // نسبت‌به‌بالایِ کلِ سندِ صفحه (rect + مقدارِ فعلیِ اسکرول) حساب می‌کنیم،
+  // نه نسبت‌به‌ویوپورت — همین باعث می‌شه با اسکرول‌کردنِ صفحه، آدمک دقیقاً
+  // هم‌زمان با همون نقطه از صفحه بالا/پایین بره (سرِ جاش رویِ صفحه بمونه)،
+  // نه این‌که رویِ ویوپورت ثابت بمونه و از رویِ محتوایِ مختلف رد بشه.
+  const activateStepInPlace = () => {
+    if (mascotElRef.current) {
+      const rect = mascotElRef.current.getBoundingClientRect();
+      setStepInPlacePos({
+        left: rect.left + window.scrollX,
+        top: rect.top + window.scrollY,
+      });
+    }
+    setStepInPlace(true);
   };
 
   const handlePointerDown = (e) => {
     e.preventDefault();
+    pointerStartRef.current = { x: e.clientX, y: e.clientY };
+    longPressFiredRef.current = false;
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+
+    if (stepInPlace) {
+      // تویِ حالتِ «قدم‌زدنِ سرِ جا»، درگ/پین‌کردن بی‌معنیه — تنها کاری که
+      // یه فشار این‌جا می‌تونه بکنه، long-press برایِ آزادکردنه.
+      longPressTimerRef.current = setTimeout(() => {
+        longPressFiredRef.current = true;
+        setStepInPlace(false);
+      }, LINGOVA_LONG_PRESS_MS);
+      return;
+    }
+
     const rect = e.currentTarget.getBoundingClientRect();
     dragOffsetRef.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
     pointerStartRef.current = { x: e.clientX, y: e.clientY };
     setDragPos({ left: rect.left, top: rect.top });
     setIsDragging(true);
+
+    // long-press (نگه‌داشتن بدونِ حرکتِ محسوس) به‌طورِ مستقل از تپ/دابل‌تپ/
+    // درگِ بالا، «قدم‌زدنِ سرِ جا» رو فعال می‌کنه. اگه قبلش حرکتِ محسوسی
+    // ثبت بشه (onMove بالاتر) یا زودتر رها بشه (onUp)، همین تایمر لغو می‌شه.
+    longPressTimerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      lastTapRef.current = { time: 0, x: 0, y: 0 };
+      setIsDragging(false);
+      setDragPos(null);
+      activateStepInPlace();
+    }, LINGOVA_LONG_PRESS_MS);
   };
 
   const activePos = isDragging ? dragPos : pinnedPos;
   // اگه آدمک نزدیکِ لبه‌ی بالای صفحه سنجاق شده باشه، حباب رو به‌جای بالا،
   // پایینِ آدمک نشون می‌دیم تا از صفحه بیرون نزنه.
   const bubbleNearTop = pinned && activePos && activePos.top < 34;
-  // همین منطق برایِ دکمه‌ی «قدم‌زدنِ سرِ جا» هم لازمه: تویِ حالتِ پیش‌فرض
-  // (نوارِ نازکِ بالایِ صفحه) اصلاً جایی بالایِ سرِ آدمک نیست (خودِ آدمک
-  // دقیقاً چسبیده به لبه‌ی بالایِ ویوپورته) — پس اونجا، و هر جایِ دیگه‌ای که
-  // نزدیکِ لبه‌ی بالاست، دکمه رو می‌بریم پایینِ آدمک به‌جایِ بالاش.
-  const pinBtnBelow = (!pageAttached && !pinned) || (pinned && activePos && activePos.top < 34);
 
   const bubbleDir = APP_LANGUAGES[uiLang]?.dir || "ltr";
   const bubbleFontFamily = uiLang === "fa" ? "var(--font-fa)" : "var(--font-latin)";
@@ -19905,7 +19944,7 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
   const mascotBody = (
     <div
       ref={mascotElRef}
-      onPointerDown={enabled && !stepInPlace ? handlePointerDown : undefined}
+      onPointerDown={enabled ? handlePointerDown : undefined}
       style={{
         position: "absolute",
         top: 0,
@@ -19982,57 +20021,6 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
           />
         </div>
       )}
-      {/* دکمه‌ی «قدم‌زدنِ سرِ جا» — همیشه بالایِ سرِ آدمک نمایش داده می‌شه
-          (مستقل از پارک/سنجاق‌بودن). یه تپِ ساده روش، آدمک رو دقیقاً همون‌جا
-          که الان رویِ صفحه‌ست قفل می‌کنه (بدونِ رفت‌وبرگشت، فقط انیمیشنِ
-          قدم‌زدن) و از اسکرول‌شدنِ بقیه‌ی صفحه بی‌تأثیر می‌مونه؛ تپِ دوباره
-          رهاش می‌کنه. با شروعِ پخشِ پلیر هم خودکار آزاد می‌شه. */}
-      <button
-        type="button"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={toggleStepInPlace}
-        aria-label={
-          stepInPlace
-            ? uiLang === "en"
-              ? "Unlock mascot from this spot"
-              : "آزادکردنِ آدمک از این نقطه"
-            : uiLang === "en"
-            ? "Lock mascot here, walking in place"
-            : "قفل‌کردنِ آدمک همین‌جا، فقط قدم‌زدن"
-        }
-        style={{
-          position: "absolute",
-          top: pinBtnBelow ? LINGOVA_MASCOT_HEIGHT + 4 : -22,
-          left: LINGOVA_MASCOT_WIDTH / 2 - 9,
-          width: 18,
-          height: 18,
-          borderRadius: "50%",
-          border: "none",
-          padding: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: stepInPlace ? colors.gold : colors.ink,
-          boxShadow: "0 1px 3px rgba(0,0,0,.4)",
-          cursor: "pointer",
-          touchAction: "none",
-        }}
-      >
-        {stepInPlace ? (
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={colors.ink} strokeWidth="2.5" strokeLinecap="round">
-            <line x1="3" y1="3" x2="21" y2="21" />
-            <path d="M9 9v3l-4 4h12" />
-            <path d="M12 16v6" />
-            <path d="M9 3h6l1 6-4 3-4-3z" opacity="0.55" />
-          </svg>
-        ) : (
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={colors.paper} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 3h6l1 6-4 3-4-3z" fill={colors.paper} />
-            <path d="M12 12v9" />
-            <path d="M6 15h12" />
-          </svg>
-        )}
-      </button>
       <svg
         viewBox="0 0 30 38"
         width={LINGOVA_MASCOT_WIDTH}
