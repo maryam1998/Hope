@@ -18573,6 +18573,8 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
                 aiSettings={aiSettings}
                 nativeLang={nativeLang}
                 ClickableSentence={ClickableSentence}
+                highlightColor={highlightColor}
+                autoScrollActive={autoScrollActive}
               />
             )}
             <WordExamples word={w.en} langCode="en" meaningNative={w.fa} nativeLang={nativeLang} targetLangs={effectiveDisplayLangs} aiSettings={aiSettings} />
@@ -18771,13 +18773,39 @@ function WordTargetTranslation({ word, wordId, pos, langCode, abbr, knownText, n
 // رندر می‌شه، انتخابِ آزادِ یه تکه از همون مثال هم (نگاه کن به ClickableSentence)
 // همون‌جا قابل افزودن به داستانه.
 // ---------------------------------------------------------------------------
+// یه لغتی که همین الان دقیقاً همینِ متن (نه یه متنِ بزرگ‌ترِ شامل‌ش) داره
+// با speechController خونده می‌شه یا نه — برای هایلایتِ زنده‌ی خودِ همین
+// جمله، دقیقاً همون معیاری که خودِ SpeakButton برای isActive استفاده
+// می‌کنه (state.key === `${locale}::${text}` && status !== "idle"). چون
+// جمله/کالوکیشنِ ثابتِ کتاب (VocabBookExample) بخشی از یه fullTextِ
+// بزرگ‌ترِ پیوسته نیست (نه مثلِ خودِ لیستِ لغات)، همین کافیه: یعنی هر بار
+// کاربر دقیقاً روی 🔊ِ همین جمله بزنه (یا یه SpeakButtonِ دیگه‌ای که دقیقاً
+// همین fullText رو صدا بزنه)، این true می‌شه.
+function useActiveSpeech(text, code) {
+  const [active, setActive] = useState(false);
+  useEffect(() => {
+    if (!text) {
+      setActive(false);
+      return;
+    }
+    const myKey = `${TTS_LOCALE[code] || "en-US"}::${text}`;
+    const update = (state) => setActive(state.key === myKey && state.status !== "idle");
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [text, code]);
+  return active;
+}
+
 // ترجمه‌ی جمله‌یِ مثال/کالوکیشنِ ثابتِ کتاب (تبِ «Vocabulary in Use») به یک
 // زبانِ مقصدِ مشخص — دقیقاً همون الگویِ WordExampleTranslationLine (بالاتر)
 // برای مثال‌هایِ AI-ساز، فقط این‌جا به‌جایِ کشِ example.translations، از همون
 // کشِ سراسریِ loadWordTranslation/saveWordTranslation استفاده می‌کنه (متنِ
 // جمله رو نرمالایز و کلید می‌کنه) — چون این جمله‌ها ثابتِ دیتان، نه رکوردِ
 // AI با id.
-function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings }) {
+// highlightColor/autoScrollActive: دقیقاً همون دو پراپی که WordTargetTranslation
+// برای هایلایتِ زنده/اسکرولِ خودکارِ ردیف‌های ترجمه‌ی لغات استفاده می‌کنه —
+// اینجا هم عیناً همون رفتار رو برای ترجمه‌ی مثالِ ثابتِ کتاب فعال می‌کنه.
+function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings, highlightColor, autoScrollActive }) {
   // ⛔️ همون فیکسِ WordTargetTranslation (بالاتر) اینجا هم لازم بود: قبلاً
   // نتیجه‌ی translateFree — چه از کش، چه تازه — بدونِ هیچ چکی مستقیم
   // ست/کش می‌شد. وقتی همه‌ی سرویس‌های ترجمه برای یه جمله (که معمولاً از
@@ -18838,12 +18866,23 @@ function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text, targetLang]);
 
+  // هایلایتِ زنده + اسکرولِ خودکار — دقیقاً همون دو رفتاری که
+  // WordTargetTranslation برای ردیف‌های ترجمه‌ی لیستِ لغات داره؛ اینجا
+  // معیارِ «فعال» بودن اینه که همین الان دقیقاً همینِ ترجمه (نه یه متنِ
+  // دیگه) با 🔊ِ همین ردیف در حالِ پخشه.
+  const isActive = useActiveSpeech(translation, targetLang);
+  const rowRef = useRef(null);
+  useEffect(() => {
+    if (!autoScrollActive || !isActive || !rowRef.current) return;
+    rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [autoScrollActive, isActive]);
+
   if (!translation) {
     return <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 4 }}>در حال ترجمه...</p>;
   }
 
   return (
-    <div className="flex items-center gap-2" style={{ marginTop: 4, direction: "ltr" }}>
+    <div ref={rowRef} className="flex items-center gap-2" style={{ marginTop: 4, direction: "ltr" }}>
       <span
         style={{
           fontFamily: fontFa,
@@ -18858,7 +18897,20 @@ function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings }) {
       >
         {abbr || targetLang.toUpperCase()}
       </span>
-      <p style={{ flex: 1, fontSize: 12, fontWeight: 800, color: translationColor }}>{translation}</p>
+      <p style={{ flex: 1, fontSize: 12, fontWeight: 800, color: translationColor }}>
+        <span
+          style={{
+            backgroundColor: highlightBg(highlightColor, isActive),
+            borderRadius: 5,
+            padding: isActive ? "2px 4px" : "2px 0",
+            WebkitBoxDecorationBreak: "clone",
+            boxDecorationBreak: "clone",
+            transition: "background-color 0.35s ease",
+          }}
+        >
+          {translation}
+        </span>
+      </p>
       <SpeakButton text={translation} code={targetLang} color={translationColor} edge="end" />
       <button
         onClick={handleRetry}
@@ -18880,7 +18932,24 @@ function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings }) {
 // لبه‌ی راستِ ردیف (edge="end"، عیناً مثلِ بقیه‌ی تب‌ها)، و زیرش ترجمه‌ی
 // جمله‌ی مثال به هرکدوم از زبان‌های مقصدِ انتخابیِ کاربر — تا بشه متنِ خودِ
 // کتاب رو هم مثلِ مثال‌های AI-ساز به هر زبانی ترجمه/شنید.
-function VocabBookExample({ collocation, example, targetLangs, aiSettings, nativeLang, ClickableSentence }) {
+// highlightColor/autoScrollActive: عیناً همون دو پراپی که بقیه‌ی جاهای اپ
+// (ردیفِ اصلیِ لغت، ردیف‌های ترجمه‌اش) برای هایلایتِ زنده‌ی خودِ متن حینِ
+// پخش + اسکرولِ خودکار به سمتش استفاده می‌کنن — قبلاً به این کامپوننت
+// اصلاً پاس داده نمی‌شدن، پس کالوکیشن/مثالِ ثابتِ کتاب هیچ‌وقت هایلایت/
+// اسکرول نمی‌گرفتن، حتی وقتی 🔊ِ خودشون زده می‌شد.
+function VocabBookExample({ collocation, example, targetLangs, aiSettings, nativeLang, ClickableSentence, highlightColor, autoScrollActive }) {
+  const collocationActive = useActiveSpeech(collocation, "en");
+  const exampleActive = useActiveSpeech(example, "en");
+  const collocationRef = useRef(null);
+  const exampleRef = useRef(null);
+  useEffect(() => {
+    if (!autoScrollActive || !collocationActive || !collocationRef.current) return;
+    collocationRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [autoScrollActive, collocationActive]);
+  useEffect(() => {
+    if (!autoScrollActive || !exampleActive || !exampleRef.current) return;
+    exampleRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [autoScrollActive, exampleActive]);
   return (
     <div
       style={{
@@ -18892,39 +18961,69 @@ function VocabBookExample({ collocation, example, targetLangs, aiSettings, nativ
       }}
     >
       {collocation && (
-        <div className="flex items-center gap-2" style={{ direction: "ltr" }}>
+        <div ref={collocationRef} className="flex items-center gap-2" style={{ direction: "ltr" }}>
           <p style={{ flex: 1, margin: 0, fontSize: 12 }}>
-            <ClickableSentence
-              text={collocation}
-              langCode="en"
-              nativeLang={nativeLang}
-              aiSettings={aiSettings}
-              color={colors.teal}
-              fontWeight={700}
-              fontSize={12}
-            />
+            <span
+              style={{
+                backgroundColor: highlightBg(highlightColor, collocationActive),
+                borderRadius: 5,
+                padding: collocationActive ? "2px 4px" : "2px 0",
+                WebkitBoxDecorationBreak: "clone",
+                boxDecorationBreak: "clone",
+                transition: "background-color 0.35s ease",
+              }}
+            >
+              <ClickableSentence
+                text={collocation}
+                langCode="en"
+                nativeLang={nativeLang}
+                aiSettings={aiSettings}
+                color={colors.teal}
+                fontWeight={700}
+                fontSize={12}
+              />
+            </span>
           </p>
           <SpeakButton text={collocation} code="en" color={colors.teal} edge="end" />
         </div>
       )}
       {example && (
-        <div className="flex items-center gap-2" style={{ marginTop: collocation ? 4 : 0, direction: "ltr" }}>
+        <div ref={exampleRef} className="flex items-center gap-2" style={{ marginTop: collocation ? 4 : 0, direction: "ltr" }}>
           <p style={{ flex: 1, margin: 0, fontSize: 12.5, lineHeight: 1.5, fontStyle: "italic" }}>
-            <ClickableSentence
-              text={example}
-              langCode="en"
-              nativeLang={nativeLang}
-              aiSettings={aiSettings}
-              color={colors.inkSoft}
-              fontSize={12.5}
-            />
+            <span
+              style={{
+                backgroundColor: highlightBg(highlightColor, exampleActive),
+                borderRadius: 5,
+                padding: exampleActive ? "2px 4px" : "2px 0",
+                WebkitBoxDecorationBreak: "clone",
+                boxDecorationBreak: "clone",
+                transition: "background-color 0.35s ease",
+              }}
+            >
+              <ClickableSentence
+                text={example}
+                langCode="en"
+                nativeLang={nativeLang}
+                aiSettings={aiSettings}
+                color={colors.inkSoft}
+                fontSize={12.5}
+              />
+            </span>
           </p>
           <SpeakButton text={example} code="en" color={colors.teal} edge="end" />
         </div>
       )}
       {example &&
         (targetLangs || []).map((l) => (
-          <VocabBookExampleTranslation key={l.code} text={example} targetLang={l.code} abbr={l.abbr} aiSettings={aiSettings} />
+          <VocabBookExampleTranslation
+            key={l.code}
+            text={example}
+            targetLang={l.code}
+            abbr={l.abbr}
+            aiSettings={aiSettings}
+            highlightColor={highlightColor}
+            autoScrollActive={autoScrollActive}
+          />
         ))}
     </div>
   );
