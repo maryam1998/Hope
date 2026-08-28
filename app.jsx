@@ -5282,6 +5282,12 @@ function LangStamp({ lang, active, onClick, disabled }) {
         opacity: disabled ? 0.3 : 1,
         boxShadow: active ? "0 6px 16px -4px rgba(201,154,46,.55)" : "none",
         transition: "background-color 0.15s, border-color 0.15s",
+        // این متن (AR/HI/IT/...) هیچ‌وقت نباید با لمسِ طولانی (که برای
+        // جابه‌جاییِ ترتیب استفاده می‌شه) به‌صورتِ متنِ قابل‌انتخاب/های‌لایت
+        // آبیِ مرورگر دربیاد — چون این یه دکمه‌ست، نه متنِ داستان.
+        WebkitUserSelect: "none",
+        userSelect: "none",
+        WebkitTouchCallout: "none",
       }}
       aria-pressed={active}
       title={disabled ? `${lang.label} (زبان مادری‌ته، نمی‌تونه هم‌زمان مقصد باشه)` : lang.label}
@@ -5419,6 +5425,9 @@ function DraggableLangRow({ order, setOrder, languages, isActive, isDisabled, on
             flexShrink: 0,
             transform: dragCode === l.code ? "scale(1.15)" : "scale(1)",
             transition: "transform 0.12s",
+            WebkitUserSelect: "none",
+            userSelect: "none",
+            WebkitTouchCallout: "none",
           }}
         >
           <LangStamp
@@ -8902,7 +8911,7 @@ function PlayerBarStorySwitch({ ua }) {
             color: playbackMode === "tts" ? "white" : colors.ink,
           }}
         >
-          TTS
+          صدای اپ
         </button>
         <button
           onClick={() => hasAudio && setPlaybackMode && setPlaybackMode("user")}
@@ -15988,7 +15997,19 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
         {/* Language pickers */}
         <div className="mt-4">
-          <p style={{ fontSize: 13.5, color: colors.headerText, opacity: 0.85, marginBottom: 10, lineHeight: 1.9 }}>
+          <p
+            style={{
+              fontSize: "clamp(9.5px, 3.1vw, 13.5px)",
+              color: colors.headerText,
+              opacity: 0.85,
+              marginBottom: 10,
+              lineHeight: 1.9,
+              whiteSpace: "nowrap",
+              overflowX: "auto",
+              WebkitOverflowScrolling: "touch",
+              scrollbarWidth: "none",
+            }}
+          >
             زبان مادری{" "}
             <b style={{ color: colors.headerText, fontWeight: 700 }}>(برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)</b>
           </p>
@@ -16003,7 +16024,19 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             onClick={(code) => setNativeLang(code)}
           />
           <div style={{ height: 1, background: "rgba(255,255,255,.14)", margin: "18px 0 14px" }} />
-          <p style={{ fontSize: 13.5, color: colors.headerText, opacity: 0.85, marginBottom: 10, lineHeight: 1.9 }}>
+          <p
+            style={{
+              fontSize: "clamp(9.5px, 3.1vw, 13.5px)",
+              color: colors.headerText,
+              opacity: 0.85,
+              marginBottom: 10,
+              lineHeight: 1.9,
+              whiteSpace: "nowrap",
+              overflowX: "auto",
+              WebkitOverflowScrolling: "touch",
+              scrollbarWidth: "none",
+            }}
+          >
             زبان‌های مقصد{" "}
             <b style={{ color: colors.headerText, fontWeight: 700 }}>
               (چند تا رو می‌تونی هم‌زمان انتخاب کنی — برای جابه‌جایی، مهرِ زبان رو نگه‌دار و بکش)
