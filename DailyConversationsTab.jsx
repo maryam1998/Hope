@@ -52,30 +52,34 @@ const TOPIC_META_LIST = [
   ["Memories and Past Experiences", "خاطرات و تجربیات گذشته", "🕰️"],
   // مکالمات موضوعی (THEMATIC_CONVERSATIONS) — همون توپیک‌ها به‌عنوان کارتِ
   // مستقل، کنار موضوعاتِ روزمره، تو همین گرید نشون داده می‌شن.
-  ["طبیعت (Nature)", "طبیعت", "🌿"],
-  ["احساسات (Emotions)", "احساسات", "❤️"],
-  ["مذهب و سیاست (Religion and Politics)", "مذهب و سیاست", "🕊️"],
-  ["خرید (Retail)", "خرید", "🛒"],
-  ["علوم (Science)", "علوم", "🔬"],
-  ["مسائل اجتماعی (Social Issues)", "مسائل اجتماعی", "🌍"],
-  ["فناوری (Technology)", "فناوری", "💻"],
-  ["سفر و گردشگری (Travel and Tourism)", "سفر و گردشگری", "🧳"],
-  ["غذا و آشپزی (Food and Cooking)", "غذا و آشپزی", "🍲"],
-  ["جنگ و درگیری (War and Conflict)", "جنگ و درگیری", "⚔️"],
-  ["شغل (Work)", "شغل", "💼"],
-  ["شخصیت (Personality)", "شخصیت", "🎭"],
-  ["بدن انسان (Body)", "بدن انسان", "🫀"],
-  ["کسب و کار (Business)", "کسب و کار", "📈"],
-  ["لباس و مد (Clothes and Fashion)", "لباس و مد", "👗"],
-  ["جرم و قانون (Crime and Law)", "جرم و قانون", "⚖️"],
-  ["فرهنگ (Culture)", "فرهنگ", "🏛️"],
-  ["آموزش و تحصیل (Education)", "آموزش و تحصیل", "🎓"],
-  ["رسانه (The Media)", "رسانه", "📰"],
-  ["حیوانات (Animals)", "حیوانات", "🐾"],
-  ["خانه (Home and Housing)", "خانه", "🏡"],
+  // چهارمین عضوِ هر آرایه (enLabel) برچسبِ تمیزِ انگلیسیه که موقع
+  // uiLang==="en" نشون داده می‌شه — جدا از کلیدِ اول (که عیناً همون رشته‌ی
+  // مختلط فارسی/انگلیسیِ topic توی DAILY_CONVERSATIONS.js می‌مونه و فقط
+  // برای lookup/شناسه استفاده می‌شه، هرگز رندر نمی‌شه).
+  ["طبیعت (Nature)", "طبیعت", "🌿", "Nature"],
+  ["احساسات (Emotions)", "احساسات", "❤️", "Emotions"],
+  ["مذهب و سیاست (Religion and Politics)", "مذهب و سیاست", "🕊️", "Religion and Politics"],
+  ["خرید (Retail)", "خرید", "🛒", "Retail"],
+  ["علوم (Science)", "علوم", "🔬", "Science"],
+  ["مسائل اجتماعی (Social Issues)", "مسائل اجتماعی", "🌍", "Social Issues"],
+  ["فناوری (Technology)", "فناوری", "💻", "Technology"],
+  ["سفر و گردشگری (Travel and Tourism)", "سفر و گردشگری", "🧳", "Travel and Tourism"],
+  ["غذا و آشپزی (Food and Cooking)", "غذا و آشپزی", "🍲", "Food and Cooking"],
+  ["جنگ و درگیری (War and Conflict)", "جنگ و درگیری", "⚔️", "War and Conflict"],
+  ["شغل (Work)", "شغل", "💼", "Work"],
+  ["شخصیت (Personality)", "شخصیت", "🎭", "Personality"],
+  ["بدن انسان (Body)", "بدن انسان", "🫀", "Body"],
+  ["کسب و کار (Business)", "کسب و کار", "📈", "Business"],
+  ["لباس و مد (Clothes and Fashion)", "لباس و مد", "👗", "Clothes and Fashion"],
+  ["جرم و قانون (Crime and Law)", "جرم و قانون", "⚖️", "Crime and Law"],
+  ["فرهنگ (Culture)", "فرهنگ", "🏛️", "Culture"],
+  ["آموزش و تحصیل (Education)", "آموزش و تحصیل", "🎓", "Education"],
+  ["رسانه (The Media)", "رسانه", "📰", "The Media"],
+  ["حیوانات (Animals)", "حیوانات", "🐾", "Animals"],
+  ["خانه (Home and Housing)", "خانه", "🏡", "Home and Housing"],
 ];
 const TOPIC_META = {};
-TOPIC_META_LIST.forEach(([en, fa, icon]) => (TOPIC_META[en] = { fa, icon }));
+TOPIC_META_LIST.forEach(([en, fa, icon, enLabel]) => (TOPIC_META[en] = { fa, icon, enLabel: enLabel || en }));
 
 const UI_STRINGS = {
   fa: {
@@ -160,7 +164,7 @@ const TTS_LOCALE_MINI = {
 const TOPIC_BADGE_COLORS = ["#EAF4F1", "#FBF0DA", "#F3ECFB", "#FBE9E4"];
 
 function TopicCard({ meta, index, hasData, onClick, uiLang, isRead, onToggleRead, readDoneColor, readDoneBg }) {
-  const label = uiLang === "fa" ? meta.fa : meta.en;
+  const label = uiLang === "fa" ? meta.fa : (meta.enLabel || meta.en);
   const badgeColor = TOPIC_BADGE_COLORS[(index || 0) % TOPIC_BADGE_COLORS.length];
   return (
     <div
@@ -685,7 +689,7 @@ export default function DailyConversationsTab({
   };
 
   const filteredMeta = useMemo(() => {
-    const all = TOPIC_META_LIST.map(([en, fa, icon]) => ({ en, fa, icon }));
+    const all = TOPIC_META_LIST.map(([en, fa, icon, enLabel]) => ({ en, fa, icon, enLabel: enLabel || en }));
     if (!query || !query.trim()) return all;
     const q = query.trim().toLowerCase();
     return all.filter((m) => {
@@ -894,7 +898,7 @@ export default function DailyConversationsTab({
           (sc[key] || []).forEach((it) => {
             const hit = scenarioHit || itemMatchesQuery(it, q, query.trim());
             if (hit) {
-              results.push({ topicLabel: uiLang === "fa" ? meta.fa : tp.topic, icon: meta.icon, scenario: sc.scenario, item: it, variant });
+              results.push({ topicLabel: uiLang === "fa" ? meta.fa : (meta.enLabel || tp.topic), icon: meta.icon, scenario: sc.scenario, item: it, variant });
             }
           });
         });
@@ -1101,7 +1105,7 @@ export default function DailyConversationsTab({
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
             <span style={{ fontSize: 22 }}>{TOPIC_META[activeTopic]?.icon}</span>
             <span style={{ fontWeight: 800, fontSize: 16, color: colors.ink, fontFamily: uiLang === "fa" ? fontFa : fontLatin }}>
-              {uiLang === "fa" ? TOPIC_META[activeTopic]?.fa : activeTopic}
+              {uiLang === "fa" ? TOPIC_META[activeTopic]?.fa : (TOPIC_META[activeTopic]?.enLabel || activeTopic)}
             </span>
           </div>
 

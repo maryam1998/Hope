@@ -540,17 +540,17 @@ function SrtTranslatorTool({ nativeLang, targetOrder, aiSettings, uiLang }) {
       try {
         const parsed = parseSRT(String(reader.result || ""));
         if (!parsed.length) {
-          setError("فایل srt قابلِ خوندن نبود یا خالی بود.");
+          setError(tr("srtToolErrEmptyFile", uiLang));
           setEntries([]);
           return;
         }
         setEntries(parsed);
       } catch {
-        setError("خطا در خواندنِ فایل srt.");
+        setError(tr("srtToolErrParse", uiLang));
         setEntries([]);
       }
     };
-    reader.onerror = () => setError("خطا در خواندنِ فایل.");
+    reader.onerror = () => setError(tr("srtToolErrRead", uiLang));
     reader.readAsText(file);
   }
 
@@ -603,14 +603,14 @@ function SrtTranslatorTool({ nativeLang, targetOrder, aiSettings, uiLang }) {
         className="flex items-center justify-between"
         style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: 0 }}
       >
-        <span style={{ fontSize: 14, fontWeight: 600, color: colors.ink }}>ترجمه‌ی زیرنویس (SRT)</span>
+        <span style={{ fontSize: 14, fontWeight: 600, color: colors.ink, fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{tr("srtToolTitle", uiLang)}</span>
         {open ? <ChevronUp size={18} color={colors.inkSoft} /> : <ChevronDown size={18} color={colors.inkSoft} />}
       </button>
 
       {open && (
         <div style={{ marginTop: 10 }}>
-          <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 8 }}>
-            یه فایلِ srt وارد کن، زبانِ مقصد رو انتخاب کن، ترجمه کن و فایلِ srtِ ترجمه‌شده رو دانلود کن — برای استفاده تو هر پلیرِ ویدیو/صوتِ دیگه.
+          <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 8, fontFamily: uiLang === "en" ? fontLatin : fontFa }}>
+            {tr("srtToolDesc", uiLang)}
           </p>
           <div className="flex items-center gap-2 flex-wrap">
             <input
@@ -626,11 +626,11 @@ function SrtTranslatorTool({ nativeLang, targetOrder, aiSettings, uiLang }) {
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.cardBorder}`, background: "white", fontSize: 13 }}
+              style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.cardBorder}`, background: "white", fontSize: 13, fontFamily: uiLang === "en" ? fontLatin : fontFa }}
             >
-              انتخابِ فایل srt
+              {tr("srtToolChooseFile", uiLang)}
             </button>
-            {fileName && <span style={{ fontSize: 12, color: colors.inkSoft }}>{fileName} ({toFaDigits(String(entries.length))} خط)</span>}
+            {fileName && <span style={{ fontSize: 12, color: colors.inkSoft, fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{fileName} ({trf("srtToolLinesCount", uiLang, { n: uiLang === "en" ? entries.length : toFaDigits(String(entries.length)) })})</span>}
           </div>
 
           {entries.length > 0 && (
@@ -638,35 +638,35 @@ function SrtTranslatorTool({ nativeLang, targetOrder, aiSettings, uiLang }) {
               <select
                 value={targetLang}
                 onChange={(e) => { setTargetLang(e.target.value); setTranslatedEntries(null); }}
-                style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${colors.cardBorder}`, background: "white", fontSize: 13 }}
+                style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${colors.cardBorder}`, background: "white", fontSize: 13, fontFamily: uiLang === "en" ? fontLatin : fontFa }}
               >
                 {langOptions.map((l) => (
-                  <option key={l.code} value={l.code}>{l.label}</option>
+                  <option key={l.code} value={l.code}>{uiLang === "en" ? englishLangName(l.code) : l.label}</option>
                 ))}
               </select>
 
               {!translating ? (
                 <button
                   onClick={translateAll}
-                  style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: colors.teal, color: "white", fontWeight: 600, fontSize: 13 }}
+                  style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: colors.teal, color: "white", fontWeight: 600, fontSize: 13, fontFamily: uiLang === "en" ? fontLatin : fontFa }}
                 >
-                  ترجمه کن
+                  {tr("srtToolTranslate", uiLang)}
                 </button>
               ) : (
                 <button
                   onClick={cancelTranslate}
-                  style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: colors.rose, color: "white", fontSize: 13 }}
+                  style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: colors.rose, color: "white", fontSize: 13, fontFamily: uiLang === "en" ? fontLatin : fontFa }}
                 >
-                  توقف ({toFaDigits(String(progress.done))}/{toFaDigits(String(progress.total))})
+                  {trf("srtToolStop", uiLang, { done: uiLang === "en" ? progress.done : toFaDigits(String(progress.done)), total: uiLang === "en" ? progress.total : toFaDigits(String(progress.total)) })}
                 </button>
               )}
 
               {translatedEntries && !translating && (
                 <button
                   onClick={download}
-                  style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${colors.teal}`, color: colors.teal, background: "white", fontSize: 13 }}
+                  style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${colors.teal}`, color: colors.teal, background: "white", fontSize: 13, fontFamily: uiLang === "en" ? fontLatin : fontFa }}
                 >
-                  دانلودِ srt ترجمه‌شده
+                  {tr("srtToolDownload", uiLang)}
                 </button>
               )}
             </div>
@@ -1720,6 +1720,26 @@ const UI_STRINGS = {
   calendarJalali: { fa: "شمسی", en: "Persian (Jalali)" },
   calendarGregorian: { fa: "میلادی", en: "Gregorian" },
   calendarBoth: { fa: "هر دو", en: "Both" },
+  sortByLabel: { fa: "مرتب‌سازی", en: "Sort" },
+  storyLangLevelSection: { fa: "۱. زبان و سطح داستان", en: "1. Story language & level" },
+  storyLevelLabel: { fa: "سطح داستان", en: "Story level" },
+  storyContentTypeLabel: { fa: "نوع محتوا", en: "Content type" },
+  storyLengthLabel: { fa: "طول داستان", en: "Story length" },
+  storyRepeatCountLabel: { fa: "تعداد تکرار هر لغت", en: "Repeat count per word" },
+  srtToolTitle: { fa: "ترجمه‌ی زیرنویس (SRT)", en: "Subtitle translation (SRT)" },
+  srtToolDesc: { fa: "یه فایلِ srt وارد کن، زبانِ مقصد رو انتخاب کن، ترجمه کن و فایلِ srtِ ترجمه‌شده رو دانلود کن — برای استفاده تو هر پلیرِ ویدیو/صوتِ دیگه.", en: "Upload an srt file, pick a target language, translate it, and download the translated srt file — for use in any video/audio player." },
+  srtToolChooseFile: { fa: "انتخابِ فایل srt", en: "Choose srt file" },
+  srtToolLinesCount: { fa: "{n} خط", en: "{n} lines" },
+  srtToolTranslate: { fa: "ترجمه کن", en: "Translate" },
+  srtToolStop: { fa: "توقف ({done}/{total})", en: "Stop ({done}/{total})" },
+  srtToolDownload: { fa: "دانلودِ srt ترجمه‌شده", en: "Download translated srt" },
+  srtToolErrEmptyFile: { fa: "فایل srt قابلِ خوندن نبود یا خالی بود.", en: "The srt file couldn't be read or was empty." },
+  srtToolErrParse: { fa: "خطا در خواندنِ فایل srt.", en: "Error reading the srt file." },
+  srtToolErrRead: { fa: "خطا در خواندنِ فایل.", en: "Error reading the file." },
+  headerFromTo: { fa: "از {native} به {target}", en: "From {native} to {target}" },
+  nativeLanguageLabel: { fa: "زبان مادری", en: "Native language" },
+  targetLanguagesLabel: { fa: "زبان‌های مقصد", en: "Target languages" },
+  translationOrderLabel: { fa: "ترتیب نمایش ترجمه‌ها (بکش تا جابجا بشه)", en: "Translation display order (drag to reorder)" },
   tabConversations: { fa: "مکالمات روزمره", en: "Daily conversations" },
   tabStory: { fa: "داستان‌ساز", en: "Story generator" },
   tabSaved: { fa: "لغات ذخیره‌شده", en: "Saved words" },
@@ -1958,12 +1978,12 @@ function formatSavedDate(iso, calendarSystem) {
 // همون تعدادِ کلمه‌های کلِ داستانه (چون داستان‌ها فایل جداگونه نیستن که
 // حجمِ بایتی معنی‌دار داشته باشن).
 const SAVED_STORIES_SORT_OPTIONS = [
-  { key: "newest", label: "جدیدترین تاریخ" },
-  { key: "oldest", label: "قدیمی‌ترین تاریخ" },
-  { key: "wordsDesc", label: "بیشترین تعداد کلمه" },
-  { key: "wordsAsc", label: "کمترین تعداد کلمه" },
-  { key: "nameAsc", label: "نام: الف ← ی" },
-  { key: "nameDesc", label: "نام: ی ← الف" },
+  { key: "newest", fa: "جدیدترین تاریخ", en: "Newest date" },
+  { key: "oldest", fa: "قدیمی‌ترین تاریخ", en: "Oldest date" },
+  { key: "wordsDesc", fa: "بیشترین تعداد کلمه", en: "Most words" },
+  { key: "wordsAsc", fa: "کمترین تعداد کلمه", en: "Fewest words" },
+  { key: "nameAsc", fa: "نام: الف ← ی", en: "Name: A → Z" },
+  { key: "nameDesc", fa: "نام: ی ← الف", en: "Name: Z → A" },
 ];
 
 function getStoryWordCount(entry) {
@@ -2003,15 +2023,16 @@ function sortSavedStories(list, sortKey) {
 
 // دکمه‌ی «مرتب‌سازی» + منوی کشویی — با ظاهر و رفتاری شبیه به Sort byِ
 // سیستم (یه دکمه که با تپ، لیستِ گزینه‌ها رو باز می‌کنه).
-function SavedStoriesSortMenu({ sortKey, setSortKey }) {
+function SavedStoriesSortMenu({ sortKey, setSortKey, uiLang }) {
   const [open, setOpen] = useState(false);
+  const lang = uiLang === "en" ? "en" : "fa";
   const current = SAVED_STORIES_SORT_OPTIONS.find((o) => o.key === sortKey) || SAVED_STORIES_SORT_OPTIONS[0];
   return (
     <div style={{ position: "relative", flexShrink: 0 }}>
       <button
         onClick={() => setOpen((v) => !v)}
         style={{
-          fontFamily: fontFa,
+          fontFamily: lang === "en" ? fontLatin : fontFa,
           fontSize: 12,
           fontWeight: 600,
           padding: "4px 12px",
@@ -2025,7 +2046,7 @@ function SavedStoriesSortMenu({ sortKey, setSortKey }) {
           whiteSpace: "nowrap",
         }}
       >
-        ⇅ مرتب‌سازی: {current.label}
+        ⇅ {tr("sortByLabel", lang)}: {current[lang]}
       </button>
       {open && (
         <>
@@ -2034,10 +2055,11 @@ function SavedStoriesSortMenu({ sortKey, setSortKey }) {
             style={{ position: "fixed", inset: 0, zIndex: 40 }}
           />
           <div
+            dir={lang === "en" ? "ltr" : "rtl"}
             style={{
               position: "absolute",
               top: "calc(100% + 6px)",
-              right: 0,
+              [lang === "en" ? "left" : "right"]: 0,
               zIndex: 41,
               backgroundColor: "white",
               border: `1px solid ${colors.cardBorder}`,
@@ -2057,8 +2079,8 @@ function SavedStoriesSortMenu({ sortKey, setSortKey }) {
                 style={{
                   display: "block",
                   width: "100%",
-                  textAlign: "right",
-                  fontFamily: fontFa,
+                  textAlign: lang === "en" ? "left" : "right",
+                  fontFamily: lang === "en" ? fontLatin : fontFa,
                   fontSize: 13,
                   fontWeight: opt.key === sortKey ? 700 : 500,
                   padding: "9px 14px",
@@ -2067,7 +2089,7 @@ function SavedStoriesSortMenu({ sortKey, setSortKey }) {
                   color: colors.ink,
                 }}
               >
-                {opt.label}
+                {opt[lang]}
               </button>
             ))}
           </div>
@@ -2084,15 +2106,16 @@ function SavedStoriesSortMenu({ sortKey, setSortKey }) {
 // Use/اسلنگ/علاقه‌مندی‌ها (WordList) و هم تبِ «لغات ذخیره‌شده»
 // (SavedWordsPanel) بتونن با گزینه‌های خودشون همینو استفاده کنن، بدونِ
 // تکرارِ کدِ منویِ کشویی.
-function GenericSortMenu({ sortKey, setSortKey, options }) {
+function GenericSortMenu({ sortKey, setSortKey, options, uiLang }) {
   const [open, setOpen] = useState(false);
+  const lang = uiLang === "en" ? "en" : "fa";
   const current = options.find((o) => o.key === sortKey) || options[0];
   return (
     <div style={{ position: "relative", flexShrink: 0 }}>
       <button
         onClick={() => setOpen((v) => !v)}
         style={{
-          fontFamily: fontFa,
+          fontFamily: lang === "en" ? fontLatin : fontFa,
           fontSize: 12,
           fontWeight: 600,
           padding: "4px 12px",
@@ -2106,7 +2129,7 @@ function GenericSortMenu({ sortKey, setSortKey, options }) {
           whiteSpace: "nowrap",
         }}
       >
-        ⇅ مرتب‌سازی: {current.label}
+        ⇅ {tr("sortByLabel", lang)}: {current[lang] ?? current.label}
       </button>
       {open && (
         <>
@@ -2115,10 +2138,11 @@ function GenericSortMenu({ sortKey, setSortKey, options }) {
             style={{ position: "fixed", inset: 0, zIndex: 40 }}
           />
           <div
+            dir={lang === "en" ? "ltr" : "rtl"}
             style={{
               position: "absolute",
               top: "calc(100% + 6px)",
-              right: 0,
+              [lang === "en" ? "left" : "right"]: 0,
               zIndex: 41,
               backgroundColor: "white",
               border: `1px solid ${colors.cardBorder}`,
@@ -2138,8 +2162,8 @@ function GenericSortMenu({ sortKey, setSortKey, options }) {
                 style={{
                   display: "block",
                   width: "100%",
-                  textAlign: "right",
-                  fontFamily: fontFa,
+                  textAlign: lang === "en" ? "left" : "right",
+                  fontFamily: lang === "en" ? fontLatin : fontFa,
                   fontSize: 13,
                   fontWeight: opt.key === sortKey ? 700 : 500,
                   padding: "9px 14px",
@@ -2148,7 +2172,7 @@ function GenericSortMenu({ sortKey, setSortKey, options }) {
                   color: colors.ink,
                 }}
               >
-                {opt.label}
+                {opt[lang] ?? opt.label}
               </button>
             ))}
           </div>
@@ -2162,11 +2186,11 @@ function GenericSortMenu({ sortKey, setSortKey, options }) {
 // Use/اسلنگ/علاقه‌مندی‌ها) — این لغات تاریخِ ذخیره‌سازی ندارن (یه دیکشنریِ
 // ثابتن)، پس فقط بر اساسِ نام (الفبا) و سطحِ CEFR مرتب می‌شن.
 const WORD_LIST_SORT_OPTIONS = [
-  { key: "default", label: "پیش‌فرض" },
-  { key: "nameAsc", label: "نام: الف ← ی" },
-  { key: "nameDesc", label: "نام: ی ← الف" },
-  { key: "levelAsc", label: "سطح: ساده ← سخت" },
-  { key: "levelDesc", label: "سطح: سخت ← ساده" },
+  { key: "default", fa: "پیش‌فرض", en: "Default" },
+  { key: "nameAsc", fa: "نام: الف ← ی", en: "Name: A → Z" },
+  { key: "nameDesc", fa: "نام: ی ← الف", en: "Name: Z → A" },
+  { key: "levelAsc", fa: "سطح: ساده ← سخت", en: "Level: easy → hard" },
+  { key: "levelDesc", fa: "سطح: سخت ← ساده", en: "Level: hard → easy" },
 ];
 const WORD_LIST_LEVEL_ORDER = { A1: 1, A2: 2, B1: 3, B2: 4, C1: 5, C2: 6 };
 function sortWordListEntries(list, sortKey) {
@@ -2191,10 +2215,10 @@ function sortWordListEntries(list, sortKey) {
 // بالا savedAt دارن (وقتی از پاپ‌آپِ لغت/داستان‌ساز ذخیره می‌شن)، پس
 // جدیدترین/قدیمی‌ترین هم به گزینه‌ها اضافه می‌شه.
 const SAVED_WORDS_SORT_OPTIONS = [
-  { key: "newest", label: "جدیدترین تاریخ" },
-  { key: "oldest", label: "قدیمی‌ترین تاریخ" },
-  { key: "nameAsc", label: "نام: الف ← ی" },
-  { key: "nameDesc", label: "نام: ی ← الف" },
+  { key: "newest", fa: "جدیدترین تاریخ", en: "Newest date" },
+  { key: "oldest", fa: "قدیمی‌ترین تاریخ", en: "Oldest date" },
+  { key: "nameAsc", fa: "نام: الف ← ی", en: "Name: A → Z" },
+  { key: "nameDesc", fa: "نام: ی ← الف", en: "Name: Z → A" },
 ];
 function sortSavedWordEntries(list, sortKey) {
   const arr = [...list];
@@ -8491,23 +8515,23 @@ function countOccurrences(story, word) {
 // (مثلاً زبان‌هایی با توکن‌به‌ازای‌حرفِ بیشتر) بازم truncation دیدی، همینجا
 // بالا ببرشون.
 const STORY_LENGTHS = [
-  { key: "short", label: "کوتاه", paragraphs: "1-2", paragraphMin: 1, paragraphMax: 2, sentencesHint: "short, roughly 4-6 sentences per paragraph", tokens: 1100 },
-  { key: "medium", label: "متوسط", paragraphs: "2-3", paragraphMin: 2, paragraphMax: 3, sentencesHint: "medium length, roughly 5-8 sentences per paragraph", tokens: 1900 },
-  { key: "long", label: "بلند", paragraphs: "4-6", paragraphMin: 4, paragraphMax: 6, sentencesHint: "long, roughly 6-10 sentences per paragraph", tokens: 3200 },
+  { key: "short", label: "کوتاه", labelEn: "Short", paragraphs: "1-2", paragraphMin: 1, paragraphMax: 2, sentencesHint: "short, roughly 4-6 sentences per paragraph", tokens: 1100 },
+  { key: "medium", label: "متوسط", labelEn: "Medium", paragraphs: "2-3", paragraphMin: 2, paragraphMax: 3, sentencesHint: "medium length, roughly 5-8 sentences per paragraph", tokens: 1900 },
+  { key: "long", label: "بلند", labelEn: "Long", paragraphs: "4-6", paragraphMin: 4, paragraphMax: 6, sentencesHint: "long, roughly 6-10 sentences per paragraph", tokens: 3200 },
 ];
 
 const CONTENT_TYPES = [
-  { key: "general", label: "عمومی", prompt: "a general, everyday short story" },
-  { key: "news", label: "خبری", prompt: "a short news-style report, written like a news article" },
-  { key: "psychology", label: "روان‌شناسی", prompt: "a short piece exploring a psychology or self-understanding theme" },
-  { key: "children", label: "کودکانه", prompt: "a simple, gentle children's story" },
-  { key: "funny", label: "خنده‌دار", prompt: "a lighthearted, funny, comedic story with a humorous twist" },
-  { key: "mystery", label: "رازآلود و ترسناک", prompt: "a suspenseful, mysterious, slightly scary story with an eerie atmosphere" },
-  { key: "crime", label: "جنایی", prompt: "a crime/detective story involving an investigation or mystery to solve" },
-  { key: "scientific", label: "علمی", prompt: "a short popular-science explainer written as a narrative" },
-  { key: "conversational", label: "مکالمه‌ای", prompt: "a natural back-and-forth dialogue between two people" },
-  { key: "philosophical", label: "فلسفی", prompt: "a short philosophical reflection or thought experiment" },
-  { key: "metaphysical", label: "متافیزیکی", prompt: "a short metaphysical/speculative piece about existence, mind, or reality" },
+  { key: "general", label: "عمومی", labelEn: "General", prompt: "a general, everyday short story" },
+  { key: "news", label: "خبری", labelEn: "News", prompt: "a short news-style report, written like a news article" },
+  { key: "psychology", label: "روان‌شناسی", labelEn: "Psychology", prompt: "a short piece exploring a psychology or self-understanding theme" },
+  { key: "children", label: "کودکانه", labelEn: "Children's", prompt: "a simple, gentle children's story" },
+  { key: "funny", label: "خنده‌دار", labelEn: "Funny", prompt: "a lighthearted, funny, comedic story with a humorous twist" },
+  { key: "mystery", label: "رازآلود و ترسناک", labelEn: "Mystery & scary", prompt: "a suspenseful, mysterious, slightly scary story with an eerie atmosphere" },
+  { key: "crime", label: "جنایی", labelEn: "Crime", prompt: "a crime/detective story involving an investigation or mystery to solve" },
+  { key: "scientific", label: "علمی", labelEn: "Scientific", prompt: "a short popular-science explainer written as a narrative" },
+  { key: "conversational", label: "مکالمه‌ای", labelEn: "Conversational", prompt: "a natural back-and-forth dialogue between two people" },
+  { key: "philosophical", label: "فلسفی", labelEn: "Philosophical", prompt: "a short philosophical reflection or thought experiment" },
+  { key: "metaphysical", label: "متافیزیکی", labelEn: "Metaphysical", prompt: "a short metaphysical/speculative piece about existence, mind, or reality" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -11550,7 +11574,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <p style={{ fontWeight: 700, fontSize: 16 }}>داستان‌ساز</p>
+        <p style={{ fontWeight: 700, fontSize: 16, fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{tr("tabStory", uiLang)}</p>
         <div className="flex gap-2">
           <button
             onClick={() => {
@@ -11655,7 +11679,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           <LevelFilterRow levelFilter={savedStoriesLevelFilter} setLevelFilter={setSavedStoriesLevelFilter} uiLang={uiLang} />
           {savedStories.length > 1 && (
             <div className="flex justify-start">
-              <SavedStoriesSortMenu sortKey={savedStoriesSort} setSortKey={setSavedStoriesSort} />
+              <SavedStoriesSortMenu sortKey={savedStoriesSort} setSortKey={setSavedStoriesSort} uiLang={uiLang} />
             </div>
           )}
           {savedStories.length === 0 && (
@@ -11873,7 +11897,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       <div
         style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }}
       >
-        <p style={{ fontWeight: 700, marginBottom: 10 }}>۱. زبان و سطح داستان</p>
+        <p style={{ fontWeight: 700, marginBottom: 10, fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{tr("storyLangLevelSection", uiLang)}</p>
         {storyLangOptions.length > 1 ? (
           <>
             <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>
@@ -11907,7 +11931,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               : `زبان داستان: ${storyLangLabel} (طبق زبان مقصدی که بالای صفحه انتخاب کردی)`}
           </p>
         )}
-        <p style={{ fontSize: 12, color: colors.inkSoft, margin: "0 0 6px" }}>سطح داستان</p>
+        <p style={{ fontSize: 12, color: colors.inkSoft, margin: "0 0 6px", fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{tr("storyLevelLabel", uiLang)}</p>
         <div className="flex flex-wrap gap-2 mb-1">
           {LEVELS.map((lv) => (
             <button
@@ -11926,7 +11950,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             </button>
           ))}
         </div>
-        <p style={{ fontSize: 12, color: colors.inkSoft, margin: "10px 0 6px" }}>نوع محتوا</p>
+        <p style={{ fontSize: 12, color: colors.inkSoft, margin: "10px 0 6px", fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{tr("storyContentTypeLabel", uiLang)}</p>
         <div className="flex flex-wrap gap-2 mb-1">
           {CONTENT_TYPES.map((c) => (
             <button
@@ -11936,16 +11960,17 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 padding: "4px 12px",
                 borderRadius: 20,
                 fontSize: 12,
+                fontFamily: uiLang === "en" ? fontLatin : fontFa,
                 border: `1px solid ${contentType === c.key ? colors.rose : colors.cardBorder}`,
                 backgroundColor: contentType === c.key ? colors.rose : "white",
                 color: contentType === c.key ? "white" : colors.ink,
               }}
             >
-              {c.label}
+              {uiLang === "en" ? c.labelEn : c.label}
             </button>
           ))}
         </div>
-        <p style={{ fontSize: 12, color: colors.inkSoft, margin: "10px 0 6px" }}>طول داستان</p>
+        <p style={{ fontSize: 12, color: colors.inkSoft, margin: "10px 0 6px", fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{tr("storyLengthLabel", uiLang)}</p>
         <div className="flex flex-wrap gap-2 mb-1">
           {STORY_LENGTHS.map((l) => (
             <button
@@ -11955,17 +11980,18 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 padding: "4px 12px",
                 borderRadius: 20,
                 fontSize: 12,
+                fontFamily: uiLang === "en" ? fontLatin : fontFa,
                 border: `1px solid ${storyLength === l.key ? colors.gold : colors.cardBorder}`,
                 backgroundColor: storyLength === l.key ? colors.gold : "white",
                 color: storyLength === l.key ? "white" : colors.ink,
               }}
             >
-              {l.label}
+              {uiLang === "en" ? l.labelEn : l.label}
             </button>
           ))}
         </div>
         <div className="flex items-center gap-3 mt-3">
-          <span style={{ fontSize: 13, color: colors.inkSoft }}>تعداد تکرار هر لغت</span>
+          <span style={{ fontSize: 13, color: colors.inkSoft, fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{tr("storyRepeatCountLabel", uiLang)}</span>
           <input
             type="range"
             min={1}
@@ -13547,7 +13573,7 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
           </div>
 
           <div className="flex justify-start">
-            <GenericSortMenu sortKey={sortKey} setSortKey={setSortKey} options={SAVED_WORDS_SORT_OPTIONS} />
+            <GenericSortMenu sortKey={sortKey} setSortKey={setSortKey} options={SAVED_WORDS_SORT_OPTIONS} uiLang={uiLang} />
           </div>
 
           <div className="flex items-center flex-wrap gap-2">
@@ -15995,14 +16021,14 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             <SettingsMenu appPrefs={appPrefs} setAppPrefs={setAppPrefs} user={user} onLogout={onLogout} aiSettings={aiSettings} />
           </div>
         </div>
-        <p style={{ color: colors.headerText, opacity: 0.85, fontSize: 13.5 }}>
-          از {nativeLabel} به {targetLabel} · {user?.name || user?.email}
+        <p style={{ color: colors.headerText, opacity: 0.85, fontSize: 13.5, fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }}>
+          {trf("headerFromTo", appPrefs.uiLang, { native: nativeLabel, target: targetLabel })} · {user?.name || user?.email}
         </p>
 
         {/* Language pickers */}
         <div className="mt-4">
-          <p style={{ fontSize: 13.5, color: colors.headerText, opacity: 0.85, marginBottom: 10, lineHeight: 1.9 }}>
-            زبان مادری
+          <p style={{ fontSize: 13.5, color: colors.headerText, opacity: 0.85, marginBottom: 10, lineHeight: 1.9, fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }}>
+            {tr("nativeLanguageLabel", appPrefs.uiLang)}
           </p>
           <DraggableLangRow
             order={langPickerOrder}
@@ -16015,8 +16041,8 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             onClick={(code) => setNativeLang(code)}
           />
           <div style={{ height: 1, background: "rgba(255,255,255,.14)", margin: "18px 0 14px" }} />
-          <p style={{ fontSize: 13.5, color: colors.headerText, opacity: 0.85, marginBottom: 10, lineHeight: 1.9 }}>
-            زبان‌های مقصد
+          <p style={{ fontSize: 13.5, color: colors.headerText, opacity: 0.85, marginBottom: 10, lineHeight: 1.9, fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }}>
+            {tr("targetLanguagesLabel", appPrefs.uiLang)}
           </p>
           <DraggableLangRow
             order={langPickerOrder}
@@ -16031,8 +16057,8 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 
           {targetLangList.length > 1 && (
             <>
-              <p style={{ fontSize: 12, color: colors.paperDark, margin: "10px 0 6px" }}>
-                ترتیب نمایش ترجمه‌ها (بکش تا جابجا بشه)
+              <p style={{ fontSize: 12, color: colors.paperDark, margin: "10px 0 6px", fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }}>
+                {tr("translationOrderLabel", appPrefs.uiLang)}
               </p>
               <OrderChips
                 order={targetOrder}
@@ -16079,7 +16105,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           که ترتیبِ خودِ سناریوها رو نگه می‌داره، پس اینجا نمی‌گنجه. */}
       {(tab === "words" || tab === "favorites" || tab === "vocabInUse" || tab === "slang") && (
         <div className="px-4 pt-3 flex justify-start">
-          <GenericSortMenu sortKey={wordSortKey} setSortKey={setWordSortKey} options={WORD_LIST_SORT_OPTIONS} />
+          <GenericSortMenu sortKey={wordSortKey} setSortKey={setWordSortKey} options={WORD_LIST_SORT_OPTIONS} uiLang={appPrefs.uiLang} />
         </div>
       )}
 
