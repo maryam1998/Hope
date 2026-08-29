@@ -10964,7 +10964,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     setImgReadBusy(true);
     let worker = null;
     try {
-      const Tesseract = await import("tesseract.js");
+      const Tesseract = await import("https://esm.sh/tesseract.js@5.1.1");
       const ocrLang = TESSERACT_LANG_CODE[storyLang] || "eng";
       worker = await Tesseract.createWorker(ocrLang);
       let allSentences = [];
