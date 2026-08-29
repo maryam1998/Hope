@@ -10959,17 +10959,71 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   // (بر خلافِ متنِ واقعیِ تایپ‌شده که اطمینانِ بالایی داره). این تابع فقط
   // کلماتی که اطمینانِ کافی دارن رو نگه می‌داره، پس اون آشغال‌های تزئینی
   // قبل از این‌که وارد متنِ خوانش/ترجمه بشن حذف می‌شن.
-  const IMAGE_READ_MIN_WORD_CONFIDENCE = 55;
+  const IMAGE_READ_MIN_WORD_CONFIDENCE = 62;
+  // 🐛 فیلترِ اطمینان به‌تنهایی کافی نبود: نویسه‌های تزئینیِ حاشیه (گل‌وبوته،
+  // خط‌های جداکننده) که کنارِ هم یه شکلِ نامفهوم می‌سازن (مثلِ «5°»، «§ [%»،
+  // «A i i ,.») گاهی از نظرِ خودِ Tesseract اطمینانِ بالایی هم می‌گیرن — چون
+  // مطمئنه یه‌چیزی اونجا هست، فقط نمی‌دونه دقیقاً چیه. این تابع هر «کلمه»‌ای
+  // که بیشترِ نویسه‌هاش حرف نباشن (یعنی بیشتر از علامت/عدد/فاصله تشکیل شده)
+  // رو هم حذف می‌کنه، چون متنِ زبانِ واقعی تقریباً همیشه بیشترش حرفه.
+  const MIN_LETTER_RATIO = 0.5;
+  function wordLooksLikeText(word) {
+    if (!word) return false;
+    const letters = (word.match(/\p{L}/gu) || []).length;
+    return letters / word.length >= MIN_LETTER_RATIO;
+  }
   function cleanOcrPageText(data) {
     const words = data?.words;
     if (Array.isArray(words) && words.length) {
       return words
         .filter((w) => (typeof w.confidence === "number" ? w.confidence : 100) >= IMAGE_READ_MIN_WORD_CONFIDENCE)
+        .filter((w) => wordLooksLikeText(w.text))
         .map((w) => w.text)
         .join(" ")
         .trim();
     }
     return (data?.text || "").trim();
+  }
+
+  // 🐛 عکس‌هایی که ورودیِ OCR می‌شن معمولاً پوستر/عکسِ چاپی‌ان، نه اسکنِ
+  // سفیدِ ساده — متنِ تیره روی زمینه‌ی گرادیانی/عکسِ رنگی (مثلِ آسمونِ
+  // غروب یا کاغذِ قدیمی) کنتراستِ پایینی داره و همین باعثِ اشتباه‌خوانی‌های
+  // فاحش می‌شه (مثلاً «These» رو «J» یا «Help» رو «ME» تشخیص بده). این تابع
+  // قبل از OCR، عکس رو خاکستری می‌کنه و کنتراستش رو تا سیاه‌ترین/سفیدترین
+  // نقطه‌ی واقعیِ خودِ عکس می‌کِشه (اگه عکس از قبل کنتراستِ خوبی داشت، این
+  // عملاً بی‌اثره)؛ و اگه عکس کوچیک بود (مثلاً یه اسکرین‌شاتِ فشرده) تا
+  // حداقلِ ۱۶۰۰پیکسل بزرگش می‌کنه، چون فونت‌های تزئینی/کج به‌جزئیاتِ
+  // بیشتری نیاز دارن تا شکلِ حرف‌ها قاطیِ هم نشه.
+  async function preprocessImageForOcr(file) {
+    const bitmap = await createImageBitmap(file);
+    const MIN_LONG_SIDE = 1600;
+    const longSide = Math.max(bitmap.width, bitmap.height);
+    const scale = longSide < MIN_LONG_SIDE ? MIN_LONG_SIDE / longSide : 1;
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const px = imageData.data;
+    let minLum = 255, maxLum = 0;
+    const lum = new Float32Array(w * h);
+    for (let i = 0, p = 0; i < px.length; i += 4, p++) {
+      const g = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+      lum[p] = g;
+      if (g < minLum) minLum = g;
+      if (g > maxLum) maxLum = g;
+    }
+    const range = Math.max(maxLum - minLum, 1);
+    for (let i = 0, p = 0; i < px.length; i += 4, p++) {
+      const stretched = Math.min(255, Math.max(0, ((lum[p] - minLum) / range) * 255));
+      px[i] = px[i + 1] = px[i + 2] = stretched;
+    }
+    ctx.putImageData(imageData, 0, 0);
+    return canvas;
   }
 
   const handleImagesImportForReading = async (e) => {
@@ -10990,6 +11044,15 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       const Tesseract = await import("https://esm.sh/tesseract.js@5.1.1");
       const ocrLang = TESSERACT_LANG_CODE[storyLang] || "eng";
       worker = await Tesseract.createWorker(ocrLang);
+      // 🐛 حالتِ پیش‌فرضِ Tesseract («تحلیلِ کاملِ چیدمانِ صفحه») روی عکس‌های
+      // تزئینی (حاشیه‌ی گل‌وبوته + عکسِ پس‌زمینه‌ی رنگی کنارِ متن) گاهی
+      // اشتباهی چندتا «ستون»ِ غیرواقعی تشخیص می‌ده و ترتیبِ خوندنِ خط‌ها رو
+      // به‌هم می‌ریزه. SINGLE_COLUMN («فرض کن یه ستونِ تکی از متنه، با
+      // اندازه‌های مختلف») دقیقاً مناسبِ همین نوع پوستر/نقل‌قولِ شعرگونه‌ست.
+      try {
+        const { PSM } = Tesseract;
+        await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_COLUMN });
+      } catch {}
       // پنلِ خوانش رو همون اولِ کار ریست می‌کنیم (نه بعد از تمومِ همه‌ی
       // عکس‌ها) — چون قراره متنِ هر عکس همین که آماده شد، فوراً به
       // paragraphs اضافه بشه و کاربر بتونه شروع به خوندن کنه، بدونِ اینکه
@@ -11001,11 +11064,26 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setError("");
       setRepeatNotice("");
       let allSentences = [];
+      // اگه کاربر همین الان (یا مکث‌شده) داره به همین داستان گوش می‌ده، برای
+      // اینکه اضافه‌شدنِ متنِ عکسِ بعدی پخش رو از سرِ جمله برنگردونه (دقیقاً
+      // همون باگی که قبلاً اینجا بود)، هر بار قبل از رشدِ متن موقعیتِ دقیقِ
+      // پخش رو یادداشت می‌کنیم و بلافاصله بعد از رشدِ متن، همون‌جا رو دوباره
+      // به speechController می‌دیم — انگار اصلاً متن عوض نشده.
+      let langForKey = storyLang;
       for (let i = 0; i < files.length; i++) {
         setImgReadProgress(uiLang === "en" ? `Image ${i + 1} of ${files.length}...` : `عکسِ ${i + 1} از ${files.length}...`);
-        const { data } = await worker.recognize(files[i]);
+        // اگه پیش‌پردازش (خاکستری/کنتراست/بزرگ‌نمایی) به هر دلیلی شکست خورد
+        // (مثلاً فرمتِ عکسِ پشتیبانی‌نشده تویِ createImageBitmap)، خودِ فایلِ
+        // خام رو مستقیم به Tesseract می‌دیم — بهتر از این‌که کلِ خوندنِ همین
+        // عکس لغو بشه.
+        let ocrSource = files[i];
+        try {
+          ocrSource = await preprocessImageForOcr(files[i]);
+        } catch {}
+        const { data } = await worker.recognize(ocrSource);
         const pageText = cleanOcrPageText(data);
         if (pageText) {
+          const prevFullText = allSentences.join(" ");
           allSentences.push(...splitTextIntoSentenceStrings(pageText));
           // به‌محضِ آماده‌شدنِ متنِ همین عکس، paragraphs رو دوباره از رویِ
           // کلِ جملاتِ جمع‌شده تا این لحظه می‌سازیم و نشون می‌دیم — یعنی
@@ -11013,15 +11091,32 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           // عکس‌ها هنوز دارن پشتِ‌صحنه OCR می‌شن.
           const fullRawTextSoFar = allSentences.join(" ");
           const detectedLang = detectPastedTextLanguage(fullRawTextSoFar);
-          if (detectedLang) setStoryLang(detectedLang);
+          if (detectedLang) { setStoryLang(detectedLang); langForKey = detectedLang; }
           setStoryLevel(detectTextCEFRLevel(fullRawTextSoFar));
           const storyParagraphsSoFar = [];
           for (let j = 0; j < allSentences.length; j += PDF_READ_SENTENCES_PER_PARAGRAPH) {
             const chunk = allSentences.slice(j, j + PDF_READ_SENTENCES_PER_PARAGRAPH);
             storyParagraphsSoFar.push({ sentences: chunk.map((text) => ({ text })) });
           }
+          const locale = TTS_LOCALE[langForKey] || "en-US";
+          const prevKey = prevFullText ? `${locale}::${prevFullText}` : null;
+          const prevState = speechController.getState();
+          const wasActiveOnThisStory = !!prevKey && prevState.key === prevKey && prevState.status !== "idle";
+          const resumeOffset = wasActiveOnThisStory ? speechController.getCharOffset() : null;
+          const wasPlaying = wasActiveOnThisStory && prevState.status === "playing";
           setParagraphs(storyParagraphsSoFar);
           setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
+          if (wasActiveOnThisStory) {
+            // متنِ تازه (طولانی‌تر) رو جایگزینِ سشنِ فعلی می‌کنیم، دقیقاً از
+            // همون آفستی که تا الان پخش/مکث شده بود — نه از اولِ جمله.
+            speechController.toggle(fullRawTextSoFar, langForKey, resumeOffset, { loop: true });
+            if (!wasPlaying) {
+              // اگه مکث بود، همین الان که سشنِ تازه شروع به پخش کرد، فوراً
+              // دوباره مکثش می‌کنیم تا حالتِ «مکث» حفظ بشه، نه اینکه خودکار
+              // شروع به خوندن کنه.
+              speechController.toggle(fullRawTextSoFar, langForKey);
+            }
+          }
         }
         // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — بدونِ این،
         // پردازشِ چند عکسِ پشتِ‌هم UI رو قفل نشون می‌ده.
@@ -13179,6 +13274,39 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                       startOffset={translatedStartOffset}
                                     />
                                   )}
+                                  {/* دکمه‌ی رفرش قبلاً آخرین فرزندِ این div بود، یعنی توی
+                                      متن‌های راست‌به‌چپ (dir=rtl) چون فرزندِ آخر بود همیشه
+                                      سمتِ چپِ خط می‌افتاد — کنارِ آیکونِ بلندگو نبود. حالا
+                                      درست بعد از SpeakButton (یعنی همون سمتِ راست، قبل از
+                                      خودِ متنِ ترجمه) گذاشته شده تا دوتا دکمه کنارِ هم، سمتِ
+                                      راستِ خط بمونن. دکمه‌ی رفرش همیشه نشون داده می‌شه — حتی
+                                      وقتی `translated` خالیه (یعنی ترجمه‌ی خودکار اصلاً شکست
+                                      خورده و برای همیشه روی «در حال ترجمه...» گیر کرده) —
+                                      چون کاربر باید بتونه چنین جمله‌ای رو هم retry کنه. */}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      retranslateStorySentence(pi, si, code, s.text);
+                                    }}
+                                    disabled={!!retranslatingSentences[`${pi}-${si}-${code}`]}
+                                    title={translated ? (uiLang === "en" ? "If this translation is wrong, try again" : "اگه این ترجمه اشتباهه، دوباره امتحان کن") : (uiLang === "en" ? "Not translated — tap to retry" : "ترجمه نشده — برای امتحانِ دوباره بزن")}
+                                    aria-label={uiLang === "en" ? "Retranslate" : "ترجمه‌ی دوباره"}
+                                    style={{
+                                      background: "none",
+                                      border: "none",
+                                      padding: 4,
+                                      flexShrink: 0,
+                                      cursor: retranslatingSentences[`${pi}-${si}-${code}`] ? "default" : "pointer",
+                                      display: "flex",
+                                      alignItems: "center",
+                                    }}
+                                  >
+                                    {retranslatingSentences[`${pi}-${si}-${code}`] ? (
+                                      <Loader2 size={12} className="spin" color={translationColor} />
+                                    ) : (
+                                      <RotateCcw size={12} color={translationColor} style={{ opacity: translated ? 0.6 : 1 }} />
+                                    )}
+                                  </button>
                                   <p
                                     style={{
                                       flex: 1,
@@ -13220,35 +13348,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                       <span style={{ color: colors.inkSoft, opacity: 0.7 }}>{uiLang === "en" ? "(translating...)" : "(در حال ترجمه...)"}</span>
                                     )}
                                   </p>
-                                  {/* دکمه‌ی رفرش همیشه نشون داده می‌شه — حتی وقتی `translated`
-                                      خالیه (یعنی ترجمه‌ی خودکار اصلاً شکست خورده و برای همیشه
-                                      روی «در حال ترجمه...» گیر کرده)، چون قبلاً این دکمه فقط
-                                      وقتی translated پر بود رندر می‌شد و کاربر هیچ راهی برای
-                                      retry کردنِ جمله‌ای که ترجمه‌ش اصلاً نگرفته بود نداشت. */}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      retranslateStorySentence(pi, si, code, s.text);
-                                    }}
-                                    disabled={!!retranslatingSentences[`${pi}-${si}-${code}`]}
-                                    title={translated ? (uiLang === "en" ? "If this translation is wrong, try again" : "اگه این ترجمه اشتباهه، دوباره امتحان کن") : (uiLang === "en" ? "Not translated — tap to retry" : "ترجمه نشده — برای امتحانِ دوباره بزن")}
-                                    aria-label={uiLang === "en" ? "Retranslate" : "ترجمه‌ی دوباره"}
-                                    style={{
-                                      background: "none",
-                                      border: "none",
-                                      padding: 4,
-                                      flexShrink: 0,
-                                      cursor: retranslatingSentences[`${pi}-${si}-${code}`] ? "default" : "pointer",
-                                      display: "flex",
-                                      alignItems: "center",
-                                    }}
-                                  >
-                                    {retranslatingSentences[`${pi}-${si}-${code}`] ? (
-                                      <Loader2 size={12} className="spin" color={translationColor} />
-                                    ) : (
-                                      <RotateCcw size={12} color={translationColor} style={{ opacity: translated ? 0.6 : 1 }} />
-                                    )}
-                                  </button>
                                 </div>
                               );
                             })}
@@ -13345,6 +13444,35 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                   startOffset={translatedStartOffset}
                                 />
                               )}
+                              {/* رفرش قبلاً بعد از <p> بود، یعنی توی متن‌های راست‌به‌چپ
+                                  (dir=rtl) به‌عنوانِ فرزندِ آخر همیشه سمتِ چپِ خط می‌افتاد.
+                                  حالا کنارِ SpeakButton، سمتِ راستِ خط جا گرفته. */}
+                              {translated && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    retranslateStoryParagraph(pi, code);
+                                  }}
+                                  disabled={!!retranslatingSentences[`${pi}-all-${code}`]}
+                                  title={uiLang === "en" ? "If this translation is wrong, try again" : "اگه این ترجمه اشتباهه، دوباره امتحان کن"}
+                                  aria-label={uiLang === "en" ? "Retranslate" : "ترجمه‌ی دوباره"}
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    padding: 4,
+                                    flexShrink: 0,
+                                    cursor: retranslatingSentences[`${pi}-all-${code}`] ? "default" : "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                  }}
+                                >
+                                  {retranslatingSentences[`${pi}-all-${code}`] ? (
+                                    <Loader2 size={12} className="spin" color={translationColor} />
+                                  ) : (
+                                    <RotateCcw size={12} color={translationColor} style={{ opacity: 0.6 }} />
+                                  )}
+                                </button>
+                              )}
                               <p
                                 style={{
                                   flex: 1,
@@ -13386,32 +13514,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                   <span style={{ color: colors.inkSoft, opacity: 0.7 }}>{uiLang === "en" ? "(translating...)" : "(در حال ترجمه...)"}</span>
                                 )}
                               </p>
-                              {translated && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    retranslateStoryParagraph(pi, code);
-                                  }}
-                                  disabled={!!retranslatingSentences[`${pi}-all-${code}`]}
-                                  title={uiLang === "en" ? "If this translation is wrong, try again" : "اگه این ترجمه اشتباهه، دوباره امتحان کن"}
-                                  aria-label={uiLang === "en" ? "Retranslate" : "ترجمه‌ی دوباره"}
-                                  style={{
-                                    background: "none",
-                                    border: "none",
-                                    padding: 4,
-                                    flexShrink: 0,
-                                    cursor: retranslatingSentences[`${pi}-all-${code}`] ? "default" : "pointer",
-                                    display: "flex",
-                                    alignItems: "center",
-                                  }}
-                                >
-                                  {retranslatingSentences[`${pi}-all-${code}`] ? (
-                                    <Loader2 size={12} className="spin" color={translationColor} />
-                                  ) : (
-                                    <RotateCcw size={12} color={translationColor} style={{ opacity: 0.6 }} />
-                                  )}
-                                </button>
-                              )}
                             </div>
                           );
                         })}
