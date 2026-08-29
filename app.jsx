@@ -14,6 +14,7 @@ import DailyConversationsTab from "./DailyConversationsTab.jsx";
 // نگاشتِ سطح‌بندیِ لغات)، مکالمات موضوعی هم به‌صورت خودکار دیده بشن.
 const ALL_DAILY_CONVERSATIONS = [...DAILY_CONVERSATIONS, ...(THEMATIC_CONVERSATIONS || [])];
 import RangeSliderFilter from "./RangeSliderFilter.jsx";
+import { LINGOVA_CHARACTERS, LINGOVA_CHARACTER_KEYS } from "./LINGOVA_CHARACTERS.js";
 
 // ---------------------------------------------------------------------------
 // جستجوی یکپارچه‌ی «یا از دیکشنری جستجو کن...» توی داستان‌ساز — به‌جای
@@ -1892,9 +1893,13 @@ function loadAppPrefs() {
       // کردنش آدمک رو حذف نمی‌کنه، فقط با ترنزیشنِ opacity محو می‌شه (خودِ
       // راه‌رفتن/تایمرهاش پشتِ صحنه ادامه دارن، فقط دیده نمی‌شه).
       mascotEnabled: parsed.mascotEnabled !== false,
+      // کدوم کاراکتر به‌جایِ آدمکِ کلاسیک نشون داده بشه — "classic" همون
+      // آدمکِ اصلیِ کدنویسی‌شده‌ست (پیش‌فرض)، بقیه‌ی کلیدها از LINGOVA_CHARACTERS
+      // میان (تصویرهایِ آماده‌ای که کاربر اضافه کرد).
+      mascotCharacter: LINGOVA_CHARACTER_KEYS.includes(parsed.mascotCharacter) ? parsed.mascotCharacter : "classic",
     };
   } catch (e) {
-    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali", highlightColor: HIGHLIGHT_COLOR_PALETTE[0], mascotOutfit: "classic", mascotEnabled: true };
+    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali", highlightColor: HIGHLIGHT_COLOR_PALETTE[0], mascotOutfit: "classic", mascotEnabled: true, mascotCharacter: "classic" };
   }
 }
 function saveAppPrefs(prefs) {
@@ -6158,9 +6163,66 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
             ))}
           </div>
 
+          {/* کاراکترِ آدمک — «کلاسیک» همون آدمکِ اصلیِ کدنویسی‌شده‌ست (لباسش
+              پایین‌تر قابلِ‌تغییره و راه‌رفتنش پا-به-پاست). بقیه‌ی گزینه‌ها
+              تصویرِ آماده‌ن (یک‌تیکه، نه لایه‌لایه)، برایِ همین راه‌رفتنشون
+              به‌جایِ تاب‌خوردنِ پا/دست، فقط جابه‌جاییِ کلی + یه bounceِ
+              بالا-پایینه (کلاسِ lingova-char-bounce، پایین‌تر تویِ خودِ
+              LingovaMascot). با زدنِ روی هرکدوم، همون لحظه در LingovaMascot
+              اعمال می‌شه (mascotCharacter از appPrefs میاد). */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
+            {uiLang === "en" ? "Mascot character" : "کاراکترِ آدمک"}
+          </p>
+          <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
+            {LINGOVA_CHARACTER_KEYS.map((key) => {
+              const selected = (appPrefs.mascotCharacter || "classic") === key;
+              const isClassic = key === "classic";
+              const label = isClassic ? (uiLang === "en" ? "Classic" : "کلاسیک") : LINGOVA_CHARACTERS[key].label;
+              return (
+                <button
+                  key={key}
+                  onClick={() => update("mascotCharacter", key)}
+                  aria-pressed={selected}
+                  title={label}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 4,
+                    padding: "6px 8px",
+                    borderRadius: 12,
+                    fontSize: 11,
+                    border: `1px solid ${selected ? colors.gold : colors.cardBorder}`,
+                    backgroundColor: selected ? colors.goldSoft : "white",
+                    color: colors.ink,
+                    width: 64,
+                  }}
+                >
+                  {isClassic ? (
+                    <span style={{ width: 30, height: 38, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+                      <svg viewBox="0 0 30 38" width="26" height="33">
+                        <circle cx="15" cy="8" r="5" fill={colors.gold} />
+                        <rect x="12" y="13" width="6" height="12" rx="3" fill={colors.teal} />
+                        <rect x="11.5" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+                        <rect x="16" y="25" width="2.4" height="10" rx="1.2" fill={colors.ink} />
+                      </svg>
+                    </span>
+                  ) : (
+                    <img src={LINGOVA_CHARACTERS[key].png} alt={label} style={{ width: 34, height: 34, objectFit: "contain" }} />
+                  )}
+                  <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 58 }}>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+
           {/* لباسِ آدمکِ Lingova — سه دست‌لباسِ آماده؛ هر دکمه با دو نقطه‌رنگ
               (پیراهن/شلوار) پیش‌نمایش داده می‌شه. گزینه‌ی «کلاسیک» از رنگِ
-              تمِ فعلیِ اپ پیروی می‌کنه، دو تای دیگه رنگِ ثابت دارن. */}
+              تمِ فعلیِ اپ پیروی می‌کنه، دو تای دیگه رنگِ ثابت دارن. این بخش
+              فقط وقتی معنی داره که کاراکترِ کلاسیک انتخاب باشه (بقیه‌ی
+              کاراکترها تصویرِ آماده‌ان و لباسِ جداگانه ندارن). */}
+          {(appPrefs.mascotCharacter || "classic") === "classic" && (
+          <>
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
             {uiLang === "en" ? "Mascot outfit" : "لباسِ آدمک"}
           </p>
@@ -6202,6 +6264,8 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
               );
             })}
           </div>
+          </>
+          )}
 
           {/* نمایش/محوشدنِ آدمکِ متحرک — خاموش‌کردنش آدمک رو یهو حذف
               نمی‌کنه، با یه ترنزیشنِ نرمِ opacity محو می‌شه (به همین دلیل
@@ -16391,7 +16455,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         }}
         className="px-4 pt-6 pb-5"
       >
-        <LingovaMascot uiLang={appPrefs.uiLang} fontZoom={APP_FONT_SIZES[appPrefs.fontSize]?.zoom || 1} outfitKey={appPrefs.mascotOutfit} enabled={appPrefs.mascotEnabled !== false} />
+        <LingovaMascot uiLang={appPrefs.uiLang} fontZoom={APP_FONT_SIZES[appPrefs.fontSize]?.zoom || 1} outfitKey={appPrefs.mascotOutfit} enabled={appPrefs.mascotEnabled !== false} characterKey={appPrefs.mascotCharacter} />
         <div className="flex items-center justify-end mb-1">
           <div className="flex items-center gap-2.5">
             {user?.picture ? (
@@ -20360,7 +20424,7 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX, paused
   };
 }
 
-function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = true }) {
+function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = true, characterKey = "classic" }) {
   const trackRef = useRef(null);
   const [trackWidth, setTrackWidth] = useState(0);
 
@@ -20740,42 +20804,67 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
           />
         </div>
       )}
-      <svg
-        viewBox="0 0 30 38"
-        width={LINGOVA_MASCOT_WIDTH}
-        height={LINGOVA_MASCOT_HEIGHT}
-        style={{ overflow: "visible", display: "block", transform: `scaleX(${facing})` }}
-      >
-        {/* چماق — دستِ نگه‌دارنده‌اش وقتِ راه‌رفتن تاب می‌خوره، وقتِ
-            هشدار (بی‌تعاملیِ کاربر) بالا نگه داشته می‌شه */}
-        <g
-          className={effectiveMode === "alert" ? "lingova-arm-alert" : effectiveMode === "walk" ? "lingova-arm-walk" : ""}
-          style={{ transformOrigin: "18px 15px" }}
-        >
-          <rect x="17" y="3" width="2.6" height="11" rx="1.3" fill="#8a5a2b" />
-          <circle cx="18.3" cy="3" r="2.6" fill="#6b4423" />
-        </g>
-        {/* سر — موقعِ «خوندن» یکم به‌سمتِ پایین خم می‌شه، انگار حواسش به متنه */}
-        <g
+      {characterKey && characterKey !== "classic" && LINGOVA_CHARACTERS[characterKey] ? (
+        // کاراکترهایِ آماده (غیرِکلاسیک) — یه تصویرِ یک‌تیکه‌ن، پس بر خلافِ
+        // آدمکِ کلاسیک نمی‌تونن پا/دستشون رو جدا تاب بدن. حرکتشون فقط از دو
+        // جا میاد: ۱) scaleX(facing) رویِ خودِ svg بالا که کلِ بدنه رو
+        // برعکسِ جهتِ حرکت می‌چرخونه (دقیقاً همون مکانیزمِ آدمکِ کلاسیک) و
+        // ۲) کلاسِ lingova-char-bounce که فقط موقعِ راه‌رفتن یه بالا-پایینِ
+        // ریز بهش می‌ده — انگار قدم برمی‌داره، بدونِ نیاز به لایه‌لایه‌بودنِ
+        // تصویر.
+        <img
+          src={LINGOVA_CHARACTERS[characterKey].png}
+          alt={LINGOVA_CHARACTERS[characterKey].label}
+          draggable={false}
+          className={effectiveMode === "walk" ? "lingova-char-bounce" : ""}
           style={{
-            transform: effectiveMode === "read" ? "rotate(18deg)" : "none",
-            transformOrigin: "15px 8px",
-            transition: "transform 0.35s ease",
+            width: LINGOVA_MASCOT_WIDTH,
+            height: LINGOVA_MASCOT_HEIGHT,
+            objectFit: "contain",
+            display: "block",
+            transform: `scaleX(${facing})`,
+            userSelect: "none",
+            pointerEvents: "none",
           }}
+        />
+      ) : (
+        <svg
+          viewBox="0 0 30 38"
+          width={LINGOVA_MASCOT_WIDTH}
+          height={LINGOVA_MASCOT_HEIGHT}
+          style={{ overflow: "visible", display: "block", transform: `scaleX(${facing})` }}
         >
-          <circle cx="15" cy="8" r="5" fill={colors.gold} />
-          <circle cx="17" cy="7.2" r="0.8" fill={colors.ink} />
-        </g>
-        {/* تنه (پیراهن) */}
-        <rect x="12" y="13" width="6" height="12" rx="3" fill={shirtColor} />
-        {/* پاها (شلوار) — فقط موقعِ راه‌رفتن (چه رویِ نوار، چه سرِ جا) تاب می‌خورن */}
-        <g className={effectiveMode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "13px 25px" }}>
-          <rect x="11.5" y="25" width="2.4" height="10" rx="1.2" fill={pantsColor} />
-        </g>
-        <g className={effectiveMode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "17px 25px" }}>
-          <rect x="16" y="25" width="2.4" height="10" rx="1.2" fill={pantsColor} />
-        </g>
-      </svg>
+          {/* چماق — دستِ نگه‌دارنده‌اش وقتِ راه‌رفتن تاب می‌خوره، وقتِ
+              هشدار (بی‌تعاملیِ کاربر) بالا نگه داشته می‌شه */}
+          <g
+            className={effectiveMode === "alert" ? "lingova-arm-alert" : effectiveMode === "walk" ? "lingova-arm-walk" : ""}
+            style={{ transformOrigin: "18px 15px" }}
+          >
+            <rect x="17" y="3" width="2.6" height="11" rx="1.3" fill="#8a5a2b" />
+            <circle cx="18.3" cy="3" r="2.6" fill="#6b4423" />
+          </g>
+          {/* سر — موقعِ «خوندن» یکم به‌سمتِ پایین خم می‌شه، انگار حواسش به متنه */}
+          <g
+            style={{
+              transform: effectiveMode === "read" ? "rotate(18deg)" : "none",
+              transformOrigin: "15px 8px",
+              transition: "transform 0.35s ease",
+            }}
+          >
+            <circle cx="15" cy="8" r="5" fill={colors.gold} />
+            <circle cx="17" cy="7.2" r="0.8" fill={colors.ink} />
+          </g>
+          {/* تنه (پیراهن) */}
+          <rect x="12" y="13" width="6" height="12" rx="3" fill={shirtColor} />
+          {/* پاها (شلوار) — فقط موقعِ راه‌رفتن (چه رویِ نوار، چه سرِ جا) تاب می‌خورن */}
+          <g className={effectiveMode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "13px 25px" }}>
+            <rect x="11.5" y="25" width="2.4" height="10" rx="1.2" fill={pantsColor} />
+          </g>
+          <g className={effectiveMode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "17px 25px" }}>
+            <rect x="16" y="25" width="2.4" height="10" rx="1.2" fill={pantsColor} />
+          </g>
+        </svg>
+      )}
     </div>
   );
 
@@ -20876,6 +20965,8 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
         .lingova-arm-walk { animation: lingovaArmWalk 0.5s linear infinite; }
         .lingova-arm-alert { animation: lingovaArmAlert 0.6s ease-in-out infinite; }
         .lingova-bubble { animation: lingovaBubbleBob 1s ease-in-out infinite; }
+        @keyframes lingovaCharBounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+        .lingova-char-bounce { animation: lingovaCharBounce 0.5s ease-in-out infinite; }
       `}</style>
     </>
   );
