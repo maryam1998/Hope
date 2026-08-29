@@ -5023,6 +5023,25 @@ function englishLangName(code) {
   return ENGLISH_LANG_NAME[code] || code;
 }
 
+// نگاشتِ کدِ زبونِ خودِ برنامه (LANGUAGES) به کدِ زبونِ موردِ انتظارِ
+// Tesseract.js (برای «خوندن/ترجمه‌ی متنِ عکس») — این کتابخونه از کدهای
+// سه‌حرفیِ traineddata استفاده می‌کنه، نه از کدهای دوحرفیِ خودِ برنامه.
+const TESSERACT_LANG_CODE = {
+  fa: "fas",
+  en: "eng",
+  it: "ita",
+  hi: "hin",
+  tr: "tur",
+  ar: "ara",
+  es: "spa",
+  de: "deu",
+  fr: "fra",
+  zh: "chi_sim",
+  ko: "kor",
+  ru: "rus",
+  ja: "jpn",
+};
+
 // Languages that read right-to-left — used so any text block (story
 // sentences, translations, custom words the user types) gets the correct
 // direction/alignment no matter which language it's actually written in,
@@ -8404,6 +8423,13 @@ function OrderChips({ order, languages, onReorder, onRemove }) {
 function DraggableToggleLangGrid({ order, onReorder, languages, selected, onToggle }) {
   const [dragCode, setDragCode] = useState(null);
   const stateRef = useRef({ code: null, x: 0, y: 0, dragging: false });
+  // اگه واقعاً کشیده شده بود، رویدادِ click ای که مرورگر خودش بعد از
+  // mouseup/touchend می‌سازه نباید باعثِ toggle بشه — این پرچم همون یک تپ
+  // بعدی رو خنثی می‌کنه (خودِ toggle حالا از رویِ onClick واقعیِ عنصر انجام
+  // می‌شه، نه از رویِ شنونده‌های window، که رویِ بعضی webviewها/موبایل‌ها
+  // قابل‌اعتماد نبود و باعث می‌شد تپ‌کردن روی زبون‌ها اصلاً چیزی رو
+  // انتخاب نکنه).
+  const suppressClickRef = useRef(false);
 
   useEffect(() => {
     const DRAG_THRESHOLD = 8; // px — کمتر از این، تپ حساب می‌شه نه کشیدن
@@ -8438,9 +8464,9 @@ function DraggableToggleLangGrid({ order, onReorder, languages, selected, onTogg
 
     const handleUp = () => {
       const st = stateRef.current;
-      // فقط اگه واقعاً کشیده نشده بود (یعنی همون‌جا رها شد)، تپ حساب
-      // می‌شه و انتخاب/عدمِ انتخابش عوض می‌شه.
-      if (st.code && !st.dragging) onToggle(st.code);
+      // اگه واقعاً کشیده شده بود، همون تک‌تپِ بعدیِ click (که خودِ مرورگر
+      // بعد از mouseup/touchend می‌سازه) نباید toggle کنه.
+      if (st.dragging) suppressClickRef.current = true;
       stateRef.current = { code: null, x: 0, y: 0, dragging: false };
       setDragCode(null);
     };
@@ -8474,6 +8500,16 @@ function DraggableToggleLangGrid({ order, onReorder, languages, selected, onTogg
             onTouchStart={(e) => {
               const t = e.touches[0];
               stateRef.current = { code, x: t.clientX, y: t.clientY, dragging: false };
+            }}
+            onClick={() => {
+              // خودِ toggle این‌جا انجام می‌شه (رویِ onClickِ واقعیِ عنصر)،
+              // نه با شنودِ mouseup/touchendِ روی window — همون چیزی که قبلاً
+              // باعث می‌شد تپ‌کردن روی چیپ‌ها هیچ زبونی رو انتخاب نکنه.
+              if (suppressClickRef.current) {
+                suppressClickRef.current = false;
+                return;
+              }
+              onToggle(code);
             }}
             style={{
               touchAction: "none",
@@ -9136,6 +9172,15 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
   const [pdfReadProgress, setPdfReadProgress] = useState("");
   const [pdfReadError, setPdfReadError] = useState("");
   const pdfReadInputRef = useRef(null);
+  // «وارد کردنِ عکس برای خوندن/ترجمه» — دقیقاً همون الگوی «وارد کردنِ PDF
+  // برای خوانش» بالا، فقط منبعش عکسه: با Tesseract.js (OCR)، متنِ رویِ
+  // هر عکس تو خودِ مرورگر استخراج می‌شه (هیچ عکسی به هیچ سروری فرستاده
+  // نمی‌شه)، بعد دقیقاً وارد همون سیستمِ خوانش/ترجمه/صدای داستان می‌شه.
+  // کاربر می‌تونه هر تعداد عکس که بخواد یه‌جا انتخاب کنه (بدون سقفِ تعداد).
+  const [imgReadBusy, setImgReadBusy] = useState(false);
+  const [imgReadProgress, setImgReadProgress] = useState("");
+  const [imgReadError, setImgReadError] = useState("");
+  const imgReadInputRef = useRef(null);
   // خروجیِ «PDF دوزبانه» — برخلافِ دوتای بالا (که فقط متنِ PDF رو
   // استخراج می‌کنن)، این‌یکی خودِ فایل رو دست‌نخورده نگه می‌داره: هر صفحه‌ی
   // اصلی (با عکس/چیدمانِ خودش) دقیقاً همون‌جوری که هست به‌صورتِ عکس رندر
@@ -10896,6 +10941,78 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     }
   };
 
+  // «وارد کردنِ عکس برای خوندن/ترجمه» — همون منطقِ handlePdfImportForReading
+  // بالا (paragraphs مستقیم از رویِ متنِ استخراج‌شده ساخته می‌شه، بدونِ
+  // دخالتِ AI)، با این تفاوت که به‌جایِ pdf.js از Tesseract.js برای OCR
+  // (تشخیصِ متنِ رویِ عکس) استفاده می‌کنیم. کاربر می‌تونه چند عکس رو یه‌جا
+  // انتخاب کنه (مثلاً چند صفحه از یه کتاب که خودش عکس گرفته) — متنِ همه‌ی
+  // عکس‌ها به‌ترتیب به هم می‌چسبه و یه داستان/متنِ واحد برای خوندن می‌شه.
+  const IMAGE_READ_MAX_BYTES_PER_FILE = 25 * 1024 * 1024; // ۲۵ مگابایت برای هر عکس
+
+  const handleImagesImportForReading = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (e.target) e.target.value = "";
+    if (!files.length) return;
+    setImgReadError("");
+    const oversized = files.find((f) => f.size > IMAGE_READ_MAX_BYTES_PER_FILE);
+    if (oversized) {
+      setImgReadError(uiLang === "en"
+        ? `"${oversized.name}" exceeds the ${Math.round(IMAGE_READ_MAX_BYTES_PER_FILE / (1024 * 1024))}MB per-image limit`
+        : `«${oversized.name}» بیشتر از سقفِ ${Math.round(IMAGE_READ_MAX_BYTES_PER_FILE / (1024 * 1024))} مگابایتِ هر عکسه`);
+      return;
+    }
+    setImgReadBusy(true);
+    let worker = null;
+    try {
+      const Tesseract = await import("tesseract.js");
+      const ocrLang = TESSERACT_LANG_CODE[storyLang] || "eng";
+      worker = await Tesseract.createWorker(ocrLang);
+      let allSentences = [];
+      for (let i = 0; i < files.length; i++) {
+        setImgReadProgress(uiLang === "en" ? `Image ${i + 1} of ${files.length}...` : `عکسِ ${i + 1} از ${files.length}...`);
+        const { data } = await worker.recognize(files[i]);
+        const pageText = (data?.text || "").trim();
+        if (pageText) allSentences.push(...splitTextIntoSentenceStrings(pageText));
+        // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — بدونِ این،
+        // پردازشِ چند عکسِ پشتِ‌هم UI رو قفل نشون می‌ده.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      if (!allSentences.length) {
+        setImgReadError(uiLang === "en"
+          ? "No text could be recognized in these images"
+          : "متنی تو این عکس‌ها تشخیص داده نشد");
+        return;
+      }
+      const fullRawText = allSentences.join(" ");
+      const detectedLang = detectPastedTextLanguage(fullRawText);
+      if (detectedLang) setStoryLang(detectedLang);
+      setStoryLevel(detectTextCEFRLevel(fullRawText));
+      const storyParagraphs = [];
+      for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
+        const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
+        storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
+      }
+      setParagraphs(storyParagraphs);
+      setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
+      setCurrentStoryId(null);
+      setQuestions([]);
+      setAnswers({});
+      setSubmitted(false);
+      setError("");
+      setRepeatNotice("");
+    } catch (err) {
+      setImgReadError(uiLang === "en"
+        ? "There was a problem reading text from these images"
+        : "خوندنِ متن از این عکس‌ها مشکل داشت");
+    } finally {
+      if (worker) {
+        try { await worker.terminate(); } catch {}
+      }
+      setImgReadBusy(false);
+      setImgReadProgress("");
+    }
+  };
+
   // «خروجی PDF دوزبانه» — فایلِ خامِ PDF (عکس‌ها/چیدمانِ اصلی) دست‌نخورده
   // می‌مونه: هر صفحه با pdf.js دقیقاً همون‌جوری که هست به یک عکس رندر و
   // در یک PDFِ خروجیِ تازه گذاشته می‌شه، و بلافاصله بعدش یک صفحه‌ی
@@ -12318,6 +12435,39 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         </button>
         {pdfReadError && (
           <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfReadError}</p>
+        )}
+
+        <input
+          ref={imgReadInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={handleImagesImportForReading}
+          style={{ display: "none" }}
+        />
+        <button
+          onClick={() => imgReadInputRef.current?.click()}
+          disabled={imgReadBusy}
+          className="flex items-center justify-center gap-2"
+          style={{
+            width: "100%",
+            border: `1px dashed ${colors.cardBorder}`,
+            borderRadius: 14,
+            padding: "10px 16px",
+            fontWeight: 700,
+            fontSize: 13,
+            color: colors.teal,
+            opacity: imgReadBusy ? 0.6 : 1,
+            marginTop: 10,
+          }}
+        >
+          {imgReadBusy ? <Loader2 size={16} className="spin" /> : <span>🖼️</span>}
+          {imgReadBusy
+            ? (imgReadProgress || (uiLang === "en" ? "Reading images..." : "در حال خوندنِ عکس‌ها..."))
+            : (uiLang === "en" ? "Import images to translate & read" : "وارد کردنِ عکس برای ترجمه و خوانش")}
+        </button>
+        {imgReadError && (
+          <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{imgReadError}</p>
         )}
 
         <input
@@ -18556,6 +18706,8 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
                 aiSettings={aiSettings}
                 nativeLang={nativeLang}
                 ClickableSentence={ClickableSentence}
+                highlightColor={highlightColor}
+                autoScrollActive={autoScrollActive}
               />
             )}
             <WordExamples word={w.en} langCode="en" meaningNative={w.fa} nativeLang={nativeLang} targetLangs={effectiveDisplayLangs} aiSettings={aiSettings} />
@@ -18754,13 +18906,39 @@ function WordTargetTranslation({ word, wordId, pos, langCode, abbr, knownText, n
 // رندر می‌شه، انتخابِ آزادِ یه تکه از همون مثال هم (نگاه کن به ClickableSentence)
 // همون‌جا قابل افزودن به داستانه.
 // ---------------------------------------------------------------------------
+// یه لغتی که همین الان دقیقاً همینِ متن (نه یه متنِ بزرگ‌ترِ شامل‌ش) داره
+// با speechController خونده می‌شه یا نه — برای هایلایتِ زنده‌ی خودِ همین
+// جمله، دقیقاً همون معیاری که خودِ SpeakButton برای isActive استفاده
+// می‌کنه (state.key === `${locale}::${text}` && status !== "idle"). چون
+// جمله/کالوکیشنِ ثابتِ کتاب (VocabBookExample) بخشی از یه fullTextِ
+// بزرگ‌ترِ پیوسته نیست (نه مثلِ خودِ لیستِ لغات)، همین کافیه: یعنی هر بار
+// کاربر دقیقاً روی 🔊ِ همین جمله بزنه (یا یه SpeakButtonِ دیگه‌ای که دقیقاً
+// همین fullText رو صدا بزنه)، این true می‌شه.
+function useActiveSpeech(text, code) {
+  const [active, setActive] = useState(false);
+  useEffect(() => {
+    if (!text) {
+      setActive(false);
+      return;
+    }
+    const myKey = `${TTS_LOCALE[code] || "en-US"}::${text}`;
+    const update = (state) => setActive(state.key === myKey && state.status !== "idle");
+    update(speechController.getState());
+    return speechController.subscribe(update);
+  }, [text, code]);
+  return active;
+}
+
 // ترجمه‌ی جمله‌یِ مثال/کالوکیشنِ ثابتِ کتاب (تبِ «Vocabulary in Use») به یک
 // زبانِ مقصدِ مشخص — دقیقاً همون الگویِ WordExampleTranslationLine (بالاتر)
 // برای مثال‌هایِ AI-ساز، فقط این‌جا به‌جایِ کشِ example.translations، از همون
 // کشِ سراسریِ loadWordTranslation/saveWordTranslation استفاده می‌کنه (متنِ
 // جمله رو نرمالایز و کلید می‌کنه) — چون این جمله‌ها ثابتِ دیتان، نه رکوردِ
 // AI با id.
-function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings }) {
+// highlightColor/autoScrollActive: دقیقاً همون دو پراپی که WordTargetTranslation
+// برای هایلایتِ زنده/اسکرولِ خودکارِ ردیف‌های ترجمه‌ی لغات استفاده می‌کنه —
+// اینجا هم عیناً همون رفتار رو برای ترجمه‌ی مثالِ ثابتِ کتاب فعال می‌کنه.
+function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings, highlightColor, autoScrollActive }) {
   // ⛔️ همون فیکسِ WordTargetTranslation (بالاتر) اینجا هم لازم بود: قبلاً
   // نتیجه‌ی translateFree — چه از کش، چه تازه — بدونِ هیچ چکی مستقیم
   // ست/کش می‌شد. وقتی همه‌ی سرویس‌های ترجمه برای یه جمله (که معمولاً از
@@ -18821,12 +18999,23 @@ function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text, targetLang]);
 
+  // هایلایتِ زنده + اسکرولِ خودکار — دقیقاً همون دو رفتاری که
+  // WordTargetTranslation برای ردیف‌های ترجمه‌ی لیستِ لغات داره؛ اینجا
+  // معیارِ «فعال» بودن اینه که همین الان دقیقاً همینِ ترجمه (نه یه متنِ
+  // دیگه) با 🔊ِ همین ردیف در حالِ پخشه.
+  const isActive = useActiveSpeech(translation, targetLang);
+  const rowRef = useRef(null);
+  useEffect(() => {
+    if (!autoScrollActive || !isActive || !rowRef.current) return;
+    rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [autoScrollActive, isActive]);
+
   if (!translation) {
     return <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 4 }}>در حال ترجمه...</p>;
   }
 
   return (
-    <div className="flex items-center gap-2" style={{ marginTop: 4, direction: "ltr" }}>
+    <div ref={rowRef} className="flex items-center gap-2" style={{ marginTop: 4, direction: "ltr" }}>
       <span
         style={{
           fontFamily: fontFa,
@@ -18841,7 +19030,20 @@ function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings }) {
       >
         {abbr || targetLang.toUpperCase()}
       </span>
-      <p style={{ flex: 1, fontSize: 12, fontWeight: 800, color: translationColor }}>{translation}</p>
+      <p style={{ flex: 1, fontSize: 12, fontWeight: 800, color: translationColor }}>
+        <span
+          style={{
+            backgroundColor: highlightBg(highlightColor, isActive),
+            borderRadius: 5,
+            padding: isActive ? "2px 4px" : "2px 0",
+            WebkitBoxDecorationBreak: "clone",
+            boxDecorationBreak: "clone",
+            transition: "background-color 0.35s ease",
+          }}
+        >
+          {translation}
+        </span>
+      </p>
       <SpeakButton text={translation} code={targetLang} color={translationColor} edge="end" />
       <button
         onClick={handleRetry}
@@ -18863,7 +19065,24 @@ function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings }) {
 // لبه‌ی راستِ ردیف (edge="end"، عیناً مثلِ بقیه‌ی تب‌ها)، و زیرش ترجمه‌ی
 // جمله‌ی مثال به هرکدوم از زبان‌های مقصدِ انتخابیِ کاربر — تا بشه متنِ خودِ
 // کتاب رو هم مثلِ مثال‌های AI-ساز به هر زبانی ترجمه/شنید.
-function VocabBookExample({ collocation, example, targetLangs, aiSettings, nativeLang, ClickableSentence }) {
+// highlightColor/autoScrollActive: عیناً همون دو پراپی که بقیه‌ی جاهای اپ
+// (ردیفِ اصلیِ لغت، ردیف‌های ترجمه‌اش) برای هایلایتِ زنده‌ی خودِ متن حینِ
+// پخش + اسکرولِ خودکار به سمتش استفاده می‌کنن — قبلاً به این کامپوننت
+// اصلاً پاس داده نمی‌شدن، پس کالوکیشن/مثالِ ثابتِ کتاب هیچ‌وقت هایلایت/
+// اسکرول نمی‌گرفتن، حتی وقتی 🔊ِ خودشون زده می‌شد.
+function VocabBookExample({ collocation, example, targetLangs, aiSettings, nativeLang, ClickableSentence, highlightColor, autoScrollActive }) {
+  const collocationActive = useActiveSpeech(collocation, "en");
+  const exampleActive = useActiveSpeech(example, "en");
+  const collocationRef = useRef(null);
+  const exampleRef = useRef(null);
+  useEffect(() => {
+    if (!autoScrollActive || !collocationActive || !collocationRef.current) return;
+    collocationRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [autoScrollActive, collocationActive]);
+  useEffect(() => {
+    if (!autoScrollActive || !exampleActive || !exampleRef.current) return;
+    exampleRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [autoScrollActive, exampleActive]);
   return (
     <div
       style={{
@@ -18875,39 +19094,69 @@ function VocabBookExample({ collocation, example, targetLangs, aiSettings, nativ
       }}
     >
       {collocation && (
-        <div className="flex items-center gap-2" style={{ direction: "ltr" }}>
+        <div ref={collocationRef} className="flex items-center gap-2" style={{ direction: "ltr" }}>
           <p style={{ flex: 1, margin: 0, fontSize: 12 }}>
-            <ClickableSentence
-              text={collocation}
-              langCode="en"
-              nativeLang={nativeLang}
-              aiSettings={aiSettings}
-              color={colors.teal}
-              fontWeight={700}
-              fontSize={12}
-            />
+            <span
+              style={{
+                backgroundColor: highlightBg(highlightColor, collocationActive),
+                borderRadius: 5,
+                padding: collocationActive ? "2px 4px" : "2px 0",
+                WebkitBoxDecorationBreak: "clone",
+                boxDecorationBreak: "clone",
+                transition: "background-color 0.35s ease",
+              }}
+            >
+              <ClickableSentence
+                text={collocation}
+                langCode="en"
+                nativeLang={nativeLang}
+                aiSettings={aiSettings}
+                color={colors.teal}
+                fontWeight={700}
+                fontSize={12}
+              />
+            </span>
           </p>
           <SpeakButton text={collocation} code="en" color={colors.teal} edge="end" />
         </div>
       )}
       {example && (
-        <div className="flex items-center gap-2" style={{ marginTop: collocation ? 4 : 0, direction: "ltr" }}>
+        <div ref={exampleRef} className="flex items-center gap-2" style={{ marginTop: collocation ? 4 : 0, direction: "ltr" }}>
           <p style={{ flex: 1, margin: 0, fontSize: 12.5, lineHeight: 1.5, fontStyle: "italic" }}>
-            <ClickableSentence
-              text={example}
-              langCode="en"
-              nativeLang={nativeLang}
-              aiSettings={aiSettings}
-              color={colors.inkSoft}
-              fontSize={12.5}
-            />
+            <span
+              style={{
+                backgroundColor: highlightBg(highlightColor, exampleActive),
+                borderRadius: 5,
+                padding: exampleActive ? "2px 4px" : "2px 0",
+                WebkitBoxDecorationBreak: "clone",
+                boxDecorationBreak: "clone",
+                transition: "background-color 0.35s ease",
+              }}
+            >
+              <ClickableSentence
+                text={example}
+                langCode="en"
+                nativeLang={nativeLang}
+                aiSettings={aiSettings}
+                color={colors.inkSoft}
+                fontSize={12.5}
+              />
+            </span>
           </p>
           <SpeakButton text={example} code="en" color={colors.teal} edge="end" />
         </div>
       )}
       {example &&
         (targetLangs || []).map((l) => (
-          <VocabBookExampleTranslation key={l.code} text={example} targetLang={l.code} abbr={l.abbr} aiSettings={aiSettings} />
+          <VocabBookExampleTranslation
+            key={l.code}
+            text={example}
+            targetLang={l.code}
+            abbr={l.abbr}
+            aiSettings={aiSettings}
+            highlightColor={highlightColor}
+            autoScrollActive={autoScrollActive}
+          />
         ))}
     </div>
   );
