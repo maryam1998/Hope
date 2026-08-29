@@ -361,11 +361,34 @@ function LineTranslation({ text, langCode, variant, i, knownFa, aiSettings, tran
   );
 }
 
+// ---------------------------------------------------------------------------
+// 🐛 باگِ اصلی («زبانِ مادری روی فارسی قفل شده»): ردیف‌های ترجمه‌ی این تب
+// (چه توی خودِ ConversationBox، چه توی سیستمِ «خواندنِ پیوسته»ی پایین‌تر)
+// همیشه از رویِ `targetLangs` (زبان‌های *مقصد*ی که کاربر داره یاد می‌گیره)
+// ساخته می‌شدن — نه `nativeLang` (زبانِ مادریِ واقعیِ کاربر که جدا از
+// targetLangs پاس داده می‌شه). وقتی targetLangs خالی بود، مستقیم به‌جای
+// nativeLang از رشته‌ی هاردکدشده‌ی "fa" استفاده می‌شد؛ و حتی وقتی targetLangs
+// چیزی داشت، اگه زبانِ مادریِ کاربر (مثلاً آلمانی) جزوِ همون لیستِ یادگیری
+// نبود، هیچ ردیفی برای زبانِ مادری‌ش اصلاً نشون داده نمی‌شد. نتیجه: عملاً
+// انتخابِ زبانِ مادری هیچ‌وقت این تب رو تحتِ‌تأثیر قرار نمی‌داد و همیشه (یا
+// فارسی، یا فقط زبان‌های یادگیری) نشون داده می‌شد. راه‌حل: دقیقاً همون
+// الگویی که برای WordList/PhraseList (تبِ لغات/عبارات) پیاده شد — زبانِ
+// مادری همیشه اول لیست میاد (اگه از قبل جزوِ targetLangs نبود)، بعد زبان‌های
+// یادگیری.
+function buildDisplayLangCodes(nativeLang, targetLangs) {
+  const targetCodes = (targetLangs && targetLangs.length ? targetLangs.map((l) => l.code) : []).filter((c) => c !== "en");
+  if (nativeLang && nativeLang !== "en" && !targetCodes.includes(nativeLang)) {
+    return [nativeLang, ...targetCodes];
+  }
+  if (targetCodes.length) return targetCodes;
+  return nativeLang && nativeLang !== "en" ? [nativeLang] : ["fa"];
+}
+
 function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSettings, ClickableSentence, SpeakButton, targetLangs, translateFree, activeLine, registerLineRef, highlightColor, fullText, lineOffsets, autoScrollActive, translationTextInfo, activeTranslationLine, onResolveTranslation }) {
   const isHear = variant === "hear";
   if (items.length === 0) return null;
   const accent = isHear ? colors.teal : colors.gold;
-  const langCodes = (targetLangs && targetLangs.length ? targetLangs.map((l) => l.code) : ["fa"]).filter((c) => c !== "en");
+  const langCodes = buildDisplayLangCodes(nativeLang, targetLangs);
   return (
     <div>
       {/* eyebrow: بج دایره‌ای رنگی (تیل برای می‌شنوی، طلایی برای می‌گی) + برچسب —
@@ -615,7 +638,12 @@ export default function DailyConversationsTab({
   const [extraLangMaps, setExtraLangMaps] = useState({}); // { [langCode]: Map<en, translation> }
   useEffect(() => {
     if (!getCachedTranslationMap || !query || !query.trim()) return;
-    const codes = Array.from(new Set((targetLangs || []).map((l) => l.code))).filter((c) => c !== "en" && c !== "fa");
+    // نکته: "fa" همیشه حذف می‌شه چون it.fa از قبل توی خودِ دیتاست و مستقیم
+    // (بدونِ نیاز به کش) توی itemMatchesQuery چک می‌شه؛ ولی برخلافِ قبل،
+    // اگه زبانِ مادریِ کاربر چیزِ دیگه‌ای (نه فارسی) باشه، الان اون هم جزوِ
+    // این لیست میاد — وگرنه جستجو فقط رویِ زبان‌های یادگیری کار می‌کرد، نه
+    // رویِ ترجمه‌ی زبانِ مادریِ واقعیِ کاربر.
+    const codes = Array.from(new Set(buildDisplayLangCodes(nativeLang, targetLangs))).filter((c) => c !== "en" && c !== "fa");
     if (!codes.length) return;
     let cancelled = false;
     const timer = setTimeout(() => {
@@ -629,7 +657,7 @@ export default function DailyConversationsTab({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, targetLangs, getCachedTranslationMap]);
+  }, [query, nativeLang, targetLangs, getCachedTranslationMap]);
 
   // یه خطِ مکالمه، صرف‌نظر از اینکه it.t (زبان‌های ثابتِ توی دیتا) داره یا
   // نه، آیا با عبارتِ جستجو‌شده (q) — چه تو متنِ اصلیِ انگلیسی، چه فارسیِ
@@ -801,8 +829,8 @@ export default function DailyConversationsTab({
   }, [activeTopic, openScenario]);
 
   const targetLangCodes = useMemo(
-    () => (targetLangs && targetLangs.length ? targetLangs.map((l) => l.code) : ["fa"]).filter((c) => c !== "en"),
-    [targetLangs]
+    () => buildDisplayLangCodes(nativeLang, targetLangs),
+    [nativeLang, targetLangs]
   );
 
   const translationTextInfo = useMemo(() => {
