@@ -20848,22 +20848,10 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
           height={LINGOVA_MASCOT_HEIGHT}
           style={{ overflow: "visible", display: "block", transform: `scaleX(${facing})` }}
         >
-          {/* دستِ چپ (آزاد، بدونِ چماق) — قبلاً اصلاً وجود نداشت و فقط دستِ
-              راست تاب می‌خورد؛ الان هم‌فازِ پای راسته (دقیقاً برعکسِ دستِ
-              راست که هم‌فازِ پای چپه) — همینِ «دست و پایِ مخالف با هم جلو»
-              همون چیزیه که راه‌رفتن رو واقعی نشون می‌ده. */}
+          {/* چماق — دستِ نگه‌دارنده‌اش وقتِ راه‌رفتن تاب می‌خوره، وقتِ
+              هشدار (بی‌تعاملیِ کاربر) بالا نگه داشته می‌شه */}
           <g
-            className={effectiveMode === "walk" ? "lingova-arm-l-walk" : ""}
-            style={{ transformOrigin: "12.5px 15px" }}
-          >
-            <rect x="11.3" y="15" width="2.2" height="9" rx="1.1" fill={shirtColor} />
-          </g>
-          {/* چماق — دستِ نگه‌دارنده‌اش وقتِ راه‌رفتن هم‌فازِ پای چپ تاب
-              می‌خوره (قبلاً اشتباهاً هم‌فازِ پای راست بود، یعنی دست و پایِ
-              همون سمت با هم جلو می‌رفتن — که برعکسِ راه‌رفتنِ طبیعیه)،
-              وقتِ هشدار (بی‌تعاملیِ کاربر) بالا نگه داشته می‌شه */}
-          <g
-            className={effectiveMode === "alert" ? "lingova-arm-alert" : effectiveMode === "walk" ? "lingova-arm-r-walk" : ""}
+            className={effectiveMode === "alert" ? "lingova-arm-alert" : effectiveMode === "walk" ? "lingova-arm-walk" : ""}
             style={{ transformOrigin: "18px 15px" }}
           >
             <rect x="17" y="3" width="2.6" height="11" rx="1.3" fill="#8a5a2b" />
@@ -20880,31 +20868,14 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
             <circle cx="15" cy="8" r="5" fill={colors.gold} />
             <circle cx="17" cy="7.2" r="0.8" fill={colors.ink} />
           </g>
-          {/* تنه (پیراهن) — موقعِ راه‌رفتن یه دیپِ خیلی جزئی داره (دو بار در
-              هر چرخه، یعنی هر قدم یه بار)، انگار وزنِ بدن داره رد می‌شه */}
-          <g className={effectiveMode === "walk" ? "lingova-torso-bob" : ""}>
-            <rect x="12" y="13" width="6" height="12" rx="3" fill={shirtColor} />
+          {/* تنه (پیراهن) */}
+          <rect x="12" y="13" width="6" height="12" rx="3" fill={shirtColor} />
+          {/* پاها (شلوار) — فقط موقعِ راه‌رفتن (چه رویِ نوار، چه سرِ جا) تاب می‌خورن */}
+          <g className={effectiveMode === "walk" ? "lingova-leg-l" : ""} style={{ transformOrigin: "13px 25px" }}>
+            <rect x="11.5" y="25" width="2.4" height="10" rx="1.2" fill={pantsColor} />
           </g>
-          {/* پاها — قبلاً هرکدوم فقط یه میله‌ی صافِ یه‌تیکه بود که از رون
-              می‌چرخید (شبیهِ پرگار، نه راه‌رفتن). حالا هر پا دو مفصله
-              (رون + ساق + یه کفِ‌پای کوچیک): رون هم‌چنان از لگن تاب
-              می‌خوره، ولی ساق فقط تویِ نیمه‌ای از چرخه که همون پا داره از
-              عقب به جلو کشیده می‌شه (فازِ «هوا») از زانو جمع می‌شه — انگار
-              پا از زمین کنده شده تا رد بشه؛ تویِ نیمه‌ی دیگه (فازِ
-              «تکیه‌گاه») صاف می‌مونه، چون پا رویِ زمینه. */}
-          <g className={effectiveMode === "walk" ? "lingova-thigh-l" : ""} style={{ transformOrigin: "13px 25px" }}>
-            <rect x="11.5" y="25" width="2.4" height="6" rx="1.2" fill={pantsColor} />
-            <g className={effectiveMode === "walk" ? "lingova-shin-l" : ""} style={{ transformOrigin: "13px 31px" }}>
-              <rect x="11.5" y="31" width="2.4" height="5" rx="1.1" fill={pantsColor} />
-              <rect x="10.8" y="35.3" width="3.6" height="1.6" rx="0.7" fill={colors.ink} />
-            </g>
-          </g>
-          <g className={effectiveMode === "walk" ? "lingova-thigh-r" : ""} style={{ transformOrigin: "17px 25px" }}>
-            <rect x="16" y="25" width="2.4" height="6" rx="1.2" fill={pantsColor} />
-            <g className={effectiveMode === "walk" ? "lingova-shin-r" : ""} style={{ transformOrigin: "17px 31px" }}>
-              <rect x="16" y="31" width="2.4" height="5" rx="1.1" fill={pantsColor} />
-              <rect x="15.3" y="35.3" width="3.6" height="1.6" rx="0.7" fill={colors.ink} />
-            </g>
+          <g className={effectiveMode === "walk" ? "lingova-leg-r" : ""} style={{ transformOrigin: "17px 25px" }}>
+            <rect x="16" y="25" width="2.4" height="10" rx="1.2" fill={pantsColor} />
           </g>
         </svg>
       )}
@@ -20998,30 +20969,16 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
           document.body
         )}
       <style>{`
-        /* رونِ پا — تابِ اصلیِ راه‌رفتن، حالا با ease-in-out (نه linear) که
-           سرِ دو سرِ نوسان کُندتره، دقیقاً مثلِ یه قدمِ واقعی نه یه پرگار. */
-        @keyframes lingovaThighL { 0%, 100% { transform: rotate(22deg); } 50% { transform: rotate(-22deg); } }
-        @keyframes lingovaThighR { 0%, 100% { transform: rotate(-22deg); } 50% { transform: rotate(22deg); } }
-        /* ساقِ پا — زانو فقط تویِ فازِ «هوا»ی همون پا جمع می‌شه */
-        @keyframes lingovaShinL { 0%, 50%, 100% { transform: rotate(0deg); } 25% { transform: rotate(-42deg); } }
-        @keyframes lingovaShinR { 0%, 50%, 100% { transform: rotate(0deg); } 75% { transform: rotate(-42deg); } }
-        /* دستِ راست (چماق) هم‌فازِ پای چپه، دستِ چپ هم‌فازِ پای راست —
-           دست و پایِ مخالف با هم جلو میان، مثلِ راه‌رفتنِ واقعی */
-        @keyframes lingovaArmRWalk { 0%, 100% { transform: rotate(13deg); } 50% { transform: rotate(-13deg); } }
-        @keyframes lingovaArmLWalk { 0%, 100% { transform: rotate(-13deg); } 50% { transform: rotate(13deg); } }
+        @keyframes lingovaLegL { 0%, 100% { transform: rotate(24deg); } 50% { transform: rotate(-24deg); } }
+        @keyframes lingovaLegR { 0%, 100% { transform: rotate(-24deg); } 50% { transform: rotate(24deg); } }
+        @keyframes lingovaArmWalk { 0%, 100% { transform: rotate(-10deg); } 50% { transform: rotate(10deg); } }
         @keyframes lingovaArmAlert { 0%, 100% { transform: rotate(-95deg) translateY(0); } 50% { transform: rotate(-95deg) translateY(-2px); } }
         @keyframes lingovaBubbleBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-        /* تنه — دیپِ خیلی جزئی، دو بار در هر چرخه (هر قدم یه‌بار) */
-        @keyframes lingovaTorsoBob { 0%, 50%, 100% { transform: translateY(0); } 25%, 75% { transform: translateY(0.6px); } }
-        .lingova-thigh-l { animation: lingovaThighL 0.5s ease-in-out infinite; }
-        .lingova-thigh-r { animation: lingovaThighR 0.5s ease-in-out infinite; }
-        .lingova-shin-l { animation: lingovaShinL 0.5s ease-in-out infinite; }
-        .lingova-shin-r { animation: lingovaShinR 0.5s ease-in-out infinite; }
-        .lingova-arm-r-walk { animation: lingovaArmRWalk 0.5s ease-in-out infinite; }
-        .lingova-arm-l-walk { animation: lingovaArmLWalk 0.5s ease-in-out infinite; }
+        .lingova-leg-l { animation: lingovaLegL 0.5s linear infinite; }
+        .lingova-leg-r { animation: lingovaLegR 0.5s linear infinite; }
+        .lingova-arm-walk { animation: lingovaArmWalk 0.5s linear infinite; }
         .lingova-arm-alert { animation: lingovaArmAlert 0.6s ease-in-out infinite; }
         .lingova-bubble { animation: lingovaBubbleBob 1s ease-in-out infinite; }
-        .lingova-torso-bob { animation: lingovaTorsoBob 0.5s ease-in-out infinite; }
         @keyframes lingovaCharWalk {
           0%, 100% { transform: translateY(0) rotate(0deg); }
           25% { transform: translateY(-2px) rotate(-4deg); }
