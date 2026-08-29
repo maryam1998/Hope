@@ -10948,6 +10948,29 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   // انتخاب کنه (مثلاً چند صفحه از یه کتاب که خودش عکس گرفته) — متنِ همه‌ی
   // عکس‌ها به‌ترتیب به هم می‌چسبه و یه داستان/متنِ واحد برای خوندن می‌شه.
   const IMAGE_READ_MAX_BYTES_PER_FILE = 25 * 1024 * 1024; // ۲۵ مگابایت برای هر عکس
+  // 🐛 عکس‌های تزئینی/پوستری معمولاً دورشون کادر/گل‌وبوته/خط‌تزئینی دارن —
+  // Tesseract قبلاً کلِ عکس (از جمله همون تزئینات) رو هم سعی می‌کرد بخونه،
+  // و چیزهایی مثل کادرهای طلایی رو به‌غلط به یه مشت حرف/علامتِ الکی
+  // (مثلاً «ge((5 $C” 2) (=)...») تبدیل می‌کرد که هم خودش قاطیِ اولِ متنِ
+  // واقعی می‌شد، هم چون پر از نقل‌قول/پرانتز بود باعث می‌شد سرویسِ ترجمه
+  // به‌جای بعضی نویسه‌ها موجودیت‌های HTML خام (مثلِ &quot; یا &#10;) برگردونه.
+  // Tesseract به‌ازای هر کلمه یه «میزانِ اطمینان» (confidence، بینِ ۰ تا ۱۰۰)
+  // هم می‌ده؛ نویسه‌های تزئینیِ غیرمتنی معمولاً اطمینانِ خیلی پایینی می‌گیرن
+  // (بر خلافِ متنِ واقعیِ تایپ‌شده که اطمینانِ بالایی داره). این تابع فقط
+  // کلماتی که اطمینانِ کافی دارن رو نگه می‌داره، پس اون آشغال‌های تزئینی
+  // قبل از این‌که وارد متنِ خوانش/ترجمه بشن حذف می‌شن.
+  const IMAGE_READ_MIN_WORD_CONFIDENCE = 55;
+  function cleanOcrPageText(data) {
+    const words = data?.words;
+    if (Array.isArray(words) && words.length) {
+      return words
+        .filter((w) => (typeof w.confidence === "number" ? w.confidence : 100) >= IMAGE_READ_MIN_WORD_CONFIDENCE)
+        .map((w) => w.text)
+        .join(" ")
+        .trim();
+    }
+    return (data?.text || "").trim();
+  }
 
   const handleImagesImportForReading = async (e) => {
     const files = Array.from(e.target.files || []);
@@ -10967,12 +10990,39 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       const Tesseract = await import("https://esm.sh/tesseract.js@5.1.1");
       const ocrLang = TESSERACT_LANG_CODE[storyLang] || "eng";
       worker = await Tesseract.createWorker(ocrLang);
+      // پنلِ خوانش رو همون اولِ کار ریست می‌کنیم (نه بعد از تمومِ همه‌ی
+      // عکس‌ها) — چون قراره متنِ هر عکس همین که آماده شد، فوراً به
+      // paragraphs اضافه بشه و کاربر بتونه شروع به خوندن کنه، بدونِ اینکه
+      // منتظرِ OCR شدنِ بقیه‌ی عکس‌ها بمونه.
+      setCurrentStoryId(null);
+      setQuestions([]);
+      setAnswers({});
+      setSubmitted(false);
+      setError("");
+      setRepeatNotice("");
       let allSentences = [];
       for (let i = 0; i < files.length; i++) {
         setImgReadProgress(uiLang === "en" ? `Image ${i + 1} of ${files.length}...` : `عکسِ ${i + 1} از ${files.length}...`);
         const { data } = await worker.recognize(files[i]);
-        const pageText = (data?.text || "").trim();
-        if (pageText) allSentences.push(...splitTextIntoSentenceStrings(pageText));
+        const pageText = cleanOcrPageText(data);
+        if (pageText) {
+          allSentences.push(...splitTextIntoSentenceStrings(pageText));
+          // به‌محضِ آماده‌شدنِ متنِ همین عکس، paragraphs رو دوباره از رویِ
+          // کلِ جملاتِ جمع‌شده تا این لحظه می‌سازیم و نشون می‌دیم — یعنی
+          // کاربر عکسِ اول رو همون لحظه می‌بینه/می‌خونه، در حالی که بقیه‌ی
+          // عکس‌ها هنوز دارن پشتِ‌صحنه OCR می‌شن.
+          const fullRawTextSoFar = allSentences.join(" ");
+          const detectedLang = detectPastedTextLanguage(fullRawTextSoFar);
+          if (detectedLang) setStoryLang(detectedLang);
+          setStoryLevel(detectTextCEFRLevel(fullRawTextSoFar));
+          const storyParagraphsSoFar = [];
+          for (let j = 0; j < allSentences.length; j += PDF_READ_SENTENCES_PER_PARAGRAPH) {
+            const chunk = allSentences.slice(j, j + PDF_READ_SENTENCES_PER_PARAGRAPH);
+            storyParagraphsSoFar.push({ sentences: chunk.map((text) => ({ text })) });
+          }
+          setParagraphs(storyParagraphsSoFar);
+          setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
+        }
         // نگاه کن به توضیحِ مشابه تو handlePdfImportForReading — بدونِ این،
         // پردازشِ چند عکسِ پشتِ‌هم UI رو قفل نشون می‌ده.
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -10983,23 +11033,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           : "متنی تو این عکس‌ها تشخیص داده نشد");
         return;
       }
-      const fullRawText = allSentences.join(" ");
-      const detectedLang = detectPastedTextLanguage(fullRawText);
-      if (detectedLang) setStoryLang(detectedLang);
-      setStoryLevel(detectTextCEFRLevel(fullRawText));
-      const storyParagraphs = [];
-      for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
-        const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
-        storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
-      }
-      setParagraphs(storyParagraphs);
-      setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
-      setCurrentStoryId(null);
-      setQuestions([]);
-      setAnswers({});
-      setSubmitted(false);
-      setError("");
-      setRepeatNotice("");
     } catch (err) {
       setImgReadError(uiLang === "en"
         ? "There was a problem reading text from these images"
