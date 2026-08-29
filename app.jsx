@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
-import { WORDS_AZ } from "./WORDS_AZ.js";
+import { WORDS_AZ } from './WORDS_AZ.js';
 import { DAILY_WORDS } from "./DAILY_WORDS.js";
 import { SLANG_WORDS } from "./SLANG_WORDS.js";
 import { VOCAB_IN_USE_UNITS } from "./vocabularyInUseData.js";
@@ -9504,6 +9504,25 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
   const [translationLangs, setTranslationLangs] = useState(
     Array.from(new Set([nativeLang, ...(targetOrder || [])])).filter((c) => c !== defaultStoryLang)
   );
+  // داستان‌ساز هیچ‌وقت unmount نمی‌شه (کامنتِ بالای <StoryBuilder/> رو ببین)،
+  // پس useState بالا فقط یه بار — همون اولین لودِ اپ — nativeLang رو می‌گیره.
+  // اگه کاربر بعداً از تنظیمات زبان مادری رو عوض کنه (مثلاً fa -> de)،
+  // چیزی translationLangs رو آپدیت نمی‌کرد و ترجمه‌ها همیشه با همون زبونِ
+  // اولیه (که ممکنه دیگه اصلاً nativeLang فعلی نباشه) نشون داده می‌شدن. دقیقاً
+  // همون باگی که برای storyLang قبلاً فیکس شده بود (افکتِ چند خط بالاتر)،
+  // اینجا هم لازم بود: هر بار nativeLang واقعاً عوض بشه، زبونِ قبلی رو از
+  // لیست درمیاریم و زبونِ جدید رو جایگزینش می‌کنیم.
+  const prevNativeLangRef = useRef(nativeLang);
+  useEffect(() => {
+    const prevNativeLang = prevNativeLangRef.current;
+    prevNativeLangRef.current = nativeLang;
+    if (!nativeLang || prevNativeLang === nativeLang) return;
+    setTranslationLangs((prev) => {
+      const withoutOld = prev.includes(prevNativeLang) ? prev.filter((c) => c !== prevNativeLang) : prev;
+      if (nativeLang === storyLang || withoutOld.includes(nativeLang)) return withoutOld;
+      return [...withoutOld, nativeLang];
+    });
+  }, [nativeLang, storyLang]);
   const [granularity, setGranularity] = useState("sentence"); // "sentence" | "paragraph" | "none"
   const [questions, setQuestions] = useState([]);
   const [answers, setAnswers] = useState({});
@@ -18267,8 +18286,18 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
   // انگلیسی (چون انگلیسی همون سرلغته که بالا نشون داده می‌شه و تکرارش
   // بی‌فایده‌ست). اگه به‌هر دلیلی چیزی انتخاب نشده بود، حداقل فارسی رو نشون
   // می‌دیم تا لیست هیچ‌وقت بدون معنی نمونه.
-  const displayLangs = (targetLangs && targetLangs.length ? targetLangs.filter((l) => l.code !== "en") : []);
-  const effectiveDisplayLangs = displayLangs.length ? displayLangs : [{ code: "fa", label: "فارسی", abbr: "FA" }];
+  const targetDisplayLangs = (targetLangs && targetLangs.length ? targetLangs.filter((l) => l.code !== "en") : []);
+  // زبانِ مادریِ کاربر (nativeLang) باید همیشه جزوِ زبان‌هایی باشه که
+  // ترجمه‌شون نشون داده می‌شه — قبلاً این لیست فقط از targetLangs (زبان‌های
+  // مقصد/در حالِ یادگیری) ساخته می‌شد، و اگه nativeLang رو کاربر به‌عنوانِ
+  // یکی از زبان‌های مقصد هم اضافه نکرده بود، ترجمه‌ش هیچ‌وقت نشون داده
+  // نمی‌شد (و به‌جاش فارسیِ هاردکدشده به‌عنوانِ fallback می‌اومد).
+  const nativeDisplayLang = nativeLang && nativeLang !== "en" && !targetDisplayLangs.some((l) => l.code === nativeLang)
+    ? LANGUAGES.find((l) => l.code === nativeLang) || { code: nativeLang, label: nativeLabel || nativeLang, abbr: nativeLang.toUpperCase() }
+    : null;
+  const effectiveDisplayLangs = nativeDisplayLang
+    ? [nativeDisplayLang, ...targetDisplayLangs]
+    : (targetDisplayLangs.length ? targetDisplayLangs : [{ code: "fa", label: "فارسی", abbr: "FA" }]);
 
   const q = (query || "").trim().toLowerCase();
 
