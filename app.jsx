@@ -6166,8 +6166,9 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
           {/* کاراکترِ آدمک — «کلاسیک» همون آدمکِ اصلیِ کدنویسی‌شده‌ست (لباسش
               پایین‌تر قابلِ‌تغییره و راه‌رفتنش پا-به-پاست). بقیه‌ی گزینه‌ها
               تصویرِ آماده‌ن (یک‌تیکه، نه لایه‌لایه)، برایِ همین راه‌رفتنشون
-              به‌جایِ تاب‌خوردنِ پا/دست، فقط جابه‌جاییِ کلی + یه bounceِ
-              بالا-پایینه (کلاسِ lingova-char-bounce، پایین‌تر تویِ خودِ
+              به‌جایِ تاب‌خوردنِ پا/دست جدا، یه چرخشِ نرم (موقعِ برگشت، نه
+              پرشِ آنیِ آینه‌ای) رویِ یه لایه + یه واداکِ بالا-پایین/چپ-راست
+              رویِ لایه‌ی دیگه‌ست (کلاسِ lingova-char-walk، پایین‌تر تویِ خودِ
               LingovaMascot). با زدنِ روی هرکدوم، همون لحظه در LingovaMascot
               اعمال می‌شه (mascotCharacter از appPrefs میاد). */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
@@ -20806,27 +20807,40 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
       )}
       {characterKey && characterKey !== "classic" && LINGOVA_CHARACTERS[characterKey] ? (
         // کاراکترهایِ آماده (غیرِکلاسیک) — یه تصویرِ یک‌تیکه‌ن، پس بر خلافِ
-        // آدمکِ کلاسیک نمی‌تونن پا/دستشون رو جدا تاب بدن. حرکتشون فقط از دو
-        // جا میاد: ۱) scaleX(facing) رویِ خودِ svg بالا که کلِ بدنه رو
-        // برعکسِ جهتِ حرکت می‌چرخونه (دقیقاً همون مکانیزمِ آدمکِ کلاسیک) و
-        // ۲) کلاسِ lingova-char-bounce که فقط موقعِ راه‌رفتن یه بالا-پایینِ
-        // ریز بهش می‌ده — انگار قدم برمی‌داره، بدونِ نیاز به لایه‌لایه‌بودنِ
-        // تصویر.
-        <img
-          src={LINGOVA_CHARACTERS[characterKey].png}
-          alt={LINGOVA_CHARACTERS[characterKey].label}
-          draggable={false}
-          className={effectiveMode === "walk" ? "lingova-char-bounce" : ""}
+        // آدمکِ کلاسیک نمی‌تونن پا/دستشون رو جدا تاب بدن؛ حرکتشون از دو لایه
+        // میاد: چرخش (facing) و انیمیشنِ راه‌رفتن (واداک + بالا-پایین).
+        //
+        // نکته‌ی مهم: چرخش (facing) رویِ یه <div> جدا از خودِ <img> اعمال می‌شه،
+        // نه رویِ خودِ تصویر. قبلاً هر دو (چرخش + انیمیشنِ راه‌رفتن) رویِ یه
+        // عنصر بودن و چون انیمیشنِ CSS کلِ transform رو بازنویسی می‌کنه،
+        // چرخش (scaleX) خاموش می‌شد — یعنی آدمک هیچ‌وقت واقعاً برنمی‌گشت، فقط
+        // تاب می‌خورد و انگار داشت دنده‌عقب می‌رفت. با جدا کردنشون رویِ دو
+        // لایه، هم چرخش (با transition نرم، نه پرشِ آنی) هم راه‌رفتن هر دو
+        // درست کار می‌کنن.
+        <div
           style={{
             width: LINGOVA_MASCOT_WIDTH,
             height: LINGOVA_MASCOT_HEIGHT,
-            objectFit: "contain",
             display: "block",
             transform: `scaleX(${facing})`,
-            userSelect: "none",
-            pointerEvents: "none",
+            transition: "transform 0.32s cubic-bezier(0.65, 0, 0.35, 1)",
           }}
-        />
+        >
+          <img
+            src={LINGOVA_CHARACTERS[characterKey].png}
+            alt={LINGOVA_CHARACTERS[characterKey].label}
+            draggable={false}
+            className={effectiveMode === "walk" ? "lingova-char-walk" : ""}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              display: "block",
+              userSelect: "none",
+              pointerEvents: "none",
+            }}
+          />
+        </div>
       ) : (
         <svg
           viewBox="0 0 30 38"
@@ -20965,8 +20979,13 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
         .lingova-arm-walk { animation: lingovaArmWalk 0.5s linear infinite; }
         .lingova-arm-alert { animation: lingovaArmAlert 0.6s ease-in-out infinite; }
         .lingova-bubble { animation: lingovaBubbleBob 1s ease-in-out infinite; }
-        @keyframes lingovaCharBounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-        .lingova-char-bounce { animation: lingovaCharBounce 0.5s ease-in-out infinite; }
+        @keyframes lingovaCharWalk {
+          0%, 100% { transform: translateY(0) rotate(0deg); }
+          25% { transform: translateY(-2px) rotate(-4deg); }
+          50% { transform: translateY(0) rotate(0deg); }
+          75% { transform: translateY(-2px) rotate(4deg); }
+        }
+        .lingova-char-walk { animation: lingovaCharWalk 0.5s ease-in-out infinite; transform-origin: 50% 100%; }
       `}</style>
     </>
   );
