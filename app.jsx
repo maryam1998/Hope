@@ -7833,7 +7833,18 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     (targetTextPrefs.bold === "text" && !isTranslationInstance) ||
     (targetTextPrefs.bold === "translation" && isTranslationInstance);
   const targetEffectiveWeight = targetShouldBold ? fontWeight || 700 : 400;
-  const targetEffectiveSize = Math.round((fontSize || 14) * ((targetTextPrefs.scale || 100) / 100));
+  // 🐛 باگ: قبلاً این اسکیل رویِ *هر* نمونه‌ی ClickableSentence اعمال می‌شد —
+  // چه متنِ اصلی/مقصد بود (isTranslationInstance=false) چه ترجمه
+  // (isTranslationInstance=true) — درحالی‌که طبقِ خودِ توضیحِ کنترلِ تنظیمات
+  // ("فقط روی متنِ خارجی/ترجمه اثر می‌ذاره")، فقط باید رویِ ترجمه اعمال بشه.
+  // نتیجه‌ی باگ: چون فونتِ پایه‌یِ متنِ اصلی معمولاً از ترجمه بزرگ‌تره و هر دو
+  // با همون درصد اسکیل می‌شدن، هرچقدرم اسلایدر رو زیاد می‌کردی، ترجمه هیچ‌وقت
+  // نمی‌تونست از متنِ اصلی بزرگ‌تر بشه (هر دو با هم، با همون نسبت، بزرگ
+  // می‌شدن). حالا فقط نمونه‌ی ترجمه اسکیل می‌شه؛ متنِ اصلی همون اندازه‌ی
+  // ثابتِ خودش می‌مونه.
+  const targetEffectiveSize = isTranslationInstance
+    ? Math.round((fontSize || 14) * ((targetTextPrefs.scale || 100) / 100))
+    : (fontSize || 14);
 
   useEffect(() => {
     const refresh = () => setSavedTerms(loadSavedStoryWords().filter((e) => e.langCode === langCode));
@@ -16783,6 +16794,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             showAnswer={showAnswer}
             setShowAnswer={setShowAnswer}
             uiLang={appPrefs.uiLang}
+            aiSettings={aiSettings}
           />
         )}
 
@@ -17089,14 +17101,67 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
 }
 
 // ---------------------------------------------------------------------------
+// 🐛 باگِ اصلی: زبانِ مادری (nativeLang) روی خیلی از لیست‌ها (عبارات/VOCAB،
+// لیستِ لغاتِ خبر/اسلنگ، فلش‌کارتِ لایتنر) به‌صورتِ `p.t[nativeLang]`
+// مستقیم از رویِ دیتای ثابتِ VOCAB خونده می‌شد. دیتای VOCAB فقط برایِ یه
+// زیرمجموعه‌ی محدود از زبان‌ها (مثلاً en/fa و چندتایِ دیگه) از قبل ترجمه‌ی
+// نویسنده داره — پس اگه کاربر زبانِ مادری‌ش رو چیزی بیرونِ همون زیرمجموعه
+// می‌ذاشت (مثلاً آلمانی)، `p.t[nativeLang]` همیشه `undefined` می‌موند و کل
+// خط/متن خالی نشون داده می‌شد؛ یعنی انگار انتخابِ زبانِ مادری اصلاً اثری
+// نداشت. راه‌حل: دقیقاً همون الگویی که تبِ «لغات» (WordList/
+// WordTargetTranslation) برای این مشکل داره — اگه ترجمه‌ی ثابت نبود، اول
+// کشِ دستگاه، بعد لحظه‌ای translateFree (از رویِ متنِ انگلیسیِ ثابتِ خودِ
+// آیتم) — اینجا هم به‌صورتِ یه کامپوننتِ سبکِ مشترک (بدون رندرِ خودش، فقط
+// resolve و گزارش به بالا) پیاده می‌شه، تا هر لیستی که همین مشکل رو داره
+// بتونه ازش استفاده کنه.
+function NativeTextResolver({ resolveKey, sourceText, nativeLang, knownText, aiSettings, onResolved }) {
+  useEffect(() => {
+    if (knownText) {
+      onResolved(resolveKey, knownText);
+      return;
+    }
+    if (!sourceText || !nativeLang) return;
+    const cached = loadWordTranslation(sourceText, nativeLang);
+    if (cached) {
+      onResolved(resolveKey, cached);
+      return;
+    }
+    let cancelled = false;
+    translateFree(sourceText, nativeLang, "en", aiSettings)
+      .then((t) => {
+        if (cancelled || !t) return;
+        onResolved(resolveKey, t);
+        saveWordTranslation(sourceText, nativeLang, t);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolveKey, sourceText, nativeLang, knownText]);
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Phrase list (used for both "all conversation " and "favorites")
 // ---------------------------------------------------------------------------
 const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, targetLangs, favorites, toggleFavorite, emptyText, query, levelFilter, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, highlightColor, uiLang }) {
+  // ترجمه‌های زبانِ مادری که دیتایِ ثابت نداشتشون و لحظه‌ای/زنده resolve
+  // شدن — کلید: `${nativeLang}:${phraseId}` (تا با عوض‌شدنِ زبانِ مادری،
+  // ترجمه‌ی زبانِ قبلی به‌جایِ زبانِ جدید نمایش داده نشه).
+  const [liveNativeText, setLiveNativeText] = useState({});
+  const reportNativeText = useCallback((key, value) => {
+    setLiveNativeText((prev) => (prev[key] === value ? prev : { ...prev, [key]: value }));
+  }, []);
+  const getNativeText = useCallback(
+    (p) => p.t[nativeLang] || liveNativeText[`${nativeLang}:${p.id}`] || "",
+    [nativeLang, liveNativeText]
+  );
   const q = (query || "").trim().toLowerCase();
   let filtered = levelFilter && levelFilter !== "all" ? conversation .filter((p) => p.level === levelFilter) : conversation ;
   filtered = q
     ? filtered.filter((p) => {
-        const nativeText = (p.t[nativeLang] || "").toLowerCase();
+        const nativeText = getNativeText(p).toLowerCase();
         if (nativeText.includes(q)) return true;
         return targetLangs.some((l) => (p.t[l.code] || "").toLowerCase().includes(q));
       })
@@ -17147,7 +17212,7 @@ const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, t
     const parts = [];
     const offsets = [];
     filtered.forEach((p) => {
-      const val = p.t[nativeLang];
+      const val = getNativeText(p);
       if (!val) return;
       const start = offset;
       parts.push(val);
@@ -17156,7 +17221,7 @@ const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, t
     });
     return { fullText: parts.join(" "), offsets };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered, nativeLang]);
+  }, [filtered, nativeLang, liveNativeText]);
 
   useEffect(() => {
     if (onFullTextChange) onFullTextChange({ text: fullText, code: firstTargetCode });
@@ -17288,15 +17353,25 @@ const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, t
                         transition: "background-color 0.35s ease",
                       }}
                     >
-                      {p.t[nativeLang]}
+                      {getNativeText(p)}
                     </p>
                     <SpeakButton
-                      text={p.t[nativeLang]}
+                      text={getNativeText(p)}
                       code={nativeLang}
                       edge="end"
                       fullText={nativeInfo.fullText}
                       startOffset={nativeInfo.offsets.find((o) => o.id === p.id)?.start}
                     />
+                    {!p.t[nativeLang] && (
+                      <NativeTextResolver
+                        resolveKey={`${nativeLang}:${p.id}`}
+                        sourceText={p.t.en || ""}
+                        nativeLang={nativeLang}
+                        knownText={null}
+                        aiSettings={aiSettings}
+                        onResolved={reportNativeText}
+                      />
+                    )}
                   </div>
                   <div className="flex flex-col gap-1" style={{ marginTop: 4 }}>
                     {targetLangs.map((l) => {
@@ -17378,6 +17453,18 @@ const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, t
 // ---------------------------------------------------------------------------
 const VocabList = React.memo(function VocabList({ words, nativeLang, targetLangs, levelFilter, aiSettings, autoplayEnabled }) {
   const [openIds, setOpenIds] = useState(new Set());
+  // همون رفعِ باگِ «زبانِ مادریِ بیرون از دیتای ثابت خالی می‌مونه» که برایِ
+  // PhraseList انجام شد، اینجا هم لازم بود — قبلاً فقط `w.t.fa` fallback
+  // داشت (یعنی هر زبانِ مادریِ غیرِ فارسی که دیتا نداشتش، به‌جایِ ترجمه‌ی
+  // خودش، فارسی نشون داده می‌شد).
+  const [liveNativeText, setLiveNativeText] = useState({});
+  const reportNativeText = useCallback((key, value) => {
+    setLiveNativeText((prev) => (prev[key] === value ? prev : { ...prev, [key]: value }));
+  }, []);
+  const getNativeText = useCallback(
+    (w) => w.t[nativeLang] || liveNativeText[`${nativeLang}:${w.id}`] || "",
+    [nativeLang, liveNativeText]
+  );
 
   const toggleOpen = (id) => {
     setOpenIds((prev) => {
@@ -17388,7 +17475,7 @@ const VocabList = React.memo(function VocabList({ words, nativeLang, targetLangs
   };
 
   const filtered = levelFilter && levelFilter !== "all" ? words.filter((w) => w.level === levelFilter) : words;
-  const autoplayItems = filtered.map((w) => ({ id: w.id, text: w.t[nativeLang] ?? w.t.fa, code: nativeLang }));
+  const autoplayItems = filtered.map((w) => ({ id: w.id, text: getNativeText(w), code: nativeLang }));
   const { registerRef } = useAutoplayOnScroll(autoplayEnabled, autoplayItems);
 
   if (filtered.length === 0) {
@@ -17413,8 +17500,18 @@ const VocabList = React.memo(function VocabList({ words, nativeLang, targetLangs
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <p style={{ fontWeight: 800, fontSize: 16, color: mainTextColor }}>{w.t[nativeLang] ?? w.t.fa}</p>
-                <SpeakButton text={w.t[nativeLang] ?? w.t.fa} code={nativeLang} />
+                <p style={{ fontWeight: 800, fontSize: 16, color: mainTextColor }}>{getNativeText(w)}</p>
+                <SpeakButton text={getNativeText(w)} code={nativeLang} />
+                {!w.t[nativeLang] && (
+                  <NativeTextResolver
+                    resolveKey={`${nativeLang}:${w.id}`}
+                    sourceText={w.t.en || ""}
+                    nativeLang={nativeLang}
+                    knownText={null}
+                    aiSettings={aiSettings}
+                    onResolved={reportNativeText}
+                  />
+                )}
               </div>
               <LevelBadge level={w.level} />
             </div>
@@ -19633,7 +19730,18 @@ function LevelFilterChips({ levelFilter, setLevelFilter, levelCounts, uiLang }) 
 // ---------------------------------------------------------------------------
 // Leitner review box
 // ---------------------------------------------------------------------------
-function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, index, setIndex, showAnswer, setShowAnswer, uiLang }) {
+function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, index, setIndex, showAnswer, setShowAnswer, uiLang, aiSettings }) {
+  // همون رفعِ باگِ زبانِ مادریِ خالی: قبلاً `current.t[nativeLang]` مستقیم
+  // نمایش داده می‌شد و برایِ زبان‌هایی که VOCAB ازشون ترجمه‌ی ثابت نداشت،
+  // روییِ کارتِ فلش‌کارت هیچی نشون داده نمی‌شد.
+  const [liveNativeText, setLiveNativeText] = useState({});
+  const reportNativeText = useCallback((key, value) => {
+    setLiveNativeText((prev) => (prev[key] === value ? prev : { ...prev, [key]: value }));
+  }, []);
+  const getNativeText = useCallback(
+    (p) => (p ? p.t[nativeLang] || liveNativeText[`${nativeLang}:${p.id}`] || "" : ""),
+    [nativeLang, liveNativeText]
+  );
   // نکته‌ی مهمِ رفعِ باگ: boxes[p.id] برای عبارتی که هنوز اصلاً مرور نشده
   // undefined هست، و «undefined < 5» توی جاوااسکریپت به‌جای true، false
   // برمی‌گرده (چون undefined به NaN تبدیل می‌شه و هر مقایسه‌ای با NaN
@@ -19723,8 +19831,18 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
       >
         <div onClick={() => setShowAnswer((s) => !s)} style={{ cursor: "pointer" }}>
           <div className="flex items-center justify-center gap-2">
-            <p style={{ fontWeight: 800, fontSize: 18, color: mainTextColor }}>{current.t[nativeLang]}</p>
-            <SpeakButton text={current.t[nativeLang]} code={nativeLang} />
+            <p style={{ fontWeight: 800, fontSize: 18, color: mainTextColor }}>{getNativeText(current)}</p>
+            <SpeakButton text={getNativeText(current)} code={nativeLang} />
+            {current && !current.t[nativeLang] && (
+              <NativeTextResolver
+                resolveKey={`${nativeLang}:${current.id}`}
+                sourceText={current.t.en || ""}
+                nativeLang={nativeLang}
+                knownText={null}
+                aiSettings={aiSettings}
+                onResolved={reportNativeText}
+              />
+            )}
             {current.level && <LevelBadge level={current.level} />}
           </div>
           {!showAnswer && (
