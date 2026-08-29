@@ -1,6 +1,6 @@
 # این ورک‌فلو به‌صورتِ خودکار، هر بار که یکی از فایل‌های سورس (app.jsx،
 # RangeSliderFilter.jsx، DailyConversationsTab.jsx، یا هر کدوم از فایل‌های
-# داده مثل SLANG_WORDS.js) عوض بشه و push بشه، دوباره app.bundle.min.js رو
+# داده مثل SLANG_WORDS.js یا LINGOVA_CHARACTERS.js) عوض بشه و push بشه، دوباره app.bundle.min.js رو
 # با esbuild می‌سازه و همون فایلِ ساخته‌شده رو خودش commit می‌کنه. یعنی از
 # این به بعد فقط کافیه فایلِ سورس رو ویرایش و push کنی — دیگه لازم نیست
 # خودت (یا من) دستی باندل رو بسازی و آپلود کنی.
@@ -24,6 +24,7 @@ on:
       - "SLANG_WORDS.js"
       - "DAILY_CONVERSATIONS.js"
       - "vocabularyInUseData.js"
+      - "LINGOVA_CHARACTERS.js"
   workflow_dispatch: {}
 
 # لازمه ورک‌فلو اجازه‌ی commit/push به همین ریپو رو داشته باشه.
