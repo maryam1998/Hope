@@ -7833,18 +7833,11 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     (targetTextPrefs.bold === "text" && !isTranslationInstance) ||
     (targetTextPrefs.bold === "translation" && isTranslationInstance);
   const targetEffectiveWeight = targetShouldBold ? fontWeight || 700 : 400;
-  // 🐛 باگ: قبلاً این اسکیل رویِ *هر* نمونه‌ی ClickableSentence اعمال می‌شد —
-  // چه متنِ اصلی/مقصد بود (isTranslationInstance=false) چه ترجمه
-  // (isTranslationInstance=true) — درحالی‌که طبقِ خودِ توضیحِ کنترلِ تنظیمات
-  // ("فقط روی متنِ خارجی/ترجمه اثر می‌ذاره")، فقط باید رویِ ترجمه اعمال بشه.
-  // نتیجه‌ی باگ: چون فونتِ پایه‌یِ متنِ اصلی معمولاً از ترجمه بزرگ‌تره و هر دو
-  // با همون درصد اسکیل می‌شدن، هرچقدرم اسلایدر رو زیاد می‌کردی، ترجمه هیچ‌وقت
-  // نمی‌تونست از متنِ اصلی بزرگ‌تر بشه (هر دو با هم، با همون نسبت، بزرگ
-  // می‌شدن). حالا فقط نمونه‌ی ترجمه اسکیل می‌شه؛ متنِ اصلی همون اندازه‌ی
-  // ثابتِ خودش می‌مونه.
-  const targetEffectiveSize = isTranslationInstance
-    ? Math.round((fontSize || 14) * ((targetTextPrefs.scale || 100) / 100))
-    : (fontSize || 14);
+  // طبقِ خواستِ کاربر: اسلایدرِ «اندازه‌ی فونتِ زبانِ مقصد» دوباره رویِ *هر*
+  // نمونه‌ی ClickableSentence اعمال می‌شه — هم متنِ اصلی/مقصد، هم ترجمه —
+  // دقیقاً مثلِ حالتِ اولیه، تا با زیاد/کم‌کردنِ اسلایدر هر دو با هم به یه
+  // نسبت بزرگ/کوچیک بشن.
+  const targetEffectiveSize = Math.round((fontSize || 14) * ((targetTextPrefs.scale || 100) / 100));
 
   useEffect(() => {
     const refresh = () => setSavedTerms(loadSavedStoryWords().filter((e) => e.langCode === langCode));
