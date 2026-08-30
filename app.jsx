@@ -756,6 +756,15 @@ function useStoryUserAudio(storyKey, allSentences) {
   useEffect(() => {
     manualIndexRef.current = manualIndex;
   }, [manualIndex]);
+  // آخرین ایندکسی که هایلایت رویش «قصداً» گذاشته شده (چه با کلیکِ مستقیمِ
+  // کاربر روی یه جمله/بلندگو، چه با دکمه‌ی جمله‌ی بعد/قبل، چه با ری‌استارت).
+  // پیگیریِ خودکارِ هایلایت (پایین‌تر، داخلِ onTime) فقط مجاز است این
+  // ایندکس را به جلو ببرد، نه عقب — وگرنه به‌خاطرِ تُنُک‌بودنِ
+  // timestampsِ ثبت‌شده، بلافاصله بعدِ کلیکِ کاربر روی یه جمله (که معمولاً
+  // خودش هنوز timestamp ندارد و seek فقط یه تخمین است)، نزدیک‌ترین
+  // timestampِ ثبت‌شده‌ی *قبل‌تر* پیدا می‌شد و هایلایت/اسکرول را به یه
+  // جمله‌ی بالاترِ اشتباه می‌پراند — دقیقاً همون باگی که کاربر گزارش کرد.
+  const lastAutoIdxRef = useRef(0);
   // سرعتِ پخشِ صوتِ آپلودیِ کاربر — مستقل از سرعتِ TTS (که سراسری و
   // مخصوصِ speechController است). یه پیش‌فرضِ سراسری (نه مخصوصِ هر داستان)
   // در localStorage نگه داشته می‌شه — دقیقاً همون الگویِ phrasebook-tts-rate.
@@ -883,6 +892,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     setManualIndex(0);
     setAudioSaveError("");
     lastReportedTimeRef.current = 0;
+    lastAutoIdxRef.current = 0;
     repeatsDoneRef.current = 0;
     abARef.current = null;
     abBRef.current = null;
@@ -966,7 +976,11 @@ function useStoryUserAudio(storyKey, allSentences) {
               for (let i = 0; i < sentList.length; i++) {
                 if (sentList[i]?._pi === pi && sentList[i]?._si === si) { idx = i; break; }
               }
-              if (idx !== -1 && idx !== manualIndexRef.current) {
+              // فقط مجازیم به جلو حرکت کنیم (idx >= آخرین جهشِ قصدی) —
+              // این از پرشِ ناخواسته‌ی هایلایت به یه timestampِ قدیمی‌تر/
+              // بالاترِ صفحه جلوگیری می‌کنه (نگاه کن به توضیحِ lastAutoIdxRef).
+              if (idx !== -1 && idx !== manualIndexRef.current && idx >= lastAutoIdxRef.current) {
+                lastAutoIdxRef.current = idx;
                 manualIndexRef.current = idx;
                 setManualIndex(idx);
               }
@@ -1035,6 +1049,7 @@ function useStoryUserAudio(storyKey, allSentences) {
       audioElRef.current.load();
     }
     setManualIndex(0);
+    lastAutoIdxRef.current = 0;
     setHasAudio(true);
     clearAB();
     // نوشتنِ خودِ فایل روی IndexedDB (که برایِ فایل‌های صوتیِ حجیم ممکنه
@@ -1090,6 +1105,7 @@ function useStoryUserAudio(storyKey, allSentences) {
   function nextLine() {
     const next = Math.min(manualIndexRef.current + 1, Math.max((allSentences?.length || 1) - 1, 0));
     manualIndexRef.current = next;
+    lastAutoIdxRef.current = next;
     setManualIndex(next);
     if (audioElRef.current && !audioElRef.current.paused) {
       const s = allSentences?.[next];
@@ -1099,6 +1115,7 @@ function useStoryUserAudio(storyKey, allSentences) {
   function prevLine() {
     const prevIdx = Math.max(manualIndexRef.current - 1, 0);
     manualIndexRef.current = prevIdx;
+    lastAutoIdxRef.current = prevIdx;
     setManualIndex(prevIdx);
     if (audioElRef.current && !audioElRef.current.paused) {
       const s = allSentences?.[prevIdx];
@@ -1112,6 +1129,7 @@ function useStoryUserAudio(storyKey, allSentences) {
   // اگه مکث بود، مکث‌شده می‌مونه ولی رویِ ثانیه‌ی صفر.
   function restart() {
     manualIndexRef.current = 0;
+    lastAutoIdxRef.current = 0;
     setManualIndex(0);
     if (audioElRef.current) audioElRef.current.currentTime = 0;
   }
@@ -1120,6 +1138,52 @@ function useStoryUserAudio(storyKey, allSentences) {
   // پرشِ دقیق از نتیجه‌ی جستجو استفاده می‌شه.
   function getTimestamp(pi, si) {
     return timestampsRef.current[`${pi}-${si}`];
+  }
+
+  // برایِ جمله‌ای که هنوز timestampِ دقیق نداره: به‌جایِ تخمینِ خامِ «نسبتِ
+  // کاراکتر از کلِ متن ضربدر کلِ مدت» (که چون سرعتِ گفتار/مکث‌ها یکنواخت
+  // نیست خطایِ بزرگی داره)، بینِ نزدیک‌ترین دو جمله‌ایِ *سینک‌شده* قبل و
+  // بعدش (بر اساسِ ایندکسِ جمله، نه کاراکتر) درون‌یابی می‌کنیم — که چون به
+  // نقاطِ واقعاً اندازه‌گیری‌شده نزدیک‌تره، خیلی دقیق‌تره. اگه هیچ لنگرِ
+  // سینک‌شده‌ای نداشته باشیم، null برمی‌گردونه تا تابعِ صداکننده به همون
+  // تخمینِ نسبیِ قبلی برگرده.
+  function estimateTime(pi, si) {
+    const sentList = allSentencesRef.current;
+    if (!sentList || !sentList.length) return null;
+    let targetIdx = -1;
+    for (let i = 0; i < sentList.length; i++) {
+      if (sentList[i]?._pi === pi && sentList[i]?._si === si) { targetIdx = i; break; }
+    }
+    if (targetIdx === -1) return null;
+    const entries = timestampEntriesRef.current;
+    if (!entries.length) return null;
+    const anchors = [];
+    for (const e of entries) {
+      for (let i = 0; i < sentList.length; i++) {
+        if (sentList[i]?._pi === e.pi && sentList[i]?._si === e.si) { anchors.push({ idx: i, start: e.start }); break; }
+      }
+    }
+    if (!anchors.length) return null;
+    anchors.sort((a, b) => a.idx - b.idx);
+    let before = null, after = null;
+    for (const a of anchors) {
+      if (a.idx === targetIdx) return a.start;
+      if (a.idx < targetIdx) before = a;
+      if (a.idx > targetIdx && !after) after = a;
+    }
+    if (before && after) {
+      const ratio = (targetIdx - before.idx) / (after.idx - before.idx);
+      return before.start + ratio * (after.start - before.start);
+    }
+    if (before) {
+      const avgPace = before.idx > 0 ? before.start / before.idx : 0;
+      return before.start + avgPace * (targetIdx - before.idx);
+    }
+    if (after) {
+      const avgPace = after.idx > 0 ? after.start / after.idx : 0;
+      return Math.max(0, after.start - avgPace * (after.idx - targetIdx));
+    }
+    return null;
   }
 
   // پرشِ مستقیمِ هایلایت به یه (pi, si) مشخص — وقتی کاربر خودش مستقیماً
@@ -1137,6 +1201,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     }
     if (idx === -1) return;
     manualIndexRef.current = idx;
+    lastAutoIdxRef.current = idx;
     setManualIndex(idx);
   }
 
@@ -1147,6 +1212,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     if (audioElRef.current) audioElRef.current.removeAttribute("src");
     setHasAudio(false);
     setManualIndex(0);
+    lastAutoIdxRef.current = 0;
     setAudioSaveError("");
     if (saveTimestampsTimerRef.current) {
       clearTimeout(saveTimestampsTimerRef.current);
@@ -1164,6 +1230,15 @@ function useStoryUserAudio(storyKey, allSentences) {
     const s = allSentences[Math.min(manualIndex, allSentences.length - 1)];
     return s ? { pi: s._pi, si: s._si } : null;
   }, [allSentences, manualIndex]);
+
+  // دسترسیِ مستقیم به المانِ <audio> — لازم برایِ «ضبطِ صدایِ من +
+  // صدایِ اپ باهم» (MyVoiceRecorder): وقتی این فایلِ صوتیِ آپلودی داره
+  // پخش می‌شه، با captureStream() یه کپی از خروجیِ صداش گرفته و با
+  // میکروفون میکس می‌شه — بدونِ اینکه رویِ پخشِ عادیِ خودش (که از
+  // بلندگو شنیده می‌شه) اثری بذاره.
+  function getAudioElement() {
+    return audioElRef.current;
+  }
 
   return {
     hasAudio,
@@ -1191,6 +1266,8 @@ function useStoryUserAudio(storyKey, allSentences) {
     markAB,
     clearAB,
     getTimestamp,
+    estimateTime,
+    getAudioElement,
     timestampsTick,
   };
 }
@@ -2852,6 +2929,21 @@ const speechController = (() => {
   // خطای واقعی نیست. این فلگ همون قطع‌شدن‌های عمدی رو از خطای واقعی جدا می‌کنه.
   let expectingCancel = false;
   // ---------------------------------------------------------------------
+  // «ادامه از وسطِ جمله» — قبلاً مکث/ادامه فقط در سطحِ جمله بود: اگه وسطِ
+  // یه جمله‌ی بلند مکث می‌کردی، با زدنِ ادامه، همون جمله از اولش دوباره
+  // خونده می‌شد (چون کلاً یه utterance جدا برای هر جمله ساخته می‌شه، نه
+  // پخشِ پیوسته‌ای که currentTime داشته باشه). چون هیچ رویدادِ boundary/
+  // کلمه‌ای اینجا استفاده نمی‌شه (طبقِ توضیحِ بالای فایل)، نمی‌شه نقطه‌ی
+  // دقیقِ مکث رو مستقیم از مرورگر گرفت — پس با زمانِ سپری‌شده از شروعِ
+  // این جمله (chunkStartedAt) و نرخِ تقریبیِ حرف‌به‌ثانیه، تخمین می‌زنیم
+  // کاربر تا کجای متنِ جمله رسیده بود، و با زدنِ ادامه، فقط باقیِ متن
+  // (از نزدیک‌ترین مرزِ کلمه) رو دوباره می‌خونیم — نه کلِ جمله رو.
+  // chunkTextOffset: چقدر از متنِ همین جمله، قبل از شروعِ همین‌الانِ
+  // utterance، از قبل خونده شده بود (برایِ ادامه‌های زنجیره‌ای/چندباره).
+  const RESUME_MS_PER_CHAR = 90; // همون نرخِ تخمینیِ نوارِ پیشرفتِ پلیر
+  let chunkStartedAt = 0;
+  let chunkTextOffset = 0;
+  // ---------------------------------------------------------------------
   // «نقطه‌ی ادامه»ی سراسری و خودکار برای هر متن — کلیدش همون کلیدِ
   // speechController (`${locale}::${text}`) است. هر بار که وضعیتِ فعلی
   // (چه در حالِ پخش، چه مکث‌شده) اعلام می‌شه، آخرین آفستِ رسیده‌شده برای
@@ -3316,7 +3408,7 @@ const speechController = (() => {
     return preferred || null;
   }
 
-  function speakChunk(idx, forceRestart = false, isRepeatContinuation = false) {
+  function speakChunk(idx, forceRestart = false, isRepeatContinuation = false, resumeOffset = 0) {
     if (!chunks.length) {
       status = "idle";
       notify();
@@ -3346,10 +3438,26 @@ const speechController = (() => {
     status = "playing";
     notify();
 
-    const utter = new SpeechSynthesisUtterance(sanitizeForTTS(chunks[idx].text));
+    // اگه resumeOffset داده شده (یعنی این ادامه‌ی مکثِ وسطِ همین جمله‌ست)،
+    // فقط باقیِ متن رو می‌خونیم؛ وگرنه (جمله‌ی تازه/تکرارِ کامل) از اولِ
+    // خودِ جمله. chunkTextOffset رو هم به‌روز می‌کنیم تا اگه دوباره وسطِ
+    // همین باقیمانده مکث شد، تخمینِ بعدی رویِ همین مبنا جمع بشه.
+    const fullChunkText = chunks[idx].text;
+    chunkTextOffset = resumeOffset > 0 && resumeOffset < fullChunkText.length ? resumeOffset : 0;
+    const textToSpeak = chunkTextOffset > 0 ? fullChunkText.slice(chunkTextOffset) : fullChunkText;
+
+    const utter = new SpeechSynthesisUtterance(sanitizeForTTS(textToSpeak));
     utter.lang = locale;
     utter.rate = engineRate(rate);
     utter.volume = muted ? 0 : 1;
+    utter.onstart = () => {
+      chunkStartedAt = Date.now();
+    };
+    // بعضی مرورگرها/WebViewها گاهی onstart رو دیر یا اصلاً شلیک نمی‌کنن —
+    // یه نقطه‌ی شروعِ پیش‌فرض هم همین‌جا می‌ذاریم تا اگه onstart نیومد،
+    // تخمینِ نقطه‌ی مکثِ بعدی حداقل از لحظه‌ی صداکردنِ speak() حساب بشه
+    // (کمی محافظه‌کارانه‌تر، ولی به‌مراتب بهتر از نداشتنِ هیچ تخمینی).
+    chunkStartedAt = Date.now();
 
     const bestVoice = getBestVoice(locale);
     if (bestVoice) utter.voice = bestVoice;
@@ -3524,6 +3632,22 @@ const speechController = (() => {
             return "ok";
           }
           clearGapTimer();
+          // قبل از cancelSpeech (که utter رو قطع می‌کنه)، تخمین می‌زنیم تا
+          // کجایِ این جمله رسیده بودیم — تا دفعه‌ی بعد که ادامه زده بشه،
+          // فقط باقیِ همین جمله خونده بشه، نه از اولش.
+          {
+            const chunkText = chunks[chunkIndex] ? chunks[chunkIndex].text : "";
+            const spokenSoFarInThisUtterance = chunkText.length > chunkTextOffset ? chunkText.slice(chunkTextOffset) : "";
+            if (spokenSoFarInThisUtterance && chunkStartedAt) {
+              const elapsed = Date.now() - chunkStartedAt;
+              const msPerChar = RESUME_MS_PER_CHAR / Math.max(rate, 0.25);
+              let within = Math.min(spokenSoFarInThisUtterance.length, Math.max(0, Math.round(elapsed / msPerChar)));
+              // به نزدیک‌ترین مرزِ کلمه (فاصله‌ی قبلی) عقب می‌ریم — تا وسطِ
+              // یه کلمه قطع نشه.
+              while (within > 0 && within < spokenSoFarInThisUtterance.length && spokenSoFarInThisUtterance[within] !== " ") within--;
+              chunkTextOffset = chunkTextOffset + within;
+            }
+          }
           cancelSpeech();
           status = "paused";
           notify();
@@ -3541,8 +3665,10 @@ const speechController = (() => {
             }
           } else {
             // ادامه بعد از مکث — همون جمله‌ست، نه جمله‌ی جدید، پس شمارشِ
-            // تکرارهاش (chunkRepeatsDone) نباید صفر بشه.
-            speakChunk(chunkIndex, false, true);
+            // تکرارهاش (chunkRepeatsDone) نباید صفر بشه. resumeOffset (اگه
+            // بالاتر، موقعِ مکث، تخمین زده شده بود) باعث می‌شه فقط باقیِ
+            // جمله خونده بشه، نه از اولش.
+            speakChunk(chunkIndex, false, true, chunkTextOffset);
           }
           return "ok";
         }
@@ -7704,20 +7830,32 @@ function ChunkNavButton({ direction, color }) {
 // می‌ذاره نه برعکس، و می‌شه هر دو رو همزمان پخش کرد و باهم مقایسه کرد.
 // صدایِ ضبط‌شده فقط توی حافظه (state) نگه داشته می‌شه — جایی ذخیره
 // نمی‌شه، موقتیه، و با دکمه‌ی ضربدر یا بستنِ صفحه پاک می‌شه.
-function MyVoiceRecorder({ color }) {
+//
+// طبقِ درخواستِ کاربر: اگه همون لحظه‌ی ضبط، صدایِ خودِ اپ هم داره پخش
+// می‌شه، اون صدا باید همراهِ صدایِ میکروفون توی فایلِ ضبط‌شده باشه (نه
+// فقط شنیده بشه). این فقط برایِ حالتی که «صوتِ آپلودیِ کاربر» (فایلِ
+// صوتیِ سینک‌شده‌ی داستان) داره پخش می‌شه ممکنه — چون فقط اون یه المانِ
+// <audio> واقعیه که با captureStream() می‌شه ازش یه کپی از خروجی گرفت.
+// وقتی خواننده TTSِ داخلیِ گوشیه (Web Speech API)، هیچ مرورگری راهی
+// برای گرفتنِ صدایِ آن به‌عنوانِ یه MediaStream نمی‌ده — پس اونجا فقط
+// صدایِ خودِ کاربر ضبط می‌شه (مثلِ قبل)، با یه پیغامِ کوتاه که چرا.
+function MyVoiceRecorder({ color, getAppAudioElement, appAudioActive }) {
   const [recording, setRecording] = useState(false);
   const [audioUrl, setAudioUrl] = useState(null);
   const [playing, setPlaying] = useState(false);
   const [micError, setMicError] = useState(false);
+  const [mixNote, setMixNote] = useState("");
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
-  const streamRef = useRef(null);
+  const micStreamRef = useRef(null);
+  const audioCtxRef = useRef(null);
   const audioElRef = useRef(null);
   const audioUrlRef = useRef(null);
 
   useEffect(() => {
     return () => {
-      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      if (micStreamRef.current) micStreamRef.current.getTracks().forEach((t) => t.stop());
+      if (audioCtxRef.current) { audioCtxRef.current.close().catch(() => {}); audioCtxRef.current = null; }
       if (audioElRef.current) audioElRef.current.pause();
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
     };
@@ -7726,11 +7864,39 @@ function MyVoiceRecorder({ color }) {
   const startRecording = async (e) => {
     e.stopPropagation();
     setMicError(false);
+    setMixNote("");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
+      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = micStream;
+      let recordStream = micStream;
+
+      // اگه صوتِ آپلودیِ کاربر همین الان در حالِ پخشه، تلاش می‌کنیم یه کپی
+      // از خروجیِ صداش رو با میکروفون میکس کنیم — بدونِ اینکه پخشِ عادیِ
+      // خودش (از بلندگو) رو قطع/تغییر بدیم.
+      const appEl = appAudioActive && getAppAudioElement ? getAppAudioElement() : null;
+      if (appEl && typeof appEl.captureStream === "function") {
+        try {
+          const appStream = appEl.captureStream();
+          if (appStream && appStream.getAudioTracks().length) {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            const ctx = new AC();
+            audioCtxRef.current = ctx;
+            const dest = ctx.createMediaStreamDestination();
+            ctx.createMediaStreamSource(micStream).connect(dest);
+            ctx.createMediaStreamSource(appStream).connect(dest);
+            recordStream = dest.stream;
+          } else {
+            setMixNote("صدای اپ الان قابلِ ترکیب نبود؛ فقط صدای خودم ضبط می‌شه");
+          }
+        } catch {
+          setMixNote("صدای اپ الان قابلِ ترکیب نبود؛ فقط صدای خودم ضبط می‌شه");
+        }
+      } else if (appAudioActive) {
+        setMixNote("چون این متن با صدای داخلیِ گوشی خونده می‌شه، نمی‌شه همراهِ صدای خودم ضبطش کرد");
+      }
+
       chunksRef.current = [];
-      const mr = new MediaRecorder(stream);
+      const mr = new MediaRecorder(recordStream);
       mr.ondataavailable = (ev) => {
         if (ev.data && ev.data.size > 0) chunksRef.current.push(ev.data);
       };
@@ -7741,9 +7907,13 @@ function MyVoiceRecorder({ color }) {
         audioUrlRef.current = url;
         audioElRef.current = null;
         setAudioUrl(url);
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach((t) => t.stop());
-          streamRef.current = null;
+        if (micStreamRef.current) {
+          micStreamRef.current.getTracks().forEach((t) => t.stop());
+          micStreamRef.current = null;
+        }
+        if (audioCtxRef.current) {
+          audioCtxRef.current.close().catch(() => {});
+          audioCtxRef.current = null;
         }
       };
       mediaRecorderRef.current = mr;
@@ -7803,6 +7973,9 @@ function MyVoiceRecorder({ color }) {
     >
       {micError && (
         <span style={{ fontSize: 10, color: colors.rose }}>دسترسی به میکروفون رد شد</span>
+      )}
+      {!micError && mixNote && (
+        <span style={{ fontSize: 10, color: colors.inkSoft }}>{mixNote}</span>
       )}
       {audioUrl && (
         <>
@@ -10449,13 +10622,17 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
       // درصدِ آفستِ کاراکتری از کلِ متن رو روی طولِ کلِ صدا اعمال می‌کنیم؛
       // برای فایل‌های طولانی این فقط یه تخمینِ تقریبیه، نه دقیق.
       const synced = userAudio.getTimestamp?.(pi, si);
+      const interpolated = userAudio.estimateTime?.(pi, si);
       let target;
       if (Number.isFinite(synced)) {
         target = synced;
+      } else if (Number.isFinite(interpolated)) {
+        target = interpolated;
       } else {
         const ratio = fullStoryText.length ? offset / fullStoryText.length : 0;
         target = ratio * (userAudio.duration || 0);
       }
+      userAudio.setActiveLine(pi, si);
       userAudio.seek(target);
       userAudio.play();
       return;
@@ -10489,9 +10666,12 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
   function jumpToLineInUserAudio(pi, si, offset) {
     if (!userAudio.hasAudio) return;
     const synced = userAudio.getTimestamp?.(pi, si);
+    const interpolated = userAudio.estimateTime?.(pi, si);
     let target;
     if (Number.isFinite(synced)) {
       target = synced;
+    } else if (Number.isFinite(interpolated)) {
+      target = interpolated;
     } else {
       const ratio = fullStoryText.length ? (offset || 0) / fullStoryText.length : 0;
       target = ratio * (userAudio.duration || 0);
@@ -17585,7 +17765,11 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
               کنارها هدر نره، ولی خودِ آیکون‌ها هم زیادی به هم نچسبن. */}
           <div className="px-3" style={{ paddingTop: 2, paddingBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ marginInlineStart: 18 }}>
-              <MyVoiceRecorder color={colors.rose} />
+              <MyVoiceRecorder
+                color={colors.rose}
+                getAppAudioElement={storyUserAudio?.getAudioElement}
+                appAudioActive={isStoryUserAudioMode && !!storyUserAudio?.isPlaying}
+              />
             </div>
             <MuteButton color={colors.gold} />
             <RepeatButton color={colors.gold} />
