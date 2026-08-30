@@ -101,6 +101,28 @@ const SUPABASE_ANON_KEY =
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// ---------------------------------------------------------------------------
+// هم‌گام‌سازیِ خودکارِ صوتِ آپلودی با AI (forced alignment، مثلاً WhisperX).
+// این آدرس باید به یه سرویسِ بک‌اندِ خودت اشاره کنه (این اپ فقط یه فایلِ
+// صوتی + متنِ جمله‌ها رو با POST/FormData می‌فرسته و انتظار داره یه JSON
+// به‌شکلِ { "pi-si": startSeconds, ... } برگرده) — چون Whisper/WhisperX
+// پایتونی‌ان و رویِ خودِ مرورگر قابلِ اجرا نیستن. نمونه‌ی کاملِ این سرویس
+// (FastAPI + whisperx، با forced alignment رویِ متنِ خودِ داستان، نه ASR
+// خامِ Whisper) رو جدا فرستادم؛ باید جایی با GPU/CPU دیپلویش کنی (مثلاً
+// Modal, RunPod, یا سرورِ خودت).
+//
+// به‌جایِ اینکه آدرسِ واقعی رو همین‌جا هاردکد کنیم (و مجبور بشیم تویِ سورس
+// commitش کنیم)، از یه ترفندِ استانداردِ esbuild استفاده می‌کنیم: اگه
+// ورک‌فلوی build-bundle.yml موقعِ ساختنِ باندل با
+// --define:WHISPERX_ALIGN_ENDPOINT_URL='"..."' مقدارش رو تزریق کرده باشه
+// (از یه GitHub secret)، همون مقدار استفاده می‌شه؛ وگرنه (مثلاً موقعِ اجرایِ
+// مستقیمِ همین app.jsx بدونِ بیلد) این placeholder به‌کار می‌ره — که باید
+// دستی جایگزینش کنی.
+const WHISPERX_ALIGN_ENDPOINT =
+  typeof WHISPERX_ALIGN_ENDPOINT_URL !== "undefined"
+    ? WHISPERX_ALIGN_ENDPOINT_URL
+    : "https://YOUR-WHISPERX-SERVER.example.com/align";
+
 // ورودی/خروجی سازگار با بقیه‌ی اپ: { uid, email, name, picture, provider }
 function supabaseUserToSession(su) {
   if (!su) return null;
@@ -769,6 +791,11 @@ function useStoryUserAudio(storyKey, allSentences) {
   // «هنگ‌کردن» می‌کنه چون هیچ فیدبکی نمی‌بینه.
   const [audioSaving, setAudioSaving] = useState(false);
   const [audioSaveError, setAudioSaveError] = useState("");
+  // وضعیتِ هم‌گام‌سازیِ خودکار با AI (alignWithAI پایین‌تر) — تا دکمه‌ش
+  // موقعِ درخواست غیرفعال/چرخان بشه و خطای احتمالی (آفلاین بودن، سرورِ
+  // align در دسترس نبودن) زیرِ همون دکمه نشون داده بشه.
+  const [aligning, setAligning] = useState(false);
+  const [alignError, setAlignError] = useState("");
   const objectUrlRef = useRef(null);
   // آخرین currentTime‌ای که واقعاً به state گزارش شده — برای throttleِ زیر.
   const lastReportedTimeRef = useRef(0);
@@ -790,12 +817,38 @@ function useStoryUserAudio(storyKey, allSentences) {
   const abARef = useRef(null);
   const abBRef = useRef(null);
   // نگاشتِ «pi-si» -> ثانیه‌ای که همون جمله توی همین فایلِ صوتیِ آپلودی
-  // شروع می‌شه — فقط برای جمله‌هایی که کاربر حین گوش‌دادن باهاشون سینک
-  // شده (با زدنِ دکمه‌ی جمله‌ی بعد/قبل). با این، پرش از نتیجه‌ی جستجو
-  // می‌تونه دقیقاً از همون‌جا شروع کنه، نه با تخمینِ نسبیِ کاراکتر.
+  // شروع می‌شه — یا با سینکِ دستیِ کاربر (دکمه‌ی جمله‌ی بعد/قبل) پر
+  // می‌شه، یا یکجا با هم‌گام‌سازیِ خودکارِ AI (alignWithAI پایین‌تر). با
+  // این، پرش از نتیجه‌ی جستجو می‌تونه دقیقاً از همون‌جا شروع کنه، نه با
+  // تخمینِ نسبیِ کاراکتر.
   const timestampsRef = useRef({});
   const [timestampsTick, setTimestampsTick] = useState(0); // فقط برای اطلاع‌دادنِ رندر، خودِ مقدار از ref خونده می‌شه
   const saveTimestampsTimerRef = useRef(null);
+  // نسخه‌ی مرتب‌شده‌ی timestampsRef، برای پیگیریِ خودکارِ هایلایت حینِ
+  // پخش (پایین‌تر، داخلِ onTime) — هر بار timestampsRef عوض می‌شه دوباره
+  // ساخته می‌شه (rebuildTimestampEntries)، نه هر تیکِ onTime، چون
+  // onTime هر چندصدمیلی‌ثانیه صدا زده می‌شه و نباید هر بار Object.keys
+  // بزنه.
+  const timestampEntriesRef = useRef([]); // [{pi, si, start}] مرتب‌شده بر اساسِ start
+  function rebuildTimestampEntries() {
+    const map = timestampsRef.current || {};
+    const entries = Object.keys(map)
+      .map((key) => {
+        const [pi, si] = key.split("-").map(Number);
+        return { pi, si, start: map[key] };
+      })
+      .filter((e) => Number.isFinite(e.pi) && Number.isFinite(e.si) && Number.isFinite(e.start));
+    entries.sort((a, b) => a.start - b.start);
+    timestampEntriesRef.current = entries;
+  }
+  // نسخه‌ی ref از allSentences — onTime داخلِ یه useEffectِ mount-only
+  // (dependency آرایِ خالی) تعریف می‌شه، پس برایِ دسترسی به لیستِ
+  // همیشه‌به‌روزِ جمله‌ها (بدونِ نیاز به re-register کردنِ listenerها) باید
+  // از یه ref بخونه، نه مستقیم از پارامترِ allSentences.
+  const allSentencesRef = useRef(allSentences);
+  useEffect(() => {
+    allSentencesRef.current = allSentences;
+  }, [allSentences]);
 
   function markAB() {
     const t = audioElRef.current?.currentTime ?? 0;
@@ -865,6 +918,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     setAbB(null);
     setAbState("idle");
     timestampsRef.current = {};
+    rebuildTimestampEntries();
     setTimestampsTick((n) => n + 1);
     if (saveTimestampsTimerRef.current) {
       clearTimeout(saveTimestampsTimerRef.current);
@@ -880,6 +934,7 @@ function useStoryUserAudio(storyKey, allSentences) {
       if (cancelled) return;
       if (ts) {
         timestampsRef.current = ts;
+        rebuildTimestampEntries();
         setTimestampsTick((n) => n + 1);
       }
       if (!rec) return;
@@ -913,6 +968,37 @@ function useStoryUserAudio(storyKey, allSentences) {
         if (t >= abBRef.current || t < abARef.current - 0.05) {
           el.currentTime = abARef.current;
           return;
+        }
+      }
+      // --- پیگیریِ خودکارِ هایلایت -----------------------------------
+      // اگه برایِ این داستان timestamp داریم (چه دستی، چه با
+      // هم‌گام‌سازیِ خودکارِ AI)، دیگه نیازی به دکمه‌ی جمله‌ی بعد/قبل
+      // نیست: با باینری‌سرچ روی جدولِ مرتب‌شده، آخرین جمله‌ای که
+      // startش <= t هست رو پیدا می‌کنیم و هایلایت رو خودکار می‌بریم
+      // اونجا. فقط وقتی صدا واقعاً پخشه (نه موقعِ مکث/گشتنِ دستی).
+      if (!el.paused) {
+        const entries = timestampEntriesRef.current;
+        if (entries.length) {
+          let lo = 0, hi = entries.length - 1, found = -1;
+          while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (entries[mid].start <= t) { found = mid; lo = mid + 1; }
+            else hi = mid - 1;
+          }
+          if (found !== -1) {
+            const { pi, si } = entries[found];
+            const sentList = allSentencesRef.current;
+            if (sentList && sentList.length) {
+              let idx = -1;
+              for (let i = 0; i < sentList.length; i++) {
+                if (sentList[i]?._pi === pi && sentList[i]?._si === si) { idx = i; break; }
+              }
+              if (idx !== -1 && idx !== manualIndexRef.current) {
+                manualIndexRef.current = idx;
+                setManualIndex(idx);
+              }
+            }
+          }
         }
       }
       if (Math.abs(t - lastReportedTimeRef.current) >= 0.5) {
@@ -1011,6 +1097,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     const t = audioElRef.current.currentTime;
     if (!Number.isFinite(t)) return;
     timestampsRef.current = { ...timestampsRef.current, [`${pi}-${si}`]: t };
+    rebuildTimestampEntries();
     setTimestampsTick((n) => n + 1);
     if (saveTimestampsTimerRef.current) clearTimeout(saveTimestampsTimerRef.current);
     const keyToSave = storyKey;
@@ -1018,6 +1105,60 @@ function useStoryUserAudio(storyKey, allSentences) {
       saveTimestampsTimerRef.current = null;
       if (keyToSave) saveStoryAudioTimestamps(keyToSave, timestampsRef.current);
     }, 800);
+  }
+
+  // نوشتنِ دسته‌ای/یکجایِ نگاشتِ timestamp — برای وقتی همه‌ی جمله‌ها
+  // یکجا از یه منبعِ بیرونی (مثلِ alignWithAI پایین‌تر) میان، نه یکی‌یکی
+  // با دکمه‌ی جمله‌ی بعد/قبل. کاملاً جایگزینِ نگاشتِ قبلی می‌شه (نه
+  // merge)، چون خروجیِ AI قاعدتاً شاملِ همه‌ی جمله‌هاست.
+  function setBulkTimestamps(map) {
+    timestampsRef.current = { ...(map || {}) };
+    rebuildTimestampEntries();
+    setTimestampsTick((n) => n + 1);
+    if (saveTimestampsTimerRef.current) {
+      clearTimeout(saveTimestampsTimerRef.current);
+      saveTimestampsTimerRef.current = null;
+    }
+    if (storyKey) saveStoryAudioTimestamps(storyKey, timestampsRef.current);
+  }
+
+  // هم‌گام‌سازیِ خودکار با AI (forced alignment، مثلاً با WhisperX) —
+  // به‌جایِ سینکِ دستیِ جمله‌به‌جمله، خودِ فایلِ صوتیِ آپلودی + متنِ
+  // دقیقِ همین جمله‌ها (که از قبل داریم و صد در صد درسته) رو به یه
+  // سرویسِ بیرونی می‌فرستیم؛ اون سرویس زمانِ دقیقِ شروعِ هر جمله رو
+  // برمی‌گردونه، و همه‌شون یکجا با setBulkTimestamps ذخیره می‌شن. بعدِ
+  // این، پخش خودکار هایلایت رو دنبال می‌کنه (بالاتر، داخلِ onTime) —
+  // دیگه نیازی به دکمه‌ی جمله‌ی بعد/قبل نیست.
+  // نکته‌ی مهم: این تابع خودش Whisper/WhisperX رو اجرا نمی‌کنه (اونا
+  // پایتون‌ان و رویِ مرورگر قابلِ اجرا نیستن) — فقط با سرویسِ بک‌اندی که
+  // آدرسش پایین‌تر (WHISPERX_ALIGN_ENDPOINT) مشخص شده صحبت می‌کنه؛ اون
+  // سرویس رو باید جدا دیپلوی کنی (نمونه‌ی کاملش رو جدا فرستادم).
+  async function alignWithAI(langCode) {
+    if (!storyKey) return;
+    const sentList = allSentencesRef.current;
+    if (!sentList || !sentList.length) return;
+    setAligning(true);
+    setAlignError("");
+    try {
+      const rec = await getStoryAudioRecord(storyKey);
+      if (!rec) throw new Error("no-audio");
+      const sentences = sentList.map((s) => ({ pi: s._pi, si: s._si, text: s.text || "" }));
+      const form = new FormData();
+      form.append("audio", rec.blob, "audio.webm");
+      form.append("language", langCode || "en");
+      form.append("sentences", JSON.stringify(sentences));
+      const resp = await fetch(WHISPERX_ALIGN_ENDPOINT, { method: "POST", body: form });
+      if (!resp.ok) throw new Error(`bad-status-${resp.status}`);
+      const data = await resp.json(); // { "pi-si": startSeconds, ... }
+      if (!data || typeof data !== "object") throw new Error("bad-shape");
+      setBulkTimestamps(data);
+    } catch (e) {
+      setAlignError(
+        "همگام‌سازیِ خودکار ناموفق بود — اتصال اینترنت یا در دسترس‌بودنِ سرویسِ AI رو چک کن"
+      );
+    } finally {
+      setAligning(false);
+    }
   }
 
   // فقط وقتی صدا واقعاً در حالِ پخشه سینک می‌کنیم — اگه کاربر موقعِ مکث
@@ -1052,6 +1193,24 @@ function useStoryUserAudio(storyKey, allSentences) {
     return timestampsRef.current[`${pi}-${si}`];
   }
 
+  // پرشِ مستقیمِ هایلایت به یه (pi, si) مشخص — وقتی کاربر خودش مستقیماً
+  // روی جمله/آیکونِ پخشِ کنارِ همون جمله تپ می‌کنه، نه با دکمه‌ی جمله‌ی
+  // بعد/قبل. برخلافِ nextLine/prevLine، اینجا هیچ timestampی ثبت نمی‌شه —
+  // چون زمانِ دقیقِ این جهش (سینک‌شده یا فقط تخمینِ نسبی) بیرون از این
+  // هوک محاسبه می‌شه و ثبتش به‌عنوانِ «سینک‌شده» می‌تونست یه تخمینِ ناقص رو
+  // به‌جایِ سینکِ واقعیِ بعدی جا بزنه.
+  function setActiveLine(pi, si) {
+    if (pi == null || si == null || !allSentences || !allSentences.length) return;
+    let idx = -1;
+    for (let i = 0; i < allSentences.length; i++) {
+      const s = allSentences[i];
+      if (s && s._pi === pi && s._si === si) { idx = i; break; }
+    }
+    if (idx === -1) return;
+    manualIndexRef.current = idx;
+    setManualIndex(idx);
+  }
+
   async function removeAudio() {
     pause();
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
@@ -1065,6 +1224,7 @@ function useStoryUserAudio(storyKey, allSentences) {
       saveTimestampsTimerRef.current = null;
     }
     timestampsRef.current = {};
+    rebuildTimestampEntries();
     setTimestampsTick((n) => n + 1);
     if (storyKey) await deleteStoryAudioRecord(storyKey);
   }
@@ -1093,6 +1253,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     seek,
     nextLine,
     prevLine,
+    setActiveLine,
     removeAudio,
     abState,
     abA,
@@ -1100,6 +1261,10 @@ function useStoryUserAudio(storyKey, allSentences) {
     markAB,
     clearAB,
     getTimestamp,
+    setBulkTimestamps,
+    aligning,
+    alignError,
+    alignWithAI,
     timestampsTick,
   };
 }
@@ -6576,7 +6741,7 @@ function TabButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyP
 // اون متنِ کامله. کلیدِ speechController همیشه بر اساسِ fullText+code
 // حساب می‌شه (نه text)، طوری که این دکمه دقیقاً همون سِشنِ پخشِ کلِ متن رو
 // (چه در حالِ پخش، چه مکث‌شده) پیدا کنه.
-function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolveStartOffset, onPlayed, fullText }) {
+function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolveStartOffset, onPlayed, fullText, onOverrideClick }) {
   const locale = TTS_LOCALE[code] || "en-US";
   const jumpText = fullText || text;
   const myKey = `${locale}::${jumpText}`;
@@ -6618,6 +6783,15 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
 
   const handleToggle = (e) => {
     e.stopPropagation();
+    // اگه onOverrideClick پاس داده شده (مثلاً پلیرِ صوتِ آپلودیِ کاربر فعاله)،
+    // به‌جای منطقِ TTS پایین، فقط همون رو صدا می‌زنیم و برمی‌گردیم — وگرنه
+    // زدنِ این دکمه، حتی وقتی کاربر رو حالتِ «صوتِ آپلودی» باشه، همیشه
+    // TTS رو پخش می‌کرد (که دقیقاً باگیه که کاربر ازش شکایت داشت).
+    if (onOverrideClick) {
+      onOverrideClick();
+      if (onPlayed) onPlayed();
+      return;
+    }
     // نکته‌ی مهم: اگه resolveStartOffset پاس داده شده، به‌جای پراپِ
     // startOffset (که موقعِ رندرِ قبلیِ این کامپوننت محاسبه شده و ممکنه
     // کهنه باشه — چون rememberMainTextResumeOffset فقط یه Map رو مستقیم
@@ -9225,9 +9399,9 @@ async function translatePageTextPreservingParagraphs(pageText, targetLang, aiSet
 // نیستن؛ اون‌ها به نوارِ سراسریِ پایینِ صفحه (پلیرِ اصلی) منتقل شدن —
 // PlayerBarStorySwitch و UserAudioMainPlayButton/UserAudioChunkNavButton/
 // UserAudioProgressTrack همون‌جا رندر می‌شن.
-function StoryUserAudioBar({ userAudio }) {
+function StoryUserAudioBar({ userAudio, storyLang }) {
   const fileInputRef = useRef(null);
-  const { hasAudio, uploadFile, removeAudio, audioSaving, audioSaveError } = userAudio;
+  const { hasAudio, uploadFile, removeAudio, audioSaving, audioSaveError, aligning, alignError, alignWithAI } = userAudio;
 
   const boxStyle = {
     border: `1px solid ${colors.cardBorder}`,
@@ -9271,16 +9445,30 @@ function StoryUserAudioBar({ userAudio }) {
             </button>
           </>
         ) : (
-          <button
-            onClick={removeAudio}
-            style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "none", color: colors.rose, fontSize: 12 }}
-          >
-            حذف صوت
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => !aligning && alignWithAI && alignWithAI(storyLang)}
+              disabled={aligning}
+              title="با کمکِ AI، همه‌ی جمله‌ها رو یکجا با این صوت هم‌گام کن — بدونِ سینکِ دستی"
+              style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${colors.teal}`, background: "white", color: colors.teal, fontSize: 12, opacity: aligning ? 0.6 : 1, display: "flex", alignItems: "center", gap: 6 }}
+            >
+              {aligning && <Loader2 size={13} className="spin" />}
+              {aligning ? "در حالِ هم‌گام‌سازی..." : "هم‌گام‌سازیِ خودکار (AI)"}
+            </button>
+            <button
+              onClick={removeAudio}
+              style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "none", color: colors.rose, fontSize: 12 }}
+            >
+              حذف صوت
+            </button>
+          </div>
         )}
       </div>
       {audioSaveError && (
         <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{audioSaveError}</p>
+      )}
+      {alignError && (
+        <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{alignError}</p>
       )}
     </div>
   );
@@ -10338,6 +10526,27 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     }
   }
 
+  // پرش به یه جمله/پاراگرافِ مشخص در صوتِ آپلودیِ کاربر — دقیقاً همون
+  // منطقِ «سینک‌شده یا تخمینِ نسبی» که برای جهش از نتیجه‌ی جستجو (بالاتر)
+  // استفاده شد؛ فقط این‌جا از تپِ مستقیمِ کاربر روی خودِ آیکونِ پخشِ کنارِ
+  // یه جمله/پاراگراف صدا زده می‌شه. علاوه بر seek/play، هایلایت رو هم
+  // فوراً با setActiveLine به همون‌جا می‌بره — نه اینکه صبر کنه دکمه‌ی
+  // جمله‌ی بعد/قبل زده بشه.
+  function jumpToLineInUserAudio(pi, si, offset) {
+    if (!userAudio.hasAudio) return;
+    const synced = userAudio.getTimestamp?.(pi, si);
+    let target;
+    if (Number.isFinite(synced)) {
+      target = synced;
+    } else {
+      const ratio = fullStoryText.length ? (offset || 0) / fullStoryText.length : 0;
+      target = ratio * (userAudio.duration || 0);
+    }
+    userAudio.setActiveLine(pi, si);
+    userAudio.seek(target);
+    userAudio.play();
+  }
+
   // جمله‌ای که همین الان، در حینِ پخشِ «کل متن» از روی پلیر، داره خونده
   // می‌شه — هم برای هایلایتِ بصریِ زنده (متنِ اصلی + همه‌ی ترجمه‌هاش، چون
   // هر دو داخلِ همون باکسِ jsهایلایت‌شونده‌ان) و هم برای اسکرولِ خودکار
@@ -10488,6 +10697,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     userAudio.manualIndex,
     userAudio.audioSaving,
     userAudio.audioSaveError,
+    userAudio.aligning,
     playbackMode,
   ]);
 
@@ -13691,7 +13901,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           )}
 
           {fullStoryText && (
-            <StoryUserAudioBar userAudio={userAudio} />
+            <StoryUserAudioBar userAudio={userAudio} storyLang={storyLang} />
           )}
 
           <div className="flex flex-col gap-5">
@@ -13726,6 +13936,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                               edge={dirFor(storyLang) === "ltr" ? "end" : undefined}
                               fullText={fullStoryText}
                               startOffset={sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0}
+                              onOverrideClick={
+                                playbackMode === "user" && userAudio.hasAudio
+                                  ? () => jumpToLineInUserAudio(pi, si, sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0)
+                                  : undefined
+                              }
                             />
                             <p
                               style={{
@@ -13904,6 +14119,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                               edge={dirFor(storyLang) === "ltr" ? "end" : undefined}
                               fullText={fullStoryText}
                               startOffset={paragraphBaseOffsetMap[pi] ?? 0}
+                              onOverrideClick={
+                                playbackMode === "user" && userAudio.hasAudio
+                                  ? () => jumpToLineInUserAudio(pi, 0, paragraphBaseOffsetMap[pi] ?? 0)
+                                  : undefined
+                              }
                             />
                             <p
                               style={{
