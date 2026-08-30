@@ -213,15 +213,24 @@ async function setCachedTranslation(text, targetLang, sourceLang, translation) {
 // ============================================================
 const STORY_AUDIO_DB_NAME = "story-user-audio";
 const STORY_AUDIO_STORE = "audio";
+// استورِ جدا برای زمان‌بندیِ جمله‌ها (pi-si -> ثانیه) — عمداً از خودِ فایلِ
+// صوتی (که می‌تونه چندصد مگابایت باشه) جدا نگه داشته شده. اگه این زمان‌ها رو
+// داخلِ همون رکوردِ blob می‌ذاشتیم، هر بار «سینک‌کردنِ» یه جمله باعثِ
+// نوشتنِ دوباره‌ی کلِ فایلِ صوتیِ حجیم روی IndexedDB می‌شد — که خودش دقیقاً
+// همون کندی‌ای رو ایجاد می‌کرد که می‌خواستیم رفعش کنیم.
+const STORY_AUDIO_META_STORE = "meta";
 
 function openStoryAudioDB() {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") { reject(new Error("indexeddb-unavailable")); return; }
-    const req = indexedDB.open(STORY_AUDIO_DB_NAME, 1);
+    const req = indexedDB.open(STORY_AUDIO_DB_NAME, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORY_AUDIO_STORE)) {
         db.createObjectStore(STORY_AUDIO_STORE);
+      }
+      if (!db.objectStoreNames.contains(STORY_AUDIO_META_STORE)) {
+        db.createObjectStore(STORY_AUDIO_META_STORE);
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -229,7 +238,7 @@ function openStoryAudioDB() {
   });
 }
 
-// record شکل: { blob: Blob, timestamps: [{pi,si,time}, ...], savedAt }
+// record شکل: { blob: Blob, savedAt }
 async function saveStoryAudioRecord(storyKey, record) {
   try {
     const db = await openStoryAudioDB();
@@ -265,6 +274,53 @@ async function deleteStoryAudioRecord(storyKey) {
     await new Promise((resolve) => {
       const tx = db.transaction(STORY_AUDIO_STORE, "readwrite");
       tx.objectStore(STORY_AUDIO_STORE).delete(storyKey);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch {}
+  await deleteStoryAudioTimestamps(storyKey);
+}
+
+// نگاشتِ «pi-si» -> ثانیه، برای اینکه بشه دقیقاً از همون لحظه‌ای که یه جمله
+// توی صوتِ آپلودیِ کاربر شروع می‌شه پخش رو آغاز کرد (به‌جایِ تخمینِ نسبیِ
+// طولِ کاراکتر). فقط وقتی پر می‌شه که کاربر واقعاً حین گوش‌دادن، دکمه‌ی
+// جمله‌ی بعد/قبل رو بزنه — همون لحظه، جمله‌ی تازه‌رسیده رو با currentTime
+// فعلیِ صدا «سینک» می‌کنیم.
+async function saveStoryAudioTimestamps(storyKey, timestamps) {
+  try {
+    const db = await openStoryAudioDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORY_AUDIO_META_STORE, "readwrite");
+      tx.objectStore(STORY_AUDIO_META_STORE).put({ timestamps, savedAt: Date.now() }, storyKey);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function getStoryAudioTimestamps(storyKey) {
+  try {
+    const db = await openStoryAudioDB();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(STORY_AUDIO_META_STORE, "readonly");
+      const req = tx.objectStore(STORY_AUDIO_META_STORE).get(storyKey);
+      req.onsuccess = () => resolve(req.result?.timestamps || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function deleteStoryAudioTimestamps(storyKey) {
+  try {
+    const db = await openStoryAudioDB();
+    await new Promise((resolve) => {
+      const tx = db.transaction(STORY_AUDIO_META_STORE, "readwrite");
+      tx.objectStore(STORY_AUDIO_META_STORE).delete(storyKey);
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
     });
@@ -724,6 +780,13 @@ function useStoryUserAudio(storyKey, allSentences) {
   const abStateRef = useRef("idle");
   const abARef = useRef(null);
   const abBRef = useRef(null);
+  // نگاشتِ «pi-si» -> ثانیه‌ای که همون جمله توی همین فایلِ صوتیِ آپلودی
+  // شروع می‌شه — فقط برای جمله‌هایی که کاربر حین گوش‌دادن باهاشون سینک
+  // شده (با زدنِ دکمه‌ی جمله‌ی بعد/قبل). با این، پرش از نتیجه‌ی جستجو
+  // می‌تونه دقیقاً از همون‌جا شروع کنه، نه با تخمینِ نسبیِ کاراکتر.
+  const timestampsRef = useRef({});
+  const [timestampsTick, setTimestampsTick] = useState(0); // فقط برای اطلاع‌دادنِ رندر، خودِ مقدار از ref خونده می‌شه
+  const saveTimestampsTimerRef = useRef(null);
 
   function markAB() {
     const t = audioElRef.current?.currentTime ?? 0;
@@ -792,14 +855,25 @@ function useStoryUserAudio(storyKey, allSentences) {
     setAbA(null);
     setAbB(null);
     setAbState("idle");
+    timestampsRef.current = {};
+    setTimestampsTick((n) => n + 1);
+    if (saveTimestampsTimerRef.current) {
+      clearTimeout(saveTimestampsTimerRef.current);
+      saveTimestampsTimerRef.current = null;
+    }
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current);
       objectUrlRef.current = null;
     }
     if (!storyKey) return;
     (async () => {
-      const rec = await getStoryAudioRecord(storyKey);
-      if (cancelled || !rec) return;
+      const [rec, ts] = await Promise.all([getStoryAudioRecord(storyKey), getStoryAudioTimestamps(storyKey)]);
+      if (cancelled) return;
+      if (ts) {
+        timestampsRef.current = ts;
+        setTimestampsTick((n) => n + 1);
+      }
+      if (!rec) return;
       const url = URL.createObjectURL(rec.blob);
       objectUrlRef.current = url;
       if (audioElRef.current) audioElRef.current.src = url;
@@ -918,11 +992,52 @@ function useStoryUserAudio(storyKey, allSentences) {
   function pause() { audioElRef.current?.pause(); }
   function seek(t) { if (audioElRef.current) audioElRef.current.currentTime = t; }
 
+  // وقتی کاربر حین گوش‌دادن، دکمه‌ی جمله‌ی بعد/قبل رو دقیقاً همون لحظه‌ای
+  // که اون جمله شروع می‌شه می‌زنه، currentTimeِ همون لحظه رو به‌عنوانِ
+  // نقطه‌ی شروعِ اون جمله ثبت می‌کنیم. ذخیره‌سازیِ روی IndexedDB با یه
+  // تأخیرِ کوتاه (debounce) انجام می‌شه تا با زدنِ پی‌درپیِ دکمه، هر بار
+  // یه نوشتنِ جدا رخ نده.
+  function markLineTimestamp(pi, si) {
+    if (pi == null || si == null || !audioElRef.current) return;
+    const t = audioElRef.current.currentTime;
+    if (!Number.isFinite(t)) return;
+    timestampsRef.current = { ...timestampsRef.current, [`${pi}-${si}`]: t };
+    setTimestampsTick((n) => n + 1);
+    if (saveTimestampsTimerRef.current) clearTimeout(saveTimestampsTimerRef.current);
+    const keyToSave = storyKey;
+    saveTimestampsTimerRef.current = setTimeout(() => {
+      saveTimestampsTimerRef.current = null;
+      if (keyToSave) saveStoryAudioTimestamps(keyToSave, timestampsRef.current);
+    }, 800);
+  }
+
+  // فقط وقتی صدا واقعاً در حالِ پخشه سینک می‌کنیم — اگه کاربر موقعِ مکث
+  // بین جمله‌ها بگرده، اون جابه‌جایی‌ها ربطی به زمانِ واقعیِ صدا ندارن.
   function nextLine() {
-    setManualIndex((i) => Math.min(i + 1, Math.max((allSentences?.length || 1) - 1, 0)));
+    setManualIndex((i) => {
+      const next = Math.min(i + 1, Math.max((allSentences?.length || 1) - 1, 0));
+      if (audioElRef.current && !audioElRef.current.paused) {
+        const s = allSentences?.[next];
+        if (s) markLineTimestamp(s._pi, s._si);
+      }
+      return next;
+    });
   }
   function prevLine() {
-    setManualIndex((i) => Math.max(i - 1, 0));
+    setManualIndex((i) => {
+      const prevIdx = Math.max(i - 1, 0);
+      if (audioElRef.current && !audioElRef.current.paused) {
+        const s = allSentences?.[prevIdx];
+        if (s) markLineTimestamp(s._pi, s._si);
+      }
+      return prevIdx;
+    });
+  }
+
+  // خونده‌شدنِ زمانِ سینک‌شده‌ی یه جمله (اگه قبلاً سینک شده باشه)، برای
+  // پرشِ دقیق از نتیجه‌ی جستجو استفاده می‌شه.
+  function getTimestamp(pi, si) {
+    return timestampsRef.current[`${pi}-${si}`];
   }
 
   async function removeAudio() {
@@ -933,6 +1048,12 @@ function useStoryUserAudio(storyKey, allSentences) {
     setHasAudio(false);
     setManualIndex(0);
     setAudioSaveError("");
+    if (saveTimestampsTimerRef.current) {
+      clearTimeout(saveTimestampsTimerRef.current);
+      saveTimestampsTimerRef.current = null;
+    }
+    timestampsRef.current = {};
+    setTimestampsTick((n) => n + 1);
     if (storyKey) await deleteStoryAudioRecord(storyKey);
   }
 
@@ -966,6 +1087,8 @@ function useStoryUserAudio(storyKey, allSentences) {
     abB,
     markAB,
     clearAB,
+    getTimestamp,
+    timestampsTick,
   };
 }
 
@@ -10062,11 +10185,19 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     const offset = sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0;
 
     if (playbackMode === "user" && userAudio.hasAudio) {
-      // صوتِ آپلودیِ کاربر: هیچ نگاشتِ دقیقِ کاراکتر↔زمان نداریم (برخلافِ
-      // TTS)، پس فقط یه تخمینِ نسبیِ ساده — درصدِ آفستِ کاراکتری از کلِ متن
-      // رو روی طولِ کلِ صدا اعمال می‌کنیم و از همون‌جا پخش رو شروع می‌کنیم.
-      const ratio = fullStoryText.length ? offset / fullStoryText.length : 0;
-      const target = ratio * (userAudio.duration || 0);
+      // اگه کاربر قبلاً حین گوش‌دادن این جمله رو با دکمه‌ی جمله‌ی بعد/قبل
+      // سینک کرده باشه، همون زمانِ دقیق رو داریم — از همون‌جا شروع می‌کنیم.
+      // وگرنه (هنوز سینک نشده)، به همون تخمینِ نسبیِ قبلی برمی‌گردیم —
+      // درصدِ آفستِ کاراکتری از کلِ متن رو روی طولِ کلِ صدا اعمال می‌کنیم؛
+      // برای فایل‌های طولانی این فقط یه تخمینِ تقریبیه، نه دقیق.
+      const synced = userAudio.getTimestamp?.(pi, si);
+      let target;
+      if (Number.isFinite(synced)) {
+        target = synced;
+      } else {
+        const ratio = fullStoryText.length ? offset / fullStoryText.length : 0;
+        target = ratio * (userAudio.duration || 0);
+      }
       userAudio.seek(target);
       userAudio.play();
       return;
@@ -13938,6 +14069,15 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     </div>
   );
 }
+// دورِ StoryBuilder رو با React.memo می‌پیچیم: با پخشِ صوتِ آپلودیِ کاربر،
+// وضعیتِ صدا (currentTime و...) هر نیم‌ثانیه به بالا (App) گزارش می‌شه
+// (onUserAudioStateChange -> setStoryUserAudio) و باعثِ رندرِ دوباره‌ی
+// App می‌شه. چون هیچ‌کدوم از propهایِ خودِ StoryBuilder (که همه‌شون
+// state/setterِ پایدارن، نه چیزی که هر رندر از نو ساخته بشه) با اون
+// تیک عوض نمی‌شن، React.memo جلویِ اجرایِ دوباره‌ی رندرِ این کامپوننتِ
+// سنگین (که کلِ متنِ داستان رو نگه می‌داره) رو می‌گیره — همون چیزی که
+// باعثِ کندی/هنگ‌کردنِ محسوس با فایل‌های صوتیِ طولانی (مثلاً یک‌ساعته) می‌شد.
+StoryBuilder = React.memo(StoryBuilder);
 
 // ---------------------------------------------------------------------------
 // Saved Words — a dedicated home for every word bookmarked via the word-tap
