@@ -102,27 +102,6 @@ const SUPABASE_ANON_KEY =
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ---------------------------------------------------------------------------
-// هم‌گام‌سازیِ خودکارِ صوتِ آپلودی با AI (forced alignment، مثلاً WhisperX).
-// این آدرس باید به یه سرویسِ بک‌اندِ خودت اشاره کنه (این اپ فقط یه فایلِ
-// صوتی + متنِ جمله‌ها رو با POST/FormData می‌فرسته و انتظار داره یه JSON
-// به‌شکلِ { "pi-si": startSeconds, ... } برگرده) — چون Whisper/WhisperX
-// پایتونی‌ان و رویِ خودِ مرورگر قابلِ اجرا نیستن. نمونه‌ی کاملِ این سرویس
-// (FastAPI + whisperx، با forced alignment رویِ متنِ خودِ داستان، نه ASR
-// خامِ Whisper) رو جدا فرستادم؛ باید جایی با GPU/CPU دیپلویش کنی (مثلاً
-// Modal, RunPod, یا سرورِ خودت).
-//
-// به‌جایِ اینکه آدرسِ واقعی رو همین‌جا هاردکد کنیم (و مجبور بشیم تویِ سورس
-// commitش کنیم)، از یه ترفندِ استانداردِ esbuild استفاده می‌کنیم: اگه
-// ورک‌فلوی build-bundle.yml موقعِ ساختنِ باندل با
-// --define:WHISPERX_ALIGN_ENDPOINT_URL='"..."' مقدارش رو تزریق کرده باشه
-// (از یه GitHub secret)، همون مقدار استفاده می‌شه؛ وگرنه (مثلاً موقعِ اجرایِ
-// مستقیمِ همین app.jsx بدونِ بیلد) این placeholder به‌کار می‌ره — که باید
-// دستی جایگزینش کنی.
-const WHISPERX_ALIGN_ENDPOINT =
-  typeof WHISPERX_ALIGN_ENDPOINT_URL !== "undefined"
-    ? WHISPERX_ALIGN_ENDPOINT_URL
-    : "https://YOUR-WHISPERX-SERVER.example.com/align";
-
 // ورودی/خروجی سازگار با بقیه‌ی اپ: { uid, email, name, picture, provider }
 function supabaseUserToSession(su) {
   if (!su) return null;
@@ -791,11 +770,6 @@ function useStoryUserAudio(storyKey, allSentences) {
   // «هنگ‌کردن» می‌کنه چون هیچ فیدبکی نمی‌بینه.
   const [audioSaving, setAudioSaving] = useState(false);
   const [audioSaveError, setAudioSaveError] = useState("");
-  // وضعیتِ هم‌گام‌سازیِ خودکار با AI (alignWithAI پایین‌تر) — تا دکمه‌ش
-  // موقعِ درخواست غیرفعال/چرخان بشه و خطای احتمالی (آفلاین بودن، سرورِ
-  // align در دسترس نبودن) زیرِ همون دکمه نشون داده بشه.
-  const [aligning, setAligning] = useState(false);
-  const [alignError, setAlignError] = useState("");
   const objectUrlRef = useRef(null);
   // آخرین currentTime‌ای که واقعاً به state گزارش شده — برای throttleِ زیر.
   const lastReportedTimeRef = useRef(0);
@@ -817,9 +791,8 @@ function useStoryUserAudio(storyKey, allSentences) {
   const abARef = useRef(null);
   const abBRef = useRef(null);
   // نگاشتِ «pi-si» -> ثانیه‌ای که همون جمله توی همین فایلِ صوتیِ آپلودی
-  // شروع می‌شه — یا با سینکِ دستیِ کاربر (دکمه‌ی جمله‌ی بعد/قبل) پر
-  // می‌شه، یا یکجا با هم‌گام‌سازیِ خودکارِ AI (alignWithAI پایین‌تر). با
-  // این، پرش از نتیجه‌ی جستجو می‌تونه دقیقاً از همون‌جا شروع کنه، نه با
+  // شروع می‌شه — با سینکِ دستیِ کاربر (دکمه‌ی جمله‌ی بعد/قبل) پر می‌شه.
+  // با این، پرش از نتیجه‌ی جستجو می‌تونه دقیقاً از همون‌جا شروع کنه، نه با
   // تخمینِ نسبیِ کاراکتر.
   const timestampsRef = useRef({});
   const [timestampsTick, setTimestampsTick] = useState(0); // فقط برای اطلاع‌دادنِ رندر، خودِ مقدار از ref خونده می‌شه
@@ -1107,60 +1080,6 @@ function useStoryUserAudio(storyKey, allSentences) {
     }, 800);
   }
 
-  // نوشتنِ دسته‌ای/یکجایِ نگاشتِ timestamp — برای وقتی همه‌ی جمله‌ها
-  // یکجا از یه منبعِ بیرونی (مثلِ alignWithAI پایین‌تر) میان، نه یکی‌یکی
-  // با دکمه‌ی جمله‌ی بعد/قبل. کاملاً جایگزینِ نگاشتِ قبلی می‌شه (نه
-  // merge)، چون خروجیِ AI قاعدتاً شاملِ همه‌ی جمله‌هاست.
-  function setBulkTimestamps(map) {
-    timestampsRef.current = { ...(map || {}) };
-    rebuildTimestampEntries();
-    setTimestampsTick((n) => n + 1);
-    if (saveTimestampsTimerRef.current) {
-      clearTimeout(saveTimestampsTimerRef.current);
-      saveTimestampsTimerRef.current = null;
-    }
-    if (storyKey) saveStoryAudioTimestamps(storyKey, timestampsRef.current);
-  }
-
-  // هم‌گام‌سازیِ خودکار با AI (forced alignment، مثلاً با WhisperX) —
-  // به‌جایِ سینکِ دستیِ جمله‌به‌جمله، خودِ فایلِ صوتیِ آپلودی + متنِ
-  // دقیقِ همین جمله‌ها (که از قبل داریم و صد در صد درسته) رو به یه
-  // سرویسِ بیرونی می‌فرستیم؛ اون سرویس زمانِ دقیقِ شروعِ هر جمله رو
-  // برمی‌گردونه، و همه‌شون یکجا با setBulkTimestamps ذخیره می‌شن. بعدِ
-  // این، پخش خودکار هایلایت رو دنبال می‌کنه (بالاتر، داخلِ onTime) —
-  // دیگه نیازی به دکمه‌ی جمله‌ی بعد/قبل نیست.
-  // نکته‌ی مهم: این تابع خودش Whisper/WhisperX رو اجرا نمی‌کنه (اونا
-  // پایتون‌ان و رویِ مرورگر قابلِ اجرا نیستن) — فقط با سرویسِ بک‌اندی که
-  // آدرسش پایین‌تر (WHISPERX_ALIGN_ENDPOINT) مشخص شده صحبت می‌کنه؛ اون
-  // سرویس رو باید جدا دیپلوی کنی (نمونه‌ی کاملش رو جدا فرستادم).
-  async function alignWithAI(langCode) {
-    if (!storyKey) return;
-    const sentList = allSentencesRef.current;
-    if (!sentList || !sentList.length) return;
-    setAligning(true);
-    setAlignError("");
-    try {
-      const rec = await getStoryAudioRecord(storyKey);
-      if (!rec) throw new Error("no-audio");
-      const sentences = sentList.map((s) => ({ pi: s._pi, si: s._si, text: s.text || "" }));
-      const form = new FormData();
-      form.append("audio", rec.blob, "audio.webm");
-      form.append("language", langCode || "en");
-      form.append("sentences", JSON.stringify(sentences));
-      const resp = await fetch(WHISPERX_ALIGN_ENDPOINT, { method: "POST", body: form });
-      if (!resp.ok) throw new Error(`bad-status-${resp.status}`);
-      const data = await resp.json(); // { "pi-si": startSeconds, ... }
-      if (!data || typeof data !== "object") throw new Error("bad-shape");
-      setBulkTimestamps(data);
-    } catch (e) {
-      setAlignError(
-        "همگام‌سازیِ خودکار ناموفق بود — اتصال اینترنت یا در دسترس‌بودنِ سرویسِ AI رو چک کن"
-      );
-    } finally {
-      setAligning(false);
-    }
-  }
-
   // فقط وقتی صدا واقعاً در حالِ پخشه سینک می‌کنیم — اگه کاربر موقعِ مکث
   // بین جمله‌ها بگرده، اون جابه‌جایی‌ها ربطی به زمانِ واقعیِ صدا ندارن.
   // نکته‌ی مهم: setManualIndex اینجا با یه مقدارِ ساده (نه تابع) صدا زده
@@ -1261,10 +1180,6 @@ function useStoryUserAudio(storyKey, allSentences) {
     markAB,
     clearAB,
     getTimestamp,
-    setBulkTimestamps,
-    aligning,
-    alignError,
-    alignWithAI,
     timestampsTick,
   };
 }
@@ -7724,7 +7639,15 @@ function ChunkNavButton({ direction, color }) {
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,
-        touchAction: "manipulation",
+        // 🐛 «نگه‌داشتن» رویِ موبایل گاهی اصلاً شروع نمی‌شد یا انگار فقط تپ
+        // حساب می‌شد: با touchAction: "manipulation" مرورگر هنوز اجازه‌ی
+        // pan (اسکرول با انگشت) رو روی این دکمه داره، و اگه یه‌کمی حرکتِ
+        // طبیعیِ انگشت (لرزش/اصطکاک) رو اسکرول تشخیص بده، رویداد رو خودش
+        // می‌قاپه و touchcancel می‌فرسته — قبل از اینکه تایمرِ ۵۵۰
+        // میلی‌ثانیه‌ایِ لمسِ‌طولانی برسه. با "none"، کل ژستِ لمس رویِ این
+        // دکمه دستِ خودِ جاوااسکریپت می‌مونه و لمسِ‌طولانی همیشه قابل‌اعتماد
+        // شروع می‌شه.
+        touchAction: "none",
       }}
     >
       <ClassicTriangleIcon direction={direction === "prev" ? "left" : "right"} size={22} color={disabled ? colors.cardBorder : c} />
@@ -9401,7 +9324,7 @@ async function translatePageTextPreservingParagraphs(pageText, targetLang, aiSet
 // UserAudioProgressTrack همون‌جا رندر می‌شن.
 function StoryUserAudioBar({ userAudio, storyLang }) {
   const fileInputRef = useRef(null);
-  const { hasAudio, uploadFile, removeAudio, audioSaving, audioSaveError, aligning, alignError, alignWithAI } = userAudio;
+  const { hasAudio, uploadFile, removeAudio, audioSaving, audioSaveError } = userAudio;
 
   const boxStyle = {
     border: `1px solid ${colors.cardBorder}`,
@@ -9447,15 +9370,6 @@ function StoryUserAudioBar({ userAudio, storyLang }) {
         ) : (
           <div className="flex items-center gap-2">
             <button
-              onClick={() => !aligning && alignWithAI && alignWithAI(storyLang)}
-              disabled={aligning}
-              title="با کمکِ AI، همه‌ی جمله‌ها رو یکجا با این صوت هم‌گام کن — بدونِ سینکِ دستی"
-              style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${colors.teal}`, background: "white", color: colors.teal, fontSize: 12, opacity: aligning ? 0.6 : 1, display: "flex", alignItems: "center", gap: 6 }}
-            >
-              {aligning && <Loader2 size={13} className="spin" />}
-              {aligning ? "در حالِ هم‌گام‌سازی..." : "هم‌گام‌سازیِ خودکار (AI)"}
-            </button>
-            <button
               onClick={removeAudio}
               style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "none", color: colors.rose, fontSize: 12 }}
             >
@@ -9466,9 +9380,6 @@ function StoryUserAudioBar({ userAudio, storyLang }) {
       </div>
       {audioSaveError && (
         <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{audioSaveError}</p>
-      )}
-      {alignError && (
-        <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{alignError}</p>
       )}
     </div>
   );
@@ -9527,7 +9438,7 @@ function UserAudioChunkNavButton({ direction, ua, color }) {
       title={direction === "prev" ? "جمله‌ی قبل" : "جمله‌ی بعد"}
       aria-label={direction === "prev" ? "جمله‌ی قبل (نگه‌دار: چند ثانیه عقب)" : "جمله‌ی بعد (نگه‌دار: چند ثانیه جلو)"}
       disabled={!hasAudio}
-      style={{ background: "none", border: "none", cursor: hasAudio ? "pointer" : "default", color, padding: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: hasAudio ? 1 : 0.5, touchAction: "manipulation" }}
+      style={{ background: "none", border: "none", cursor: hasAudio ? "pointer" : "default", color, padding: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: hasAudio ? 1 : 0.5, touchAction: "none" }}
     >
       <ClassicTriangleIcon direction={direction === "prev" ? "left" : "right"} size={22} color={color} />
     </button>
@@ -10697,7 +10608,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     userAudio.manualIndex,
     userAudio.audioSaving,
     userAudio.audioSaveError,
-    userAudio.aligning,
     playbackMode,
   ]);
 
