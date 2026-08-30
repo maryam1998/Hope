@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useReducer } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic, Clock } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from './WORDS_AZ.js';
@@ -2985,16 +2985,20 @@ const speechController = (() => {
     return 0;
   }
 
-  // چیزی که موتورِ TTS واقعاً باهاش صدا کنیم. زیرِ حدودِ ۰.۴ اکثرِ موتورهای
-  // مرورگر پروسودیِ طبیعی‌شون رو از دست می‌دن (مکثِ عجیب/تک‌کلمه‌خونی) —
-  // برای همین اینجا پایین‌تر از ۰.۴ نمی‌ریم. مکثِ سرِ ویرگول رو دیگه خودِ
-  // موتور، داخلِ همون یک utterance، به‌طورِ طبیعی می‌سازه — نه ما با شکستنِ
-  // دستی. سرعتِ واقعیِ حس‌شده رو مکثِ بینِ‌جمله‌ها (sentenceGapMs) تکمیل
-  // می‌کنه که کاملاً دستِ خودمونه.
+  // چیزی که موتورِ TTS واقعاً باهاش صدا کنیم. قبلاً کف رو ۰.۴ گذاشته بودیم
+  // (برای حفظِ پروسودیِ طبیعی)، ولی همین باعث می‌شد سرعت‌های پایین (مثلاً
+  // ۰.۳ که کاربر از اسلایدر انتخاب می‌کنه) عملاً به موتور نزدیک به سرعتِ
+  // عادی داده بشه و کندشدنش اصلاً حس نشه. حالا کف رو ۰.۲ گذاشتیم (هم‌راستا
+  // با کفِ ۰.۲ی sentenceGapMs پایین‌تر) تا انتخابِ سرعت‌های پایین واقعاً
+  // حس بشه — به قیمتِ کمی کمتر طبیعی‌بودنِ لحن، فقط رویِ پایین‌ترین
+  // سرعت‌ها. مکثِ سرِ ویرگول رو همچنان خودِ موتور، داخلِ همون یک
+  // utterance، به‌طورِ طبیعی می‌سازه — نه ما با شکستنِ دستی. سرعتِ واقعیِ
+  // حس‌شده رو مکثِ بینِ‌جمله‌ها (sentenceGapMs) هم تکمیل می‌کنه که کاملاً
+  // دستِ خودمونه.
   function engineRate(r) {
     if (r >= 1) return r;
-    // r در بازه‌ی [0.25 .. 1] → engine rate در بازه‌ی [0.4 .. 1]
-    return 0.4 + ((r - 0.25) / 0.75) * 0.6;
+    // r در بازه‌ی [0.25 .. 1] → engine rate در بازه‌ی [0.2 .. 1]
+    return 0.2 + ((r - 0.25) / 0.75) * 0.8;
   }
 
   // مکثِ بعد از پایانِ یه جمله‌ی واقعی — تنها جایی که خودمون دستی مکث
@@ -7105,10 +7109,149 @@ function ClassicTriangleIcon({ direction = "right", size = 20, color = "currentC
     </svg>
   );
 }
+// ---------------------------------------------------------------------------
+// «چند ثانیه پرش» رویِ دکمه‌های جمله‌ی قبل/بعد — به‌جایِ دکمه‌ی جداگانه
+// (که پلیر رو شلوغ می‌کرد): تپِ کوتاه دقیقاً همون رفتارِ قبلی (جمله‌ی
+// بعد/قبل) رو داره؛ نگه‌داشتنِ انگشت بیشتر از حدودِ نیم‌ثانیه پرشِ
+// چندثانیه‌ای رو شروع می‌کنه و تا وقتی نگه داشته بشه ادامه پیدا می‌کنه
+// (مثلِ دکمه‌ی rewind/fast-forwardِ پلیرهای واقعی). مقدارِ ثانیه با یه
+// کنترلِ کوچیکِ −/عدد/+ (هم‌شکلِ SpeedControl) قابلِ‌تنظیمه، بینِ TTS و
+// صوتِ آپلودیِ کاربر مشترکه، و در localStorage نگه داشته می‌شه.
+// ---------------------------------------------------------------------------
+const SEEK_AMOUNT_STEPS = [5, 10, 15, 20, 30, 45, 60];
+const seekAmountStore = (() => {
+  let value = (() => {
+    const saved = Number(localStorage.getItem("phrasebook-seek-seconds"));
+    return SEEK_AMOUNT_STEPS.includes(saved) ? saved : 10;
+  })();
+  const listeners = new Set();
+  return {
+    get() {
+      return value;
+    },
+    set(v) {
+      if (!SEEK_AMOUNT_STEPS.includes(v)) return;
+      value = v;
+      try {
+        window.localStorage.setItem("phrasebook-seek-seconds", String(value));
+      } catch {}
+      listeners.forEach((fn) => fn(value));
+    },
+    subscribe(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+  };
+})();
+function useSeekAmount() {
+  const [amount, setAmount] = useState(() => seekAmountStore.get());
+  useEffect(() => seekAmountStore.subscribe(setAmount), []);
+  return amount;
+}
+function stepSeekAmount(delta) {
+  const idx = SEEK_AMOUNT_STEPS.indexOf(seekAmountStore.get());
+  const nextIdx = Math.min(SEEK_AMOUNT_STEPS.length - 1, Math.max(0, idx + delta));
+  seekAmountStore.set(SEEK_AMOUNT_STEPS[nextIdx]);
+}
+
+// هوکِ «تپِ کوتاه در برابرِ لمسِ طولانیِ تکرارشونده» — رویِ دکمه‌های
+// جمله‌ی قبل/بعد سوار می‌شه (به‌جایِ onClickِ ساده). onHoldStart (اختیاری)
+// همون لحظه‌ی pointerdown صدا زده می‌شه — برایِ ذخیره‌ی نقطه‌ی شروعِ پرش،
+// قبل از این‌که آستانه‌ی لمسِ‌طولانی رد بشه.
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_REPEAT_MS = 320;
+function useHoldToSeek(onTap, onSeekStep, onHoldStart) {
+  const timerRef = useRef(null);
+  const repeatRef = useRef(null);
+  const firedRef = useRef(false);
+  function clearTimers() {
+    clearTimeout(timerRef.current);
+    clearInterval(repeatRef.current);
+  }
+  useEffect(() => clearTimers, []);
+  function start(e) {
+    e.preventDefault();
+    firedRef.current = false;
+    if (onHoldStart) onHoldStart();
+    timerRef.current = setTimeout(() => {
+      firedRef.current = true;
+      onSeekStep();
+      repeatRef.current = setInterval(onSeekStep, LONG_PRESS_REPEAT_MS);
+    }, LONG_PRESS_MS);
+  }
+  function end() {
+    clearTimers();
+    if (!firedRef.current) onTap();
+  }
+  return {
+    onPointerDown: start,
+    onPointerUp: end,
+    onPointerLeave: end,
+    onPointerCancel: end,
+  };
+}
+
+// کنترلِ کوچیکِ انتخابِ «مقدارِ پرشِ لمسِ‌طولانی» — دقیقاً هم‌شکل/هم‌رفتارِ
+// SpeedControl/UserAudioSpeedControl (آیکون + دکمه‌ی −/+)، تا حسِ یه
+// کنترلِ جداگانه‌ی ناآشنا نده و پلیر شلوغ نشه.
+function SeekAmountControl({ color }) {
+  const amount = useSeekAmount();
+  const c = color || colors.gold;
+  const idx = SEEK_AMOUNT_STEPS.indexOf(amount);
+  const btnStyle = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 20,
+    height: 20,
+    borderRadius: 999,
+    border: `1px solid ${colors.cardBorder}`,
+    background: "white",
+    color: c,
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1,
+    cursor: "pointer",
+    flexShrink: 0,
+    padding: 0,
+  };
+  return (
+    <span
+      title={`مقدارِ پرشِ لمسِ طولانی: ${toFaDigits(String(amount))} ثانیه`}
+      style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}
+    >
+      <Clock size={15} color={colors.inkSoft} />
+      <button
+        type="button"
+        onClick={() => stepSeekAmount(-1)}
+        disabled={idx <= 0}
+        style={{ ...btnStyle, opacity: idx <= 0 ? 0.4 : 1 }}
+        aria-label="کم‌کردنِ مقدارِ پرش"
+      >
+        −
+      </button>
+      <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap", minWidth: 24, textAlign: "center" }}>
+        {toFaDigits(String(amount))}ث
+      </span>
+      <button
+        type="button"
+        onClick={() => stepSeekAmount(1)}
+        disabled={idx >= SEEK_AMOUNT_STEPS.length - 1}
+        style={{ ...btnStyle, opacity: idx >= SEEK_AMOUNT_STEPS.length - 1 ? 0.4 : 1 }}
+        aria-label="زیادکردنِ مقدارِ پرش"
+      >
+        +
+      </button>
+    </span>
+  );
+}
+
 // دکمه‌های «جمله‌ی قبل / جمله‌ی بعد» — تو نوارِ کنترلِ پلیرِ جدید، کنارِ دکمه‌ی
-// مرکزیِ پخش می‌شینن. فقط وقتی یه متن در حالِ پخش/مکث‌شدنه فعالن؛ با
-// speechController.seekToChunk جمله‌ی currentِ فعلی رو عوض می‌کنن (پخش هم
-// خودکار از همون‌جا ادامه پیدا می‌کنه).
+// مرکزیِ پخش می‌شینن. با تپِ کوتاه، speechController.seekToChunk جمله‌ی
+// currentِ فعلی رو عوض می‌کنه (پخش هم خودکار از همون‌جا ادامه پیدا می‌کنه)؛
+// با لمسِ طولانی، به‌اندازه‌ی «مقدارِ پرش»ِ SeekAmountControl عقب/جلو می‌ره
+// (تخمینی، بر اساسِ طولِ کاراکتریِ متن — دقیقاً همون منطقِ نوارِ پیشرفتِ
+// TTS پایین‌تر — چون پخشِ TTS زمانِ واقعیِ پیوسته نداره).
 function ChunkNavButton({ direction, color }) {
   const [state, setState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setState), []);
@@ -7119,16 +7262,33 @@ function ChunkNavButton({ direction, color }) {
   const disabled = !isActive || (direction === "prev" ? atStart : atEnd);
   const c = color || colors.ink;
 
-  const handleClick = () => {
+  const handleTap = () => {
     if (disabled) return;
     speechController.seekToChunk(state.chunkIndex + (direction === "prev" ? -1 : 1));
   };
+  const handleSeekStep = () => {
+    const st = speechController.getState();
+    if (st.status === "idle" || !st.key || !st.total) return;
+    const meta = speechController.getChunksMeta();
+    const fullLen = speechController.getFullTextLength();
+    if (!meta.length || !fullLen) return;
+    const msPerChar = TTS_MS_PER_CHAR / Math.max(st.rate || 1, 0.25);
+    const deltaChars = ((seekAmountStore.get() * 1000) / msPerChar) * (direction === "prev" ? -1 : 1);
+    const curChar = meta[st.chunkIndex] ? meta[st.chunkIndex].start : 0;
+    const targetChar = Math.min(fullLen, Math.max(0, curChar + deltaChars));
+    let idx = 0;
+    for (let i = 0; i < meta.length; i++) {
+      if (targetChar >= meta[i].start) idx = i;
+    }
+    speechController.seekToChunk(idx);
+  };
+  const holdHandlers = useHoldToSeek(handleTap, handleSeekStep);
 
   return (
     <button
-      onClick={handleClick}
+      {...holdHandlers}
       disabled={disabled}
-      aria-label={direction === "prev" ? "جمله‌ی قبل" : "جمله‌ی بعد"}
+      aria-label={direction === "prev" ? "جمله‌ی قبل (نگه‌دار: چند ثانیه عقب)" : "جمله‌ی بعد (نگه‌دار: چند ثانیه جلو)"}
       title={direction === "prev" ? "جمله‌ی قبل" : "جمله‌ی بعد"}
       style={{
         background: "none",
@@ -7141,6 +7301,7 @@ function ChunkNavButton({ direction, color }) {
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,
+        touchAction: "manipulation",
       }}
     >
       <ClassicTriangleIcon direction={direction === "prev" ? "left" : "right"} size={22} color={disabled ? colors.cardBorder : c} />
@@ -7443,6 +7604,7 @@ function PlayerProgressTrack({ color }) {
         {isActive ? fmtTime(totalMs) : "۰۰:۰۰"}
       </span>
       <SpeedControl color={colors.gold} />
+      <SeekAmountControl color={colors.gold} />
     </div>
   );
 }
@@ -8901,13 +9063,34 @@ function UserAudioMainPlayButton({ ua, color }) {
 // نسخه‌ی «صوتِ کاربر» از دکمه‌ی جمله‌ی قبل/بعد — کاملاً دستی (manualIndex)،
 // هیچ ربطی به زمانِ صدا نداره؛ همونی که قبلاً فقط توی StoryUserAudioBar بود.
 function UserAudioChunkNavButton({ direction, ua, color }) {
-  const { nextLine, prevLine, hasAudio } = ua || {};
+  const { nextLine, prevLine, hasAudio, seek, currentTime, duration } = ua || {};
+  // نقطه‌ی مبنایِ پرش — همون لحظه‌ی شروعِ لمسِ‌طولانی از رویِ currentTimeِ
+  // فعلی پر می‌شه (onHoldStart)، بعدش هرباری که تکرار می‌شه رویِ همینِ ref
+  // جمع/کم می‌شه؛ چون currentTimeِ خودِ ua هر نیم‌ثانیه یک‌بار به‌روز می‌شه
+  // (برای کاراییِ StoryBuilder)، و تکیه‌کردن به همون مقدارِ throttle‌شده
+  // باعثِ عقب‌موندنِ محاسبه از پرش‌های پشتِ‌سرِهم می‌شد.
+  const seekBaseRef = useRef(0);
+  const handleTap = () => {
+    if (!hasAudio) return;
+    direction === "prev" ? prevLine() : nextLine();
+  };
+  const handleHoldStart = () => {
+    seekBaseRef.current = currentTime || 0;
+  };
+  const handleSeekStep = () => {
+    if (!hasAudio || !seek) return;
+    const delta = seekAmountStore.get() * (direction === "prev" ? -1 : 1);
+    seekBaseRef.current = Math.min(Math.max(seekBaseRef.current + delta, 0), duration || Infinity);
+    seek(seekBaseRef.current);
+  };
+  const holdHandlers = useHoldToSeek(handleTap, handleSeekStep, handleHoldStart);
   return (
     <button
-      onClick={() => { if (!hasAudio) return; direction === "prev" ? prevLine() : nextLine(); }}
+      {...holdHandlers}
       title={direction === "prev" ? "جمله‌ی قبل" : "جمله‌ی بعد"}
+      aria-label={direction === "prev" ? "جمله‌ی قبل (نگه‌دار: چند ثانیه عقب)" : "جمله‌ی بعد (نگه‌دار: چند ثانیه جلو)"}
       disabled={!hasAudio}
-      style={{ background: "none", border: "none", cursor: hasAudio ? "pointer" : "default", color, padding: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: hasAudio ? 1 : 0.5 }}
+      style={{ background: "none", border: "none", cursor: hasAudio ? "pointer" : "default", color, padding: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: hasAudio ? 1 : 0.5, touchAction: "manipulation" }}
     >
       <ClassicTriangleIcon direction={direction === "prev" ? "left" : "right"} size={22} color={color} />
     </button>
@@ -8952,6 +9135,7 @@ function UserAudioProgressTrack({ ua, color }) {
       />
       <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 34, textAlign: "left" }}>{fmtTime(duration)}</span>
       <UserAudioSpeedControl ua={ua} color={color} />
+      <SeekAmountControl color={color} />
     </div>
   );
 }
