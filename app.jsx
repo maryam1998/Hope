@@ -3501,7 +3501,17 @@ const speechController = (() => {
       const clamped = Math.min(Math.max(Number(idx) || 0, 0), chunks.length - 1);
       if (mode === "online") {
         stopOnlineAudio();
-        const frac = chunks.length ? clamped / chunks.length : 0;
+        // مهم: نسبت باید بر اساسِ آفستِ کاراکتریِ واقعیِ همین جمله باشه
+        // (chunks[clamped].start / fullText.length)، نه بر اساسِ نسبتِ
+        // ایندکسِ جمله (clamped/chunks.length). چون تکه‌بندیِ آنلاین
+        // (onlineChunks) بر اساسِ طولِ کاراکتره نه مرزِ جمله، و جمله‌ها
+        // طولِ متفاوت دارن، نسبتِ ایندکسی هم‌ارزِ نسبتِ کاراکتری نیست و
+        // معمولاً یه چانکِ آنلاینِ جلوتر (یعنی جمله‌ی بعدی) رو انتخاب
+        // می‌کنه — دقیقاً همین چیزی که باعثِ باگِ «جمله‌ی بعد خونده
+        // می‌شه» توی نتیجه‌های جستجو بود. این همون روشیه که speakOnline
+        // هم برای startCharOffset استفاده می‌کنه.
+        const charStart = chunks[clamped] ? chunks[clamped].start : 0;
+        const frac = fullText.length ? charStart / fullText.length : 0;
         const onlineIdx = onlineChunks.length
           ? Math.min(onlineChunks.length - 1, Math.floor(frac * onlineChunks.length))
           : 0;
