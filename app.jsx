@@ -2829,6 +2829,16 @@ const speechController = (() => {
   // -------------------------------------------------------------------
   let onlineAudio = null;
   let onlineChunks = [];
+  // 🐛 اصلاحِ باگِ «رد شدن از رویِ یه جمله در میون»: قبلاً نگاشتِ بینِ
+  // ایندکسِ جمله (chunks) و ایندکسِ گروهِ صوتیِ آنلاین (onlineChunks) با
+  // یه تقریبِ کاراکتری (نسبت/floor) حساب می‌شد — چون splitForOnlineTts
+  // مستقل از مرزِ جمله، فقط بر اساسِ طولِ کاراکتر (۱۸۰تایی) می‌شکست. وقتی
+  // چند جمله‌ی کوتاه توی یه گروهِ آنلاینِ واحد جا می‌شدن، این تقریب گاهی
+  // هیچ پرشی نمی‌کرد و گاهی یه جمله رو کامل رد می‌کرد. الان splitForOnlineTts
+  // مستقیم رویِ خودِ chunks گروه‌بندی می‌کنه و این دو آرایه رو هم برمی‌گردونه
+  // تا نگاشتِ جمله<->گروهِ‌آنلاین همیشه دقیق باشه، نه تقریبی.
+  let onlineChunkStartSentence = []; // onlineIdx -> اولین ایندکسِ جمله‌ی همون گروه
+  let sentenceToOnlineChunk = []; // ایندکسِ جمله -> ایندکسِ گروهِ آنلاینِ حاویش
   let onlineChunkIndex = 0;
   let onlineLangForTts = "en";
   // آیا توی همین سشنِ آنلاینِ فعلی، حتی یه تکه‌صدا هم واقعاً شروع به پخش
@@ -2837,17 +2847,46 @@ const speechController = (() => {
   // رد شدنِ بی‌صدا از همه‌ی تکه‌های باقی‌مونده، باید متوقف بشیم و خطا بدیم.
   let onlineAnyAudioPlayed = false;
 
-  function splitForOnlineTts(text, maxLen = 180) {
-    const chunksArr = [];
-    let rest = (text || "").trim();
-    while (rest.length > maxLen) {
-      let cut = rest.lastIndexOf(" ", maxLen);
-      if (cut <= 0) cut = maxLen;
-      chunksArr.push(rest.slice(0, cut).trim());
-      rest = rest.slice(cut).trim();
+  // گروه‌بندیِ متن برای درخواست‌هایِ TTSِ آنلاین. قبلاً این تابع مستقیم
+  // رویِ متنِ خام و صرفاً بر اساسِ طولِ کاراکتر می‌شکست، کاملاً بی‌خبر از
+  // مرزهایِ جمله‌ای که chunks (splitSentences) از قبل مشخص کرده بود —
+  // همین جدابودنِ دو تکه‌بندی، ریشه‌ی باگِ «دکمه‌ی جمله‌ی بعد/قبل یکی
+  // درمیون رد می‌شه» بود (توضیحِ کامل‌تر بالای seekToChunk). الان مستقیم
+  // رویِ خودِ chunks (که هر کدوم دقیقاً یه جمله‌ست) گروه‌بندی می‌کنیم —
+  // هر گروهِ آنلاین از یک یا چند جمله‌ی کاملِ پشتِ‌سرِهم تشکیل می‌شه (تا
+  // سقفِ maxLen کاراکتر) — و علاوه بر متنِ هر گروه، دو نگاشتِ دقیق هم
+  // برمی‌گردونیم: اینکه هر گروهِ آنلاین با کدوم جمله شروع می‌شه، و هر
+  // جمله توی کدوم گروهِ آنلاینه. این دو دیگه هیچ تقریب/گردکردنی ندارن.
+  function splitForOnlineTts(sentenceChunks, maxLen = 180) {
+    const texts = [];
+    const onlineToSentenceStart = [];
+    const sentenceToOnlineIdx = [];
+    if (!sentenceChunks || !sentenceChunks.length) {
+      return { texts: [], onlineToSentenceStart: [], sentenceToOnlineIdx: [] };
     }
-    if (rest) chunksArr.push(rest);
-    return chunksArr.length ? chunksArr : [text];
+    let groupText = "";
+    let groupStartSentence = 0;
+    for (let i = 0; i < sentenceChunks.length; i++) {
+      const s = sentenceChunks[i].text;
+      const candidate = groupText ? groupText + " " + s : s;
+      if (groupText && candidate.length > maxLen) {
+        texts.push(groupText);
+        onlineToSentenceStart.push(groupStartSentence);
+        groupText = s;
+        groupStartSentence = i;
+      } else {
+        groupText = candidate;
+      }
+      // ایندکسِ گروهی که این جمله توش قرار می‌گیره: همون گروهِ هنوز-باز
+      // (که در پایانِ حلقه یا شروعِ گروهِ بعدی بسته و push می‌شه) — یعنی
+      // texts.length همین الان، قبل از بسته‌شدنِ گروهِ فعلی.
+      sentenceToOnlineIdx.push(texts.length);
+    }
+    if (groupText) {
+      texts.push(groupText);
+      onlineToSentenceStart.push(groupStartSentence);
+    }
+    return { texts, onlineToSentenceStart, sentenceToOnlineIdx };
   }
 
   // -------------------------------------------------------------------
@@ -2905,14 +2944,14 @@ const speechController = (() => {
   function nextOnlineIdx(idx) {
     const fallback = idx + 1;
     if (abState !== "looping" || abChunkB === null || abChunkA === null) return fallback;
-    if (!onlineChunks.length || !fullText.length) return fallback;
-    const approxChunk = chunkIndexForOffset(
-      Math.min(fullText.length - 1, Math.floor((fallback / Math.max(onlineChunks.length, 1)) * fullText.length))
-    );
-    if (approxChunk < abChunkB) return fallback;
-    const aStart = chunks[abChunkA] ? chunks[abChunkA].start : 0;
-    const frac = Math.min(Math.max(aStart / fullText.length, 0), 1);
-    return Math.min(onlineChunks.length - 1, Math.max(0, Math.floor(frac * onlineChunks.length)));
+    if (!onlineChunks.length) return fallback;
+    // دیگه به‌جایِ تخمینِ کاراکتری/floor، مستقیم از نگاشتِ دقیقِ
+    // onlineChunkStartSentence استفاده می‌کنیم: می‌فهمیم گروهِ آنلاینِ
+    // fallback دقیقاً با کدوم جمله شروع می‌شه.
+    const startSentence =
+      onlineChunkStartSentence[fallback] != null ? onlineChunkStartSentence[fallback] : chunks.length;
+    if (startSentence < abChunkB) return fallback;
+    return sentenceToOnlineChunk[abChunkA] != null ? sentenceToOnlineChunk[abChunkA] : fallback;
   }
 
   function playOnlineChunkUrls(providers, providerIndex, idx) {
@@ -2959,10 +2998,9 @@ const speechController = (() => {
 
   function playOnlineChunk(idx) {
     if (idx >= onlineChunks.length) {
-      if (abState === "looping" && abChunkA !== null && fullText.length) {
-        const aStart = chunks[abChunkA] ? chunks[abChunkA].start : 0;
-        const frac = Math.min(Math.max(aStart / fullText.length, 0), 1);
-        playOnlineChunk(Math.min(onlineChunks.length - 1, Math.max(0, Math.floor(frac * onlineChunks.length))));
+      if (abState === "looping" && abChunkA !== null) {
+        const aOnlineIdx = sentenceToOnlineChunk[abChunkA] != null ? sentenceToOnlineChunk[abChunkA] : 0;
+        playOnlineChunk(aOnlineIdx);
         return;
       }
       if (!singleShot && globalRepeatSetting === "inf") {
@@ -2982,9 +3020,9 @@ const speechController = (() => {
       return;
     }
     onlineChunkIndex = idx;
-    chunkIndex = chunkIndexForOffset(
-      Math.min(fullText.length - 1, Math.floor((idx / Math.max(onlineChunks.length, 1)) * fullText.length))
-    );
+    // نگاشتِ دقیق (نه تخمینِ کاراکتری) — همون جمله‌ای که این گروهِ آنلاین
+    // واقعاً باهاش شروع می‌شه.
+    chunkIndex = onlineChunkStartSentence[idx] != null ? onlineChunkStartSentence[idx] : chunkIndex;
     status = "playing";
     notify();
     playOnlineChunkUrls(onlineTtsProviders(onlineChunks[idx], onlineLangForTts), 0, idx);
@@ -2996,15 +3034,21 @@ const speechController = (() => {
     onlineAnyAudioPlayed = false;
     fullText = text;
     chunks = splitSentences(text);
-    onlineChunks = splitForOnlineTts(text);
+    const onlineSplit = splitForOnlineTts(chunks);
+    onlineChunks = onlineSplit.texts;
+    onlineChunkStartSentence = onlineSplit.onlineToSentenceStart;
+    sentenceToOnlineChunk = onlineSplit.sentenceToOnlineIdx;
     onlineLangForTts = langCodeForTts;
     singleShot = !!forceSingle;
     loopWholeText = !!forceLoop;
     remaining = singleShot ? 0 : forceLoop ? Infinity : globalRepeatSetting === "inf" ? Infinity : Math.max(0, (Number(globalRepeatSetting) || 0) - 1);
     let startChunk = 0;
-    if (Number.isInteger(startCharOffset) && startCharOffset > 0 && text.length && onlineChunks.length) {
-      const frac = Math.min(Math.max(startCharOffset / text.length, 0), 1);
-      startChunk = Math.min(onlineChunks.length - 1, Math.floor(frac * onlineChunks.length));
+    if (Number.isInteger(startCharOffset) && startCharOffset > 0 && chunks.length && onlineChunks.length) {
+      // اول بفهمیم این آفستِ کاراکتری تویِ کدوم جمله‌ست، بعد از نگاشتِ
+      // دقیقِ جمله->گروهِ‌آنلاین استفاده کنیم (نه یه فراکشنِ کاراکتریِ
+      // مستقیم که دیگه با گروه‌بندیِ جدید هم‌ارز نیست).
+      const sIdx = chunkIndexForOffset(Math.min(startCharOffset, Math.max(text.length - 1, 0)));
+      startChunk = sentenceToOnlineChunk[sIdx] != null ? sentenceToOnlineChunk[sIdx] : 0;
     }
     playOnlineChunk(startChunk);
   }
@@ -3636,20 +3680,18 @@ const speechController = (() => {
       const clamped = Math.min(Math.max(Number(idx) || 0, 0), chunks.length - 1);
       if (mode === "online") {
         stopOnlineAudio();
-        // مهم: نسبت باید بر اساسِ آفستِ کاراکتریِ واقعیِ همین جمله باشه
-        // (chunks[clamped].start / fullText.length)، نه بر اساسِ نسبتِ
-        // ایندکسِ جمله (clamped/chunks.length). چون تکه‌بندیِ آنلاین
-        // (onlineChunks) بر اساسِ طولِ کاراکتره نه مرزِ جمله، و جمله‌ها
-        // طولِ متفاوت دارن، نسبتِ ایندکسی هم‌ارزِ نسبتِ کاراکتری نیست و
-        // معمولاً یه چانکِ آنلاینِ جلوتر (یعنی جمله‌ی بعدی) رو انتخاب
-        // می‌کنه — دقیقاً همین چیزی که باعثِ باگِ «جمله‌ی بعد خونده
-        // می‌شه» توی نتیجه‌های جستجو بود. این همون روشیه که speakOnline
-        // هم برای startCharOffset استفاده می‌کنه.
-        const charStart = chunks[clamped] ? chunks[clamped].start : 0;
-        const frac = fullText.length ? charStart / fullText.length : 0;
-        const onlineIdx = onlineChunks.length
-          ? Math.min(onlineChunks.length - 1, Math.floor(frac * onlineChunks.length))
-          : 0;
+        // 🐛 نسخه‌ی قبلی اینجا با یه نسبتِ کاراکتری/floor حدس می‌زد این جمله
+        // تویِ کدوم گروهِ آنلاینه (onlineChunks بر اساسِ طولِ کاراکتره، نه
+        // مرزِ جمله؛ splitForOnlineTts پایین‌تر ببین). این حدس دقیق نبود:
+        // وقتی چند جمله‌ی کوتاه توی یه گروهِ آنلاینِ واحد جا می‌شدن، گاهی
+        // seekToChunk(currentIdx+1) دقیقاً همون گروهِ فعلی رو حساب می‌کرد
+        // (پس هیچ پرشی حس نمی‌شد) و گاهی یه گروه جلوتر می‌رفت — یعنی یه
+        // جمله‌ی کامل رد می‌شد. دقیقاً همون «دکمه‌ی جمله‌ی بعد/قبل یکی
+        // درمیون جمله‌ها رو رد می‌کنه». الان به‌جایِ حدس، از نگاشتِ دقیقِ
+        // sentenceToOnlineChunk (که موقعِ splitForOnlineTts ساخته شده)
+        // استفاده می‌کنیم — هر جمله همیشه دقیقاً می‌دونه تویِ کدوم گروهِ
+        // آنلاینه، بدونِ هیچ گردکردنی.
+        const onlineIdx = sentenceToOnlineChunk[clamped] != null ? sentenceToOnlineChunk[clamped] : 0;
         status = "playing";
         playOnlineChunk(onlineIdx);
       } else {
@@ -7354,6 +7396,20 @@ function useHoldToSeek(onTap, onSeekStep, onHoldStart) {
     clearTimers();
     if (!wasFired) onTap();
   }
+  // 🐛 باگِ اصلیِ «دکمه‌ی جمله‌ی بعد/قبل یک‌درمیون جمله‌ها رو رد می‌کنه»:
+  // روی موبایل، بعدِ هر لمس (touchend)، مرورگر به‌طورِ خودکار رویدادهای
+  // موسِ ساختگی (mousedown/mouseup) رو هم شبیه‌سازی می‌کنه. اینجا فقط
+  // onMouseDown با touchActiveRef محافظت شده بود، ولی onMouseUp/onMouseLeave
+  // بی‌محافظت مستقیم end() رو صدا می‌زدن. نتیجه: با هر تپِ لمسی، end()
+  // دوبار اجرا می‌شد — یک‌بار از خودِ onTouchEnd، یک‌بار از mouseup-ِ
+  // ساختگیِ چند میلی‌ثانیه بعدش — و چون هیچ‌کدوم «لمسِ‌طولانی» نبودن،
+  // onTap() (یعنی جمله‌ی بعد/قبل) هم دوبار صدا زده می‌شد؛ یعنی هر تپ
+  // عملاً دو جمله جلو/عقب می‌رفت. الان onMouseUp/onMouseLeave هم دقیقاً
+  // مثلِ onMouseDown چک می‌کنن که این یه mouseup-ِ ساختگیِ بعدِ لمس نیست.
+  function guardedEnd() {
+    if (touchActiveRef.current) return;
+    end();
+  }
   return {
     onMouseDown: (e) => {
       e.stopPropagation(); // جلوگیری از تداخل با لانگ‌پرسِ «برگشت به تب» رویِ کلِ نوارِ پلیر
@@ -7361,8 +7417,8 @@ function useHoldToSeek(onTap, onSeekStep, onHoldStart) {
       start(e.clientX, e.clientY);
     },
     onMouseMove: (e) => move(e.clientX, e.clientY),
-    onMouseUp: end,
-    onMouseLeave: end,
+    onMouseUp: guardedEnd,
+    onMouseLeave: guardedEnd,
     onTouchStart: (e) => {
       e.stopPropagation(); // همون جلوگیری، برایِ نسخه‌ی لمسی
       touchActiveRef.current = true;
