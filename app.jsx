@@ -828,6 +828,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     lastReportedTimeRef.current = 0;
     lastAutoIdxRef.current = 0;
     repeatsDoneRef.current = 0;
+    clearFocusResumeTimer();
     abARef.current = null;
     abBRef.current = null;
     abStateRef.current = "idle";
@@ -926,6 +927,7 @@ function useStoryUserAudio(storyKey, allSentences) {
       el.removeEventListener("pause", onPause);
       el.removeEventListener("ended", onEnd);
       el.removeEventListener("seeked", onSeeked);
+      clearFocusResumeTimer();
     };
   }, []);
 
@@ -959,12 +961,38 @@ function useStoryUserAudio(storyKey, allSentences) {
     }
   }
 
+  // «مکث برای فوکوسِ پاپ‌آپِ لغت» — دقیقاً هم‌معنیِ speechController.pauseForFocus
+  // ولی برایِ صوتِ آپلودیِ خودِ کاربر: وقتی این صوت داره پخش می‌شه و کاربر
+  // روی یه لغت/محدوده از متنِ داستان لمسِ طولانی می‌کنه (پاپ‌آپِ معنی باز
+  // می‌شه)، پخش فوراً مکث می‌شه؛ بعد از سه ثانیه (اگه خودِ کاربر تا اون‌موقع
+  // چیزی رو دستی پخش/مکث نکرده باشه) خودکار از همون نقطه ادامه پیدا می‌کنه.
+  const focusResumeTimerRef = useRef(null);
+  function clearFocusResumeTimer() {
+    if (focusResumeTimerRef.current) {
+      clearTimeout(focusResumeTimerRef.current);
+      focusResumeTimerRef.current = null;
+    }
+  }
+  function pauseForFocus() {
+    const el = audioElRef.current;
+    if (!el || el.paused) return false;
+    clearFocusResumeTimer();
+    el.pause();
+    focusResumeTimerRef.current = setTimeout(() => {
+      focusResumeTimerRef.current = null;
+      audioElRef.current?.play().catch(() => {});
+    }, 3000);
+    return true;
+  }
   // پخشِ دستی/تازه (با زدنِ دکمه‌ی پخش) همیشه شمارشگرِ تکرار رو صفر می‌کنه —
   // وگرنه اگه کاربر وسطِ یه چرخه‌ی تکرار دستی pause/play بزنه، شمارشِ
-  // تکرارهای قبلی باقی می‌موند و زودتر از موعد قطع می‌شد.
-  function play() { repeatsDoneRef.current = 0; audioElRef.current?.play().catch(() => {}); }
-  function pause() { audioElRef.current?.pause(); }
-  function seek(t) { if (audioElRef.current) audioElRef.current.currentTime = t; }
+  // تکرارهای قبلی باقی می‌موند و زودتر از موعد قطع می‌شد. هر اقدامِ دستیِ
+  // play/pause/seek همچنین تایمرِ خودکارِ «ادامه بعد از سه ثانیه»یِ بالا رو
+  // لغو می‌کنه — وگرنه ممکنه چند صدمِ‌ثانیه بعد از یه pause دستیِ کاربر،
+  // پخش خودش‌به‌خود (و ناخواسته) دوباره شروع بشه.
+  function play() { clearFocusResumeTimer(); repeatsDoneRef.current = 0; audioElRef.current?.play().catch(() => {}); }
+  function pause() { clearFocusResumeTimer(); audioElRef.current?.pause(); }
+  function seek(t) { clearFocusResumeTimer(); if (audioElRef.current) audioElRef.current.currentTime = t; }
 
   // دکمه‌ی جمله‌ی بعد/قبل: فقط اشاره‌گرِ دستیِ هایلایت رو جابه‌جا می‌کنه —
   // دیگه هیچ زمانی ثبت/سینک نمی‌شه (سیستمِ سینکِ خودکار کاملاً حذف شد).
@@ -1053,6 +1081,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     uploadFile,
     play,
     pause,
+    pauseForFocus,
     seek,
     nextLine,
     prevLine,
@@ -3738,6 +3767,14 @@ function consumeMainTextResumeOffset(mainTextKey) {
 // به StoryBuilder دسترسی نداره، از همین متغیر برای ساختنِ کلیدِ درستِ
 // speechController موقعِ به‌خاطرسپردنِ نقطه‌ی ادامه استفاده می‌کنه.
 let latestStoryTextContext = { text: "", code: "" };
+// همون دلیلِ latestStoryTextContext بالا: GlobalAddToStorySelection سراسریه
+// و مستقیم به هوکِ useStoryUserAudio (که داخلِ PhrasebookMain ساخته می‌شه)
+// دسترسی نداره. پس هر بار حالتِ صوتِ آپلودیِ کاربر عوض بشه (پلیر رو حالتِ
+// «صوتِ من» گذاشته/برداشته، فایل آپلود/حذف شده)، PhrasebookMain همین
+// متغیر رو به‌روز نگه می‌داره تا GlobalAddToStorySelection، درست مثلِ
+// speechController.pauseForFocus برای TTS، بتونه صوتِ آپلودی رو هم موقعِ
+// بازشدنِ پاپ‌آپِ لغت مکث کنه.
+let activeUserAudioFocusPause = null; // function | null
 
 // ---------------------------------------------------------------------------
 // اسکرول خودکار — استفاده‌شده توسط PhraseList / WordList / VocabList. خودش
@@ -10358,6 +10395,17 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     if (playbackMode === "user" && !userAudio.hasAudio) setPlaybackMode("tts");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mainStoryKey, userAudio.hasAudio]);
+  // پُلِ سراسری برای GlobalAddToStorySelection (نگاه کن به توضیحِ کاملِ
+  // activeUserAudioFocusPause بالایِ فایل): فقط وقتی پلیر واقعاً رویِ
+  // «صوتِ من» است و فایلی هم آپلود شده، تابعِ pauseForFocus رو در دسترسِ
+  // پاپ‌آپِ سراسری می‌ذاریم؛ وگرنه (حالتِ TTS، یا بدونِ صوتِ آپلودی) چیزی
+  // برای مکث‌کردن نیست و همین متغیر باید null بمونه.
+  useEffect(() => {
+    activeUserAudioFocusPause = playbackMode === "user" && userAudio.hasAudio ? userAudio.pauseForFocus : null;
+    return () => {
+      activeUserAudioFocusPause = null;
+    };
+  }, [playbackMode, userAudio.hasAudio, userAudio.pauseForFocus]);
   // وقتی از پاپ‌آپِ کلمه یا محدوده‌ی انتخابی، دکمه‌ی پخش زده می‌شه، همین‌جا
   // موقعیت (نسبت به کلِ fullStoryText) به‌خاطر سپرده می‌شه — تا دفعه‌ی بعد
   // که دکمه‌ی «پخشِ کل متن» روی نوارِ پلیر زده بشه، از همون‌جا (نه از اول)
@@ -18501,6 +18549,11 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       // ثانیه (اگه خودِ کاربر تا اون‌موقع 🔊ِ پاپ‌آپ رو نزده باشه) خودکار از
       // همون نقطه ادامه پیدا می‌کنه.
       speechController.pauseForFocus();
+      // همینِ مکثِ سه‌ثانیه‌ای برای صوتِ آپلودیِ کاربر هم لازمه (وقتی پلیرِ
+      // پایین رو حالتِ «صوتِ من» گذاشته و همون فایل داره پخش می‌شه) — نگاه
+      // کن به توضیحِ activeUserAudioFocusPause بالایِ فایل برای اینکه چرا
+      // این‌جا از یه پُلِ سراسری استفاده می‌شه، نه پراپ مستقیم.
+      activeUserAudioFocusPause?.();
       setPopup(p);
       pendingRef.current = null;
       setPendingActive(false);
