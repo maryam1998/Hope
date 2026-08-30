@@ -1105,6 +1105,16 @@ function useStoryUserAudio(storyKey, allSentences) {
       if (s) markLineTimestamp(s._pi, s._si);
     }
   }
+  // دکمه‌ی «رفرش/شروع مجدد» برایِ صوتِ آپلودی — دقیقاً هم‌معنیِ نسخه‌ی TTS
+  // (RestartButton بالاتر): فقط برمی‌گردونه به ابتدایِ فایل و هایلایتِ خطِ
+  // فعال رو ریست می‌کنه به خطِ اول؛ به وضعیتِ در حالِ پخش/مکث‌بودن دست
+  // نمی‌زنه — اگه در حالِ پخش بود، از همون لحظه از نو ادامه پیدا می‌کنه؛
+  // اگه مکث بود، مکث‌شده می‌مونه ولی رویِ ثانیه‌ی صفر.
+  function restart() {
+    manualIndexRef.current = 0;
+    setManualIndex(0);
+    if (audioElRef.current) audioElRef.current.currentTime = 0;
+  }
 
   // خونده‌شدنِ زمانِ سینک‌شده‌ی یه جمله (اگه قبلاً سینک شده باشه)، برای
   // پرشِ دقیق از نتیجه‌ی جستجو استفاده می‌شه.
@@ -1172,6 +1182,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     seek,
     nextLine,
     prevLine,
+    restart,
     setActiveLine,
     removeAudio,
     abState,
@@ -7249,6 +7260,38 @@ function RestartButton({ color, startText, startCode }) {
       disabled={disabled}
       aria-label="شروع مجدد از ابتدای این تب"
       title="شروع مجدد از ابتدای همینِ متن — هایلایت هم همراهش از اول می‌شه"
+      style={{
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "none",
+        border: "none",
+        cursor: disabled ? "default" : "pointer",
+        padding: 6,
+        color: disabled ? colors.cardBorder : c,
+        opacity: disabled ? 0.4 : 1,
+      }}
+    >
+      <RotateCcw size={19} />
+    </button>
+  );
+}
+// نسخه‌ی «صوتِ کاربر» از دکمه‌ی رفرش/شروع مجدد — کاملاً دستی، بدونِ هیچ
+// وابستگی به speechController: فقط ua.restart() رو صدا می‌زنه که همزمان
+// currentTime رو صفر می‌کنه و هایلایتِ خطِ فعال (manualIndex) رو هم به خطِ
+// اول برمی‌گردونه. وضعیتِ پخش/مکث دست‌نخورده می‌مونه، دقیقاً مثلِ رفتارِ
+// نسخه‌ی TTS.
+function UserAudioRestartButton({ ua, color }) {
+  const { hasAudio, restart } = ua || {};
+  const disabled = !hasAudio;
+  const c = color || colors.gold;
+  return (
+    <button
+      onClick={() => { if (!disabled && restart) restart(); }}
+      disabled={disabled}
+      aria-label="شروع مجدد از ابتدای صوت"
+      title="شروع مجدد از ابتدای این صوت — هایلایت هم همراهش از اول می‌شه"
       style={{
         flexShrink: 0,
         display: "flex",
@@ -17546,7 +17589,11 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             </div>
             <MuteButton color={colors.gold} />
             <RepeatButton color={colors.gold} />
-            <RestartButton color={colors.gold} startText={activeTabAudio?.text} startCode={activeTabAudio?.code} />
+            {isStoryUserAudioMode ? (
+              <UserAudioRestartButton color={colors.gold} ua={storyUserAudio} />
+            ) : (
+              <RestartButton color={colors.gold} startText={activeTabAudio?.text} startCode={activeTabAudio?.code} />
+            )}
             {isStoryUserAudioMode ? (
               <UserAudioABButton ua={storyUserAudio} color={colors.gold} />
             ) : (
