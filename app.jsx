@@ -7303,20 +7303,39 @@ function stepSeekAmount(delta) {
 // جمله‌ی قبل/بعد سوار می‌شه (به‌جایِ onClickِ ساده). onHoldStart (اختیاری)
 // همون لحظه‌ی pointerdown صدا زده می‌شه — برایِ ذخیره‌ی نقطه‌ی شروعِ پرش،
 // قبل از این‌که آستانه‌ی لمسِ‌طولانی رد بشه.
-const LONG_PRESS_MS = 450;
+const LONG_PRESS_MS = 550;
 const LONG_PRESS_REPEAT_MS = 320;
+const LONG_PRESS_MOVE_TOLERANCE = 12;
+// 🐛 نسخه‌ی قبلی از Pointer Events (onPointerDown/Up/Leave/Cancel) استفاده
+// می‌کرد. مشکل: اگه به هر دلیلی (اورلپ‌شدنِ عنصر، رفتارِ خاصِ وب‌ویو/
+// مرورگر با touch-action، و…) رویدادِ pointerup روی خودِ دکمه شلیک
+// نمی‌شد، تایمرِ ۴۵۰ میلی‌ثانیه‌ای هیچ‌وقت clear نمی‌شد و بعد از همون
+// مدت خودش‌به‌خود «لمسِ‌طولانی» رو فعال می‌کرد — یعنی حتی یه تپِ خیلی
+// سریع هم، چون clearTimers هیچ‌وقت اجرا نمی‌شد، به‌جایِ جمله‌ی بعد/قبل
+// می‌رفت سراغِ پرشِ چندثانیه‌ای (همونی که کاربر گزارش کرد: «همیشه» ثانیه‌ای
+// می‌شد). الان دقیقاً همون الگویِ mouse+touch (onMouseDown/Move/Up/Leave +
+// onTouchStart/Move/End/Cancel، با تلورانسِ حرکتِ انگشت) که برایِ
+// لانگ‌پرسِ نوارِ پلیر (playerLongPressRef پایین‌تر) قبلاً تست شده و
+// درست کار می‌کنه رو اینجا هم به‌کار می‌بریم — پایانِ لمس همیشه قابل‌اعتماد
+// گزارش می‌شه، و اگه انگشت حین لمس کمی لیز خورد (نه لمسِ‌طولانیِ عمدی)،
+// تپِ ساده حساب می‌شه.
 function useHoldToSeek(onTap, onSeekStep, onHoldStart) {
   const timerRef = useRef(null);
   const repeatRef = useRef(null);
   const firedRef = useRef(false);
+  const startPosRef = useRef({ x: 0, y: 0 });
+  const touchActiveRef = useRef(false); // برای نادیده‌گرفتنِ mousedown-ِ ساختگیِ بعدِ لمس
   function clearTimers() {
     clearTimeout(timerRef.current);
     clearInterval(repeatRef.current);
+    timerRef.current = null;
+    repeatRef.current = null;
   }
   useEffect(() => clearTimers, []);
-  function start(e) {
-    e.preventDefault();
+  function start(x, y) {
+    clearTimers();
     firedRef.current = false;
+    startPosRef.current = { x, y };
     if (onHoldStart) onHoldStart();
     timerRef.current = setTimeout(() => {
       firedRef.current = true;
@@ -7324,15 +7343,44 @@ function useHoldToSeek(onTap, onSeekStep, onHoldStart) {
       repeatRef.current = setInterval(onSeekStep, LONG_PRESS_REPEAT_MS);
     }, LONG_PRESS_MS);
   }
+  function move(x, y) {
+    if (!timerRef.current) return;
+    if (Math.abs(x - startPosRef.current.x) > LONG_PRESS_MOVE_TOLERANCE || Math.abs(y - startPosRef.current.y) > LONG_PRESS_MOVE_TOLERANCE) {
+      clearTimers();
+    }
+  }
   function end() {
+    const wasFired = firedRef.current;
     clearTimers();
-    if (!firedRef.current) onTap();
+    if (!wasFired) onTap();
   }
   return {
-    onPointerDown: start,
-    onPointerUp: end,
-    onPointerLeave: end,
-    onPointerCancel: end,
+    onMouseDown: (e) => {
+      e.stopPropagation(); // جلوگیری از تداخل با لانگ‌پرسِ «برگشت به تب» رویِ کلِ نوارِ پلیر
+      if (touchActiveRef.current) return; // mousedown-ِ ساختگیِ بعدِ لمس
+      start(e.clientX, e.clientY);
+    },
+    onMouseMove: (e) => move(e.clientX, e.clientY),
+    onMouseUp: end,
+    onMouseLeave: end,
+    onTouchStart: (e) => {
+      e.stopPropagation(); // همون جلوگیری، برایِ نسخه‌ی لمسی
+      touchActiveRef.current = true;
+      const t = e.touches[0];
+      if (t) start(t.clientX, t.clientY);
+    },
+    onTouchMove: (e) => {
+      const t = e.touches[0];
+      if (t) move(t.clientX, t.clientY);
+    },
+    onTouchEnd: () => {
+      end();
+      setTimeout(() => { touchActiveRef.current = false; }, 500);
+    },
+    onTouchCancel: () => {
+      end();
+      setTimeout(() => { touchActiveRef.current = false; }, 500);
+    },
   };
 }
 
