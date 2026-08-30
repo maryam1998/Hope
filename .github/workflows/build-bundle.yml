@@ -39,7 +39,24 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build with esbuild (no network deps other than npm)
+        # WHISPERX_ALIGN_ENDPOINT_URL: آدرسِ سرویسِ هم‌گام‌سازیِ خودکارِ AI
+        # (whisperx_align_server.py که جدا دیپلوی می‌کنی) — به‌جایِ اینکه این
+        # آدرس تو خودِ app.jsx هاردکد/commit بشه، از یه GitHub secret به اسمِ
+        # WHISPERX_ALIGN_ENDPOINT خونده می‌شه و موقعِ ساختِ باندل با
+        # --define جایگزین می‌شه. برایِ ست‌کردنِ این secret: تو ریپو برو
+        # Settings → Secrets and variables → Actions → New repository secret،
+        # اسمش رو WHISPERX_ALIGN_ENDPOINT بذار و مقدارش رو آدرسِ کاملِ
+        # اندپوینتت (مثلاً https://your-server.example.com/align) بذار. اگه
+        # این secret اصلاً ست نشده باشه، --define کلاً پاس داده نمی‌شه — پس
+        # app.jsx خودش (با typeof-check) به placeholderِ پیش‌فرضِ خودش
+        # برمی‌گرده، نه به یه رشته‌ی خالی.
+        env:
+          WHISPERX_ALIGN_ENDPOINT: ${{ secrets.WHISPERX_ALIGN_ENDPOINT }}
         run: |
+          DEFINE_ARGS=()
+          if [ -n "$WHISPERX_ALIGN_ENDPOINT" ]; then
+            DEFINE_ARGS+=(--define:WHISPERX_ALIGN_ENDPOINT_URL="\"$WHISPERX_ALIGN_ENDPOINT\"")
+          fi
           npx --yes esbuild@0.27.7 app.jsx \
             --bundle \
             --minify \
@@ -56,6 +73,7 @@ jobs:
             --external:firebase/firestore \
             --external:pdfjs-dist \
             --external:pdf-lib \
+            "${DEFINE_ARGS[@]}" \
             --outfile=app.bundle.min.js
 
       # هر بار که باندل عوض بشه، مرورگرهایی که sw.js رو قبلاً نصب کردن باید
