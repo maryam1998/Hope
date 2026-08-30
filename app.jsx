@@ -282,40 +282,9 @@ async function deleteStoryAudioRecord(storyKey) {
   await deleteStoryAudioTimestamps(storyKey);
 }
 
-// نگاشتِ «pi-si» -> ثانیه، برای اینکه بشه دقیقاً از همون لحظه‌ای که یه جمله
-// توی صوتِ آپلودیِ کاربر شروع می‌شه پخش رو آغاز کرد (به‌جایِ تخمینِ نسبیِ
-// طولِ کاراکتر). فقط وقتی پر می‌شه که کاربر واقعاً حین گوش‌دادن، دکمه‌ی
-// جمله‌ی بعد/قبل رو بزنه — همون لحظه، جمله‌ی تازه‌رسیده رو با currentTime
-// فعلیِ صدا «سینک» می‌کنیم.
-async function saveStoryAudioTimestamps(storyKey, timestamps) {
-  try {
-    const db = await openStoryAudioDB();
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORY_AUDIO_META_STORE, "readwrite");
-      tx.objectStore(STORY_AUDIO_META_STORE).put({ timestamps, savedAt: Date.now() }, storyKey);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function getStoryAudioTimestamps(storyKey) {
-  try {
-    const db = await openStoryAudioDB();
-    return await new Promise((resolve) => {
-      const tx = db.transaction(STORY_AUDIO_META_STORE, "readonly");
-      const req = tx.objectStore(STORY_AUDIO_META_STORE).get(storyKey);
-      req.onsuccess = () => resolve(req.result?.timestamps || null);
-      req.onerror = () => resolve(null);
-    });
-  } catch {
-    return null;
-  }
-}
-
+// سیستمِ سینکِ دقیقِ pi-si -> ثانیه حذف شد (قابلِ‌اعتماد نبود). این تابع
+// فقط برای پاک‌کردنِ دیتایِ قدیمیِ باقی‌مانده از نسخه‌های قبلی نگه داشته
+// شده — جایی که صوتِ یه داستان کاملاً حذف می‌شه (deleteStoryAudioRecord).
 async function deleteStoryAudioTimestamps(storyKey) {
   try {
     const db = await openStoryAudioDB();
@@ -748,22 +717,19 @@ function useStoryUserAudio(storyKey, allSentences) {
   const [duration, setDuration] = useState(0);
   const [manualIndex, setManualIndex] = useState(0); // اشاره‌گرِ دستیِ خط، فقط با دکمه‌ی قبل/بعد عوض می‌شه
   // نسخه‌ی ref از manualIndex — برای اینکه nextLine/prevLine بتونن مقدارِ
-  // همیشه‌به‌روز رو بی‌نیاز از فرمِ تابعیِ setManualIndex بخونن (که قبلاً
-  // لازم بود چون داخلش markLineTimestamp/setTimestampsTick صدا زده می‌شد —
-  // یعنی یه setState وسطِ محاسبه‌ی یه setState دیگه، که قاعده‌ی React رو
-  // می‌شکست و باعثِ رفتارِ نامنظمِ خودِ دکمه‌های قبل/بعد می‌شد).
+  // همیشه‌به‌روز رو بی‌نیاز از فرمِ تابعیِ setManualIndex بخونن.
   const manualIndexRef = useRef(0);
   useEffect(() => {
     manualIndexRef.current = manualIndex;
   }, [manualIndex]);
-  // آخرین ایندکسی که هایلایت رویش «قصداً» گذاشته شده (چه با کلیکِ مستقیمِ
-  // کاربر روی یه جمله/بلندگو، چه با دکمه‌ی جمله‌ی بعد/قبل، چه با ری‌استارت).
-  // پیگیریِ خودکارِ هایلایت (پایین‌تر، داخلِ onTime) فقط مجاز است این
-  // ایندکس را به جلو ببرد، نه عقب — وگرنه به‌خاطرِ تُنُک‌بودنِ
-  // timestampsِ ثبت‌شده، بلافاصله بعدِ کلیکِ کاربر روی یه جمله (که معمولاً
-  // خودش هنوز timestamp ندارد و seek فقط یه تخمین است)، نزدیک‌ترین
-  // timestampِ ثبت‌شده‌ی *قبل‌تر* پیدا می‌شد و هایلایت/اسکرول را به یه
-  // جمله‌ی بالاترِ اشتباه می‌پراند — دقیقاً همون باگی که کاربر گزارش کرد.
+  // ⚠️ قبلاً اینجا یه سیستمِ «سینکِ خودکار» بود: با زدنِ دکمه‌ی جمله‌ی
+  // بعد/قبل حینِ گوش‌دادن، زمانِ دقیقِ شروعِ هر جمله ثبت می‌شد و حینِ پخش،
+  // هایلایت به‌طور خودکار (با پیدا کردنِ نزدیک‌ترین جمله‌ی سینک‌شده به
+  // ثانیه‌ی فعلی) جلو می‌رفت. این سیستم کاملاً حذف شد — چون قابلِ‌اعتماد
+  // نبود (با آپلودِ فایلِ جدید یا سینک‌های ناقص/نامنظم، هایلایت به‌طور
+  // ناخواسته به جمله‌های غلط/قبلی می‌پرید و با اسکرولِ دستیِ کاربر می‌جنگید).
+  // حالا هایلایت/جابه‌جایی توی صوتِ آپلودی *فقط* با اقدامِ صریحِ کاربر عوض
+  // می‌شه: دکمه‌ی جمله‌ی بعد/قبل، تپ‌کردنِ مستقیم روی یه جمله، یا ری‌استارت.
   const lastAutoIdxRef = useRef(0);
   // سرعتِ پخشِ صوتِ آپلودیِ کاربر — مستقل از سرعتِ TTS (که سراسری و
   // مخصوصِ speechController است). یه پیش‌فرضِ سراسری (نه مخصوصِ هر داستان)
@@ -799,38 +765,6 @@ function useStoryUserAudio(storyKey, allSentences) {
   const abStateRef = useRef("idle");
   const abARef = useRef(null);
   const abBRef = useRef(null);
-  // نگاشتِ «pi-si» -> ثانیه‌ای که همون جمله توی همین فایلِ صوتیِ آپلودی
-  // شروع می‌شه — با سینکِ دستیِ کاربر (دکمه‌ی جمله‌ی بعد/قبل) پر می‌شه.
-  // با این، پرش از نتیجه‌ی جستجو می‌تونه دقیقاً از همون‌جا شروع کنه، نه با
-  // تخمینِ نسبیِ کاراکتر.
-  const timestampsRef = useRef({});
-  const [timestampsTick, setTimestampsTick] = useState(0); // فقط برای اطلاع‌دادنِ رندر، خودِ مقدار از ref خونده می‌شه
-  const saveTimestampsTimerRef = useRef(null);
-  // نسخه‌ی مرتب‌شده‌ی timestampsRef، برای پیگیریِ خودکارِ هایلایت حینِ
-  // پخش (پایین‌تر، داخلِ onTime) — هر بار timestampsRef عوض می‌شه دوباره
-  // ساخته می‌شه (rebuildTimestampEntries)، نه هر تیکِ onTime، چون
-  // onTime هر چندصدمیلی‌ثانیه صدا زده می‌شه و نباید هر بار Object.keys
-  // بزنه.
-  const timestampEntriesRef = useRef([]); // [{pi, si, start}] مرتب‌شده بر اساسِ start
-  function rebuildTimestampEntries() {
-    const map = timestampsRef.current || {};
-    const entries = Object.keys(map)
-      .map((key) => {
-        const [pi, si] = key.split("-").map(Number);
-        return { pi, si, start: map[key] };
-      })
-      .filter((e) => Number.isFinite(e.pi) && Number.isFinite(e.si) && Number.isFinite(e.start));
-    entries.sort((a, b) => a.start - b.start);
-    timestampEntriesRef.current = entries;
-  }
-  // نسخه‌ی ref از allSentences — onTime داخلِ یه useEffectِ mount-only
-  // (dependency آرایِ خالی) تعریف می‌شه، پس برایِ دسترسی به لیستِ
-  // همیشه‌به‌روزِ جمله‌ها (بدونِ نیاز به re-register کردنِ listenerها) باید
-  // از یه ref بخونه، نه مستقیم از پارامترِ allSentences.
-  const allSentencesRef = useRef(allSentences);
-  useEffect(() => {
-    allSentencesRef.current = allSentences;
-  }, [allSentences]);
 
   function markAB() {
     const t = audioElRef.current?.currentTime ?? 0;
@@ -900,26 +834,14 @@ function useStoryUserAudio(storyKey, allSentences) {
     setAbA(null);
     setAbB(null);
     setAbState("idle");
-    timestampsRef.current = {};
-    rebuildTimestampEntries();
-    setTimestampsTick((n) => n + 1);
-    if (saveTimestampsTimerRef.current) {
-      clearTimeout(saveTimestampsTimerRef.current);
-      saveTimestampsTimerRef.current = null;
-    }
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current);
       objectUrlRef.current = null;
     }
     if (!storyKey) return;
     (async () => {
-      const [rec, ts] = await Promise.all([getStoryAudioRecord(storyKey), getStoryAudioTimestamps(storyKey)]);
+      const rec = await getStoryAudioRecord(storyKey);
       if (cancelled) return;
-      if (ts) {
-        timestampsRef.current = ts;
-        rebuildTimestampEntries();
-        setTimestampsTick((n) => n + 1);
-      }
       if (!rec) return;
       const url = URL.createObjectURL(rec.blob);
       objectUrlRef.current = url;
@@ -953,41 +875,10 @@ function useStoryUserAudio(storyKey, allSentences) {
           return;
         }
       }
-      // --- پیگیریِ خودکارِ هایلایت -----------------------------------
-      // اگه برایِ این داستان timestamp داریم (چه دستی، چه با
-      // هم‌گام‌سازیِ خودکارِ AI)، دیگه نیازی به دکمه‌ی جمله‌ی بعد/قبل
-      // نیست: با باینری‌سرچ روی جدولِ مرتب‌شده، آخرین جمله‌ای که
-      // startش <= t هست رو پیدا می‌کنیم و هایلایت رو خودکار می‌بریم
-      // اونجا. فقط وقتی صدا واقعاً پخشه (نه موقعِ مکث/گشتنِ دستی).
-      if (!el.paused) {
-        const entries = timestampEntriesRef.current;
-        if (entries.length) {
-          let lo = 0, hi = entries.length - 1, found = -1;
-          while (lo <= hi) {
-            const mid = (lo + hi) >> 1;
-            if (entries[mid].start <= t) { found = mid; lo = mid + 1; }
-            else hi = mid - 1;
-          }
-          if (found !== -1) {
-            const { pi, si } = entries[found];
-            const sentList = allSentencesRef.current;
-            if (sentList && sentList.length) {
-              let idx = -1;
-              for (let i = 0; i < sentList.length; i++) {
-                if (sentList[i]?._pi === pi && sentList[i]?._si === si) { idx = i; break; }
-              }
-              // فقط مجازیم به جلو حرکت کنیم (idx >= آخرین جهشِ قصدی) —
-              // این از پرشِ ناخواسته‌ی هایلایت به یه timestampِ قدیمی‌تر/
-              // بالاترِ صفحه جلوگیری می‌کنه (نگاه کن به توضیحِ lastAutoIdxRef).
-              if (idx !== -1 && idx !== manualIndexRef.current && idx >= lastAutoIdxRef.current) {
-                lastAutoIdxRef.current = idx;
-                manualIndexRef.current = idx;
-                setManualIndex(idx);
-              }
-            }
-          }
-        }
-      }
+      // ⚠️ قبلاً اینجا یه پیگیریِ خودکارِ هایلایت بود (بر اساسِ timestampِ
+      // سینک‌شده) که حذف شد — هایلایت/manualIndex فقط با اقدامِ صریحِ
+      // کاربر (دکمه‌ی جمله‌ی بعد/قبل، تپ‌کردنِ روی یه جمله، ری‌استارت) عوض
+      // می‌شه، نه خودکار حینِ پخش.
       if (Math.abs(t - lastReportedTimeRef.current) >= 0.5) {
         lastReportedTimeRef.current = t;
         setCurrentTime(t);
@@ -1052,26 +943,6 @@ function useStoryUserAudio(storyKey, allSentences) {
     lastAutoIdxRef.current = 0;
     setHasAudio(true);
     clearAB();
-    // ⚠️ فایلِ صوتیِ تازه = خطِ‌زمانِ کاملاً متفاوت از فایلِ قبلی (اگه قبلاً
-    // یکی بوده). timestampsِ ثبت‌شده (چه در حافظه، چه ذخیره‌شده روی
-    // IndexedDB) دقیقاً مالِ همون فایلِ قبلیه — اگه پاک نشن، حینِ پخشِ
-    // فایلِ جدید، پیگیریِ خودکارِ هایلایت (داخلِ onTime) با رسیدن به
-    // ثانیه‌ای که یه sentence قدیمی روش سینک شده بود، هایلایت/اسکرول رو به
-    // یه جمله‌ی کاملاً بی‌ربط می‌پروند (چون اون لحظه از صدایِ *جدید* اصلاً
-    // مالِ اون جمله نیست)، و دقیقاً همین باعث می‌شد جهشِ ناخواسته/جنگیدن با
-    // اسکرولِ دستیِ کاربر تکرار بشه؛ به همین دلیل تپ‌کردنِ رویِ یه جمله برای
-    // شروعِ پخش از اونجا هم (getTimestamp) به یه ثانیه‌ی غلط از فایلِ قبلی
-    // می‌رفت. برای همین با هر آپلودِ تازه، همه‌ی sync قبلی رو کاملاً پاک
-    // می‌کنیم تا تا وقتی کاربر با فایلِ جدید دوباره سینک نکرده، فقط از
-    // تخمینِ نسبیِ کاراکتری استفاده بشه (نه از یه سینکِ غلطِ فایلِ قبلی).
-    if (saveTimestampsTimerRef.current) {
-      clearTimeout(saveTimestampsTimerRef.current);
-      saveTimestampsTimerRef.current = null;
-    }
-    timestampsRef.current = {};
-    rebuildTimestampEntries();
-    setTimestampsTick((n) => n + 1);
-    if (storyKey) deleteStoryAudioTimestamps(storyKey).catch(() => {});
     // نوشتنِ خودِ فایل روی IndexedDB (که برایِ فایل‌های صوتیِ حجیم ممکنه
     // چندصدمیلی‌ثانیه طول بکشه) رو به‌عنوانِ «در حالِ ذخیره» علامت می‌زنیم
     // تا دکمه‌ی آپلود در همون لحظه غیرفعال/چرخان بشه — کاربر می‌فهمه داره
@@ -1095,52 +966,19 @@ function useStoryUserAudio(storyKey, allSentences) {
   function pause() { audioElRef.current?.pause(); }
   function seek(t) { if (audioElRef.current) audioElRef.current.currentTime = t; }
 
-  // وقتی کاربر حین گوش‌دادن، دکمه‌ی جمله‌ی بعد/قبل رو دقیقاً همون لحظه‌ای
-  // که اون جمله شروع می‌شه می‌زنه، currentTimeِ همون لحظه رو به‌عنوانِ
-  // نقطه‌ی شروعِ اون جمله ثبت می‌کنیم. ذخیره‌سازیِ روی IndexedDB با یه
-  // تأخیرِ کوتاه (debounce) انجام می‌شه تا با زدنِ پی‌درپیِ دکمه، هر بار
-  // یه نوشتنِ جدا رخ نده.
-  function markLineTimestamp(pi, si) {
-    if (pi == null || si == null || !audioElRef.current) return;
-    const t = audioElRef.current.currentTime;
-    if (!Number.isFinite(t)) return;
-    timestampsRef.current = { ...timestampsRef.current, [`${pi}-${si}`]: t };
-    rebuildTimestampEntries();
-    setTimestampsTick((n) => n + 1);
-    if (saveTimestampsTimerRef.current) clearTimeout(saveTimestampsTimerRef.current);
-    const keyToSave = storyKey;
-    saveTimestampsTimerRef.current = setTimeout(() => {
-      saveTimestampsTimerRef.current = null;
-      if (keyToSave) saveStoryAudioTimestamps(keyToSave, timestampsRef.current);
-    }, 800);
-  }
-
-  // فقط وقتی صدا واقعاً در حالِ پخشه سینک می‌کنیم — اگه کاربر موقعِ مکث
-  // بین جمله‌ها بگرده، اون جابه‌جایی‌ها ربطی به زمانِ واقعیِ صدا ندارن.
-  // نکته‌ی مهم: setManualIndex اینجا با یه مقدارِ ساده (نه تابع) صدا زده
-  // می‌شه، نه با فرمِ آپدیت‌کننده — چون markLineTimestamp خودش یه setState
-  // دیگه (setTimestampsTick) رو صدا می‌زنه، و صدازدنِ setState از داخلِ
-  // تابعِ آپدیت‌کننده‌ی یه setState دیگه خلافِ قاعده‌ست و همون چیزی بود که
-  // باعث می‌شد خودِ حرکتِ جمله‌ی بعد/قبل درست کار نکنه.
+  // دکمه‌ی جمله‌ی بعد/قبل: فقط اشاره‌گرِ دستیِ هایلایت رو جابه‌جا می‌کنه —
+  // دیگه هیچ زمانی ثبت/سینک نمی‌شه (سیستمِ سینکِ خودکار کاملاً حذف شد).
   function nextLine() {
     const next = Math.min(manualIndexRef.current + 1, Math.max((allSentences?.length || 1) - 1, 0));
     manualIndexRef.current = next;
     lastAutoIdxRef.current = next;
     setManualIndex(next);
-    if (audioElRef.current && !audioElRef.current.paused) {
-      const s = allSentences?.[next];
-      if (s) markLineTimestamp(s._pi, s._si);
-    }
   }
   function prevLine() {
     const prevIdx = Math.max(manualIndexRef.current - 1, 0);
     manualIndexRef.current = prevIdx;
     lastAutoIdxRef.current = prevIdx;
     setManualIndex(prevIdx);
-    if (audioElRef.current && !audioElRef.current.paused) {
-      const s = allSentences?.[prevIdx];
-      if (s) markLineTimestamp(s._pi, s._si);
-    }
   }
   // دکمه‌ی «رفرش/شروع مجدد» برایِ صوتِ آپلودی — دقیقاً هم‌معنیِ نسخه‌ی TTS
   // (RestartButton بالاتر): فقط برمی‌گردونه به ابتدایِ فایل و هایلایتِ خطِ
@@ -1152,58 +990,6 @@ function useStoryUserAudio(storyKey, allSentences) {
     lastAutoIdxRef.current = 0;
     setManualIndex(0);
     if (audioElRef.current) audioElRef.current.currentTime = 0;
-  }
-
-  // خونده‌شدنِ زمانِ سینک‌شده‌ی یه جمله (اگه قبلاً سینک شده باشه)، برای
-  // پرشِ دقیق از نتیجه‌ی جستجو استفاده می‌شه.
-  function getTimestamp(pi, si) {
-    return timestampsRef.current[`${pi}-${si}`];
-  }
-
-  // برایِ جمله‌ای که هنوز timestampِ دقیق نداره: به‌جایِ تخمینِ خامِ «نسبتِ
-  // کاراکتر از کلِ متن ضربدر کلِ مدت» (که چون سرعتِ گفتار/مکث‌ها یکنواخت
-  // نیست خطایِ بزرگی داره)، بینِ نزدیک‌ترین دو جمله‌ایِ *سینک‌شده* قبل و
-  // بعدش (بر اساسِ ایندکسِ جمله، نه کاراکتر) درون‌یابی می‌کنیم — که چون به
-  // نقاطِ واقعاً اندازه‌گیری‌شده نزدیک‌تره، خیلی دقیق‌تره. اگه هیچ لنگرِ
-  // سینک‌شده‌ای نداشته باشیم، null برمی‌گردونه تا تابعِ صداکننده به همون
-  // تخمینِ نسبیِ قبلی برگرده.
-  function estimateTime(pi, si) {
-    const sentList = allSentencesRef.current;
-    if (!sentList || !sentList.length) return null;
-    let targetIdx = -1;
-    for (let i = 0; i < sentList.length; i++) {
-      if (sentList[i]?._pi === pi && sentList[i]?._si === si) { targetIdx = i; break; }
-    }
-    if (targetIdx === -1) return null;
-    const entries = timestampEntriesRef.current;
-    if (!entries.length) return null;
-    const anchors = [];
-    for (const e of entries) {
-      for (let i = 0; i < sentList.length; i++) {
-        if (sentList[i]?._pi === e.pi && sentList[i]?._si === e.si) { anchors.push({ idx: i, start: e.start }); break; }
-      }
-    }
-    if (!anchors.length) return null;
-    anchors.sort((a, b) => a.idx - b.idx);
-    let before = null, after = null;
-    for (const a of anchors) {
-      if (a.idx === targetIdx) return a.start;
-      if (a.idx < targetIdx) before = a;
-      if (a.idx > targetIdx && !after) after = a;
-    }
-    if (before && after) {
-      const ratio = (targetIdx - before.idx) / (after.idx - before.idx);
-      return before.start + ratio * (after.start - before.start);
-    }
-    if (before) {
-      const avgPace = before.idx > 0 ? before.start / before.idx : 0;
-      return before.start + avgPace * (targetIdx - before.idx);
-    }
-    if (after) {
-      const avgPace = after.idx > 0 ? after.start / after.idx : 0;
-      return Math.max(0, after.start - avgPace * (after.idx - targetIdx));
-    }
-    return null;
   }
 
   // پرشِ مستقیمِ هایلایت به یه (pi, si) مشخص — وقتی کاربر خودش مستقیماً
@@ -1234,13 +1020,6 @@ function useStoryUserAudio(storyKey, allSentences) {
     setManualIndex(0);
     lastAutoIdxRef.current = 0;
     setAudioSaveError("");
-    if (saveTimestampsTimerRef.current) {
-      clearTimeout(saveTimestampsTimerRef.current);
-      saveTimestampsTimerRef.current = null;
-    }
-    timestampsRef.current = {};
-    rebuildTimestampEntries();
-    setTimestampsTick((n) => n + 1);
     if (storyKey) await deleteStoryAudioRecord(storyKey);
   }
 
@@ -1285,10 +1064,7 @@ function useStoryUserAudio(storyKey, allSentences) {
     abB,
     markAB,
     clearAB,
-    getTimestamp,
-    estimateTime,
     getAudioElement,
-    timestampsTick,
   };
 }
 
@@ -10624,9 +10400,13 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
 
   // پریدن به یه نتیجه‌ی جستجو — همون مکانیزمِ pendingScrollRef/highlightSentence
   // که برای لانگ‌پرسِ لغاتِ ذخیره‌شده استفاده می‌شه؛ اگه پاراگرافش هنوز نمایش
-  // داده نشده، visibleParagraphCount رو هم جلو می‌بره. علاوه بر اسکرول، خودِ
-  // خواندن (TTS یا صوتِ آپلودیِ کاربر، هرکدوم الان فعاله) هم از دقیقاً همون
-  // جمله ادامه/شروع می‌شه — نه فقط یه هایلایتِ بی‌صدا.
+  // داده نشده، visibleParagraphCount رو هم جلو می‌بره. در حالتِ TTS، خودِ
+  // خواندن هم از همون جمله ادامه/شروع می‌شه. در حالتِ صوتِ آپلودیِ کاربر
+  // فقط اسکرول+هایلایت انجام می‌شه، بدونِ seek/play — چون تخمینِ نسبیِ
+  // آفستِ کاراکتری برای پریدنِ مستقیم از نتیجه‌ی جستجو (که معمولاً خیلی
+  // دورتر از نقطه‌ی فعلیِ پخشه) خیلی وقت‌ها به ثانیه‌ی کاملاً اشتباه
+  // می‌رفت؛ کاربر ترجیح داد فقط به همون خط برده بشه و خودش تصمیم بگیره از
+  // کجا گوش بده.
   function jumpToStorySearchMatch(pi, si) {
     setGranularity("sentence");
     setVisibleParagraphCount((n) => (pi >= n ? pi + 1 : n));
@@ -10636,25 +10416,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     const offset = sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0;
 
     if (playbackMode === "user" && userAudio.hasAudio) {
-      // اگه کاربر قبلاً حین گوش‌دادن این جمله رو با دکمه‌ی جمله‌ی بعد/قبل
-      // سینک کرده باشه، همون زمانِ دقیق رو داریم — از همون‌جا شروع می‌کنیم.
-      // وگرنه (هنوز سینک نشده)، به همون تخمینِ نسبیِ قبلی برمی‌گردیم —
-      // درصدِ آفستِ کاراکتری از کلِ متن رو روی طولِ کلِ صدا اعمال می‌کنیم؛
-      // برای فایل‌های طولانی این فقط یه تخمینِ تقریبیه، نه دقیق.
-      const synced = userAudio.getTimestamp?.(pi, si);
-      const interpolated = userAudio.estimateTime?.(pi, si);
-      let target;
-      if (Number.isFinite(synced)) {
-        target = synced;
-      } else if (Number.isFinite(interpolated)) {
-        target = interpolated;
-      } else {
-        const ratio = fullStoryText.length ? offset / fullStoryText.length : 0;
-        target = ratio * (userAudio.duration || 0);
-      }
       userAudio.setActiveLine(pi, si);
-      userAudio.seek(target);
-      userAudio.play();
       return;
     }
 
@@ -10677,25 +10439,15 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     }
   }
 
-  // پرش به یه جمله/پاراگرافِ مشخص در صوتِ آپلودیِ کاربر — دقیقاً همون
-  // منطقِ «سینک‌شده یا تخمینِ نسبی» که برای جهش از نتیجه‌ی جستجو (بالاتر)
-  // استفاده شد؛ فقط این‌جا از تپِ مستقیمِ کاربر روی خودِ آیکونِ پخشِ کنارِ
-  // یه جمله/پاراگراف صدا زده می‌شه. علاوه بر seek/play، هایلایت رو هم
-  // فوراً با setActiveLine به همون‌جا می‌بره — نه اینکه صبر کنه دکمه‌ی
-  // جمله‌ی بعد/قبل زده بشه.
+  // پرش به یه جمله/پاراگرافِ مشخص در صوتِ آپلودیِ کاربر — از تپِ مستقیمِ
+  // کاربر روی خودِ آیکونِ پخشِ کنارِ یه جمله/پاراگراف صدا زده می‌شه. با
+  // تخمینِ نسبیِ آفستِ کاراکتری seek می‌کنه (سیستمِ سینکِ دقیق‌تر حذف شد
+  // چون قابلِ‌اعتماد نبود)؛ هایلایت هم فوراً با setActiveLine به همون‌جا
+  // می‌ره — نه اینکه صبر کنه دکمه‌ی جمله‌ی بعد/قبل زده بشه.
   function jumpToLineInUserAudio(pi, si, offset) {
     if (!userAudio.hasAudio) return;
-    const synced = userAudio.getTimestamp?.(pi, si);
-    const interpolated = userAudio.estimateTime?.(pi, si);
-    let target;
-    if (Number.isFinite(synced)) {
-      target = synced;
-    } else if (Number.isFinite(interpolated)) {
-      target = interpolated;
-    } else {
-      const ratio = fullStoryText.length ? (offset || 0) / fullStoryText.length : 0;
-      target = ratio * (userAudio.duration || 0);
-    }
+    const ratio = fullStoryText.length ? (offset || 0) / fullStoryText.length : 0;
+    const target = ratio * (userAudio.duration || 0);
     userAudio.setActiveLine(pi, si);
     userAudio.seek(target);
     userAudio.play();
