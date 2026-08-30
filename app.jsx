@@ -746,6 +746,15 @@ function useStoryUserAudio(storyKey, allSentences) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [manualIndex, setManualIndex] = useState(0); // اشاره‌گرِ دستیِ خط، فقط با دکمه‌ی قبل/بعد عوض می‌شه
+  // نسخه‌ی ref از manualIndex — برای اینکه nextLine/prevLine بتونن مقدارِ
+  // همیشه‌به‌روز رو بی‌نیاز از فرمِ تابعیِ setManualIndex بخونن (که قبلاً
+  // لازم بود چون داخلش markLineTimestamp/setTimestampsTick صدا زده می‌شد —
+  // یعنی یه setState وسطِ محاسبه‌ی یه setState دیگه، که قاعده‌ی React رو
+  // می‌شکست و باعثِ رفتارِ نامنظمِ خودِ دکمه‌های قبل/بعد می‌شد).
+  const manualIndexRef = useRef(0);
+  useEffect(() => {
+    manualIndexRef.current = manualIndex;
+  }, [manualIndex]);
   // سرعتِ پخشِ صوتِ آپلودیِ کاربر — مستقل از سرعتِ TTS (که سراسری و
   // مخصوصِ speechController است). یه پیش‌فرضِ سراسری (نه مخصوصِ هر داستان)
   // در localStorage نگه داشته می‌شه — دقیقاً همون الگویِ phrasebook-tts-rate.
@@ -1013,25 +1022,28 @@ function useStoryUserAudio(storyKey, allSentences) {
 
   // فقط وقتی صدا واقعاً در حالِ پخشه سینک می‌کنیم — اگه کاربر موقعِ مکث
   // بین جمله‌ها بگرده، اون جابه‌جایی‌ها ربطی به زمانِ واقعیِ صدا ندارن.
+  // نکته‌ی مهم: setManualIndex اینجا با یه مقدارِ ساده (نه تابع) صدا زده
+  // می‌شه، نه با فرمِ آپدیت‌کننده — چون markLineTimestamp خودش یه setState
+  // دیگه (setTimestampsTick) رو صدا می‌زنه، و صدازدنِ setState از داخلِ
+  // تابعِ آپدیت‌کننده‌ی یه setState دیگه خلافِ قاعده‌ست و همون چیزی بود که
+  // باعث می‌شد خودِ حرکتِ جمله‌ی بعد/قبل درست کار نکنه.
   function nextLine() {
-    setManualIndex((i) => {
-      const next = Math.min(i + 1, Math.max((allSentences?.length || 1) - 1, 0));
-      if (audioElRef.current && !audioElRef.current.paused) {
-        const s = allSentences?.[next];
-        if (s) markLineTimestamp(s._pi, s._si);
-      }
-      return next;
-    });
+    const next = Math.min(manualIndexRef.current + 1, Math.max((allSentences?.length || 1) - 1, 0));
+    manualIndexRef.current = next;
+    setManualIndex(next);
+    if (audioElRef.current && !audioElRef.current.paused) {
+      const s = allSentences?.[next];
+      if (s) markLineTimestamp(s._pi, s._si);
+    }
   }
   function prevLine() {
-    setManualIndex((i) => {
-      const prevIdx = Math.max(i - 1, 0);
-      if (audioElRef.current && !audioElRef.current.paused) {
-        const s = allSentences?.[prevIdx];
-        if (s) markLineTimestamp(s._pi, s._si);
-      }
-      return prevIdx;
-    });
+    const prevIdx = Math.max(manualIndexRef.current - 1, 0);
+    manualIndexRef.current = prevIdx;
+    setManualIndex(prevIdx);
+    if (audioElRef.current && !audioElRef.current.paused) {
+      const s = allSentences?.[prevIdx];
+      if (s) markLineTimestamp(s._pi, s._si);
+    }
   }
 
   // خونده‌شدنِ زمانِ سینک‌شده‌ی یه جمله (اگه قبلاً سینک شده باشه)، برای
