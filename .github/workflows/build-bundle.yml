@@ -15,6 +15,7 @@ on:
     branches: [main]
     paths:
       - "app.jsx"
+      - "SpeakingPractice.jsx"
       - "RangeSliderFilter.jsx"
       - "DailyConversationsTab.jsx"
       - "VOCAB.js"
