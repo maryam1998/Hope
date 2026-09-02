@@ -17169,7 +17169,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           <HeaderPrimaryTabButton label={tr("tabConversations", appPrefs.uiLang)} icon={MessageCircle} active={tab === "conversations"} onClick={() => setTab("conversations")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
           <HeaderPrimaryTabButton label={tr("tabStory", appPrefs.uiLang)} icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
           <HeaderPrimaryTabButton label={tr("tabSaved", appPrefs.uiLang)} icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-          <HeaderPrimaryTabButton label={tr("tabSpeaking", appPrefs.uiLang)} icon={MessageCircle} active={tab === "speaking"} onClick={() => setTab("speaking")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         </div>
       </header>
 
