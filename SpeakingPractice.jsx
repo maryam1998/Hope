@@ -31,6 +31,38 @@ const LANGUAGES = [
   { code: "ja", label: "ژاپنی", abbr: "JA" },
 ];
 
+// تابع تشخیص زبان (کپی شده از app.jsx)
+function detectPastedTextLanguage(text) {
+  const sample = (text || "").slice(0, 4000);
+  if (!sample.trim()) return null;
+
+  if (/[\u0900-\u097F]/.test(sample)) return "hi";
+  if (/[\u0600-\u06FF]/.test(sample)) {
+    return /[\u067E\u0686\u0698\u06AF]/.test(sample) ? "fa" : "ar";
+  }
+  if (/[\u3040-\u30FF]/.test(sample)) return "ja";
+  if (/[\uAC00-\uD7A3]/.test(sample)) return "ko";
+  if (/[\u4E00-\u9FFF]/.test(sample)) return "zh";
+  if (/[\u0400-\u04FF]/.test(sample)) return "ru";
+
+  const words = sample.toLowerCase().match(/[a-zàâäçèéêëîïôöùûüÿñßışğî]+/g) || [];
+  if (!words.length) return null;
+  const wordSet = new Set(words);
+  const scoreOf = (list) => list.reduce((sum, w) => sum + (wordSet.has(w) ? 1 : 0), 0);
+  const stop = {
+    de: ["der", "die", "das", "und", "ist", "nicht", "mit", "für", "ein", "eine", "sie", "auf", "was", "wie", "wenn", "aber", "auch", "sich", "dass", "ich"],
+    es: ["el", "la", "los", "las", "de", "que", "y", "en", "no", "es", "un", "una", "para", "por", "con", "su", "del", "al", "se", "lo"],
+    fr: ["le", "la", "les", "et", "est", "une", "des", "dans", "pour", "que", "qui", "ne", "pas", "ce", "vous", "je", "nous", "avec", "au", "un"],
+    it: ["il", "la", "di", "che", "è", "un", "una", "per", "non", "con", "gli", "le", "sono", "questo", "questa", "del", "alla", "si", "mi", "ma"],
+    tr: ["ve", "bir", "bu", "için", "ile", "de", "da", "çok", "ama", "ne", "gibi", "daha", "var", "yok", "ben", "sen", "biz", "onun", "şey", "değil"],
+    en: ["the", "and", "is", "to", "of", "in", "that", "it", "was", "for", "on", "with", "he", "she", "you", "this", "but", "not", "are", "as"],
+  };
+  const scores = Object.entries(stop).map(([code, list]) => [code, scoreOf(list)]);
+  scores.sort((a, b) => b[1] - a[1]);
+  const [topCode, topScore] = scores[0];
+  return topScore > 0 ? topCode : null;
+}
+
 function SpeakingPracticePanel({
   nativeLang,
   nativeLabel,
@@ -46,9 +78,10 @@ function SpeakingPracticePanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [chatLang, setChatLang] = useState((targetOrder && targetOrder[0]) || "en");
-  const [corrections, setCorrections] = useState([]); // آرایه‌ای از اصلاحات
+  const [corrections, setCorrections] = useState([]);
   const [translations, setTranslations] = useState({});
   const [openTranslation, setOpenTranslation] = useState({});
+  const [originalUserText, setOriginalUserText] = useState(""); // برای نمایش متن اصلی وقتی ترجمه می‌شود
 
   const chatEndRef = useRef(null);
   const chatTextareaRef = useRef(null);
@@ -80,7 +113,6 @@ By the way, what's your name? Or tell me something about yourself.`;
   // استخراج چندین تصحیح از پاسخ
   function extractCorrections(reply) {
     const results = [];
-    // الگوی شماره‌دار: "1. Instead of 'X', you should say 'Y'."
     const numberedPattern = /(\d+)\.\s*Instead of\s+['"]([^'"]+)['"]\s*,?\s*(?:you should|you can|try|use)\s+['"]([^'"]+)['"]/gi;
     let match;
     while ((match = numberedPattern.exec(reply)) !== null) {
@@ -90,7 +122,6 @@ By the way, what's your name? Or tell me something about yourself.`;
       });
     }
 
-    // اگر الگوی شماره‌دار پیدا نشد، الگوی ساده را امتحان کن (فقط یک مورد)
     if (results.length === 0) {
       const simplePatterns = [
         /Instead of\s+['"]([^'"]+)['"]\s*,?\s*(?:you should|you can|try|use)\s+['"]([^'"]+)['"]/i,
@@ -110,12 +141,10 @@ By the way, what's your name? Or tell me something about yourself.`;
       }
     }
 
-    // حذف بخش‌های تصحیح از پاسخ اصلی
     let cleanedReply = reply;
     if (results.length > 0) {
-      // حذف خطوطی که حاوی "Instead of" هستند
       const lines = reply.split('\n');
-      const filteredLines = lines.filter(line => !/Instead of|You should say|Use\s+["']/.test(line));
+      const filteredLines = lines.filter(line => !/Instead of|You should say|Use\s+['"]/.test(line));
       cleanedReply = filteredLines.join('\n').trim();
       if (!cleanedReply) {
         cleanedReply = results.map(r => `Try using "${r.corrected}" instead of "${r.original}".`).join(' ');
@@ -126,7 +155,7 @@ By the way, what's your name? Or tell me something about yourself.`;
   }
 
   // تابع مکالمه
-  const askSpeakingTeacher = async ({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history }) => {
+  const askSpeakingTeacher = async ({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history, originalText }) => {
     const langLabel = LANGUAGES.find(l => l.code === langCode)?.label || langCode;
     const nativeLabelLocal = nativeLabel || LANGUAGES.find(l => l.code === nativeLang)?.label || "Persian";
     const historyText = history
@@ -134,9 +163,16 @@ By the way, what's your name? Or tell me something about yourself.`;
       .map(m => `${m.role === 'user' ? 'Learner' : 'Coach'}: ${m.text}`)
       .join('\n');
 
+    // اگر متن اصلی با متن ترجمه‌شده تفاوت دارد، به AI اطلاع بدهیم
+    const originalNote = originalText && originalText !== userSentence
+      ? `Note: The learner originally wrote this in their native language: "${originalText}". I have translated it to ${langLabel} for you: "${userSentence}". Please correct the translated version.`
+      : '';
+
     const prompt = `
 You are Jimmy, a friendly and patient language coach for a learner whose native language is ${nativeLabelLocal}.
 The learner is practicing ${langLabel}. They just wrote: "${userSentence}"
+
+${originalNote}
 
 Your task:
 - Respond ENTIRELY in ${langLabel} (unless they specifically ask about grammar in their native language).
@@ -165,20 +201,48 @@ Now respond to: "${userSentence}"
     setInput("");
     setError("");
     setCorrections([]);
+    setOriginalUserText("");
 
-    const userMsg = { role: "user", text };
+    // تشخیص زبان متن کاربر
+    const detectedLang = detectPastedTextLanguage(text) || "en";
+    let userText = text;
+    let isTranslated = false;
+
+    // اگر زبان تشخیص داده شده با زبان تمرین متفاوت است، ترجمه کن
+    if (detectedLang !== chatLang) {
+      try {
+        const translated = await translateFree(text, chatLang, detectedLang, aiSettings);
+        if (translated && translated.trim() !== text.trim()) {
+          userText = translated.trim();
+          isTranslated = true;
+          setOriginalUserText(text); // ذخیره متن اصلی برای نمایش
+        }
+      } catch (e) {
+        console.warn("Translation failed, using original text:", e);
+        // اگر ترجمه شکست خورد، همچنان متن اصلی را ارسال کن (شاید AI بتواند آن را بفهمد)
+      }
+    }
+
+    const userMsg = {
+      role: "user",
+      text: isTranslated ? `${text}\n\n(ترجمه به ${LANGUAGES.find(l => l.code === chatLang)?.label || chatLang}: ${userText})` : text,
+      // برای پیام‌های بعدی، فقط متن ترجمه‌شده را به تاریخچه بفرستیم
+      displayText: isTranslated ? `${text}\n\n📝 ترجمه: ${userText}` : text,
+    };
+
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setLoading(true);
 
     try {
       const reply = await askSpeakingTeacher({
-        userSentence: text,
+        userSentence: userText, // ارسال متن ترجمه‌شده به AI
         langCode: chatLang,
         nativeLang,
         nativeLabel,
         aiSettings,
-        history: messages,
+        history: messages.map(m => ({ role: m.role, text: m.text })), // تاریخچه بدون تغییر
+        originalText: isTranslated ? text : undefined,
       });
 
       const extracted = extractCorrections(reply);
@@ -301,7 +365,7 @@ By the way, what's your name? Or tell me something about yourself.`;
         )}
       </div>
 
-      {/* کادر تصحیح چندگانه */}
+      {/* کادر تصحیح با رنگ‌بندی برجسته */}
       {corrections.length > 0 && (
         <div
           style={{
@@ -318,9 +382,9 @@ By the way, what's your name? Or tell me something about yourself.`;
           {corrections.map((c, idx) => (
             <p key={idx} style={{ fontSize: 12, color: colors.inkSoft, lineHeight: 1.8, marginBottom: 4 }}>
               <span style={{ fontWeight: 600, color: colors.rose }}>{idx + 1}. اشتباه: </span>
-              <span style={{ color: colors.rose }}>{c.original}</span>
+              <span style={{ color: colors.rose, textDecoration: "line-through" }}>{c.original}</span>
               <br />
-              <span style={{ fontWeight: 600, color: colors.teal }}>   پیشنهاد: </span>
+              <span style={{ fontWeight: 600, color: colors.teal }}>   ✅ پیشنهاد: </span>
               <span style={{ fontWeight: "bold", color: colors.teal }}>{c.corrected}</span>
             </p>
           ))}
@@ -344,6 +408,7 @@ By the way, what's your name? Or tell me something about yourself.`;
       >
         {messages.map((m, idx) => {
           const isUser = m.role === "user";
+          const displayText = m.displayText || m.text; // برای پیام‌های کاربر که ممکن است ترجمه داشته باشند
           return (
             <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: isUser ? "flex-start" : "flex-end" }}>
               <div
@@ -361,7 +426,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                 }}
               >
                 {isUser ? (
-                  m.text
+                  displayText
                 ) : (
                   ClickableSentence ? (
                     <ClickableSentence
