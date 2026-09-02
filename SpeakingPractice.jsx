@@ -15,6 +15,23 @@ const colors = {
   cardBorder: "var(--c-cardBorder)",
 };
 
+// تعریف LANGUAGES برای استفاده در select
+const LANGUAGES = [
+  { code: "fa", label: "فارسی", abbr: "FA" },
+  { code: "en", label: "انگلیسی", abbr: "EN" },
+  { code: "it", label: "ایتالیایی", abbr: "IT" },
+  { code: "hi", label: "هندی", abbr: "HI" },
+  { code: "tr", label: "ترکی", abbr: "TR" },
+  { code: "ar", label: "عربی", abbr: "AR" },
+  { code: "es", label: "اسپانیایی", abbr: "ES" },
+  { code: "de", label: "آلمانی", abbr: "DE" },
+  { code: "fr", label: "فرانسوی", abbr: "FR" },
+  { code: "zh", label: "چینی", abbr: "ZH" },
+  { code: "ko", label: "کره‌ای", abbr: "KO" },
+  { code: "ru", label: "روسی", abbr: "RU" },
+  { code: "ja", label: "ژاپنی", abbr: "JA" },
+];
+
 // این تابع از app.jsx وارد می‌شود، اما برای جلوگیری از وابستگی دایره‌ای،
 // آن را به‌عنوان prop به کامپوننت پاس می‌دهیم یا مجدداً تعریف می‌کنیم.
 // در اینجا فرض می‌کنیم که تابع askGrammarTeacher از app.jsx در دسترس است.
