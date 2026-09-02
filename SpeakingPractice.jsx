@@ -31,11 +31,9 @@ const LANGUAGES = [
   { code: "ja", label: "ژاپنی", abbr: "JA" },
 ];
 
-// تابع تشخیص زبان (کپی شده از app.jsx)
 function detectPastedTextLanguage(text) {
   const sample = (text || "").slice(0, 4000);
   if (!sample.trim()) return null;
-
   if (/[\u0900-\u097F]/.test(sample)) return "hi";
   if (/[\u0600-\u06FF]/.test(sample)) {
     return /[\u067E\u0686\u0698\u06AF]/.test(sample) ? "fa" : "ar";
@@ -44,7 +42,6 @@ function detectPastedTextLanguage(text) {
   if (/[\uAC00-\uD7A3]/.test(sample)) return "ko";
   if (/[\u4E00-\u9FFF]/.test(sample)) return "zh";
   if (/[\u0400-\u04FF]/.test(sample)) return "ru";
-
   const words = sample.toLowerCase().match(/[a-zàâäçèéêëîïôöùûüÿñßışğî]+/g) || [];
   if (!words.length) return null;
   const wordSet = new Set(words);
@@ -81,12 +78,10 @@ function SpeakingPracticePanel({
   const [corrections, setCorrections] = useState([]);
   const [translations, setTranslations] = useState({});
   const [openTranslation, setOpenTranslation] = useState({});
-  const [originalUserText, setOriginalUserText] = useState("");
 
   const chatEndRef = useRef(null);
   const chatTextareaRef = useRef(null);
 
-  // شروع مکالمه
   useEffect(() => {
     if (messages.length === 0) {
       const langLabel = LANGUAGES.find(l => l.code === chatLang)?.label || chatLang;
@@ -110,7 +105,7 @@ By the way, what's your name? Or tell me something about yourself.`;
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [input]);
 
-  // استخراج چندین تصحیح از پاسخ
+  // ✅ تابع استخراج تصحیح - درست
   function extractCorrections(reply) {
     const results = [];
     const numberedPattern = /(\d+)\.\s*Instead of\s+['"]([^'"]+)['"]\s*,?\s*(?:you should|you can|try|use)\s+['"]([^'"]+)['"]/gi;
@@ -127,7 +122,6 @@ By the way, what's your name? Or tell me something about yourself.`;
         /Instead of\s+['"]([^'"]+)['"]\s*,?\s*(?:you should|you can|try|use)\s+['"]([^'"]+)['"]/i,
         /You should say\s+['"]([^'"]+)['"]\s*(?:instead of|not)\s+['"]([^'"]+)['"]/i,
         /Use\s+['"]([^'"]+)['"]\s+not\s+['"]([^'"]+)['"]/i,
-        /به جای\s+['"]([^'"]+)['"]\s*(?:باید|می‌توانید)\s+['"]([^'"]+)['"]/i,
       ];
       for (const pattern of simplePatterns) {
         const m = reply.match(pattern);
@@ -144,18 +138,20 @@ By the way, what's your name? Or tell me something about yourself.`;
     let cleanedReply = reply;
     if (results.length > 0) {
       const lines = reply.split('\n');
-      const filteredLines = lines.filter(line => !/Instead of|You should say|Use\s+['"]/.test(line));
+      const filteredLines = lines.filter(line => 
+        !/Instead of|You should say|Use\s+['"]/.test(line) && 
+        !/^\d+\./.test(line.trim())
+      );
       cleanedReply = filteredLines.join('\n').trim();
       if (!cleanedReply) {
-        cleanedReply = results.map(r => `Try using "${r.corrected}" instead of "${r.original}".`).join(' ');
+        cleanedReply = results.map(r => `✅ Use "${r.corrected}" instead of "${r.original}".`).join(' ');
       }
     }
 
     return { corrections: results, cleaned: cleanedReply };
   }
 
-  // تابع مکالمه
-  const askSpeakingTeacher = async ({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history, originalText }) => {
+  const askSpeakingTeacher = async ({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history }) => {
     const langLabel = LANGUAGES.find(l => l.code === langCode)?.label || langCode;
     const nativeLabelLocal = nativeLabel || LANGUAGES.find(l => l.code === nativeLang)?.label || "Persian";
     const historyText = history
@@ -163,25 +159,17 @@ By the way, what's your name? Or tell me something about yourself.`;
       .map(m => `${m.role === 'user' ? 'Learner' : 'Coach'}: ${m.text}`)
       .join('\n');
 
-    const originalNote = originalText && originalText !== userSentence
-      ? `Note: The learner originally wrote this in their native language: "${originalText}". I have translated it to ${langLabel} for you: "${userSentence}". Please correct the translated version.`
-      : '';
-
     const prompt = `
 You are Jimmy, a friendly and patient language coach for a learner whose native language is ${nativeLabelLocal}.
 The learner is practicing ${langLabel}. They just wrote: "${userSentence}"
 
-${originalNote}
-
 Your task:
-- Respond ENTIRELY in ${langLabel} (unless they specifically ask about grammar in their native language).
-- Identify ALL mistakes in the learner's sentence. List each mistake with a number, using this exact format for each:
+- Respond ENTIRELY in ${langLabel}.
+- Identify ALL mistakes. List each mistake with a number:
   "1. Instead of 'X', you should say 'Y'."
   "2. Instead of 'Z', you should say 'W'."
-  (and so on for every mistake you find).
-- After listing all corrections, give a short explanation of the mistakes in ${nativeLabelLocal} (but keep the example sentences in ${langLabel}).
-- Continue the conversation naturally by asking a follow‑up question or suggesting a related topic.
-- Keep your reply friendly, encouraging, and not too long (4–6 sentences maximum after the corrections).
+- After listing all corrections, continue the conversation naturally.
+- Keep your reply friendly and encouraging.
 
 Recent conversation:
 ${historyText}
@@ -193,38 +181,32 @@ Now respond to: "${userSentence}"
     return result.trim();
   };
 
-  // ارسال پیام
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || loading) return;
     setInput("");
     setError("");
     setCorrections([]);
-    setOriginalUserText("");
 
-    // تشخیص زبان متن کاربر
     const detectedLang = detectPastedTextLanguage(text) || "en";
     let userText = text;
     let isTranslated = false;
 
-    // اگر زبان تشخیص داده شده با زبان تمرین متفاوت است، ترجمه کن
     if (detectedLang !== chatLang) {
       try {
         const translated = await translateFree(text, chatLang, detectedLang, aiSettings);
         if (translated && translated.trim() !== text.trim()) {
           userText = translated.trim();
           isTranslated = true;
-          setOriginalUserText(text);
         }
       } catch (e) {
-        console.warn("Translation failed, using original text:", e);
+        console.warn("Translation failed:", e);
       }
     }
 
     const userMsg = {
       role: "user",
-      text: isTranslated ? `${text}\n\n(ترجمه به ${LANGUAGES.find(l => l.code === chatLang)?.label || chatLang}: ${userText})` : text,
-      displayText: isTranslated ? `${text}\n\n📝 ترجمه: ${userText}` : text,
+      text: isTranslated ? `${text}\n\n📝 ${userText}` : text,
     };
 
     const newMessages = [...messages, userMsg];
@@ -238,8 +220,7 @@ Now respond to: "${userSentence}"
         nativeLang,
         nativeLabel,
         aiSettings,
-        history: messages.map(m => ({ role: m.role, text: m.text })),
-        originalText: isTranslated ? text : undefined,
+        history: messages,
       });
 
       const extracted = extractCorrections(reply);
@@ -257,13 +238,12 @@ Now respond to: "${userSentence}"
 
       setMessages([...newMessages, { role: "ai", text: displayReply }]);
     } catch (e) {
-      setError(e?.message?.replace(/^ai-backend-error:\s*/, "") || "خطا در دریافت پاسخ. لطفاً دوباره تلاش کنید.");
+      setError(e?.message?.replace(/^ai-backend-error:\s*/, "") || "خطا در دریافت پاسخ.");
     } finally {
       setLoading(false);
     }
   };
 
-  // پاک کردن چت
   const clearChat = () => {
     setMessages([]);
     setError("");
@@ -279,12 +259,11 @@ By the way, what's your name? Or tell me something about yourself.`;
     setMessages([{ role: "ai", text: welcome }]);
   };
 
-  // ترجمه
   const translateMessage = async (text, targetLang, sourceLang) => {
     if (translateFree) {
       return await translateFree(text, targetLang, sourceLang, aiSettings);
     } else {
-      const prompt = `Translate the following text from ${sourceLang} to ${targetLang}. Respond with only the translation, no extra text.\n\nText: ${text}`;
+      const prompt = `Translate from ${sourceLang} to ${targetLang}: ${text}`;
       const result = await callAI({ prompt, maxTokens: 400, retries: 1, aiSettings });
       return result.trim();
     }
@@ -312,7 +291,6 @@ By the way, what's your name? Or tell me something about yourself.`;
         [index]: { ...(prev[index] || {}), [langCode]: translated }
       }));
     } catch (e) {
-      console.warn("Translation failed:", e);
       setOpenTranslation(prev => ({ ...prev, [index]: null }));
     }
   };
@@ -362,7 +340,7 @@ By the way, what's your name? Or tell me something about yourself.`;
         )}
       </div>
 
-      {/* ✅ کادر تصحیح با رنگ‌بندی برجسته */}
+      {/* ✅ کادر تصحیح با رنگ‌بندی */}
       {corrections.length > 0 && (
         <div
           style={{
@@ -405,7 +383,6 @@ By the way, what's your name? Or tell me something about yourself.`;
       >
         {messages.map((m, idx) => {
           const isUser = m.role === "user";
-          const displayText = m.displayText || m.text;
           return (
             <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: isUser ? "flex-start" : "flex-end" }}>
               <div
@@ -423,7 +400,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                 }}
               >
                 {isUser ? (
-                  displayText
+                  m.text
                 ) : (
                   ClickableSentence ? (
                     <ClickableSentence
@@ -443,9 +420,7 @@ By the way, what's your name? Or tell me something about yourself.`;
 
               {!isUser && (
                 <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: 4, direction: "ltr" }}>
-                  {SpeakButton && (
-                    <SpeakButton text={m.text} code={chatLang} color={colors.teal} />
-                  )}
+                  {SpeakButton && <SpeakButton text={m.text} code={chatLang} color={colors.teal} />}
                   {translationLangs.length > 0 && (
                     <span className="flex items-center gap-1">
                       <Globe size={13} color={colors.inkSoft} />
