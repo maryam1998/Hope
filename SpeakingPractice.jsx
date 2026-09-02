@@ -15,7 +15,6 @@ const colors = {
   cardBorder: "var(--c-cardBorder)",
 };
 
-// تعریف LANGUAGES برای استفاده در select
 const LANGUAGES = [
   { code: "fa", label: "فارسی", abbr: "FA" },
   { code: "en", label: "انگلیسی", abbr: "EN" },
@@ -32,30 +31,43 @@ const LANGUAGES = [
   { code: "ja", label: "ژاپنی", abbr: "JA" },
 ];
 
-// این تابع از app.jsx وارد می‌شود، اما برای جلوگیری از وابستگی دایره‌ای،
-// آن را به‌عنوان prop به کامپوننت پاس می‌دهیم یا مجدداً تعریف می‌کنیم.
-// در اینجا فرض می‌کنیم که تابع askGrammarTeacher از app.jsx در دسترس است.
-// برای سادگی، این تابع را به‌عنوان prop به کامپوننت می‌دهیم.
 function SpeakingPracticePanel({
   nativeLang,
   nativeLabel,
   targetOrder,
   aiSettings,
-  askGrammarTeacher, // تابع از app.jsx
+  askGrammarTeacher,
 }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [chatLang, setChatLang] = useState((targetOrder && targetOrder[0]) || "en");
+  const [correction, setCorrection] = useState(null); // { original, corrected }
 
   const chatEndRef = useRef(null);
   const chatTextareaRef = useRef(null);
 
+  // پیام خوش‌آمدگویی جیمی در اولین رندر
+  useEffect(() => {
+    if (messages.length === 0) {
+      const langLabel = LANGUAGES.find(l => l.code === chatLang)?.label || chatLang;
+      setMessages([
+        {
+          role: "ai",
+          text: `سلام! من جیمی هستم، معلم مکالمه‌ی تو. بیا با هم تمرین کنیم! یک جمله به ${langLabel} بنویس تا بررسی کنم.`
+        }
+      ]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // اسکرول خودکار به انتهای چت
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ block: "nearest" });
   }, [messages, loading]);
 
+  // رشد خودکار textarea
   useEffect(() => {
     const el = chatTextareaRef.current;
     if (!el) return;
@@ -63,14 +75,63 @@ function SpeakingPracticePanel({
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [input]);
 
+  // استخراج تصحیح از پاسخ هوش مصنوعی با الگوهای رایج
+  function extractCorrection(reply, userSentence) {
+    // الگوهای مختلف برای پیدا کردن تصحیح
+    const patterns = [
+      // انگلیسی: Instead of "X", you should say "Y"
+      /Instead of\s+["']([^"']+)["']\s*,?\s*(?:you should|you can|try)\s+["']([^"']+)["']/i,
+      // انگلیسی: You should say "Y" instead of "X"
+      /You should say\s+["']([^"']+)["']\s*(?:instead of|not)\s+["']([^"']+)["']/i,
+      // فارسی: به جای "X" باید بگویید "Y"
+      /به جای\s+["']([^"']+)["']\s*(?:باید|می‌توانید)\s+["']([^"']+)["']/i,
+      // انگلیسی ساده: Use "Y" not "X"
+      /Use\s+["']([^"']+)["']\s+not\s+["']([^"']+)["']/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = reply.match(pattern);
+      if (match) {
+        // match[1] = عبارت اشتباه, match[2] = عبارت صحیح
+        const wrong = match[1].trim();
+        const correct = match[2].trim();
+        // حذف بخش تصحیح از پاسخ اصلی
+        const cleaned = reply.replace(match[0], '').trim();
+        return { wrong, correct, cleaned };
+      }
+    }
+
+    // اگر الگو پیدا نشد، بررسی کنیم که آیا پاسخ با "Instead of" شروع می‌شود
+    if (reply.startsWith("Instead of") || reply.startsWith("به جای")) {
+      // سعی کنیم با نقطه یا خط جدید جدا کنیم
+      const parts = reply.split(/[.!?]\s+/);
+      if (parts.length >= 2) {
+        const correctionPart = parts[0];
+        const rest = parts.slice(1).join(". ");
+        // استخراج ساده: فرض کنیم اولین بخش تصحیح است
+        const match = correctionPart.match(/["']([^"']+)["']/g);
+        if (match && match.length >= 2) {
+          const wrong = match[0].replace(/["']/g, '');
+          const correct = match[1].replace(/["']/g, '');
+          return { wrong, correct, cleaned: rest };
+        }
+      }
+    }
+
+    return null;
+  }
+
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || loading) return;
     setInput("");
     setError("");
+    setCorrection(null);
+
     const newMessages = [...messages, { role: "user", text }];
     setMessages(newMessages);
     setLoading(true);
+
     try {
       const reply = await askGrammarTeacher({
         userSentence: text,
@@ -78,10 +139,26 @@ function SpeakingPracticePanel({
         nativeLang,
         nativeLabel,
         aiSettings,
-        history: messages, // context قبلی
+        history: messages,
         targetOrder,
       });
-      setMessages([...newMessages, { role: "ai", text: reply }]);
+
+      // تلاش برای استخراج تصحیح
+      const extracted = extractCorrection(reply, text);
+      let responseText = reply;
+      if (extracted) {
+        setCorrection({
+          original: extracted.wrong,
+          corrected: extracted.correct,
+        });
+        responseText = extracted.cleaned || reply;
+        // اگر بعد از پاک کردن، رشته خالی شد، از یک پاسخ پیش‌فرض استفاده کن
+        if (!responseText.trim()) {
+          responseText = `پیشنهاد من: به جای "${extracted.wrong}" از "${extracted.correct}" استفاده کنید.`;
+        }
+      }
+
+      setMessages([...newMessages, { role: "ai", text: responseText }]);
     } catch (e) {
       setError(e?.message?.replace(/^ai-backend-error:\s*/, "") || "خطا در دریافت پاسخ");
     } finally {
@@ -92,11 +169,17 @@ function SpeakingPracticePanel({
   const clearChat = () => {
     setMessages([]);
     setError("");
+    setCorrection(null);
+    const langLabel = LANGUAGES.find(l => l.code === chatLang)?.label || chatLang;
+    setMessages([
+      {
+        role: "ai",
+        text: `سلام! من جیمی هستم، معلم مکالمه‌ی تو. بیا با هم تمرین کنیم! یک جمله به ${langLabel} بنویس تا بررسی کنم.`
+      }
+    ]);
   };
 
   const langOptions = targetOrder && targetOrder.length ? targetOrder : ["en"];
-
-  const isFa = nativeLang === "fa";
 
   return (
     <div className="flex flex-col gap-4" style={{ padding: "0 4px" }}>
@@ -143,6 +226,30 @@ function SpeakingPracticePanel({
           </button>
         )}
       </div>
+
+      {/* کادر تصحیح (Correction) - در بالای چت */}
+      {correction && (
+        <div
+          style={{
+            backgroundColor: colors.goldSoft,
+            border: `1px solid ${colors.gold}`,
+            borderRadius: 12,
+            padding: "10px 12px",
+            marginBottom: 8,
+          }}
+        >
+          <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, marginBottom: 4 }}>
+            ✏️ تصحیح
+          </p>
+          <p style={{ fontSize: 12, color: colors.inkSoft, lineHeight: 1.6 }}>
+            <span style={{ fontWeight: 600, color: colors.rose }}>اشتباه: </span>
+            <span style={{ textDecoration: "line-through", color: colors.rose }}>{correction.original}</span>
+            <br />
+            <span style={{ fontWeight: 600, color: colors.teal }}>{nativeLabel || "پیشنهاد"}: </span>
+            <span style={{ color: colors.teal }}>{correction.corrected}</span>
+          </p>
+        </div>
+      )}
 
       {/* منطقه پیام‌ها */}
       <div
