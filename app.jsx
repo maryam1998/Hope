@@ -9,6 +9,7 @@ import { SLANG_WORDS } from "./SLANG_WORDS.js";
 import { VOCAB_IN_USE_UNITS } from "./vocabularyInUseData.js";
 import { DAILY_CONVERSATIONS,THEMATIC_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
 import DailyConversationsTab from "./DailyConversationsTab.jsx";
+import SpeakingPracticePanel from "./SpeakingPractice.jsx";
 // مکالمات روزمره + مکالمات موضوعی، یکجا مرج‌شده — تا هرجا که قبلاً از
 // DAILY_CONVERSATIONS استفاده می‌شد (تبِ مکالمه، استخرِ جستجوی داستان‌ساز،
 // نگاشتِ سطح‌بندیِ لغات)، مکالمات موضوعی هم به‌صورت خودکار دیده بشن.
@@ -1879,6 +1880,7 @@ const UI_STRINGS = {
   tabVocabInUse: { fa: "لغات کاربردی", en: "Vocabulary in Use" },
   tabSlang: { fa: "اسلنگ", en: "Slang" },
   tabReview: { fa: "مرور (جعبه لایتنر)", en: "Review (Leitner box)" },
+  tabSpeaking: { fa: "تمرین مکالمه", en: "Speaking practice" },
   // Login / signup screen
   loginTitle: { fa: "ورود به کتاب مکالمه", en: "Sign in to Phrasebook" },
   signupTitle: { fa: "ساخت حساب کاربری", en: "Create an account" },
@@ -17167,12 +17169,14 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
           <HeaderPrimaryTabButton label={tr("tabConversations", appPrefs.uiLang)} icon={MessageCircle} active={tab === "conversations"} onClick={() => setTab("conversations")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
           <HeaderPrimaryTabButton label={tr("tabStory", appPrefs.uiLang)} icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
           <HeaderPrimaryTabButton label={tr("tabSaved", appPrefs.uiLang)} icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+          <HeaderPrimaryTabButton label={tr("tabSpeaking", appPrefs.uiLang)} icon={MessageCircle} active={tab === "speaking"} onClick={() => setTab("speaking")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         </div>
       </header>
 
       {/* Tabs */}
       <nav className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ backgroundColor: colors.paperDark }}>
         <TabButton label={tr("tabGrammar", appPrefs.uiLang)} icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabButton label={tr("tabSpeaking", appPrefs.uiLang)} icon={MessageCircle} active={tab === "speaking"} onClick={() => setTab("speaking")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabWords", appPrefs.uiLang)} icon={Layers} active={tab === "words"} onClick={() => setTab("words")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabVocabInUse", appPrefs.uiLang)} icon={BookOpen} active={tab === "vocabInUse"} onClick={() => setTab("vocabInUse")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabFavorites", appPrefs.uiLang)} icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
@@ -17479,6 +17483,16 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             onPracticePanelHeightChange={setPracticePanelHeight}
           />
         </div>
+
+        {tab === "speaking" && (
+          <SpeakingPracticePanel
+            nativeLang={nativeLang}
+            nativeLabel={nativeLabel}
+            targetOrder={targetOrder}
+            aiSettings={aiSettings}
+            askGrammarTeacher={askGrammarTeacher}
+          />
+        )}
 
         {/* توجه: برخلاف بقیه‌ی تب‌ها، داستان‌ساز همیشه mount شده می‌مونه (فقط
             با display:none قایم می‌شه) نه این‌که با رفتن به تب دیگه کامل از
