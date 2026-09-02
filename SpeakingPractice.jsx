@@ -60,6 +60,69 @@ function detectPastedTextLanguage(text) {
   return topScore > 0 ? topCode : null;
 }
 
+// ---------------------------------------------------------------------------
+// رنگ‌بندیِ اشتباه/تصحیح — چون خودِ AI نمی‌تونه به متنش رنگ بده (فقط متنِ
+// ساده برمی‌گردونه)، این رنگ‌ها اینجا توی کدِ خودِ اپ روی بخش‌های مربوطه
+// اعمال می‌شن: جایی که کاربر اشتباه نوشته با خطِ زیرِ قرمزِ پررنگ، و
+// پیشنهادِ درست‌شده با رنگِ سبزِ تیره‌ی پررنگ مشخص می‌شه.
+// ---------------------------------------------------------------------------
+const MISTAKE_STYLE = {
+  color: "#c81e1e",
+  fontWeight: 700,
+  textDecorationLine: "underline",
+  textDecorationColor: "#c81e1e",
+  textDecorationStyle: "solid",
+  textDecorationThickness: 2,
+  textUnderlineOffset: 3,
+};
+const CORRECTION_STYLE = {
+  color: "#166534",
+  fontWeight: 700,
+};
+
+// حذفِ نشانه‌های مارک‌داون (**bold**، *italic*) و یکسان‌سازیِ گیومه‌های
+// فانتزی («" "» یا ‘ ’) به گیومه‌ی ساده — چون AI گاهی دورِ عبارتِ نقل‌شده
+// از * استفاده می‌کنه (مثلاً *"X"*) و این باعث می‌شد ریجکسِ تشخیصِ
+// تصحیح‌ها اصلاً مچ نشه.
+function normalizeAiText(text) {
+  return (text || "")
+    .replace(/\*\*/g, "")
+    .replace(/\*/g, "")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"');
+}
+
+// متنِ پیام رو بر اساسِ بازه‌های اشتباه/تصحیح (که extractCorrections پیدا
+// کرده) به قطعه‌های plain/mistake/correction می‌شکنه، تا هرکدوم جدا رنگ
+// بگیرن.
+function buildHighlightSegments(text, corrections) {
+  if (!text || !corrections || corrections.length === 0) {
+    return [{ type: "plain", text: text || "" }];
+  }
+  const ranges = [];
+  corrections.forEach((c) => {
+    if (typeof c.oStart === "number" && typeof c.oEnd === "number" && c.oEnd > c.oStart) {
+      ranges.push({ start: c.oStart, end: c.oEnd, type: "mistake" });
+    }
+    if (typeof c.cStart === "number" && typeof c.cEnd === "number" && c.cEnd > c.cStart) {
+      ranges.push({ start: c.cStart, end: c.cEnd, type: "correction" });
+    }
+  });
+  if (ranges.length === 0) return [{ type: "plain", text }];
+  ranges.sort((a, b) => a.start - b.start);
+
+  const segments = [];
+  let cursor = 0;
+  ranges.forEach((r) => {
+    if (r.start < cursor) return; // بازه‌ی هم‌پوشان — رد می‌شه تا خراب نشه
+    if (r.start > cursor) segments.push({ type: "plain", text: text.slice(cursor, r.start) });
+    segments.push({ type: r.type, text: text.slice(r.start, r.end) });
+    cursor = r.end;
+  });
+  if (cursor < text.length) segments.push({ type: "plain", text: text.slice(cursor) });
+  return segments;
+}
+
 function SpeakingPracticePanel({
   nativeLang,
   nativeLabel,
@@ -105,50 +168,49 @@ By the way, what's your name? Or tell me something about yourself.`;
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [input]);
 
-  // ✅ تابع استخراج تصحیح - درست
+  // ✅ تابع استخراج تصحیح — الان علاوه بر متنِ اشتباه/درست، موقعیتِ دقیقِ
+  // هرکدوم رو هم توی متنِ نرمال‌شده برمی‌گردونه (oStart/oEnd/cStart/cEnd)
+  // تا بشه دقیقاً همون بخش رو توی حبابِ چت رنگی کرد — به‌جای این‌که کلِ
+  // جمله‌ی تصحیح از متن حذف بشه. متنِ نرمال‌شده (بدونِ *‌های مارک‌داون و
+  // با گیومه‌ی یکسان) هم برگردونده می‌شه تا همون، عیناً، توی حبابِ چت
+  // نمایش داده بشه — پس آفست‌ها همیشه با متنِ نمایشی هم‌خون می‌مونن.
   function extractCorrections(reply) {
+    const text = normalizeAiText(reply);
     const results = [];
-    const numberedPattern = /(\d+)\.\s*Instead of\s+['"]([^'"]+)['"]\s*,?\s*(?:you should|you can|try|use)\s+['"]([^'"]+)['"]/gi;
+    const numberedPattern = /(\d+)\.\s*Instead of\s+["']([^"']+)["']\s*,?\s*(?:you should say|you should|you can|try|use)\s+["']([^"']+)["']/gid;
     let match;
-    while ((match = numberedPattern.exec(reply)) !== null) {
+    while ((match = numberedPattern.exec(text)) !== null) {
+      const [oStart, oEnd] = match.indices[2];
+      const [cStart, cEnd] = match.indices[3];
       results.push({
         original: match[2].trim(),
         corrected: match[3].trim(),
+        oStart, oEnd, cStart, cEnd,
       });
     }
 
     if (results.length === 0) {
       const simplePatterns = [
-        /Instead of\s+['"]([^'"]+)['"]\s*,?\s*(?:you should|you can|try|use)\s+['"]([^'"]+)['"]/i,
-        /You should say\s+['"]([^'"]+)['"]\s*(?:instead of|not)\s+['"]([^'"]+)['"]/i,
-        /Use\s+['"]([^'"]+)['"]\s+not\s+['"]([^'"]+)['"]/i,
+        { re: /Instead of\s+["']([^"']+)["']\s*,?\s*(?:you should say|you should|you can|try|use)\s+["']([^"']+)["']/id, order: "oc" },
+        { re: /You should say\s+["']([^"']+)["']\s*(?:instead of|not)\s+["']([^"']+)["']/id, order: "co" },
+        { re: /Use\s+["']([^"']+)["']\s+not\s+["']([^"']+)["']/id, order: "co" },
       ];
-      for (const pattern of simplePatterns) {
-        const m = reply.match(pattern);
+      for (const { re, order } of simplePatterns) {
+        const m = text.match(re);
         if (m) {
-          results.push({
-            original: m[1].trim(),
-            corrected: m[2].trim(),
-          });
+          const [g1s, g1e] = m.indices[1];
+          const [g2s, g2e] = m.indices[2];
+          if (order === "oc") {
+            results.push({ original: m[1].trim(), corrected: m[2].trim(), oStart: g1s, oEnd: g1e, cStart: g2s, cEnd: g2e });
+          } else {
+            results.push({ original: m[2].trim(), corrected: m[1].trim(), oStart: g2s, oEnd: g2e, cStart: g1s, cEnd: g1e });
+          }
           break;
         }
       }
     }
 
-    let cleanedReply = reply;
-    if (results.length > 0) {
-      const lines = reply.split('\n');
-      const filteredLines = lines.filter(line => 
-        !/Instead of|You should say|Use\s+['"]/.test(line) && 
-        !/^\d+\./.test(line.trim())
-      );
-      cleanedReply = filteredLines.join('\n').trim();
-      if (!cleanedReply) {
-        cleanedReply = results.map(r => `✅ Use "${r.corrected}" instead of "${r.original}".`).join(' ');
-      }
-    }
-
-    return { corrections: results, cleaned: cleanedReply };
+    return { corrections: results, text };
   }
 
   const askSpeakingTeacher = async ({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history }) => {
@@ -166,8 +228,9 @@ The learner is practicing ${langLabel}. They just wrote: "${userSentence}"
 Your task:
 - Respond ENTIRELY in ${langLabel}.
 - Identify ALL mistakes. List each mistake with a number:
-  "1. Instead of 'X', you should say 'Y'."
-  "2. Instead of 'Z', you should say 'W'."
+  1. Instead of "X", you should say "Y".
+  2. Instead of "Z", you should say "W".
+- Use plain straight double quotes only (no markdown, no asterisks, no bold).
 - After listing all corrections, continue the conversation naturally.
 - Keep your reply friendly and encouraging.
 
@@ -224,19 +287,13 @@ Now respond to: "${userSentence}"
       });
 
       const extracted = extractCorrections(reply);
-      let displayReply = reply;
-
       if (extracted.corrections.length > 0) {
         setCorrections(extracted.corrections);
-        displayReply = extracted.cleaned || reply;
-        if (!displayReply.trim()) {
-          displayReply = extracted.corrections
-            .map((c, i) => `${i+1}. Use "${c.corrected}" instead of "${c.original}".`)
-            .join(' ');
-        }
       }
-
-      setMessages([...newMessages, { role: "ai", text: displayReply }]);
+      // متنِ نمایشی همون متنِ کاملِ AI‌ست (فقط نرمال‌شده از مارک‌داون) —
+      // چیزی حذف نمی‌شه، فقط بخش‌های اشتباه/تصحیح توی رندر رنگی می‌شن
+      // (پایین‌تر، با buildHighlightSegments).
+      setMessages([...newMessages, { role: "ai", text: extracted.text, corrections: extracted.corrections }]);
     } catch (e) {
       setError(e?.message?.replace(/^ai-backend-error:\s*/, "") || "خطا در دریافت پاسخ.");
     } finally {
@@ -356,11 +413,11 @@ By the way, what's your name? Or tell me something about yourself.`;
           </p>
           {corrections.map((c, idx) => (
             <p key={idx} style={{ fontSize: 12, color: colors.inkSoft, lineHeight: 1.8, marginBottom: 4 }}>
-              <span style={{ fontWeight: 600, color: colors.rose }}>{idx + 1}. اشتباه: </span>
-              <span style={{ color: colors.rose, textDecoration: "line-through" }}>{c.original}</span>
+              <span style={{ fontWeight: 600, color: MISTAKE_STYLE.color }}>{idx + 1}. اشتباه: </span>
+              <span style={MISTAKE_STYLE}>{c.original}</span>
               <br />
-              <span style={{ fontWeight: 600, color: colors.teal }}>   ✅ پیشنهاد: </span>
-              <span style={{ fontWeight: "bold", color: colors.teal }}>{c.corrected}</span>
+              <span style={{ fontWeight: 600, color: CORRECTION_STYLE.color }}>   ✅ پیشنهاد: </span>
+              <span style={CORRECTION_STYLE}>{c.corrected}</span>
             </p>
           ))}
         </div>
@@ -402,19 +459,36 @@ By the way, what's your name? Or tell me something about yourself.`;
                 {isUser ? (
                   m.text
                 ) : (
-                  ClickableSentence ? (
-                    <ClickableSentence
-                      text={m.text}
-                      langCode={chatLang}
-                      nativeLang={nativeLang}
-                      aiSettings={aiSettings}
-                      color={colors.ink}
-                      fontFamily={fontLatin}
-                      fontSize={13}
-                    />
-                  ) : (
-                    m.text
-                  )
+                  buildHighlightSegments(m.text, m.corrections).map((seg, si) => {
+                    if (seg.type === "mistake") {
+                      return (
+                        <span key={si} style={MISTAKE_STYLE}>
+                          {seg.text}
+                        </span>
+                      );
+                    }
+                    if (seg.type === "correction") {
+                      return (
+                        <span key={si} style={CORRECTION_STYLE}>
+                          {seg.text}
+                        </span>
+                      );
+                    }
+                    return ClickableSentence ? (
+                      <ClickableSentence
+                        key={si}
+                        text={seg.text}
+                        langCode={chatLang}
+                        nativeLang={nativeLang}
+                        aiSettings={aiSettings}
+                        color={colors.ink}
+                        fontFamily={fontLatin}
+                        fontSize={13}
+                      />
+                    ) : (
+                      <React.Fragment key={si}>{seg.text}</React.Fragment>
+                    );
+                  })
                 )}
               </div>
 
