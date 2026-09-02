@@ -46,7 +46,7 @@ function SpeakingPracticePanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [chatLang, setChatLang] = useState((targetOrder && targetOrder[0]) || "en");
-  const [correction, setCorrection] = useState(null); // ← اینجا تعریف شده
+  const [corrections, setCorrections] = useState([]); // آرایه‌ای از اصلاحات
   const [translations, setTranslations] = useState({});
   const [openTranslation, setOpenTranslation] = useState({});
 
@@ -77,28 +77,55 @@ By the way, what's your name? Or tell me something about yourself.`;
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [input]);
 
-  // استخراج تصحیح
-  function extractCorrection(reply) {
-    const patterns = [
-      /Instead of\s+["']([^"']+)["']\s*,?\s*(?:you should|you can|try|use)\s+["']([^"']+)["']/i,
-      /You should say\s+["']([^"']+)["']\s*(?:instead of|not)\s+["']([^"']+)["']/i,
-      /Use\s+["']([^"']+)["']\s+not\s+["']([^"']+)["']/i,
-      /به جای\s+["']([^"']+)["']\s*(?:باید|می‌توانید)\s+["']([^"']+)["']/i,
-    ];
-    for (const pattern of patterns) {
-      const match = reply.match(pattern);
-      if (match) {
-        return {
-          wrong: match[1].trim(),
-          correct: match[2].trim(),
-          cleaned: reply.replace(match[0], '').trim()
-        };
+  // استخراج چندین تصحیح از پاسخ
+  function extractCorrections(reply) {
+    const results = [];
+    // الگوی شماره‌دار: "1. Instead of 'X', you should say 'Y'."
+    const numberedPattern = /(\d+)\.\s*Instead of\s+['"]([^'"]+)['"]\s*,?\s*(?:you should|you can|try|use)\s+['"]([^'"]+)['"]/gi;
+    let match;
+    while ((match = numberedPattern.exec(reply)) !== null) {
+      results.push({
+        original: match[2].trim(),
+        corrected: match[3].trim(),
+      });
+    }
+
+    // اگر الگوی شماره‌دار پیدا نشد، الگوی ساده را امتحان کن (فقط یک مورد)
+    if (results.length === 0) {
+      const simplePatterns = [
+        /Instead of\s+['"]([^'"]+)['"]\s*,?\s*(?:you should|you can|try|use)\s+['"]([^'"]+)['"]/i,
+        /You should say\s+['"]([^'"]+)['"]\s*(?:instead of|not)\s+['"]([^'"]+)['"]/i,
+        /Use\s+['"]([^'"]+)['"]\s+not\s+['"]([^'"]+)['"]/i,
+        /به جای\s+['"]([^'"]+)['"]\s*(?:باید|می‌توانید)\s+['"]([^'"]+)['"]/i,
+      ];
+      for (const pattern of simplePatterns) {
+        const m = reply.match(pattern);
+        if (m) {
+          results.push({
+            original: m[1].trim(),
+            corrected: m[2].trim(),
+          });
+          break;
+        }
       }
     }
-    return null;
+
+    // حذف بخش‌های تصحیح از پاسخ اصلی
+    let cleanedReply = reply;
+    if (results.length > 0) {
+      // حذف خطوطی که حاوی "Instead of" هستند
+      const lines = reply.split('\n');
+      const filteredLines = lines.filter(line => !/Instead of|You should say|Use\s+["']/.test(line));
+      cleanedReply = filteredLines.join('\n').trim();
+      if (!cleanedReply) {
+        cleanedReply = results.map(r => `Try using "${r.corrected}" instead of "${r.original}".`).join(' ');
+      }
+    }
+
+    return { corrections: results, cleaned: cleanedReply };
   }
 
-  // تابع مکالمه (مستقل از askGrammarTeacher)
+  // تابع مکالمه
   const askSpeakingTeacher = async ({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history }) => {
     const langLabel = LANGUAGES.find(l => l.code === langCode)?.label || langCode;
     const nativeLabelLocal = nativeLabel || LANGUAGES.find(l => l.code === nativeLang)?.label || "Persian";
@@ -113,10 +140,13 @@ The learner is practicing ${langLabel}. They just wrote: "${userSentence}"
 
 Your task:
 - Respond ENTIRELY in ${langLabel} (unless they specifically ask about grammar in their native language).
-- If they made any mistake, gently point it out. Use this exact format: "Instead of 'X', you should say 'Y'." (in ${langLabel}).
-- Then give a short explanation of the mistake in ${nativeLabelLocal} (but keep the example sentences in ${langLabel}).
+- Identify ALL mistakes in the learner's sentence. List each mistake with a number, using this exact format for each:
+  "1. Instead of 'X', you should say 'Y'."
+  "2. Instead of 'Z', you should say 'W'."
+  (and so on for every mistake you find).
+- After listing all corrections, give a short explanation of the mistakes in ${nativeLabelLocal} (but keep the example sentences in ${langLabel}).
 - Continue the conversation naturally by asking a follow‑up question or suggesting a related topic.
-- Keep your reply friendly, encouraging, and not too long (3–5 sentences maximum).
+- Keep your reply friendly, encouraging, and not too long (4–6 sentences maximum after the corrections).
 
 Recent conversation:
 ${historyText}
@@ -124,7 +154,7 @@ ${historyText}
 Now respond to: "${userSentence}"
 `;
 
-    const result = await callAI({ prompt, maxTokens: 600, retries: 1, aiSettings });
+    const result = await callAI({ prompt, maxTokens: 800, retries: 1, aiSettings });
     return result.trim();
   };
 
@@ -134,7 +164,7 @@ Now respond to: "${userSentence}"
     if (!text || loading) return;
     setInput("");
     setError("");
-    setCorrection(null);
+    setCorrections([]);
 
     const userMsg = { role: "user", text };
     const newMessages = [...messages, userMsg];
@@ -151,13 +181,16 @@ Now respond to: "${userSentence}"
         history: messages,
       });
 
-      const extracted = extractCorrection(reply);
+      const extracted = extractCorrections(reply);
       let displayReply = reply;
-      if (extracted) {
-        setCorrection({ original: extracted.wrong, corrected: extracted.correct });
+
+      if (extracted.corrections.length > 0) {
+        setCorrections(extracted.corrections);
         displayReply = extracted.cleaned || reply;
         if (!displayReply.trim()) {
-          displayReply = `Try using "${extracted.correct}" instead of "${extracted.wrong}".`;
+          displayReply = extracted.corrections
+            .map((c, i) => `${i+1}. Use "${c.corrected}" instead of "${c.original}".`)
+            .join(' ');
         }
       }
 
@@ -173,7 +206,7 @@ Now respond to: "${userSentence}"
   const clearChat = () => {
     setMessages([]);
     setError("");
-    setCorrection(null);
+    setCorrections([]);
     setTranslations({});
     setOpenTranslation({});
     const langLabel = LANGUAGES.find(l => l.code === chatLang)?.label || chatLang;
@@ -228,7 +261,6 @@ By the way, what's your name? Or tell me something about yourself.`;
 
   return (
     <div className="flex flex-col gap-4" style={{ padding: "0 4px" }}>
-      {/* هدر */}
       <div>
         <h2 style={{ fontWeight: 800, fontSize: 18, color: colors.ink, marginBottom: 4 }}>
           🗣️ تمرین مکالمه
@@ -239,7 +271,6 @@ By the way, what's your name? Or tell me something about yourself.`;
         </p>
       </div>
 
-      {/* نوار ابزار */}
       <div className="flex items-center gap-2 flex-wrap">
         <span style={{ fontSize: 12, color: colors.inkSoft }}>زبان تمرین:</span>
         <select
@@ -270,8 +301,8 @@ By the way, what's your name? Or tell me something about yourself.`;
         )}
       </div>
 
-      {/* کادر تصحیح - با رنگ قرمز و بولد */}
-      {correction && (
+      {/* کادر تصحیح چندگانه */}
+      {corrections.length > 0 && (
         <div
           style={{
             backgroundColor: colors.goldSoft,
@@ -281,16 +312,18 @@ By the way, what's your name? Or tell me something about yourself.`;
             marginBottom: 4,
           }}
         >
-          <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, marginBottom: 4 }}>
-            ✏️ تصحیح
+          <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, marginBottom: 6 }}>
+            ✏️ تصحیحات
           </p>
-          <p style={{ fontSize: 12, color: colors.inkSoft, lineHeight: 1.6 }}>
-            <span style={{ fontWeight: 600, color: colors.rose }}>اشتباه: </span>
-            <span style={{ color: colors.rose }}>{correction.original}</span>
-            <br />
-            <span style={{ fontWeight: 600, color: colors.teal }}>پیشنهاد: </span>
-            <span style={{ fontWeight: "bold", color: colors.teal }}>{correction.corrected}</span>
-          </p>
+          {corrections.map((c, idx) => (
+            <p key={idx} style={{ fontSize: 12, color: colors.inkSoft, lineHeight: 1.8, marginBottom: 4 }}>
+              <span style={{ fontWeight: 600, color: colors.rose }}>{idx + 1}. اشتباه: </span>
+              <span style={{ color: colors.rose }}>{c.original}</span>
+              <br />
+              <span style={{ fontWeight: 600, color: colors.teal }}>   پیشنهاد: </span>
+              <span style={{ fontWeight: "bold", color: colors.teal }}>{c.corrected}</span>
+            </p>
+          ))}
         </div>
       )}
 
@@ -346,7 +379,6 @@ By the way, what's your name? Or tell me something about yourself.`;
                 )}
               </div>
 
-              {/* دکمه‌های TTS و ترجمه */}
               {!isUser && (
                 <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: 4, direction: "ltr" }}>
                   {SpeakButton && (
@@ -383,7 +415,6 @@ By the way, what's your name? Or tell me something about yourself.`;
                 </div>
               )}
 
-              {/* نمایش ترجمه */}
               {!isUser && openTranslation[idx] && translations[idx] && translations[idx][openTranslation[idx]] && (
                 <div
                   dir="auto"
@@ -426,7 +457,7 @@ By the way, what's your name? Or tell me something about yourself.`;
         <div ref={chatEndRef} />
       </div>
 
-      {/* نوار ورودی - با touchAction و contain برای جلوگیری از زوم */}
+      {/* نوار ورودی */}
       <div
         className="flex gap-2 items-end"
         style={{
@@ -479,8 +510,8 @@ By the way, what's your name? Or tell me something about yourself.`;
             maxHeight: 140,
             backgroundColor: "transparent",
             color: colors.ink,
-            touchAction: "manipulation",    // جلوگیری از زوم ناخواسته
-            contain: "layout",              // جلوگیری از جابه‌جایی صفحه
+            touchAction: "manipulation",
+            contain: "layout",
           }}
         />
       </div>
