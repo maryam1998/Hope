@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Trash2, X, Globe, Volume2 } from "lucide-react";
+import { Send, Loader2, Trash2, Globe, Volume2 } from "lucide-react";
 
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
@@ -36,11 +36,10 @@ function SpeakingPracticePanel({
   nativeLabel,
   targetOrder,
   aiSettings,
-  // این توابع از app.jsx پاس داده می‌شوند
-  callAI,                    // تابع callAI خام (برای مکالمه)
+  callAI,
   SpeakButton,
   ClickableSentence,
-  translateFree,
+  translateFree, // از app.jsx دریافت می‌شود
 }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -49,6 +48,7 @@ function SpeakingPracticePanel({
   const [chatLang, setChatLang] = useState((targetOrder && targetOrder[0]) || "en");
   const [correction, setCorrection] = useState(null);
 
+  // ترجمه‌های کش‌شده برای هر پیام AI
   const [translations, setTranslations] = useState({});
   const [openTranslation, setOpenTranslation] = useState({});
 
@@ -91,7 +91,23 @@ By the way, what's your name? Or tell me something about yourself.`;
     for (const pattern of patterns) {
       const match = reply.match(pattern);
       if (match) {
-        return { wrong: match[1].trim(), correct: match[2].trim(), cleaned: reply.replace(match[0], '').trim() };
+        return {
+          wrong: match[1].trim(),
+          correct: match[2].trim(),
+          cleaned: reply.replace(match[0], '').trim()
+        };
+      }
+    }
+    // اگر جداکننده‌ی خاصی مثل "---" وجود داشت
+    const parts = reply.split(/---|[\n\r]{2,}/);
+    if (parts.length >= 2) {
+      const firstPart = parts[0].trim();
+      const rest = parts.slice(1).join('\n').trim();
+      const innerMatch = firstPart.match(/["']([^"']+)["']/g);
+      if (innerMatch && innerMatch.length >= 2) {
+        const wrong = innerMatch[0].replace(/["']/g, '');
+        const correct = innerMatch[1].replace(/["']/g, '');
+        return { wrong, correct, cleaned: rest };
       }
     }
     return null;
@@ -161,7 +177,7 @@ Now respond to: "${userSentence}"
 
       setMessages([...newMessages, { role: "ai", text: displayReply }]);
     } catch (e) {
-      setError(e?.message?.replace(/^ai-backend-error:\s*/, "") || "Error getting reply. Please try again.");
+      setError(e?.message?.replace(/^ai-backend-error:\s*/, "") || "خطا در دریافت پاسخ. لطفاً دوباره تلاش کنید.");
     } finally {
       setLoading(false);
     }
@@ -182,33 +198,50 @@ By the way, what's your name? Or tell me something about yourself.`;
     setMessages([{ role: "ai", text: welcome }]);
   };
 
+  // تابع ترجمه با fallback به callAI در صورت عدم وجود translateFree
+  const translateMessage = async (text, targetLang, sourceLang) => {
+    if (translateFree) {
+      return await translateFree(text, targetLang, sourceLang, aiSettings);
+    } else {
+      // Fallback: استفاده از callAI برای ترجمه
+      const prompt = `Translate the following text from ${sourceLang} to ${targetLang}. Respond with only the translation, no extra text.\n\nText: ${text}`;
+      const result = await callAI({ prompt, maxTokens: 400, retries: 1, aiSettings });
+      return result.trim();
+    }
+  };
+
   const toggleTranslation = async (index, langCode) => {
     const msg = messages[index];
     if (!msg || msg.role !== "ai") return;
 
+    // اگر همین زبان باز است، ببند
     if (openTranslation[index] === langCode) {
       setOpenTranslation(prev => ({ ...prev, [index]: null }));
       return;
     }
 
+    // اگر ترجمه از قبل موجود است، فقط بازش کن
     if (translations[index] && translations[index][langCode]) {
       setOpenTranslation(prev => ({ ...prev, [index]: langCode }));
       return;
     }
 
+    // در غیر این صورت ترجمه را بگیر
     setOpenTranslation(prev => ({ ...prev, [index]: langCode }));
     try {
-      const translated = await translateFree(msg.text, langCode, chatLang, aiSettings);
+      const translated = await translateMessage(msg.text, langCode, chatLang);
       setTranslations(prev => ({
         ...prev,
         [index]: { ...(prev[index] || {}), [langCode]: translated }
       }));
-    } catch {
+    } catch (e) {
+      console.warn("Translation failed:", e);
       setOpenTranslation(prev => ({ ...prev, [index]: null }));
     }
   };
 
   const langOptions = targetOrder && targetOrder.length ? targetOrder : ["en"];
+  // زبان‌های مقصد برای دکمه‌های ترجمه (شامل زبان مادری و تمام زبان‌های مقصد)
   const translationLangs = Array.from(new Set([nativeLang, ...targetOrder])).filter(l => l !== chatLang);
 
   return (

@@ -17490,7 +17490,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             nativeLabel={nativeLabel}
             targetOrder={targetOrder}
             aiSettings={aiSettings}
-            askGrammarTeacher={askGrammarTeacher}
+            callAI={callAI}
+            SpeakButton={SpeakButton}
+            ClickableSentence={ClickableSentence}
+            translateFree={translateFree}
           />
         )}
 
