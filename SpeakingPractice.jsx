@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Trash2, X } from "lucide-react";
+import { Send, Loader2, Trash2, X, Globe, Volume2 } from "lucide-react";
 
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
@@ -36,38 +36,43 @@ function SpeakingPracticePanel({
   nativeLabel,
   targetOrder,
   aiSettings,
-  askGrammarTeacher,
+  // این توابع از app.jsx پاس داده می‌شوند
+  callAI,                    // تابع callAI خام (برای مکالمه)
+  SpeakButton,
+  ClickableSentence,
+  translateFree,
 }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [chatLang, setChatLang] = useState((targetOrder && targetOrder[0]) || "en");
-  const [correction, setCorrection] = useState(null); // { original, corrected }
+  const [correction, setCorrection] = useState(null);
+
+  const [translations, setTranslations] = useState({});
+  const [openTranslation, setOpenTranslation] = useState({});
 
   const chatEndRef = useRef(null);
   const chatTextareaRef = useRef(null);
 
-  // پیام خوش‌آمدگویی جیمی در اولین رندر
+  // شروع مکالمه با پیام خوش‌آمدگویی به زبان هدف
   useEffect(() => {
     if (messages.length === 0) {
       const langLabel = LANGUAGES.find(l => l.code === chatLang)?.label || chatLang;
-      setMessages([
-        {
-          role: "ai",
-          text: `سلام! من جیمی هستم، معلم مکالمه‌ی تو. بیا با هم تمرین کنیم! یک جمله به ${langLabel} بنویس تا بررسی کنم.`
-        }
-      ]);
+      const welcome = `Hey there! I'm Jimmy, your conversation coach. Let's practice ${langLabel} together. 😊
+
+I'll help you with grammar, vocabulary, and natural expressions. Feel free to write anything you'd like to talk about!
+
+By the way, what's your name? Or tell me something about yourself.`;
+      setMessages([{ role: "ai", text: welcome }]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // اسکرول خودکار به انتهای چت
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ block: "nearest" });
   }, [messages, loading]);
 
-  // رشد خودکار textarea
   useEffect(() => {
     const el = chatTextareaRef.current;
     if (!el) return;
@@ -75,51 +80,52 @@ function SpeakingPracticePanel({
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [input]);
 
-  // استخراج تصحیح از پاسخ هوش مصنوعی با الگوهای رایج
-  function extractCorrection(reply, userSentence) {
-    // الگوهای مختلف برای پیدا کردن تصحیح
+  // استخراج تصحیح از پاسخ
+  function extractCorrection(reply) {
     const patterns = [
-      // انگلیسی: Instead of "X", you should say "Y"
-      /Instead of\s+["']([^"']+)["']\s*,?\s*(?:you should|you can|try)\s+["']([^"']+)["']/i,
-      // انگلیسی: You should say "Y" instead of "X"
+      /Instead of\s+["']([^"']+)["']\s*,?\s*(?:you should|you can|try|use)\s+["']([^"']+)["']/i,
       /You should say\s+["']([^"']+)["']\s*(?:instead of|not)\s+["']([^"']+)["']/i,
-      // فارسی: به جای "X" باید بگویید "Y"
-      /به جای\s+["']([^"']+)["']\s*(?:باید|می‌توانید)\s+["']([^"']+)["']/i,
-      // انگلیسی ساده: Use "Y" not "X"
       /Use\s+["']([^"']+)["']\s+not\s+["']([^"']+)["']/i,
+      /به جای\s+["']([^"']+)["']\s*(?:باید|می‌توانید)\s+["']([^"']+)["']/i,
     ];
-
     for (const pattern of patterns) {
       const match = reply.match(pattern);
       if (match) {
-        // match[1] = عبارت اشتباه, match[2] = عبارت صحیح
-        const wrong = match[1].trim();
-        const correct = match[2].trim();
-        // حذف بخش تصحیح از پاسخ اصلی
-        const cleaned = reply.replace(match[0], '').trim();
-        return { wrong, correct, cleaned };
+        return { wrong: match[1].trim(), correct: match[2].trim(), cleaned: reply.replace(match[0], '').trim() };
       }
     }
-
-    // اگر الگو پیدا نشد، بررسی کنیم که آیا پاسخ با "Instead of" شروع می‌شود
-    if (reply.startsWith("Instead of") || reply.startsWith("به جای")) {
-      // سعی کنیم با نقطه یا خط جدید جدا کنیم
-      const parts = reply.split(/[.!?]\s+/);
-      if (parts.length >= 2) {
-        const correctionPart = parts[0];
-        const rest = parts.slice(1).join(". ");
-        // استخراج ساده: فرض کنیم اولین بخش تصحیح است
-        const match = correctionPart.match(/["']([^"']+)["']/g);
-        if (match && match.length >= 2) {
-          const wrong = match[0].replace(/["']/g, '');
-          const correct = match[1].replace(/["']/g, '');
-          return { wrong, correct, cleaned: rest };
-        }
-      }
-    }
-
     return null;
   }
+
+  // تابع جداگانه برای مکالمه (از askGrammarTeacher مستقل است)
+  const askSpeakingTeacher = async ({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history }) => {
+    const langLabel = LANGUAGES.find(l => l.code === langCode)?.label || langCode;
+    const nativeLabelLocal = nativeLabel || LANGUAGES.find(l => l.code === nativeLang)?.label || "Persian";
+    const historyText = history
+      .slice(-6)
+      .map(m => `${m.role === 'user' ? 'Learner' : 'Coach'}: ${m.text}`)
+      .join('\n');
+
+    const prompt = `
+You are Jimmy, a friendly and patient language coach for a learner whose native language is ${nativeLabelLocal}.
+The learner is practicing ${langLabel}. They just wrote: "${userSentence}"
+
+Your task:
+- Respond ENTIRELY in ${langLabel} (unless they specifically ask about grammar in their native language).
+- If they made any mistake, gently point it out. Use this exact format: "Instead of 'X', you should say 'Y'." (in ${langLabel}).
+- Then give a short explanation of the mistake in ${nativeLabelLocal} (but keep the example sentences in ${langLabel}).
+- Continue the conversation naturally by asking a follow‑up question or suggesting a related topic.
+- Keep your reply friendly, encouraging, and not too long (3–5 sentences maximum).
+
+Recent conversation:
+${historyText}
+
+Now respond to: "${userSentence}"
+`;
+
+    const result = await callAI({ prompt, maxTokens: 600, retries: 1, aiSettings });
+    return result.trim();
+  };
 
   const sendMessage = async () => {
     const text = input.trim();
@@ -128,39 +134,34 @@ function SpeakingPracticePanel({
     setError("");
     setCorrection(null);
 
-    const newMessages = [...messages, { role: "user", text }];
+    const userMsg = { role: "user", text };
+    const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setLoading(true);
 
     try {
-      const reply = await askGrammarTeacher({
+      const reply = await askSpeakingTeacher({
         userSentence: text,
         langCode: chatLang,
         nativeLang,
         nativeLabel,
         aiSettings,
         history: messages,
-        targetOrder,
       });
 
-      // تلاش برای استخراج تصحیح
-      const extracted = extractCorrection(reply, text);
-      let responseText = reply;
+      const extracted = extractCorrection(reply);
+      let displayReply = reply;
       if (extracted) {
-        setCorrection({
-          original: extracted.wrong,
-          corrected: extracted.correct,
-        });
-        responseText = extracted.cleaned || reply;
-        // اگر بعد از پاک کردن، رشته خالی شد، از یک پاسخ پیش‌فرض استفاده کن
-        if (!responseText.trim()) {
-          responseText = `پیشنهاد من: به جای "${extracted.wrong}" از "${extracted.correct}" استفاده کنید.`;
+        setCorrection({ original: extracted.wrong, corrected: extracted.correct });
+        displayReply = extracted.cleaned || reply;
+        if (!displayReply.trim()) {
+          displayReply = `Try using "${extracted.correct}" instead of "${extracted.wrong}".`;
         }
       }
 
-      setMessages([...newMessages, { role: "ai", text: responseText }]);
+      setMessages([...newMessages, { role: "ai", text: displayReply }]);
     } catch (e) {
-      setError(e?.message?.replace(/^ai-backend-error:\s*/, "") || "خطا در دریافت پاسخ");
+      setError(e?.message?.replace(/^ai-backend-error:\s*/, "") || "Error getting reply. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -170,16 +171,45 @@ function SpeakingPracticePanel({
     setMessages([]);
     setError("");
     setCorrection(null);
+    setTranslations({});
+    setOpenTranslation({});
     const langLabel = LANGUAGES.find(l => l.code === chatLang)?.label || chatLang;
-    setMessages([
-      {
-        role: "ai",
-        text: `سلام! من جیمی هستم، معلم مکالمه‌ی تو. بیا با هم تمرین کنیم! یک جمله به ${langLabel} بنویس تا بررسی کنم.`
-      }
-    ]);
+    const welcome = `Hey there! I'm Jimmy, your conversation coach. Let's practice ${langLabel} together. 😊
+
+I'll help you with grammar, vocabulary, and natural expressions. Feel free to write anything you'd like to talk about!
+
+By the way, what's your name? Or tell me something about yourself.`;
+    setMessages([{ role: "ai", text: welcome }]);
+  };
+
+  const toggleTranslation = async (index, langCode) => {
+    const msg = messages[index];
+    if (!msg || msg.role !== "ai") return;
+
+    if (openTranslation[index] === langCode) {
+      setOpenTranslation(prev => ({ ...prev, [index]: null }));
+      return;
+    }
+
+    if (translations[index] && translations[index][langCode]) {
+      setOpenTranslation(prev => ({ ...prev, [index]: langCode }));
+      return;
+    }
+
+    setOpenTranslation(prev => ({ ...prev, [index]: langCode }));
+    try {
+      const translated = await translateFree(msg.text, langCode, chatLang, aiSettings);
+      setTranslations(prev => ({
+        ...prev,
+        [index]: { ...(prev[index] || {}), [langCode]: translated }
+      }));
+    } catch {
+      setOpenTranslation(prev => ({ ...prev, [index]: null }));
+    }
   };
 
   const langOptions = targetOrder && targetOrder.length ? targetOrder : ["en"];
+  const translationLangs = Array.from(new Set([nativeLang, ...targetOrder])).filter(l => l !== chatLang);
 
   return (
     <div className="flex flex-col gap-4" style={{ padding: "0 4px" }}>
@@ -188,11 +218,11 @@ function SpeakingPracticePanel({
           🗣️ تمرین مکالمه
         </h2>
         <p style={{ fontSize: 13, color: colors.inkSoft, lineHeight: 1.7 }}>
-          یک جمله به زبانی که یاد می‌گیری بنویس و جیمی (AI) آن را بررسی می‌کند، اشتباهات را تصحیح می‌کند و بر اساس زبان مادری‌ات توضیح می‌دهد. مثل یک معلم مکالمه!
+          یک جمله به زبانی که یاد می‌گیری بنویس و جیمی (AI) آن را بررسی می‌کند،
+          اشتباهات را تصحیح می‌کند و بر اساس زبان مادری‌ات توضیح می‌دهد. مثل یک معلم مکالمه!
         </p>
       </div>
 
-      {/* انتخاب زبان هدف */}
       <div className="flex items-center gap-2 flex-wrap">
         <span style={{ fontSize: 12, color: colors.inkSoft }}>زبان تمرین:</span>
         <select
@@ -209,11 +239,7 @@ function SpeakingPracticePanel({
         >
           {langOptions.map((code) => {
             const label = LANGUAGES.find((l) => l.code === code)?.label || code;
-            return (
-              <option key={code} value={code}>
-                {label}
-              </option>
-            );
+            return <option key={code} value={code}>{label}</option>;
           })}
         </select>
         {messages.length > 0 && (
@@ -227,7 +253,6 @@ function SpeakingPracticePanel({
         )}
       </div>
 
-      {/* کادر تصحیح (Correction) - در بالای چت */}
       {correction && (
         <div
           style={{
@@ -235,7 +260,7 @@ function SpeakingPracticePanel({
             border: `1px solid ${colors.gold}`,
             borderRadius: 12,
             padding: "10px 12px",
-            marginBottom: 8,
+            marginBottom: 4,
           }}
         >
           <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, marginBottom: 4 }}>
@@ -245,13 +270,12 @@ function SpeakingPracticePanel({
             <span style={{ fontWeight: 600, color: colors.rose }}>اشتباه: </span>
             <span style={{ textDecoration: "line-through", color: colors.rose }}>{correction.original}</span>
             <br />
-            <span style={{ fontWeight: 600, color: colors.teal }}>{nativeLabel || "پیشنهاد"}: </span>
+            <span style={{ fontWeight: 600, color: colors.teal }}>پیشنهاد: </span>
             <span style={{ color: colors.teal }}>{correction.corrected}</span>
           </p>
         </div>
       )}
 
-      {/* منطقه پیام‌ها */}
       <div
         style={{
           backgroundColor: "white",
@@ -259,36 +283,111 @@ function SpeakingPracticePanel({
           borderRadius: 12,
           padding: "10px 12px",
           minHeight: 200,
-          maxHeight: 400,
+          maxHeight: 420,
           overflowY: "auto",
           display: "flex",
           flexDirection: "column",
-          gap: 8,
+          gap: 10,
         }}
       >
-        {messages.length === 0 && !loading && (
-          <p style={{ color: colors.inkSoft, fontSize: 13, textAlign: "center", margin: "auto 0" }}>
-            جمله‌ات را بنویس تا جیمی آن را بررسی کند...
-          </p>
-        )}
-        {messages.map((m, i) => {
+        {messages.map((m, idx) => {
           const isUser = m.role === "user";
           return (
-            <div
-              key={i}
-              style={{
-                alignSelf: isUser ? "flex-start" : "flex-end",
-                maxWidth: "85%",
-                padding: "8px 12px",
-                borderRadius: 12,
-                backgroundColor: isUser ? colors.paper : colors.goldSoft,
-                border: `1px solid ${colors.cardBorder}`,
-                fontSize: 13,
-                lineHeight: 1.7,
-                wordBreak: "break-word",
-              }}
-            >
-              {m.text}
+            <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: isUser ? "flex-start" : "flex-end" }}>
+              <div
+                style={{
+                  maxWidth: "88%",
+                  padding: "8px 12px",
+                  borderRadius: 12,
+                  backgroundColor: isUser ? colors.paper : colors.goldSoft,
+                  border: `1px solid ${colors.cardBorder}`,
+                  fontSize: 13,
+                  lineHeight: 1.7,
+                  wordBreak: "break-word",
+                  direction: isUser ? "auto" : "ltr",
+                  textAlign: isUser ? "start" : "left",
+                }}
+              >
+                {isUser ? (
+                  m.text
+                ) : (
+                  ClickableSentence ? (
+                    <ClickableSentence
+                      text={m.text}
+                      langCode={chatLang}
+                      nativeLang={nativeLang}
+                      aiSettings={aiSettings}
+                      color={colors.ink}
+                      fontFamily={fontLatin}
+                      fontSize={13}
+                    />
+                  ) : (
+                    m.text
+                  )
+                )}
+              </div>
+
+              {!isUser && (
+                <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: 4, direction: "ltr" }}>
+                  {SpeakButton && (
+                    <SpeakButton text={m.text} code={chatLang} color={colors.teal} />
+                  )}
+                  {translationLangs.length > 0 && (
+                    <span className="flex items-center gap-1">
+                      <Globe size={13} color={colors.inkSoft} />
+                      {translationLangs.map(lang => {
+                        const label = LANGUAGES.find(l => l.code === lang)?.label || lang;
+                        const isOpen = openTranslation[idx] === lang;
+                        return (
+                          <button
+                            key={lang}
+                            onClick={() => toggleTranslation(idx, lang)}
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              borderRadius: 999,
+                              padding: "2px 8px",
+                              backgroundColor: isOpen ? colors.teal : "white",
+                              color: isOpen ? "white" : colors.inkSoft,
+                              border: `1px solid ${isOpen ? colors.teal : colors.cardBorder}`,
+                              cursor: "pointer",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {!isUser && openTranslation[idx] && translations[idx] && translations[idx][openTranslation[idx]] && (
+                <div
+                  dir="auto"
+                  style={{
+                    marginTop: 4,
+                    maxWidth: "88%",
+                    fontSize: 12,
+                    color: colors.ink,
+                    backgroundColor: colors.paperDark,
+                    borderRadius: 8,
+                    padding: "6px 10px",
+                    border: `1px solid ${colors.cardBorder}`,
+                    alignSelf: "flex-end",
+                    direction: openTranslation[idx] === "fa" ? "rtl" : "ltr",
+                    textAlign: openTranslation[idx] === "fa" ? "right" : "left",
+                  }}
+                >
+                  {translations[idx][openTranslation[idx]]}
+                  {SpeakButton && (
+                    <span style={{ marginLeft: 6 }}>
+                      <SpeakButton text={translations[idx][openTranslation[idx]]} code={openTranslation[idx]} color={colors.teal} size={12} />
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -306,7 +405,6 @@ function SpeakingPracticePanel({
         <div ref={chatEndRef} />
       </div>
 
-      {/* نوار ورودی */}
       <div
         className="flex gap-2 items-end"
         style={{
