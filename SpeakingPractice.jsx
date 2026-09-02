@@ -81,7 +81,7 @@ function SpeakingPracticePanel({
   const [corrections, setCorrections] = useState([]);
   const [translations, setTranslations] = useState({});
   const [openTranslation, setOpenTranslation] = useState({});
-  const [originalUserText, setOriginalUserText] = useState(""); // برای نمایش متن اصلی وقتی ترجمه می‌شود
+  const [originalUserText, setOriginalUserText] = useState("");
 
   const chatEndRef = useRef(null);
   const chatTextareaRef = useRef(null);
@@ -163,7 +163,6 @@ By the way, what's your name? Or tell me something about yourself.`;
       .map(m => `${m.role === 'user' ? 'Learner' : 'Coach'}: ${m.text}`)
       .join('\n');
 
-    // اگر متن اصلی با متن ترجمه‌شده تفاوت دارد، به AI اطلاع بدهیم
     const originalNote = originalText && originalText !== userSentence
       ? `Note: The learner originally wrote this in their native language: "${originalText}". I have translated it to ${langLabel} for you: "${userSentence}". Please correct the translated version.`
       : '';
@@ -215,18 +214,16 @@ Now respond to: "${userSentence}"
         if (translated && translated.trim() !== text.trim()) {
           userText = translated.trim();
           isTranslated = true;
-          setOriginalUserText(text); // ذخیره متن اصلی برای نمایش
+          setOriginalUserText(text);
         }
       } catch (e) {
         console.warn("Translation failed, using original text:", e);
-        // اگر ترجمه شکست خورد، همچنان متن اصلی را ارسال کن (شاید AI بتواند آن را بفهمد)
       }
     }
 
     const userMsg = {
       role: "user",
       text: isTranslated ? `${text}\n\n(ترجمه به ${LANGUAGES.find(l => l.code === chatLang)?.label || chatLang}: ${userText})` : text,
-      // برای پیام‌های بعدی، فقط متن ترجمه‌شده را به تاریخچه بفرستیم
       displayText: isTranslated ? `${text}\n\n📝 ترجمه: ${userText}` : text,
     };
 
@@ -236,12 +233,12 @@ Now respond to: "${userSentence}"
 
     try {
       const reply = await askSpeakingTeacher({
-        userSentence: userText, // ارسال متن ترجمه‌شده به AI
+        userSentence: userText,
         langCode: chatLang,
         nativeLang,
         nativeLabel,
         aiSettings,
-        history: messages.map(m => ({ role: m.role, text: m.text })), // تاریخچه بدون تغییر
+        history: messages.map(m => ({ role: m.role, text: m.text })),
         originalText: isTranslated ? text : undefined,
       });
 
@@ -365,7 +362,7 @@ By the way, what's your name? Or tell me something about yourself.`;
         )}
       </div>
 
-      {/* کادر تصحیح با رنگ‌بندی برجسته */}
+      {/* ✅ کادر تصحیح با رنگ‌بندی برجسته */}
       {corrections.length > 0 && (
         <div
           style={{
@@ -408,7 +405,7 @@ By the way, what's your name? Or tell me something about yourself.`;
       >
         {messages.map((m, idx) => {
           const isUser = m.role === "user";
-          const displayText = m.displayText || m.text; // برای پیام‌های کاربر که ممکن است ترجمه داشته باشند
+          const displayText = m.displayText || m.text;
           return (
             <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: isUser ? "flex-start" : "flex-end" }}>
               <div
