@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Trash2, Globe, Volume2 } from "lucide-react";
+import { Send, Loader2, Trash2, Globe } from "lucide-react";
 
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
@@ -39,7 +39,7 @@ function SpeakingPracticePanel({
   callAI,
   SpeakButton,
   ClickableSentence,
-  translateFree, // از app.jsx دریافت می‌شود
+  translateFree,
 }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -47,15 +47,12 @@ function SpeakingPracticePanel({
   const [error, setError] = useState("");
   const [chatLang, setChatLang] = useState((targetOrder && targetOrder[0]) || "en");
   const [correction, setCorrection] = useState(null);
-
-  // ترجمه‌های کش‌شده برای هر پیام AI
   const [translations, setTranslations] = useState({});
   const [openTranslation, setOpenTranslation] = useState({});
 
   const chatEndRef = useRef(null);
   const chatTextareaRef = useRef(null);
 
-  // شروع مکالمه با پیام خوش‌آمدگویی به زبان هدف
   useEffect(() => {
     if (messages.length === 0) {
       const langLabel = LANGUAGES.find(l => l.code === chatLang)?.label || chatLang;
@@ -80,7 +77,6 @@ By the way, what's your name? Or tell me something about yourself.`;
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [input]);
 
-  // استخراج تصحیح از پاسخ
   function extractCorrection(reply) {
     const patterns = [
       /Instead of\s+["']([^"']+)["']\s*,?\s*(?:you should|you can|try|use)\s+["']([^"']+)["']/i,
@@ -98,7 +94,6 @@ By the way, what's your name? Or tell me something about yourself.`;
         };
       }
     }
-    // اگر جداکننده‌ی خاصی مثل "---" وجود داشت
     const parts = reply.split(/---|[\n\r]{2,}/);
     if (parts.length >= 2) {
       const firstPart = parts[0].trim();
@@ -113,7 +108,6 @@ By the way, what's your name? Or tell me something about yourself.`;
     return null;
   }
 
-  // تابع جداگانه برای مکالمه (از askGrammarTeacher مستقل است)
   const askSpeakingTeacher = async ({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history }) => {
     const langLabel = LANGUAGES.find(l => l.code === langCode)?.label || langCode;
     const nativeLabelLocal = nativeLabel || LANGUAGES.find(l => l.code === nativeLang)?.label || "Persian";
@@ -198,12 +192,10 @@ By the way, what's your name? Or tell me something about yourself.`;
     setMessages([{ role: "ai", text: welcome }]);
   };
 
-  // تابع ترجمه با fallback به callAI در صورت عدم وجود translateFree
   const translateMessage = async (text, targetLang, sourceLang) => {
     if (translateFree) {
       return await translateFree(text, targetLang, sourceLang, aiSettings);
     } else {
-      // Fallback: استفاده از callAI برای ترجمه
       const prompt = `Translate the following text from ${sourceLang} to ${targetLang}. Respond with only the translation, no extra text.\n\nText: ${text}`;
       const result = await callAI({ prompt, maxTokens: 400, retries: 1, aiSettings });
       return result.trim();
@@ -214,19 +206,16 @@ By the way, what's your name? Or tell me something about yourself.`;
     const msg = messages[index];
     if (!msg || msg.role !== "ai") return;
 
-    // اگر همین زبان باز است، ببند
     if (openTranslation[index] === langCode) {
       setOpenTranslation(prev => ({ ...prev, [index]: null }));
       return;
     }
 
-    // اگر ترجمه از قبل موجود است، فقط بازش کن
     if (translations[index] && translations[index][langCode]) {
       setOpenTranslation(prev => ({ ...prev, [index]: langCode }));
       return;
     }
 
-    // در غیر این صورت ترجمه را بگیر
     setOpenTranslation(prev => ({ ...prev, [index]: langCode }));
     try {
       const translated = await translateMessage(msg.text, langCode, chatLang);
@@ -241,7 +230,6 @@ By the way, what's your name? Or tell me something about yourself.`;
   };
 
   const langOptions = targetOrder && targetOrder.length ? targetOrder : ["en"];
-  // زبان‌های مقصد برای دکمه‌های ترجمه (شامل زبان مادری و تمام زبان‌های مقصد)
   const translationLangs = Array.from(new Set([nativeLang, ...targetOrder])).filter(l => l !== chatLang);
 
   return (
@@ -301,10 +289,10 @@ By the way, what's your name? Or tell me something about yourself.`;
           </p>
           <p style={{ fontSize: 12, color: colors.inkSoft, lineHeight: 1.6 }}>
             <span style={{ fontWeight: 600, color: colors.rose }}>اشتباه: </span>
-            <span style={{ textDecoration: "line-through", color: colors.rose }}>{correction.original}</span>
+            <span style={{ color: colors.rose }}>{correction.original}</span>
             <br />
             <span style={{ fontWeight: 600, color: colors.teal }}>پیشنهاد: </span>
-            <span style={{ color: colors.teal }}>{correction.corrected}</span>
+            <span style={{ fontWeight: "bold", color: colors.teal }}>{correction.corrected}</span>
           </p>
         </div>
       )}
@@ -490,6 +478,8 @@ By the way, what's your name? Or tell me something about yourself.`;
             maxHeight: 140,
             backgroundColor: "transparent",
             color: colors.ink,
+            touchAction: "manipulation",
+            contain: "layout",
           }}
         />
       </div>
