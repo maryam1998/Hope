@@ -123,6 +123,35 @@ function buildHighlightSegments(text, corrections) {
   return segments;
 }
 
+// ---------------------------------------------------------------------------
+// ذخیره‌ی گفتگوی «تمرین مکالمه» — فقط روی خودِ گوشی/مرورگرِ کاربر
+// (localStorage)، هیچ‌جا آپلود یا سینک ابری نمی‌شه. با رفرش یا بستن و
+// بازکردنِ صفحه از بین نمی‌ره؛ فقط با زدنِ دکمه‌ی «پاک کردن گفتگو» حذف
+// می‌شه. کلید بر اساسِ ایمیلِ کاربر جدا می‌شه (مثلِ بقیه‌ی داده‌های محلیِ
+// اپ) تا اگه چند حساب رویِ همین گوشی وارد بشن، گفتگوهاشون قاطی نشه.
+// ---------------------------------------------------------------------------
+const SPEAKING_CHAT_STORAGE_KEY = "phrasebook-speaking-chat-v1";
+
+function loadStoredChatMessages(storageKey) {
+  try {
+    const raw = window.localStorage?.getItem(storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length ? parsed : null;
+  } catch (e) {
+    return null; // localStorage در دسترس نبود یا دیتای خراب بود — شروعِ تازه
+  }
+}
+
+function saveStoredChatMessages(storageKey, messages) {
+  try {
+    window.localStorage?.setItem(storageKey, JSON.stringify(messages));
+  } catch (e) {
+    // مثلاً فضای localStorage پر بوده — این نشستِ فعلی ذخیره نمی‌شه ولی
+    // برنامه همچنان کار می‌کنه
+  }
+}
+
 function SpeakingPracticePanel({
   nativeLang,
   nativeLabel,
@@ -132,8 +161,10 @@ function SpeakingPracticePanel({
   SpeakButton,
   ClickableSentence,
   translateFree,
+  user,
 }) {
-  const [messages, setMessages] = useState([]);
+  const storageKey = `${SPEAKING_CHAT_STORAGE_KEY}:${user?.email || "guest"}`;
+  const [messages, setMessages] = useState(() => loadStoredChatMessages(storageKey) || []);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -160,6 +191,13 @@ By the way, what's your name? Or tell me something about yourself.`;
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ block: "nearest" });
   }, [messages, loading]);
+
+  // هر تغییری توی گفتگو (پیامِ جدید، یا پاک‌شدن) بلافاصله روی همین گوشی
+  // ذخیره می‌شه — نه ابری. اولین رندر هم همینجا سِیو می‌شه (پیامِ خوش‌آمد
+  // یا همون گفتگوی قبلاً ذخیره‌شده)، پس چیزی از دست نمی‌ره.
+  useEffect(() => {
+    saveStoredChatMessages(storageKey, messages);
+  }, [messages, storageKey]);
 
   useEffect(() => {
     const el = chatTextareaRef.current;

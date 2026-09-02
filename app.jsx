@@ -17493,6 +17493,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             SpeakButton={SpeakButton}
             ClickableSentence={ClickableSentence}
             translateFree={translateFree}
+            user={user}
           />
         )}
 
