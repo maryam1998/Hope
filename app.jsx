@@ -2569,6 +2569,48 @@ const TTS_LOCALE = {
   uk: "uk-UA",
 };
 
+// نگاشتِ نام‌ها/کدهایِ متفرقه‌ای که ممکنه به‌جایِ کدِ دو-حرفیِ استانداردِ
+// خودِ اپ (همون چیزی که LANGUAGES بالاتر ازش استفاده می‌کنه، مثلاً "en"،
+// "fa") به توابعِ TTS داده بشه — مثلاً یه لوکیلِ کامل ("en-US"، "en_GB")،
+// یا اسمِ خودِ زبون به انگلیسی/فارسی ("English"، "Persian"، "Farsi").
+// این صرفاً یه لایه‌ی دفاعی/محکم‌کاریه (طبقِ درخواستِ صریح) — کدهایِ
+// داخلیِ خودِ اپ همیشه از قبل همون کدِ دو-حرفیِ تمیزن، پس این نگاشت هیچ
+// رفتارِ فعلی‌ای رو عوض نمی‌کنه، فقط جلویِ یه ورودیِ غیرمنتظره رو می‌گیره.
+const LANG_CODE_ALIASES = {
+  english: "en",
+  persian: "fa",
+  farsi: "fa",
+  spanish: "es",
+  german: "de",
+  french: "fr",
+  arabic: "ar",
+  turkish: "tr",
+  chinese: "zh",
+  mandarin: "zh",
+  russian: "ru",
+  italian: "it",
+  korean: "ko",
+  japanese: "ja",
+  hindi: "hi",
+  irish: "ga",
+  ukrainian: "uk",
+};
+
+// کدِ زبونِ ورودی (هر شکلی که باشه: "en"، "en-US"، "en_GB"، "English"، ...)
+// رو به همون کدِ دو-حرفیِ استانداردِ داخلیِ اپ نرمالایز می‌کنه — فقط برایِ
+// انتخابِ لوکیل/صدا استفاده می‌شه؛ به بقیه‌ی اپ (که همه‌جا از کدهایِ
+// LANGUAGES استفاده می‌کنه) هیچ کاری نداره.
+function normalizeLangCode(code) {
+  if (!code) return "en";
+  const raw = String(code).trim().toLowerCase().replace(/_/g, "-");
+  if (TTS_LOCALE[raw]) return raw;
+  const prefix = raw.split("-")[0];
+  if (TTS_LOCALE[prefix]) return prefix;
+  if (LANG_CODE_ALIASES[raw]) return LANG_CODE_ALIASES[raw];
+  if (LANG_CODE_ALIASES[prefix]) return LANG_CODE_ALIASES[prefix];
+  return prefix || "en";
+}
+
 // نامِ صداهای Neural مایکروسافت (Edge Read Aloud / Azure) برای مسیرِ
 // آنلاینِ جایگزین — این سرویس برخلافِ Google-Translate-TTS/StreamElements
 // برای همه‌ی این زبون‌ها (از جمله فارسی/عربی/ایتالیایی/هندی/کره‌ای/روسی/
@@ -2687,18 +2729,34 @@ const speechController = (() => {
   // کامل‌تر همون‌جا که استفاده می‌شه.
   let voicesEverLoaded = false;
   const controllerInitTime = Date.now();
-  function markVoicesLoadedIfAny() {
+  // کشِ فهرستِ صداهایِ گوشی — به‌جایِ صدازدنِ window.speechSynthesis.getVoices()
+  // هر بار که یه جایی (getBestVoice، toggle، ...) بهش نیاز داره، یه‌بار
+  // اینجا نگه‌داشته می‌شه و فقط با رویدادِ voiceschanged (یا وقتی خودش هنوز
+  // خالیه) دوباره از خودِ مرورگر خونده می‌شه. روی گوشی‌ها/WebViewها که
+  // getVoices() ممکنه اولش خالی برگرده، همین رویدادِ voiceschanged بعداً
+  // کش رو با فهرستِ واقعی پر می‌کنه.
+  let cachedVoices = [];
+  function refreshVoiceCache() {
     try {
-      if (window.speechSynthesis.getVoices().length > 0) voicesEverLoaded = true;
+      const list = window.speechSynthesis.getVoices() || [];
+      if (list.length > 0) {
+        cachedVoices = list;
+        voicesEverLoaded = true;
+      }
     } catch (e) {}
+    return cachedVoices;
+  }
+  function getCachedVoices() {
+    // اگه هنوز هیچ صدایی کش نشده، یه بار دیگه تلاش می‌کنیم (ارزون‌ه) —
+    // ولی وقتی از قبل چیزی داریم، دیگه به‌جاش همون کش رو برمی‌گردونیم.
+    if (!cachedVoices.length) return refreshVoiceCache();
+    return cachedVoices;
   }
   try {
     if ("speechSynthesis" in window) {
-      window.speechSynthesis.getVoices();
-      markVoicesLoadedIfAny();
+      refreshVoiceCache();
       window.speechSynthesis.addEventListener("voiceschanged", () => {
-        window.speechSynthesis.getVoices();
-        markVoicesLoadedIfAny();
+        refreshVoiceCache();
       });
     }
   } catch (e) {}
@@ -3143,6 +3201,18 @@ const speechController = (() => {
     // اسم/توصیفِ لفظی‌شون رو می‌خونن.
     const KEEP_PUNCT = ".,!?;:،؛؟…";
     return String(s || "")
+      // بلوک‌های کدِ مارک‌داون (```...```) — کلِ نشونه‌گذاریِ فنس (همراهِ
+      // برچسبِ زبونِ احتمالیِ کنارش، مثلاً «```js») حذف می‌شه؛ محتوایِ
+      // داخلش که می‌مونه پایین‌تر با همون قاعده‌ی معمولی پاک‌سازی می‌شه.
+      .replace(/```[a-zA-Z0-9]*\n?/g, " ")
+      // کدِ این‌لاین با یه‌ backtick تکی (مثلاً `const x`) — خودِ backtickها
+      // پایین‌تر (کنارِ گیومه‌ها) حذف می‌شن؛ اینجا فقط برای اطمینان از
+      // اینکه بلوک‌های چندخطی هم افتاده باشن.
+      // آدرس‌های وب (http/https/www) — خوندنِ لفظیِ حروف‌به‌حرفِ یه URL
+      // (اسلش، نقطه، دامنه) هیچ ارزشی برایِ شنونده نداره و کاملاً مصنوعی
+      // به‌نظر می‌رسه؛ کاملاً حذف می‌شن، نه فقط علامت‌هاشون.
+      .replace(/\bhttps?:\/\/\S+/gi, " ")
+      .replace(/\bwww\.\S+/gi, " ")
       .replace(/[\u2066-\u2069\u200B-\u200F\u061C\uFEFF]/g, "") // isolate marks/zero-width/bidi/BOM
       // ایموجی‌ها — صورتک/نماد/پرچم/تغییردهنده‌ی رنگِ‌پوست/دنباله‌های ZWJ و
       // انتخاب‌گرِ نمایشِ ایموجی. اکثرِ موتورهای TTS به‌جای رد شدن ازشون،
@@ -3197,10 +3267,20 @@ const speechController = (() => {
     return Math.round(base / Math.min(Math.max(r, 0.2), 2));
   }
 
-  // 🔥 انتخاب صدای بهتر (Google Voices در کروم/اج)
+  // پیچِ (pitch) گرم و دوستانه — کمی بالاتر از پیشِ‌فرضِ خنثیِ ۱٫۰ (که
+  // معمولاً هر موتوری خودش می‌ذاره)، ولی نه اونقدر بالا که غیرطبیعی/کارتونی
+  // بشه. صرفاً همین یه پارامترِ ثابت، در کنارِ سرعتِ کنترل‌شده (engineRate)
+  // و مکثِ بینِ‌جمله‌ای (sentenceGapMs)، همون چیزیه که لحنِ موتورِ خامِ گوشی
+  // رو به یه معلمِ زبانِ دوستانه نزدیک‌تر می‌کنه — بدونِ هیچ درخواستِ شبکه‌ای.
+  const FRIENDLY_PITCH = 1.05;
+
+  // 🔥 انتخاب صدای بهتر (Google Voices در کروم/اج) — با نرخِ ترجیح:
+  // صدایِ ذخیره‌شده‌ی کاربر > Google/Natural (زن یا مرد) > Google/Natural
+  // (بی‌جنسیت) > Enhanced/Premium > هر صدایِ منطبق با زبون. هر ۴ حالت از
+  // فهرستِ کش‌شده (getCachedVoices) می‌خونن، نه مستقیم از getVoices().
   function getBestVoice(langCode) {
-    const voices = window.speechSynthesis.getVoices();
-    const langPrefix = langCode.split("-")[0];
+    const voices = getCachedVoices();
+    const langPrefix = normalizeLangCode(langCode).split("-")[0];
 
     // اگه کاربر خودش از تنظیمات یه صدای مشخص برای این زبون انتخاب کرده
     // (از بینِ صداهایی که گوشی‌اش واقعاً نصب داره)، همیشه همون اولویت داره.
@@ -3276,6 +3356,7 @@ const speechController = (() => {
     const utter = new SpeechSynthesisUtterance(sanitizeForTTS(textToSpeak));
     utter.lang = locale;
     utter.rate = engineRate(rate);
+    utter.pitch = FRIENDLY_PITCH;
     utter.volume = muted ? 0 : 1;
     utter.onstart = () => {
       chunkStartedAt = Date.now();
@@ -3434,6 +3515,11 @@ const speechController = (() => {
         const forceLoop = !!(options && options.loop);
         const hasSynthesis = "speechSynthesis" in window;
 
+        // نرمالایزِ کدِ زبون قبل از هر استفاده‌ای — اگه از قبل تمیز بوده
+        // (که همیشه همینه، چون LANGUAGES داخلِ اپ همیشه کدِ دو-حرفیِ ساده
+        // می‌ده)، این هیچ چیزی رو عوض نمی‌کنه؛ فقط ورودی‌های غیرمنتظره
+        // (لوکیلِ کامل/اسمِ زبون) رو هم قابلِ‌استفاده می‌کنه.
+        code = normalizeLangCode(code);
         let newLocale = TTS_LOCALE[code] || "en-US";
         // فارسی و عربی: طبقِ تصمیمِ صریحِ کاربر، این دو زبون همیشه از سرویسِ
         // آنلاینِ رایگان (Edge/Azure ...) خونده می‌شن، نه از TTS خودِ گوشی —
@@ -3527,7 +3613,7 @@ const speechController = (() => {
         abChunkB = null;
         abState = "idle";
         // متن جدید — شمارنده‌ی تکرار از روی تنظیم سراسری تازه می‌شه
-        const voices = hasSynthesis ? window.speechSynthesis.getVoices() : [];
+        const voices = hasSynthesis ? getCachedVoices() : [];
         const baseLang = newLocale.split("-")[0].toLowerCase();
         const hasVoice = voices.some((v) => v.lang && v.lang.toLowerCase().startsWith(baseLang));
 
@@ -19644,6 +19730,7 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
                     word={w.en}
                     wordId={w.id}
                     pos={w.pos}
+                    level={w.level}
                     langCode={l.code}
                     abbr={l.abbr}
                     knownText={l.code === "fa" ? w.fa : ""}
@@ -19702,7 +19789,7 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
 // می‌کنه (تا دفعه‌ی بعد دیگه درخواستی به سرور نره). متن با رنگ مشکی‌پررنگ
 // (colors.ink) و bold نشون داده می‌شه — نه رنگ‌های کم‌کنتراست — تا خوندنِ
 // پشت‌سرهمِ چند زبان چشم رو خسته نکنه.
-function WordTargetTranslation({ word, wordId, pos, langCode, abbr, knownText, nativeLang, nativeLabel, aiSettings, ClickableSentence, fullText, lineOffsets, isActiveLine, autoScrollActive, highlightColor, onResolved }) {
+function WordTargetTranslation({ word, wordId, pos, level, langCode, abbr, knownText, nativeLang, nativeLabel, aiSettings, ClickableSentence, fullText, lineOffsets, isActiveLine, autoScrollActive, highlightColor, onResolved }) {
   const [text, setText] = useState(knownText || (() => loadWordTranslation(word, langCode)));
   // 🔁 دکمه‌ی «ترجمه‌ی این ردیف اشتباهه، دوباره امتحان کن» — چون گاهی سرویس‌های
   // رایگان برای یک زبونِ خاص (نه همه) همیشه یه جوابِ غلط/تکراری برمی‌گردونن
@@ -19761,10 +19848,14 @@ function WordTargetTranslation({ word, wordId, pos, langCode, abbr, knownText, n
     }
     let cancelled = false;
     // slang/idiom بیشترین ریسکِ ترجمه‌ی غلطِ معنایی رو دارن (مثل gaslighter)
-    // چون معمولاً تحت‌اللفظی نیستن — فقط برای این‌ها همیشه AI چک می‌کنه؛
-    // برای بقیه‌ی انواعِ کلمه (noun/verb/...) همون هیوریستیکِ رایگانِ
-    // translateFree کافیه، تا حجمِ زیادِ این دیتاست‌ها توکنِ زیادی نخوره.
-    const forceVerify = pos === "slang" || pos === "idiom";
+    // چون معمولاً تحت‌اللفظی نیستن. ولی خیلی از این کلمه‌ها توی دیتاست
+    // اصلاً pos="idiom" تگ نخوردن (مثلاً خودِ "gaslight" که pos معمولیِ
+    // noun/verb داره ولی معنیِ رایجش استعاره‌ایه، نه چراغِ گاز) — برای
+    // همین سطح‌های بالا (C1/C2) رو هم اضافه کردیم، چون کلمه‌های پیشرفته
+    // معمولاً بیشتر استعاره‌ای/چندمعنایی‌ان. برای بقیه (A1..B2 با
+    // pos معمولی) همون هیوریستیکِ رایگانِ translateFree کافیه، تا حجمِ
+    // زیادِ این دیتاست‌ها توکنِ زیادی نخوره.
+    const forceVerify = pos === "slang" || pos === "idiom" || level === "C1" || level === "C2";
     translateFree(word, langCode, "en", aiSettings, forceVerify)
       .then((t) => {
         if (cancelled || !t) return;

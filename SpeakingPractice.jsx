@@ -170,6 +170,7 @@ function SpeakingPracticePanel({
   const [error, setError] = useState("");
   const [chatLang, setChatLang] = useState((targetOrder && targetOrder[0]) || "en");
   const [corrections, setCorrections] = useState([]);
+  const [correctionsSaved, setCorrectionsSaved] = useState(false);
   const [translations, setTranslations] = useState({});
   const [openTranslation, setOpenTranslation] = useState({});
 
@@ -251,26 +252,42 @@ By the way, what's your name? Or tell me something about yourself.`;
     return { corrections: results, text };
   }
 
-  const askSpeakingTeacher = async ({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history }) => {
+  // ✅ کاهشِ مصرفِ توکن — تاریخچه‌ای که هر بار توی prompt فرستاده می‌شه
+  // نباید شاملِ لیستِ کاملِ «اشتباه/پیشنهادِ» دورهای قبل باشه (که می‌تونه
+  // طولانی باشه)؛ برای ادامه‌دادنِ طبیعیِ گفت‌وگو فقط قسمتِ ادامه‌ی
+  // مکالمه‌ی هر پاسخِ قبلیِ AI کافیه. این فقط روی چیزی که به AI فرستاده
+  // می‌شه اثر می‌ذاره — خودِ حبابِ چت روی صفحه دست‌نخورده و کامل می‌مونه.
+  function compactCoachTextForHistory(text) {
+    if (!text) return "";
+    const compacted = text
+      .replace(
+        /\d+\.\s*Instead of\s+["'][^"']*["']\s*,?\s*(?:you should say|you should|you can|try|use)\s+["'][^"']*["'][\s\S]*?(?=(?:\d+\.\s*Instead of\s+["'])|$)/gi,
+        ""
+      )
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    // اگه کلِ پیام فقط لیستِ تصحیح بود (چیزی برای ادامه‌ی مکالمه نمونده)،
+    // بازم بهتره یه چیزی برای context بمونه تا تاریخچه خالی نشه.
+    return (compacted || text).slice(0, 400);
+  }
+
+  const askSpeakingTeacher = async ({ userSentence, langCode, nativeLang, nativeLabel, aiSettings, history, writtenInNative }) => {
     const langLabel = LANGUAGES.find(l => l.code === langCode)?.label || langCode;
     const nativeLabelLocal = nativeLabel || LANGUAGES.find(l => l.code === nativeLang)?.label || "Persian";
     const historyText = history
-      .slice(-6)
-      .map(m => `${m.role === 'user' ? 'Learner' : 'Coach'}: ${m.text}`)
+      .slice(-4)
+      .map(m => `${m.role === 'user' ? 'Learner' : 'Coach'}: ${m.role === 'ai' ? compactCoachTextForHistory(m.text) : m.text.slice(0, 300)}`)
       .join('\n');
 
     const prompt = `
-You are Jimmy, a friendly and patient language coach for a learner whose native language is ${nativeLabelLocal}.
-The learner is practicing ${langLabel}. They just wrote: "${userSentence}"
+You are Jimmy, a friendly patient ${langLabel} coach. Learner's native language: ${nativeLabelLocal}.
+They just wrote${writtenInNative ? ` (in ${nativeLabelLocal}, not ${langLabel})` : ""}: "${userSentence}"
 
-Your task:
-- Respond ENTIRELY in ${langLabel}.
-- Identify ALL mistakes. List each mistake with a number:
-  1. Instead of "X", you should say "Y".
-  2. Instead of "Z", you should say "W".
-- Use plain straight double quotes only (no markdown, no asterisks, no bold).
-- After listing all corrections, continue the conversation naturally.
-- Keep your reply friendly and encouraging.
+Rules:
+- Reply ENTIRELY in ${langLabel}, plain text only (no markdown/asterisks).
+- If they wrote in ${langLabel} with mistakes, number each: 1. Instead of "X", you should say "Y".
+- If they wrote in ${nativeLabelLocal} instead (not a mistake), show the natural ${langLabel} equivalent in the SAME format: 1. Instead of "<what they wrote in ${nativeLabelLocal}>", you should say "<${langLabel} equivalent>".
+- Then continue the chat naturally and briefly — react, ask a follow-up, keep it like a real conversation, not a report.
 
 Recent conversation:
 ${historyText}
@@ -278,8 +295,34 @@ ${historyText}
 Now respond to: "${userSentence}"
 `;
 
-    const result = await callAI({ prompt, maxTokens: 800, retries: 1, aiSettings });
+    const result = await callAI({ prompt, maxTokens: 550, retries: 1, aiSettings });
     return result.trim();
+  };
+
+  // ✅ ایده‌ی کاربر برای کمترشدنِ مصرفِ توکن: وقتی کاربر فارسی می‌نویسه،
+  // چیزِ «مشکوکی» برای تحلیلِ گرامری نیست — فقط یه ترجمه‌ست. پس دیگه لازم
+  // نیست AI کارِ ترجمه رو هم انجام بده (که در askSpeakingTeacher انجام
+  // می‌شد)؛ ترجمه با translateFree (گوگل‌ترنسلیت و جایگزین‌هاش، رایگان و
+  // بدونِ توکن) گرفته می‌شه، و از AI فقط یه جوابِ کوتاهِ محاوره‌ای برای
+  // ادامه‌ی طبیعیِ مکالمه خواسته می‌شه — بدونِ دستورالعملِ سنگینِ تشخیصِ
+  // اشتباه، و با سقفِ توکنِ خیلی کمتر.
+  const askContinuationOnly = async ({ translatedSentence, langCode, nativeLabel, aiSettings, history }) => {
+    const langLabel = LANGUAGES.find(l => l.code === langCode)?.label || langCode;
+    const historyText = history
+      .slice(-4)
+      .map(m => `${m.role === 'user' ? 'Learner' : 'Coach'}: ${m.role === 'ai' ? compactCoachTextForHistory(m.text) : m.text.slice(0, 300)}`)
+      .join('\n');
+
+    const prompt = `You are Jimmy, a friendly ${langLabel} conversation partner. The learner (native language: ${nativeLabel || "Persian"}) just said, in ${langLabel}: "${translatedSentence}"
+
+Reply ENTIRELY in ${langLabel}, briefly and naturally (1-3 short sentences) — react to what they said and/or ask a short follow-up question, like a real chat message. Plain text only, no markdown, no numbered lists.
+
+Recent conversation:
+${historyText}
+`;
+
+    const result = await callAI({ prompt, maxTokens: 180, retries: 1, aiSettings });
+    return normalizeAiText(result.trim());
   };
 
   const sendMessage = async () => {
@@ -288,50 +331,69 @@ Now respond to: "${userSentence}"
     setInput("");
     setError("");
     setCorrections([]);
+    setCorrectionsSaved(false);
 
-    const detectedLang = detectPastedTextLanguage(text) || "en";
-    let userText = text;
-    let isTranslated = false;
+    const detectedLang = detectPastedTextLanguage(text) || chatLang;
+    const writtenInNative = detectedLang === nativeLang && nativeLang !== chatLang;
 
-    if (detectedLang !== chatLang) {
-      try {
-        const translated = await translateFree(text, chatLang, detectedLang, aiSettings);
-        if (translated && translated.trim() !== text.trim()) {
-          userText = translated.trim();
-          isTranslated = true;
-        }
-      } catch (e) {
-        console.warn("Translation failed:", e);
-      }
-    }
-
-    const userMsg = {
-      role: "user",
-      text: isTranslated ? `${text}\n\n📝 ${userText}` : text,
-    };
+    const userMsg = { role: "user", text };
 
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setLoading(true);
 
     try {
-      const reply = await askSpeakingTeacher({
-        userSentence: userText,
-        langCode: chatLang,
-        nativeLang,
-        nativeLabel,
-        aiSettings,
-        history: messages,
-      });
+      let finalText, finalCorrections;
 
-      const extracted = extractCorrections(reply);
-      if (extracted.corrections.length > 0) {
-        setCorrections(extracted.corrections);
+      if (writtenInNative) {
+        // فارسی نوشته — «مشکوک» نیست، فقط ترجمه‌ست: اول با ترجمه‌ی رایگان
+        // امتحان می‌کنیم.
+        let translated = "";
+        try {
+          translated = (await translateFree(text, chatLang, nativeLang, aiSettings) || "").trim();
+        } catch (e) {
+          translated = "";
+        }
+
+        if (!translated || translated === text) {
+          // ترجمه‌ی رایگان جواب نداد (مثلاً آفلاین/فیلتر) — برمی‌گردیم به
+          // مسیرِ کاملِ AI که خودش هم می‌تونه ترجمه کنه هم ادامه بده.
+          const reply = await askSpeakingTeacher({
+            userSentence: text, langCode: chatLang, nativeLang, nativeLabel, aiSettings, history: messages, writtenInNative,
+          });
+          const extracted = extractCorrections(reply);
+          finalText = extracted.text;
+          finalCorrections = extracted.corrections;
+        } else {
+          const continuation = await askContinuationOnly({
+            translatedSentence: translated, langCode: chatLang, nativeLabel, aiSettings, history: messages,
+          });
+          // خودمون دقیقاً همون فرمتِ «اشتباه/پیشنهاد» رو می‌سازیم تا هایلایتِ
+          // قرمز/سبزِ همیشگی و دکمه‌ی «ذخیره در گرامر» بدونِ تغییر کار کنن.
+          const prefix = `1. Instead of "`;
+          const mid = `", you should say "`;
+          const oStart = prefix.length;
+          const oEnd = oStart + text.length;
+          const cStart = oEnd + mid.length;
+          const cEnd = cStart + translated.length;
+          finalText = `${prefix}${text}${mid}${translated}".\n\n${continuation}`;
+          finalCorrections = [{ original: text, corrected: translated, oStart, oEnd, cStart, cEnd }];
+        }
+      } else {
+        // انگلیسی نوشته (یا هرچی زبانِ تمرینه) — اینجا واقعاً «مشکوکه»
+        // (ممکنه غلطِ گرامری داشته باشه)، پس کاملاً با AI بررسی می‌شه.
+        const reply = await askSpeakingTeacher({
+          userSentence: text, langCode: chatLang, nativeLang, nativeLabel, aiSettings, history: messages, writtenInNative,
+        });
+        const extracted = extractCorrections(reply);
+        finalText = extracted.text;
+        finalCorrections = extracted.corrections;
       }
-      // متنِ نمایشی همون متنِ کاملِ AI‌ست (فقط نرمال‌شده از مارک‌داون) —
-      // چیزی حذف نمی‌شه، فقط بخش‌های اشتباه/تصحیح توی رندر رنگی می‌شن
-      // (پایین‌تر، با buildHighlightSegments).
-      setMessages([...newMessages, { role: "ai", text: extracted.text, corrections: extracted.corrections }]);
+
+      if (finalCorrections.length > 0) {
+        setCorrections(finalCorrections);
+      }
+      setMessages([...newMessages, { role: "ai", text: finalText, corrections: finalCorrections }]);
     } catch (e) {
       setError(e?.message?.replace(/^ai-backend-error:\s*/, "") || "خطا در دریافت پاسخ.");
     } finally {
@@ -343,6 +405,7 @@ Now respond to: "${userSentence}"
     setMessages([]);
     setError("");
     setCorrections([]);
+    setCorrectionsSaved(false);
     setTranslations({});
     setOpenTranslation({});
     const langLabel = LANGUAGES.find(l => l.code === chatLang)?.label || chatLang;
@@ -389,6 +452,21 @@ By the way, what's your name? Or tell me something about yourself.`;
       setOpenTranslation(prev => ({ ...prev, [index]: null }));
     }
   };
+
+  // ✅ ذخیره‌ی تصحیحاتِ همین ردوبدل (اشتباه‌ها + پیشنهادها) به‌عنوانِ یک
+  // یادداشتِ گرامری در تبِ «گرامر» — همون سیستمِ ذخیره‌سازیِ گرامرِ کل اپ
+  // (saveGrammarNote)، پس بعداً از اونجا هم قابلِ مرور و مرورِ دوره‌ایه.
+  function saveCorrectionsToGrammar() {
+    if (!corrections.length) return;
+    const langLabel = LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang;
+    const markdown =
+      `## 🗣️ تصحیحاتِ تمرین مکالمه (${langLabel})\n\n` +
+      corrections
+        .map((c, i) => `**${i + 1}. اشتباه:** ${c.original}\n\n**✅ پیشنهاد:** ${c.corrected}`)
+        .join("\n\n---\n\n");
+    saveGrammarNote({ langCode: chatLang, word: "", sentence: "", markdown });
+    setCorrectionsSaved(true);
+  }
 
   const langOptions = targetOrder && targetOrder.length ? targetOrder : ["en"];
   const translationLangs = Array.from(new Set([nativeLang, ...targetOrder])).filter(l => l !== chatLang);
@@ -446,8 +524,21 @@ By the way, what's your name? Or tell me something about yourself.`;
             marginBottom: 4,
           }}
         >
-          <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, marginBottom: 6 }}>
-            ✏️ تصحیحات
+          <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span>✏️ تصحیحات</span>
+            <button
+              onClick={saveCorrectionsToGrammar}
+              disabled={correctionsSaved}
+              className="flex items-center gap-1"
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: correctionsSaved ? colors.inkSoft : colors.teal,
+                opacity: correctionsSaved ? 0.7 : 1,
+              }}
+            >
+              {correctionsSaved ? "✅ ذخیره شد" : "💾 ذخیره در گرامر"}
+            </button>
           </p>
           {corrections.map((c, idx) => (
             <p key={idx} style={{ fontSize: 12, color: colors.inkSoft, lineHeight: 1.8, marginBottom: 4 }}>
