@@ -10421,11 +10421,28 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
   // آفستِ شروعِ هر جمله‌ش رو می‌سازیم — تا دکمه‌ی 🔊ِ روی هر ترجمه هم بتونه
   // (دقیقاً مثلِ متنِ اصلی) کلِ ترجمه رو با هایلایت/اسکرولِ خودکار و رفتنِ
   // خودکار به جمله‌ی بعد بخونه، نه فقط همون یک جمله رو.
+  //
+  // 🐛 قبلاً این با allSentences.every(...) ساخته می‌شد — یعنی اگه حتی یه
+  // جمله‌یِ تنها (تویِ کلِ داستان، حتی وسط یه پاراگرافِ دورتر که کاربر هنوز
+  // ندیده) هنوز ترجمه نشده بود، fullTranslatedTextByLang[code] کلاً
+  // undefined می‌موند. با undefined بودنش، افکتِ activeTranslation
+  // (پایین‌تر) اون زبون رو کاملاً نادیده می‌گرفت — یعنی هایلایت/اسکرولِ
+  // خودکار برایِ *همه‌یِ* ترجمه‌های همون زبون از کار می‌افتاد، حتی برایِ
+  // جمله‌هایی که کاملاً ترجمه‌شده و رویِ صفحه هم دیده می‌شدن. این دقیقاً
+  // همون چیزیه که تویِ داستان‌های بلند/ذخیره‌شده (که پاراگراف‌بندی و
+  // ترجمه‌شون تدریجیه) بروز می‌کرد، در حالی که تویِ عبارت‌ها/لغت‌ها (که هر
+  // آیتم مستقل و همیشه کامل ترجمه می‌شه) هیچ‌وقت دیده نمی‌شد. الان به‌جایِ
+  // «همه یا هیچ»، فقط از جمله‌هایی که واقعاً ترجمه دارن متنِ پیوسته ساخته
+  // می‌شه — جمله‌های هنوز-ترجمه‌نشده به‌سادگی از این متنِ پیوسته/آفست‌ها کنار
+  // گذاشته می‌شن (نه این‌که کلِ زبون رو خراب کنن)، و به‌محضِ ترجمه‌شدنشون
+  // (که allSentences دوباره رندر می‌شه)، خودکار به همین متنِ پیوسته اضافه
+  // می‌شن.
   const fullTranslatedTextByLang = useMemo(() => {
     const map = {};
     (translationLangs || []).forEach((code) => {
-      if (allSentences.length && allSentences.every((s) => s?.t?.[code])) {
-        map[code] = allSentences.map((s) => s.t[code]).join(" ");
+      const translatedOnly = allSentences.filter((s) => s?.t?.[code]);
+      if (translatedOnly.length) {
+        map[code] = translatedOnly.map((s) => s.t[code]).join(" ");
       }
     });
     return map;
@@ -10436,11 +10453,12 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     const map = {};
     Object.keys(fullTranslatedTextByLang).forEach((code) => {
       let offset = 0;
-      map[code] = allSentences.map((s, idx) => {
+      const translatedOnly = allSentences.filter((s) => s?.t?.[code]);
+      map[code] = translatedOnly.map((s, idx) => {
         const t = s?.t?.[code] || "";
         const start = offset;
         offset += t.length;
-        if (idx < allSentences.length - 1) offset += 1; // فاصله‌ی join(" ")
+        if (idx < translatedOnly.length - 1) offset += 1; // فاصله‌ی join(" ")
         return { pi: s._pi, si: s._si, start, end: start + t.length };
       });
     });
@@ -14044,55 +14062,12 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                 <div
                                   key={code}
                                   className="flex items-start gap-2"
-                                  dir={dirFor(code)}
                                   style={{
                                     marginTop: 3,
                                   }}
                                 >
-                                  {translated && (
-                                    <SpeakButton
-                                      text={translated}
-                                      code={code}
-                                      color={translationColor}
-                                      edge={dirFor(code) === "ltr" ? "end" : undefined}
-                                      fullText={fullTranslated || translated}
-                                      startOffset={translatedStartOffset}
-                                    />
-                                  )}
-                                  {/* دکمه‌ی رفرش قبلاً آخرین فرزندِ این div بود، یعنی توی
-                                      متن‌های راست‌به‌چپ (dir=rtl) چون فرزندِ آخر بود همیشه
-                                      سمتِ چپِ خط می‌افتاد — کنارِ آیکونِ بلندگو نبود. حالا
-                                      درست بعد از SpeakButton (یعنی همون سمتِ راست، قبل از
-                                      خودِ متنِ ترجمه) گذاشته شده تا دوتا دکمه کنارِ هم، سمتِ
-                                      راستِ خط بمونن. دکمه‌ی رفرش همیشه نشون داده می‌شه — حتی
-                                      وقتی `translated` خالیه (یعنی ترجمه‌ی خودکار اصلاً شکست
-                                      خورده و برای همیشه روی «در حال ترجمه...» گیر کرده) —
-                                      چون کاربر باید بتونه چنین جمله‌ای رو هم retry کنه. */}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      retranslateStorySentence(pi, si, code, s.text);
-                                    }}
-                                    disabled={!!retranslatingSentences[`${pi}-${si}-${code}`]}
-                                    title={translated ? (uiLang === "en" ? "If this translation is wrong, try again" : "اگه این ترجمه اشتباهه، دوباره امتحان کن") : (uiLang === "en" ? "Not translated — tap to retry" : "ترجمه نشده — برای امتحانِ دوباره بزن")}
-                                    aria-label={uiLang === "en" ? "Retranslate" : "ترجمه‌ی دوباره"}
-                                    style={{
-                                      background: "none",
-                                      border: "none",
-                                      padding: 4,
-                                      flexShrink: 0,
-                                      cursor: retranslatingSentences[`${pi}-${si}-${code}`] ? "default" : "pointer",
-                                      display: "flex",
-                                      alignItems: "center",
-                                    }}
-                                  >
-                                    {retranslatingSentences[`${pi}-${si}-${code}`] ? (
-                                      <Loader2 size={12} className="spin" color={translationColor} />
-                                    ) : (
-                                      <RotateCcw size={12} color={translationColor} style={{ opacity: translated ? 0.6 : 1 }} />
-                                    )}
-                                  </button>
                                   <p
+                                    dir={dirFor(code)}
                                     style={{
                                       flex: 1,
                                       minWidth: 0,
@@ -14133,6 +14108,51 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                       <span style={{ color: colors.inkSoft, opacity: 0.7 }}>{uiLang === "en" ? "(translating...)" : "(در حال ترجمه...)"}</span>
                                     )}
                                   </p>
+                                  {/* هر دو دکمه (بلندگو + رفرش) همیشه توی یه گروهِ ثابت،
+                                      آخرین فرزندِ ردیف (بعد از خودِ متن) قرار می‌گیرن —
+                                      کاملاً مستقل از dir/جهتِ زبونِ ترجمه (که فقط رویِ خودِ
+                                      <p> بالا اثر می‌ذاره، نه رویِ چیدمانِ این ردیف). قبلاً
+                                      این دو دکمه با ترفندِ order+dir رویِ کلِ ردیف جابه‌جا
+                                      می‌شدن که برایِ زبون‌هایِ rtl (مثلاً فارسی/عربی) نتیجه‌ی
+                                      برعکس می‌داد — دکمه‌ها از هم جدا می‌شدن یا کلاً می‌رفتن
+                                      سمتِ چپ. الان چون خودِ این div هیچ dirی نداره (همیشه
+                                      چیدمانِ عادی/ثابت)، این گروه همیشه دقیقاً سمتِ راستِ
+                                      خط می‌مونه — برایِ هر زبونی. */}
+                                  <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+                                    {translated && (
+                                      <SpeakButton
+                                        text={translated}
+                                        code={code}
+                                        color={translationColor}
+                                        fullText={fullTranslated || translated}
+                                        startOffset={translatedStartOffset}
+                                      />
+                                    )}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        retranslateStorySentence(pi, si, code, s.text);
+                                      }}
+                                      disabled={!!retranslatingSentences[`${pi}-${si}-${code}`]}
+                                      title={translated ? (uiLang === "en" ? "If this translation is wrong, try again" : "اگه این ترجمه اشتباهه، دوباره امتحان کن") : (uiLang === "en" ? "Not translated — tap to retry" : "ترجمه نشده — برای امتحانِ دوباره بزن")}
+                                      aria-label={uiLang === "en" ? "Retranslate" : "ترجمه‌ی دوباره"}
+                                      style={{
+                                        background: "none",
+                                        border: "none",
+                                        padding: 4,
+                                        flexShrink: 0,
+                                        cursor: retranslatingSentences[`${pi}-${si}-${code}`] ? "default" : "pointer",
+                                        display: "flex",
+                                        alignItems: "center",
+                                      }}
+                                    >
+                                      {retranslatingSentences[`${pi}-${si}-${code}`] ? (
+                                        <Loader2 size={12} className="spin" color={translationColor} />
+                                      ) : (
+                                        <RotateCcw size={12} color={translationColor} style={{ opacity: translated ? 0.6 : 1 }} />
+                                      )}
+                                    </button>
+                                  </div>
                                 </div>
                               );
                             })}
@@ -14221,49 +14241,10 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                             <div
                               key={code}
                               className="flex items-start gap-2"
-                              dir={dirFor(code)}
                               style={{ marginTop: 4 }}
                             >
-                              {translated && (
-                                <SpeakButton
-                                  text={translated}
-                                  code={code}
-                                  color={translationColor}
-                                  edge={dirFor(code) === "ltr" ? "end" : undefined}
-                                  fullText={fullTranslated || translated}
-                                  startOffset={translatedStartOffset}
-                                />
-                              )}
-                              {/* رفرش قبلاً بعد از <p> بود، یعنی توی متن‌های راست‌به‌چپ
-                                  (dir=rtl) به‌عنوانِ فرزندِ آخر همیشه سمتِ چپِ خط می‌افتاد.
-                                  حالا کنارِ SpeakButton، سمتِ راستِ خط جا گرفته. */}
-                              {translated && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    retranslateStoryParagraph(pi, code);
-                                  }}
-                                  disabled={!!retranslatingSentences[`${pi}-all-${code}`]}
-                                  title={uiLang === "en" ? "If this translation is wrong, try again" : "اگه این ترجمه اشتباهه، دوباره امتحان کن"}
-                                  aria-label={uiLang === "en" ? "Retranslate" : "ترجمه‌ی دوباره"}
-                                  style={{
-                                    background: "none",
-                                    border: "none",
-                                    padding: 4,
-                                    flexShrink: 0,
-                                    cursor: retranslatingSentences[`${pi}-all-${code}`] ? "default" : "pointer",
-                                    display: "flex",
-                                    alignItems: "center",
-                                  }}
-                                >
-                                  {retranslatingSentences[`${pi}-all-${code}`] ? (
-                                    <Loader2 size={12} className="spin" color={translationColor} />
-                                  ) : (
-                                    <RotateCcw size={12} color={translationColor} style={{ opacity: 0.6 }} />
-                                  )}
-                                </button>
-                              )}
                               <p
+                                dir={dirFor(code)}
                                 style={{
                                   flex: 1,
                                   minWidth: 0,
@@ -14304,6 +14285,46 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                   <span style={{ color: colors.inkSoft, opacity: 0.7 }}>{uiLang === "en" ? "(translating...)" : "(در حال ترجمه...)"}</span>
                                 )}
                               </p>
+                              {/* هر دو دکمه (بلندگو + رفرش) توی یه گروهِ ثابت، همیشه آخرین
+                                  فرزندِ ردیف — مستقل از dir/جهتِ زبونِ ترجمه (طبقِ همون
+                                  توضیحِ نسخه‌ی جمله‌به‌جمله‌یِ بالاتر). */}
+                              <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+                                {translated && (
+                                  <SpeakButton
+                                    text={translated}
+                                    code={code}
+                                    color={translationColor}
+                                    fullText={fullTranslated || translated}
+                                    startOffset={translatedStartOffset}
+                                  />
+                                )}
+                                {translated && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      retranslateStoryParagraph(pi, code);
+                                    }}
+                                    disabled={!!retranslatingSentences[`${pi}-all-${code}`]}
+                                    title={uiLang === "en" ? "If this translation is wrong, try again" : "اگه این ترجمه اشتباهه، دوباره امتحان کن"}
+                                    aria-label={uiLang === "en" ? "Retranslate" : "ترجمه‌ی دوباره"}
+                                    style={{
+                                      background: "none",
+                                      border: "none",
+                                      padding: 4,
+                                      flexShrink: 0,
+                                      cursor: retranslatingSentences[`${pi}-all-${code}`] ? "default" : "pointer",
+                                      display: "flex",
+                                      alignItems: "center",
+                                    }}
+                                  >
+                                    {retranslatingSentences[`${pi}-all-${code}`] ? (
+                                      <Loader2 size={12} className="spin" color={translationColor} />
+                                    ) : (
+                                      <RotateCcw size={12} color={translationColor} style={{ opacity: 0.6 }} />
+                                    )}
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           );
                         })}
