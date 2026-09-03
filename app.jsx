@@ -10377,8 +10377,21 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
   // هر جمله رو با شماره‌ی پاراگراف/جمله‌ش (pi/si) نگه می‌داریم — هم برای
   // ساختنِ متنِ کامل، هم برای اینکه بعداً بتونیم بفهمیم موقع پخشِ «کل متن»
   // از روی پلیر، الان دقیقاً کدوم جمله داره خونده می‌شه (برای هایلایت/اسکرول).
-  const allSentences = paragraphs.flatMap((p, pi) =>
-    (p.sentences || []).map((s, si) => ({ ...s, _pi: pi, _si: si }))
+  // 🐛 قبلاً این با flatMap ساده بود (بدونِ useMemo) — یعنی یه آرایه‌ی
+  // کاملاً تازه (رفرنسِ جدید) با هر رندرِ این کامپوننت ساخته می‌شد، حتی
+  // وقتی خودِ متنِ داستان اصلاً عوض نشده بود (مثلاً فقط چون activeStorySentence
+  // موقعِ پخش تیک می‌خورد). این رفرنسِ همیشه-تازه به‌صورتِ زنجیره‌ای به
+  // fullTranslatedTextByLang/translatedSentenceOffsetsByLang هم می‌رسید (چون
+  // وابسته به allSentences بودن) و باعث می‌شد افکتِ ردیابیِ activeTranslation
+  // (که به همینا وابسته‌ست) با هر رندر — نه فقط وقتی واقعاً چیزی عوض شده —
+  // از speechController دوباره subscribe/unsubscribe کنه. همین
+  // subscribe/unsubscribeِ مکرر دقیقاً همون چیزیه که هایلایتِ ترجمه رو
+  // ناپایدار می‌کرد (یه لحظه هایلایت می‌شد، بعد به‌خاطرِ یه رساب‌سکرایبِ
+  // میونی گم می‌شد). با useMemo، allSentences فقط وقتی paragraphs واقعاً
+  // عوض بشه بازسازی می‌شه، نه با هر رندر.
+  const allSentences = useMemo(
+    () => paragraphs.flatMap((p, pi) => (p.sentences || []).map((s, si) => ({ ...s, _pi: pi, _si: si }))),
+    [paragraphs]
   );
   const fullStoryText = allSentences.map((s) => s?.text || "").join(" ");
 
@@ -14064,6 +14077,15 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                   className="flex items-start gap-2"
                                   style={{
                                     marginTop: 3,
+                                    // 🐛 قبلاً این div اصلاً dir نداشت، پس جهتش از صفحه (که
+                                    // برای این اپ rtl ـه) به ارث می‌رسید — یعنی توی یه
+                                    // ردیفِ rtl، فرزندِ اول (متن) سمتِ راست می‌شینه و فرزندِ
+                                    // دوم (گروهِ دکمه‌ها) سمتِ چپ، دقیقاً برعکسِ چیزی که
+                                    // می‌خواستیم. با ثابت‌کردنِ جهتِ خودِ این ردیف رویِ ltr
+                                    // (مستقل از جهتِ صفحه یا زبونِ ترجمه)، فرزندِ آخر
+                                    // (گروهِ بلندگو+رفرش) همیشه سمتِ راستِ خط می‌مونه —
+                                    // برایِ هر زبونی، چه صفحه rtl باشه چه ltr.
+                                    direction: "ltr",
                                   }}
                                 >
                                   <p
@@ -14241,7 +14263,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                             <div
                               key={code}
                               className="flex items-start gap-2"
-                              style={{ marginTop: 4 }}
+                              style={{ marginTop: 4, direction: "ltr" }}
                             >
                               <p
                                 dir={dirFor(code)}
