@@ -14064,11 +14064,17 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                           {showTranslations &&
                             orderedTranslationLangs.map((code) => {
                               const translated = s.t?.[code];
-                              // فعال بودنِ همین جمله‌ی ترجمه — یعنی همین الان
-                              // دقیقاً همین زبان/جمله در حالِ پخشِ «کلِ ترجمه»ست؛
-                              // دقیقاً مثلِ isSentenceActی متنِ اصلی بالا.
+                              // فعال بودنِ همین جمله‌ی ترجمه — یا چون همین الان
+                              // دقیقاً همین زبان/جمله در حالِ پخشِ «کلِ ترجمه»ست، یا
+                              // چون تازه از یه لانگ‌پرسِ «لغات ذخیره‌شده» بهش پرش
+                              // شده (همون highlightSentenceِ موقتی که متنِ اصلی
+                              // بالا هم باهاش هایلایت می‌شه) — قبلاً این‌جا فقط
+                              // activeTranslation چک می‌شد، پس موقعِ پرش از یه
+                              // داستانِ ذخیره‌شده، متنِ اصلی هایلایت/اسکرول می‌شد ولی
+                              // ترجمه‌ی کنارش نه.
                               const isTranslationSentenceActive =
-                                activeTranslation && activeTranslation.code === code && activeTranslation.pi === pi && activeTranslation.si === si;
+                                (highlightSentence && highlightSentence.pi === pi && highlightSentence.si === si) ||
+                                (activeTranslation && activeTranslation.code === code && activeTranslation.pi === pi && activeTranslation.si === si);
                               const fullTranslated = fullTranslatedTextByLang[code];
                               const translatedStartOffset = translatedSentenceOffsetMapByLang[code]?.[`${pi}-${si}`]?.start ?? 0;
                               return (
@@ -14253,10 +14259,14 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                           const translated = sentencesList.length && sentencesList.every((s) => s?.t?.[code])
                             ? sentencesList.map((s) => s.t[code]).join(" ")
                             : null;
-                          // فعال بودنِ این پاراگرافِ ترجمه — یعنی همین الان
-                          // دقیقاً همین زبان/پاراگراف در حالِ پخشِ «کلِ ترجمه»ست.
+                          // فعال بودنِ این پاراگرافِ ترجمه — یا چون همین الان
+                          // دقیقاً همین زبان/پاراگراف در حالِ پخشِ «کلِ ترجمه»ست، یا
+                          // چون تازه از یه لانگ‌پرسِ «لغات ذخیره‌شده» بهش پرش شده
+                          // (همون highlightSentenceِ موقتی که متنِ اصلی/isParaActive
+                          // بالا هم باهاش هایلایت می‌شه).
                           const isTranslationParaActive =
-                            activeTranslation && activeTranslation.code === code && activeTranslation.pi === pi;
+                            (highlightSentence && highlightSentence.pi === pi) ||
+                            (activeTranslation && activeTranslation.code === code && activeTranslation.pi === pi);
                           const fullTranslated = fullTranslatedTextByLang[code];
                           const translatedStartOffset = translatedParagraphBaseOffsetMapByLang[code]?.[pi] ?? 0;
                           return (
