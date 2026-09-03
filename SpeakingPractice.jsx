@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Trash2, Globe } from "lucide-react";
+import { Send, Loader2, Trash2, Globe, Pencil, Check, X } from "lucide-react";
 
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
@@ -162,6 +162,7 @@ function SpeakingPracticePanel({
   ClickableSentence,
   translateFree,
   user,
+  saveGrammarNote,
 }) {
   const storageKey = `${SPEAKING_CHAT_STORAGE_KEY}:${user?.email || "guest"}`;
   const [messages, setMessages] = useState(() => loadStoredChatMessages(storageKey) || []);
@@ -173,6 +174,18 @@ function SpeakingPracticePanel({
   const [correctionsSaved, setCorrectionsSaved] = useState(false);
   const [translations, setTranslations] = useState({});
   const [openTranslation, setOpenTranslation] = useState({});
+
+  // ویرایشِ پیام‌هایی که خودِ کاربر توی این چت فرستاده — دقیقاً همون
+  // مکانیزمِ تبِ «گرامر» (askGrammarTeacher): با تپ‌کردن رویِ پیام، اول یه
+  // دکمه‌ی «ویرایش» ظاهر می‌شه (tappedMsgIndex)؛ با زدنش، همون پیام به یه
+  // textarea تبدیل می‌شه (editingMsgIndex/editingMsgText). ذخیره‌کردن،
+  // خودِ پیام رو با متنِ تازه جایگزین می‌کنه، هر چی *بعدِ* اون بود (جوابِ
+  // قدیمیِ Jimmy + هر پیامِ بعدی‌تر) حذف می‌کنه، و دوباره برای همون متنِ
+  // ویرایش‌شده از Jimmy جواب می‌گیره.
+  const [tappedMsgIndex, setTappedMsgIndex] = useState(null);
+  const [editingMsgIndex, setEditingMsgIndex] = useState(null);
+  const [editingMsgText, setEditingMsgText] = useState("");
+  const editMsgTextareaRef = useRef(null);
 
   const chatEndRef = useRef(null);
   const chatTextareaRef = useRef(null);
@@ -206,6 +219,14 @@ By the way, what's your name? Or tell me something about yourself.`;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [input]);
+
+  // اتوگرو برای textareaـیِ ویرایشِ پیام، دقیقاً مثلِ اتوگروی کادرِ اصلی.
+  useEffect(() => {
+    const el = editMsgTextareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [editingMsgText, editingMsgIndex]);
 
   // ✅ تابع استخراج تصحیح — الان علاوه بر متنِ اشتباه/درست، موقعیتِ دقیقِ
   // هرکدوم رو هم توی متنِ نرمال‌شده برمی‌گردونه (oStart/oEnd/cStart/cEnd)
@@ -325,6 +346,64 @@ ${historyText}
     return normalizeAiText(result.trim());
   };
 
+  // 🔁 هسته‌ی مشترکِ گرفتنِ جوابِ Jimmy برای یه جمله‌ی مشخص — قبلاً این
+  // منطق فقط داخلِ sendMessage بود؛ الان جدا شده تا هم sendMessage (پیامِ
+  // تازه) و هم saveEditingMsg (ویرایش/ارسالِ مجددِ یه پیامِ قبلی) از همون
+  // یک‌جا استفاده کنن، بدونِ تکرارِ کد. history باید همون پیام‌هایی باشه
+  // که *قبل* از همین جمله بودن (نه شاملِ خودش).
+  async function generateCoachReply(text, history) {
+    const detectedLang = detectPastedTextLanguage(text) || chatLang;
+    const writtenInNative = detectedLang === nativeLang && nativeLang !== chatLang;
+    let finalText, finalCorrections;
+
+    if (writtenInNative) {
+      // فارسی نوشته — «مشکوک» نیست، فقط ترجمه‌ست: اول با ترجمه‌ی رایگان
+      // امتحان می‌کنیم.
+      let translated = "";
+      try {
+        translated = (await translateFree(text, chatLang, nativeLang, aiSettings) || "").trim();
+      } catch (e) {
+        translated = "";
+      }
+
+      if (!translated || translated === text) {
+        // ترجمه‌ی رایگان جواب نداد (مثلاً آفلاین/فیلتر) — برمی‌گردیم به
+        // مسیرِ کاملِ AI که خودش هم می‌تونه ترجمه کنه هم ادامه بده.
+        const reply = await askSpeakingTeacher({
+          userSentence: text, langCode: chatLang, nativeLang, nativeLabel, aiSettings, history, writtenInNative,
+        });
+        const extracted = extractCorrections(reply);
+        finalText = extracted.text;
+        finalCorrections = extracted.corrections;
+      } else {
+        const continuation = await askContinuationOnly({
+          translatedSentence: translated, langCode: chatLang, nativeLabel, aiSettings, history,
+        });
+        // خودمون دقیقاً همون فرمتِ «اشتباه/پیشنهاد» رو می‌سازیم تا هایلایتِ
+        // قرمز/سبزِ همیشگی و دکمه‌ی «ذخیره در گرامر» بدونِ تغییر کار کنن.
+        const prefix = `1. Instead of "`;
+        const mid = `", you should say "`;
+        const oStart = prefix.length;
+        const oEnd = oStart + text.length;
+        const cStart = oEnd + mid.length;
+        const cEnd = cStart + translated.length;
+        finalText = `${prefix}${text}${mid}${translated}".\n\n${continuation}`;
+        finalCorrections = [{ original: text, corrected: translated, oStart, oEnd, cStart, cEnd }];
+      }
+    } else {
+      // انگلیسی نوشته (یا هرچی زبانِ تمرینه) — اینجا واقعاً «مشکوکه»
+      // (ممکنه غلطِ گرامری داشته باشه)، پس کاملاً با AI بررسی می‌شه.
+      const reply = await askSpeakingTeacher({
+        userSentence: text, langCode: chatLang, nativeLang, nativeLabel, aiSettings, history, writtenInNative,
+      });
+      const extracted = extractCorrections(reply);
+      finalText = extracted.text;
+      finalCorrections = extracted.corrections;
+    }
+
+    return { finalText, finalCorrections };
+  }
+
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || loading) return;
@@ -333,63 +412,13 @@ ${historyText}
     setCorrections([]);
     setCorrectionsSaved(false);
 
-    const detectedLang = detectPastedTextLanguage(text) || chatLang;
-    const writtenInNative = detectedLang === nativeLang && nativeLang !== chatLang;
-
     const userMsg = { role: "user", text };
-
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setLoading(true);
 
     try {
-      let finalText, finalCorrections;
-
-      if (writtenInNative) {
-        // فارسی نوشته — «مشکوک» نیست، فقط ترجمه‌ست: اول با ترجمه‌ی رایگان
-        // امتحان می‌کنیم.
-        let translated = "";
-        try {
-          translated = (await translateFree(text, chatLang, nativeLang, aiSettings) || "").trim();
-        } catch (e) {
-          translated = "";
-        }
-
-        if (!translated || translated === text) {
-          // ترجمه‌ی رایگان جواب نداد (مثلاً آفلاین/فیلتر) — برمی‌گردیم به
-          // مسیرِ کاملِ AI که خودش هم می‌تونه ترجمه کنه هم ادامه بده.
-          const reply = await askSpeakingTeacher({
-            userSentence: text, langCode: chatLang, nativeLang, nativeLabel, aiSettings, history: messages, writtenInNative,
-          });
-          const extracted = extractCorrections(reply);
-          finalText = extracted.text;
-          finalCorrections = extracted.corrections;
-        } else {
-          const continuation = await askContinuationOnly({
-            translatedSentence: translated, langCode: chatLang, nativeLabel, aiSettings, history: messages,
-          });
-          // خودمون دقیقاً همون فرمتِ «اشتباه/پیشنهاد» رو می‌سازیم تا هایلایتِ
-          // قرمز/سبزِ همیشگی و دکمه‌ی «ذخیره در گرامر» بدونِ تغییر کار کنن.
-          const prefix = `1. Instead of "`;
-          const mid = `", you should say "`;
-          const oStart = prefix.length;
-          const oEnd = oStart + text.length;
-          const cStart = oEnd + mid.length;
-          const cEnd = cStart + translated.length;
-          finalText = `${prefix}${text}${mid}${translated}".\n\n${continuation}`;
-          finalCorrections = [{ original: text, corrected: translated, oStart, oEnd, cStart, cEnd }];
-        }
-      } else {
-        // انگلیسی نوشته (یا هرچی زبانِ تمرینه) — اینجا واقعاً «مشکوکه»
-        // (ممکنه غلطِ گرامری داشته باشه)، پس کاملاً با AI بررسی می‌شه.
-        const reply = await askSpeakingTeacher({
-          userSentence: text, langCode: chatLang, nativeLang, nativeLabel, aiSettings, history: messages, writtenInNative,
-        });
-        const extracted = extractCorrections(reply);
-        finalText = extracted.text;
-        finalCorrections = extracted.corrections;
-      }
-
+      const { finalText, finalCorrections } = await generateCoachReply(text, messages);
       if (finalCorrections.length > 0) {
         setCorrections(finalCorrections);
       }
@@ -400,6 +429,50 @@ ${historyText}
       setLoading(false);
     }
   };
+
+  function startEditingMsg(idx, currentText) {
+    setTappedMsgIndex(null);
+    setEditingMsgIndex(idx);
+    setEditingMsgText(currentText);
+  }
+
+  function cancelEditingMsg() {
+    setEditingMsgIndex(null);
+    setEditingMsgText("");
+  }
+
+  // ویرایشِ یه پیامِ قبلیِ کاربر — دقیقاً مثلِ تبِ «گرامر»: بعد از ذخیره،
+  // خودِ همون پیام با متنِ تازه جایگزین می‌شه، هر چی *بعدِ* اون بود (جوابِ
+  // قدیمیِ Jimmy + هر پیامِ بعدی‌تر) حذف می‌شه، و یه درخواستِ تازه با متنِ
+  // ویرایش‌شده فرستاده می‌شه تا Jimmy دوباره — با توجه به متنِ جدید —
+  // جواب بده.
+  async function saveEditingMsg() {
+    const text = editingMsgText.trim();
+    const idx = editingMsgIndex;
+    if (!text || idx == null) {
+      cancelEditingMsg();
+      return;
+    }
+    const historyBeforeEdit = messages.slice(0, idx);
+    const truncated = [...historyBeforeEdit, { role: "user", text }];
+    setMessages(truncated);
+    cancelEditingMsg();
+    setError("");
+    setCorrections([]);
+    setCorrectionsSaved(false);
+    setLoading(true);
+    try {
+      const { finalText, finalCorrections } = await generateCoachReply(text, historyBeforeEdit);
+      if (finalCorrections.length > 0) {
+        setCorrections(finalCorrections);
+      }
+      setMessages((m) => [...m, { role: "ai", text: finalText, corrections: finalCorrections }]);
+    } catch (e) {
+      setError(e?.message?.replace(/^ai-backend-error:\s*/, "") || "خطا در دریافت پاسخ.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const clearChat = () => {
     setMessages([]);
@@ -456,8 +529,16 @@ By the way, what's your name? Or tell me something about yourself.`;
   // ✅ ذخیره‌ی تصحیحاتِ همین ردوبدل (اشتباه‌ها + پیشنهادها) به‌عنوانِ یک
   // یادداشتِ گرامری در تبِ «گرامر» — همون سیستمِ ذخیره‌سازیِ گرامرِ کل اپ
   // (saveGrammarNote)، پس بعداً از اونجا هم قابلِ مرور و مرورِ دوره‌ایه.
+  //
+  // 🐛 قبلاً این تابع مستقیم saveGrammarNote رو به‌عنوانِ یه تابعِ سراسری
+  // صدا می‌زد — ولی این کامپوننت توی یه فایلِ جداگانه (SpeakingPractice.jsx)
+  // تعریف شده و saveGrammarNote فقط داخلِ app.jsx (ماژولِ دیگه) تعریف
+  // می‌شه، پس اونجا هیچ‌وقت در دسترس نبود و با زدنِ دکمه دقیقاً همین خطا رو
+  // می‌داد: «ReferenceError: saveGrammarNote is not defined». الان از
+  // طریقِ props (دقیقاً مثلِ callAI/translateFree/SpeakButton که از قبل
+  // همینجوری پاس داده می‌شدن) از app.jsx می‌گیریمش.
   function saveCorrectionsToGrammar() {
-    if (!corrections.length) return;
+    if (!corrections.length || typeof saveGrammarNote !== "function") return;
     const langLabel = LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang;
     const markdown =
       `## 🗣️ تصحیحاتِ تمرین مکالمه (${langLabel})\n\n` +
@@ -466,6 +547,26 @@ By the way, what's your name? Or tell me something about yourself.`;
         .join("\n\n---\n\n");
     saveGrammarNote({ langCode: chatLang, word: "", sentence: "", markdown });
     setCorrectionsSaved(true);
+  }
+
+  // همون قابلیتِ بالا، ولی برای یه پیامِ خاص/قدیمی‌تر توی تاریخچه‌ی گفتگو —
+  // قبلاً فقط آخرین ردوبدل (کادرِ زردِ «تصحیحات» بالای گفتگو) دکمه‌ی ذخیره
+  // داشت و به‌محضِ اومدنِ پیامِ بعدی، اون کادر با تصحیحاتِ جدید عوض می‌شد؛
+  // یعنی اگه همون لحظه ذخیره نمی‌کردی، دیگه هیچ راهی برای ذخیره‌ی تصحیحاتِ
+  // یه پیامِ قبلی نبود. الان کنارِ خودِ هر پیامِ AI (دقیقاً «کنارِ جمله»، نه
+  // فقط بالای گفتگو) هم یه دکمه‌ی ذخیره هست — برای همون پیام، هر وقت
+  // بخوای، حتی بعد از رفتنِ گفتگو به پیام‌های بعدی.
+  function saveMessageCorrectionsToGrammar(idx) {
+    const m = messages[idx];
+    if (!m || !m.corrections || !m.corrections.length || typeof saveGrammarNote !== "function") return;
+    const langLabel = LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang;
+    const markdown =
+      `## 🗣️ تصحیحاتِ تمرین مکالمه (${langLabel})\n\n` +
+      m.corrections
+        .map((c, i) => `**${i + 1}. اشتباه:** ${c.original}\n\n**✅ پیشنهاد:** ${c.corrected}`)
+        .join("\n\n---\n\n");
+    saveGrammarNote({ langCode: chatLang, word: "", sentence: "", markdown });
+    setMessages((prev) => prev.map((msg, i) => (i === idx ? { ...msg, savedToGrammar: true } : msg)));
   }
 
   const langOptions = targetOrder && targetOrder.length ? targetOrder : ["en"];
@@ -569,9 +670,71 @@ By the way, what's your name? Or tell me something about yourself.`;
       >
         {messages.map((m, idx) => {
           const isUser = m.role === "user";
+          const isEditing = editingMsgIndex === idx;
           return (
             <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: isUser ? "flex-start" : "flex-end" }}>
+              {isEditing ? (
+                <div
+                  style={{
+                    width: "100%",
+                    minWidth: 180,
+                    padding: 6,
+                    borderRadius: 12,
+                    backgroundColor: colors.paper,
+                    border: `1.5px solid ${colors.teal}`,
+                  }}
+                >
+                  <textarea
+                    ref={editMsgTextareaRef}
+                    dir="auto"
+                    autoFocus
+                    rows={1}
+                    value={editingMsgText}
+                    onChange={(e) => setEditingMsgText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        saveEditingMsg();
+                      } else if (e.key === "Escape") {
+                        cancelEditingMsg();
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      border: "none",
+                      outline: "none",
+                      resize: "none",
+                      padding: "4px 6px",
+                      fontSize: 13,
+                      fontFamily: "inherit",
+                      lineHeight: 1.6,
+                      maxHeight: 140,
+                      backgroundColor: "transparent",
+                      color: colors.ink,
+                    }}
+                  />
+                  <div className="flex items-center justify-end gap-2" style={{ marginTop: 4 }}>
+                    <button
+                      onClick={cancelEditingMsg}
+                      className="flex items-center gap-1"
+                      style={{ fontSize: 11, color: colors.inkSoft }}
+                    >
+                      <X size={12} />
+                      انصراف
+                    </button>
+                    <button
+                      onClick={saveEditingMsg}
+                      className="flex items-center gap-1"
+                      style={{ fontSize: 11, color: "white", fontWeight: 700, backgroundColor: colors.teal, borderRadius: 8, padding: "3px 8px" }}
+                    >
+                      <Check size={12} />
+                      ذخیره و ارسالِ مجدد
+                    </button>
+                  </div>
+                </div>
+              ) : (
               <div
+                onClick={() => isUser && setTappedMsgIndex((prev) => (prev === idx ? null : idx))}
                 style={{
                   maxWidth: "88%",
                   padding: "8px 12px",
@@ -583,6 +746,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                   wordBreak: "break-word",
                   direction: isUser ? "auto" : "ltr",
                   textAlign: isUser ? "start" : "left",
+                  cursor: isUser ? "pointer" : "default",
                 }}
               >
                 {isUser ? (
@@ -620,6 +784,22 @@ By the way, what's your name? Or tell me something about yourself.`;
                   })
                 )}
               </div>
+              )}
+
+              {/* دکمه‌ی «ویرایش» — فقط با تپ‌کردن رویِ پیامِ خودِ کاربر
+                  ظاهر می‌شه؛ زدنش، خودِ پیام رو با متنِ تازه جایگزین
+                  می‌کنه و از همون‌جا دوباره برای Jimmy می‌فرسته (جوابِ
+                  قدیمی + هر پیامِ بعدی‌تر پاک می‌شه). */}
+              {isUser && !isEditing && tappedMsgIndex === idx && (
+                <button
+                  onClick={() => startEditingMsg(idx, m.text)}
+                  className="flex items-center gap-1"
+                  style={{ fontSize: 11, color: colors.teal, fontWeight: 700, marginTop: 4 }}
+                >
+                  <Pencil size={12} />
+                  ویرایش
+                </button>
+              )}
 
               {!isUser && (
                 <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: 4, direction: "ltr" }}>
@@ -651,6 +831,29 @@ By the way, what's your name? Or tell me something about yourself.`;
                         );
                       })}
                     </span>
+                  )}
+                  {/* دکمه‌ی ذخیره‌ی تصحیحاتِ همین پیامِ خاص — فقط وقتی این
+                      پیام واقعاً تصحیح داشته باشه (m.corrections پر باشه)
+                      نشون داده می‌شه؛ برخلافِ کادرِ زردِ بالای گفتگو (که
+                      فقط آخرین ردوبدل رو نگه می‌داره)، این همیشه کنارِ
+                      همون پیام می‌مونه، حتی بعد از رفتنِ گفتگو جلوتر. */}
+                  {m.corrections && m.corrections.length > 0 && (
+                    m.savedToGrammar ? (
+                      <span
+                        className="flex items-center gap-1"
+                        style={{ fontSize: 11, color: colors.gold, fontWeight: 700 }}
+                      >
+                        ✅ ذخیره شد
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => saveMessageCorrectionsToGrammar(idx)}
+                        className="flex items-center gap-1"
+                        style={{ fontSize: 11, color: colors.teal, fontWeight: 700 }}
+                      >
+                        💾 ذخیره در گرامر
+                      </button>
+                    )
                   )}
                 </div>
               )}

@@ -17601,6 +17601,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             ClickableSentence={ClickableSentence}
             translateFree={translateFree}
             user={user}
+            saveGrammarNote={saveGrammarNote}
           />
         )}
 
