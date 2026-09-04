@@ -2908,6 +2908,33 @@ const speechController = (() => {
   let onlineChunkStartSentence = []; // onlineIdx -> اولین ایندکسِ جمله‌ی همون گروه
   let sentenceToOnlineChunk = []; // ایندکسِ جمله -> ایندکسِ گروهِ آنلاینِ حاویش
   let onlineChunkIndex = 0;
+  // 🐛 اصلاحِ باگِ «هایلایتِ ترجمه‌ها دیرتر از خوندنِ آنلاین»: هر گروهِ
+  // آنلاین (splitForOnlineTts) ممکنه چند جمله‌ی کاملِ پشتِ‌سرِهم رو توی یک
+  // فایلِ صوتیِ واحد بریزه (تا سقفِ ۱۸۰ کاراکتر) — قبلاً chunkIndex فقط سرِ
+  // *شروعِ* هر گروه یه‌بار آپدیت می‌شد و تا آخرِ کلِ گروه (شاید ۲-۳ جمله)
+  // همون‌جا می‌موند؛ یعنی صدا وارد جمله‌ی دوم/سومِ گروه می‌شد ولی هایلایت
+  // هنوز رو جمله‌ی اولِ گروه بود، تا وقتی کلِ فایلِ صوتیِ گروه تموم بشه و
+  // هایلایت یهو چند جمله جلو بپره. اینجا با گوش‌دادن به پیشرفتِ واقعیِ
+  // پخشِ صدا (audio.currentTime/duration) و نسبت‌دادنِ اون پیشرفت به طولِ
+  // نسبیِ هر جمله‌ی داخلِ همون گروه، chunkIndex رو *در حینِ* پخشِ همون
+  // فایلِ صوتیِ واحد هم به‌روز نگه می‌داریم — نه فقط سرِ شروع/پایانش.
+  let currentGroupSentenceMap = []; // [{sentenceIdx, start, end}] — آفستِ نسبیِ هر جمله داخلِ متنِ همین گروه
+  let currentGroupTotalLen = 0;
+  function buildGroupSentenceMap(idx) {
+    const startSentence = onlineChunkStartSentence[idx] != null ? onlineChunkStartSentence[idx] : 0;
+    const endSentenceExclusive =
+      onlineChunkStartSentence[idx + 1] != null ? onlineChunkStartSentence[idx + 1] : chunks.length;
+    const map = [];
+    let pos = 0;
+    for (let i = startSentence; i < endSentenceExclusive; i++) {
+      const len = chunks[i] && chunks[i].text ? chunks[i].text.length : 0;
+      map.push({ sentenceIdx: i, start: pos, end: pos + len });
+      pos += len;
+      if (i < endSentenceExclusive - 1) pos += 1; // فاصله‌ی join(" ") توی groupText
+    }
+    currentGroupSentenceMap = map;
+    currentGroupTotalLen = pos;
+  }
   let onlineLangForTts = "en";
   // آیا توی همین سشنِ آنلاینِ فعلی، حتی یه تکه‌صدا هم واقعاً شروع به پخش
   // کرده؟ اگه اولین تکه شکست بخوره و این هنوز false باشه، یعنی کلِ مسیرِ
@@ -3051,6 +3078,24 @@ const speechController = (() => {
     audio.onplaying = () => {
       onlineAnyAudioPlayed = true;
     };
+    // پیشرفتِ زنده‌ی هایلایت *داخلِ* همین یک فایلِ صوتی — وقتی این گروه
+    // چند جمله رو با هم داره می‌خونه، با پیش‌رفتنِ currentTime، محاسبه
+    // می‌کنیم صدا احتمالاً به کدوم جمله‌ی داخلِ همین گروه رسیده و chunkIndex
+    // رو همون‌جا (نه فقط سرِ شروعِ کلِ گروه) جلو می‌بریم.
+    audio.ontimeupdate = () => {
+      if (status !== "playing" || !currentGroupSentenceMap.length || !isFinite(audio.duration) || audio.duration <= 0) return;
+      const frac = Math.min(1, Math.max(0, audio.currentTime / audio.duration));
+      const targetPos = frac * currentGroupTotalLen;
+      let matched = currentGroupSentenceMap[0].sentenceIdx;
+      for (const seg of currentGroupSentenceMap) {
+        if (targetPos >= seg.start) matched = seg.sentenceIdx;
+        else break;
+      }
+      if (matched !== chunkIndex) {
+        chunkIndex = matched;
+        notify();
+      }
+    };
     audio.onended = () => {
       if (status !== "playing") return;
       playOnlineChunk(nextOnlineIdx(idx));
@@ -3091,17 +3136,18 @@ const speechController = (() => {
     // نگاشتِ دقیق (نه تخمینِ کاراکتری) — همون جمله‌ای که این گروهِ آنلاین
     // واقعاً باهاش شروع می‌شه.
     chunkIndex = onlineChunkStartSentence[idx] != null ? onlineChunkStartSentence[idx] : chunkIndex;
+    buildGroupSentenceMap(idx);
     status = "playing";
     notify();
     playOnlineChunkUrls(onlineTtsProviders(onlineChunks[idx], onlineLangForTts), 0, idx);
   }
 
-  function speakOnline(text, langCodeForTts, startCharOffset, forceSingle, forceLoop) {
+  function speakOnline(text, langCodeForTts, startCharOffset, forceSingle, forceLoop, sentenceBoundaries) {
     stopOnlineAudio();
     mode = "online";
     onlineAnyAudioPlayed = false;
     fullText = text;
-    chunks = splitSentences(text);
+    chunks = splitSentences(text, sentenceBoundaries);
     const onlineSplit = splitForOnlineTts(chunks);
     onlineChunks = onlineSplit.texts;
     onlineChunkStartSentence = onlineSplit.onlineToSentenceStart;
@@ -3142,7 +3188,7 @@ const speechController = (() => {
   // متن رو اول به جمله تقسیم می‌کنه (روی .!?؟ و غیره)، بعد فقط اگه یه
   // «جمله» به‌طرز غیرعادی بلند بود (یعنی احتمالاً اصلاً جمله نیست، یه بلوکِ
   // متنِ بدونِ نقطه‌ست) به تکه‌های چندکلمه‌ای می‌شکنه.
-  function splitSentences(text) {
+  function splitSentencesRaw(text) {
     const t = text || "";
     if (!t) return [];
     const re = /[^.!?؟。！]+[.!?؟。！]*/g;
@@ -3180,6 +3226,46 @@ const speechController = (() => {
           boundary: isLastSub ? "sentence" : "none",
         });
       }
+    }
+    return out;
+  }
+
+  // 🐛 اصلاحِ باگِ «هایلایت گاهی دیرتر از خواندن»: splitSentencesRaw بالا
+  // مستقل از دیتای خودِ اپ، فقط با یه regex رویِ علامت‌های‌نگارشی جمله‌بندی
+  // می‌کنه. ولی «جمله»هایی که خودِ اپ برای هایلایت استفاده می‌کنه (مثلاً
+  // sentenceOffsets تویِ StoryBuilder) از رویِ دیتایِ داستان/ترجمه ساخته
+  // می‌شن، نه از رویِ همین regex — و این دو همیشه یکی نیستن (مثلاً یه
+  // جمله‌ی ترجمه‌شده که بدونِ نقطه تموم شده). وقتی این دو تا مرزبندی فرق
+  // کنن، ممکنه دو «جمله»ی UI توی یه چانکِ TTS واحد ادغام بشن؛ آخرش صدا
+  // داره جمله‌ی دوم رو می‌خونه ولی چون از نظرِ TTS هنوز همون چانکِ قبلیه،
+  // هیچ رویدادِ «شروعِ چانکِ تازه»ای شلیک نمی‌شه و هایلایت رو جمله‌ی اول
+  // گیر می‌کنه تا وقتی این چانکِ ادغام‌شده تمام بشه — دقیقاً همون تاخیرِ
+  // هایلایتِ گزارش‌شده.
+  //
+  // راه‌حل: اگه صدازننده مرزهای دقیقِ جمله‌های خودش (boundaryOffsets — مثلاً
+  // sentenceOffsets.map(s => s.start)) رو بده، اول متن رو دقیقاً سرِ همون
+  // آفست‌ها به قطعاتِ سخت می‌شکنیم، و فقط داخلِ هر قطعه (نه بینِ دو قطعه)
+  // splitSentencesRaw معمولی رو اجرا می‌کنیم. این تضمین می‌کنه هیچ‌وقت دو
+  // «جمله»ی UI با هم ادغام نشن — نتیجه‌ش ممکنه یه مکثِ اضافه‌ی خیلی کوتاه
+  // سرِ جایی باشه که regex خودش جمله رو تموم‌شده نمی‌دید، ولی هایلایت
+  // همیشه دقیقاً هم‌زمان با شروعِ همون جمله عوض می‌شه.
+  function splitSentences(text, boundaryOffsets) {
+    const t = text || "";
+    if (!t) return [];
+    const bounds = Array.isArray(boundaryOffsets)
+      ? [...new Set(boundaryOffsets.filter((n) => Number.isInteger(n) && n > 0 && n < t.length))].sort((a, b) => a - b)
+      : [];
+    if (!bounds.length) return splitSentencesRaw(t);
+
+    const out = [];
+    let cursor = 0;
+    for (const b of [...bounds, t.length]) {
+      if (b <= cursor) continue;
+      const segment = t.slice(cursor, b);
+      for (const piece of splitSentencesRaw(segment)) {
+        out.push({ ...piece, start: piece.start + cursor, end: piece.end + cursor });
+      }
+      cursor = b;
     }
     return out;
   }
@@ -3667,7 +3753,7 @@ const speechController = (() => {
           mode = "local";
           stopOnlineAudio();
           fullText = text;
-          chunks = splitSentences(text);
+          chunks = splitSentences(text, options && options.sentenceBoundaries);
           status = "playing";
           singleShot = forceSingle;
           loopWholeText = !!forceLoop;
@@ -3693,7 +3779,7 @@ const speechController = (() => {
         // مسیر آنلاینِ رایگان — فقط برای فارسی/عربی
         cancelSpeech();
         const onlineLang = code === "zh" ? "zh-CN" : code;
-        speakOnline(text, onlineLang, effectiveStartOffset, forceSingle, forceLoop);
+        speakOnline(text, onlineLang, effectiveStartOffset, forceSingle, forceLoop, options && options.sentenceBoundaries);
         return "online-fallback";
       } catch (e) {
         status = "idle";
@@ -6714,7 +6800,7 @@ function TabButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyP
 // اون متنِ کامله. کلیدِ speechController همیشه بر اساسِ fullText+code
 // حساب می‌شه (نه text)، طوری که این دکمه دقیقاً همون سِشنِ پخشِ کلِ متن رو
 // (چه در حالِ پخش، چه مکث‌شده) پیدا کنه.
-function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolveStartOffset, onPlayed, fullText, onOverrideClick }) {
+function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolveStartOffset, onPlayed, fullText, onOverrideClick, sentenceBoundaries }) {
   const locale = TTS_LOCALE[code] || "en-US";
   const jumpText = fullText || text;
   const myKey = `${locale}::${jumpText}`;
@@ -6806,7 +6892,10 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
         // می‌رسید، به‌جای برگشتن به اول، پخش کامل متوقف می‌شد. فقط وقتی
         // صراحتاً forceRepeat === false داده بشه (که فعلاً هیچ‌جا این‌طور
         // نیست)، لوپ خاموش می‌مونه.
-        fullTextResult = speechController.toggle(jumpText, code, effectiveStartOffset, forceRepeat === false ? undefined : { loop: true });
+        fullTextResult = speechController.toggle(jumpText, code, effectiveStartOffset, {
+          ...(forceRepeat === false ? null : { loop: true }),
+          sentenceBoundaries,
+        });
       }
       if (fullTextResult === "online-fallback") {
         const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
@@ -10428,6 +10517,10 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     });
     return map;
   }, [sentenceOffsets]);
+  // فقط آفستِ شروعِ هر جمله (بدونِ pi/si) — دقیقاً چیزی که speechController
+  // برای splitSentences(text, sentenceBoundaries) لازم داره تا هیچ‌وقت دو
+  // جمله‌ی UI رو با هم ادغام نکنه (توضیحِ کامل، بالای splitSentences).
+  const storySentenceBoundaries = useMemo(() => sentenceOffsets.map((s) => s.start), [sentenceOffsets]);
   // نسخه‌ی «ترجمه‌شده»ی fullStoryText/sentenceOffsets — برای هر زبانِ
   // ترجمه‌ای که فعلاً نمایش داده می‌شه (translationLangs)، متنِ کاملِ همون
   // ترجمه (به همون ترتیبِ جمله‌ها، با join(" ") دقیقاً مثلِ متنِ اصلی) و
@@ -10477,6 +10570,17 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     });
     return map;
   }, [fullTranslatedTextByLang, allSentences]);
+
+  // همون منطقِ storySentenceBoundaries بالا، ولی برای هر زبانِ ترجمه —
+  // جدا نگه‌داشته می‌شه چون آفست‌های هر ترجمه (طولِ متنِ ترجمه‌شده فرق داره)
+  // مستقل از متنِ اصلی‌ان.
+  const translatedSentenceBoundariesByLang = useMemo(() => {
+    const map = {};
+    Object.keys(translatedSentenceOffsetsByLang).forEach((code) => {
+      map[code] = translatedSentenceOffsetsByLang[code].map((s) => s.start);
+    });
+    return map;
+  }, [translatedSentenceOffsetsByLang]);
 
   const translatedSentenceOffsetMapByLang = useMemo(() => {
     const map = {};
@@ -10602,7 +10706,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
       }
       speechController.seekToChunk(idx);
     } else {
-      speechController.toggle(fullStoryText, storyLang, offset, { loop: true });
+      speechController.toggle(fullStoryText, storyLang, offset, { loop: true, sentenceBoundaries: storySentenceBoundaries });
     }
   }
 
@@ -14008,6 +14112,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                               edge={dirFor(storyLang) === "ltr" ? "end" : undefined}
                               fullText={fullStoryText}
                               startOffset={sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0}
+                              sentenceBoundaries={storySentenceBoundaries}
                               onOverrideClick={
                                 playbackMode === "user" && userAudio.hasAudio
                                   ? () => jumpToLineInUserAudio(pi, si, sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0)
@@ -14154,6 +14259,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                         color={translationColor}
                                         fullText={fullTranslated || translated}
                                         startOffset={translatedStartOffset}
+                                        sentenceBoundaries={translatedSentenceBoundariesByLang[code]}
                                       />
                                     )}
                                     <button
@@ -14208,6 +14314,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                               edge={dirFor(storyLang) === "ltr" ? "end" : undefined}
                               fullText={fullStoryText}
                               startOffset={paragraphBaseOffsetMap[pi] ?? 0}
+                              sentenceBoundaries={storySentenceBoundaries}
                               onOverrideClick={
                                 playbackMode === "user" && userAudio.hasAudio
                                   ? () => jumpToLineInUserAudio(pi, 0, paragraphBaseOffsetMap[pi] ?? 0)
@@ -14328,6 +14435,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                     color={translationColor}
                                     fullText={fullTranslated || translated}
                                     startOffset={translatedStartOffset}
+                                    sentenceBoundaries={translatedSentenceBoundariesByLang[code]}
                                   />
                                 )}
                                 {translated && (
