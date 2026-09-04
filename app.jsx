@@ -3299,6 +3299,18 @@ const speechController = (() => {
       // به‌نظر می‌رسه؛ کاملاً حذف می‌شن، نه فقط علامت‌هاشون.
       .replace(/\bhttps?:\/\/\S+/gi, " ")
       .replace(/\bwww\.\S+/gi, " ")
+      // 🐛 مخفف‌های رایجِ عنوان — موتورِ TTS وقتی «Dr»/«Mr»/«Mrs»/«Ms»/«Prof»
+      // رو تنها (بدون یه اسمِ آشنا بعدش، یا حتی با نقطه) می‌بینه، گاهی
+      // به‌جایِ خوندنش به‌عنوانِ عنوان، سعی می‌کنه از روی حروفش یه کلمه‌ی
+      // دیگه بسازه (مثلاً «Dr» → «drive») یا تک‌تکِ حروفش رو بخونه. اینجا
+      // قبل از هر پاک‌سازیِ دیگه‌ای، این مخفف‌ها رو به شکلِ کاملشون باز
+      // می‌کنیم — فقط وقتی که به‌عنوانِ یه کلمه‌ی جدا اومدن (نه وسطِ یه
+      // کلمه‌ی دیگه)، تا مثلاً «Drive» خودش دست‌نخورده بمونه.
+      .replace(/\bDr\.?(?=\s|$)/g, "Doctor")
+      .replace(/\bMrs\.?(?=\s|$)/g, "Missus")
+      .replace(/\bMr\.?(?=\s|$)/g, "Mister")
+      .replace(/\bMs\.?(?=\s|$)/g, "Miss")
+      .replace(/\bProf\.?(?=\s|$)/g, "Professor")
       .replace(/[\u2066-\u2069\u200B-\u200F\u061C\uFEFF]/g, "") // isolate marks/zero-width/bidi/BOM
       // ایموجی‌ها — صورتک/نماد/پرچم/تغییردهنده‌ی رنگِ‌پوست/دنباله‌های ZWJ و
       // انتخاب‌گرِ نمایشِ ایموجی. اکثرِ موتورهای TTS به‌جای رد شدن ازشون،
@@ -3309,7 +3321,22 @@ const speechController = (() => {
       // («» „ ‟ " " ' ')، چه گیومه‌ی ساده‌ی انگلیسیِ روی کیبورد (" و ') که قبلاً
       // حذف نمی‌شدن و همون چیزی بودن که باعثِ خونده‌شدنِ «گیومه» توسطِ موتورِ
       // TTS می‌شدن — صرف‌نظر از اینکه متن به چه زبونی باشه.
-      .replace(/[«»‹›„‟""'''`´"']/g, "")
+      // علامت‌های نقل‌قولِ خالص (که هیچ‌وقت داخلِ یه کلمه به‌عنوانِ آپاستروف
+      // استفاده نمی‌شن) — همیشه حذف می‌شن.
+      .replace(/[«»‹›„‟""]/g, "")
+      // 🐛 آپاستروفِ ابهام‌دار («straight quote» ' و بک‌تیک/آکسان و گیومه‌ی
+      // تک‌تایپوگرافیکِ منحنی) — قبلاً بدونِ توجه به موقعیتش همیشه حذف
+      // می‌شد، که یعنی آپاستروفِ داخلِ کانتراکشن‌های انگلیسی هم پاک می‌شد:
+      // «I've» → «Ive» (بدونِ فاصله)، و موتورِ TTS به‌جایِ خوندنِ «آیو»،
+      // اون رو حرف‌به‌حرف («آی‌وی») می‌خوند — دقیقاً همون چیزی که کاربر
+      // گزارش کرد. حالا فقط وقتی این نشونه‌ها *بینِ دو حرف* باشن (یعنی
+      // واقعاً نقشِ آپاستروفِ کانتراکشن/مالکیت رو دارن: I've, don't,
+      // cat's) نگه‌داشته می‌شن؛ وقتی لبه‌ی یه کلمه‌ن (یعنی واقعاً دارن
+      // نقلِ‌قول رو مشخص می‌کنن، مثلِ 'hello') طبقِ قبل حذف می‌شن.
+      .replace(/[''`´"']/gu, (ch, offset, str) => {
+        const isLetter = (c) => /\p{L}/u.test(c || "");
+        return isLetter(str[offset - 1]) && isLetter(str[offset + 1]) ? ch : "";
+      })
       // نشونه‌های باقی‌مونده‌ی مارک‌داون (اگه یه‌جایی قبل از رسیدن به اینجا
       // پاک نشده باشن) — بعضی موتورهای TTS این علامت‌ها رو هم لفظی می‌خونن.
       .replace(/[*_~]/g, "")
@@ -14164,7 +14191,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                   padding: isSentenceActive ? "2px 4px" : "2px 0",
                                   WebkitBoxDecorationBreak: "clone",
                                   boxDecorationBreak: "clone",
-                                  transition: "background-color 0.35s ease",
+                                  transition: "background-color 0.12s ease",
                                 }}
                               >
                                 <ClickableSentence
@@ -14236,7 +14263,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                           padding: isTranslationSentenceActive ? "2px 4px" : "2px 0",
                                           WebkitBoxDecorationBreak: "clone",
                                           boxDecorationBreak: "clone",
-                                          transition: "background-color 0.35s ease",
+                                          transition: "background-color 0.12s ease",
                                         }}
                                       >
                                         <ClickableSentence
@@ -14356,7 +14383,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                   padding: isParaActive ? "2px 4px" : "2px 0",
                                   WebkitBoxDecorationBreak: "clone",
                                   boxDecorationBreak: "clone",
-                                  transition: "background-color 0.35s ease",
+                                  transition: "background-color 0.12s ease",
                                 }}
                               >
                                 <ClickableSentence
@@ -14419,7 +14446,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                       padding: isTranslationParaActive ? "2px 4px" : "2px 0",
                                       WebkitBoxDecorationBreak: "clone",
                                       boxDecorationBreak: "clone",
-                                      transition: "background-color 0.35s ease",
+                                      transition: "background-color 0.12s ease",
                                     }}
                                   >
                                     <ClickableSentence
@@ -18240,7 +18267,7 @@ const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, t
                 style={{
                   backgroundColor: highlightBg(highlightColor, activePhraseId === p.id, "white"),
                   border: `1px solid ${colors.cardBorder}`,
-                  transition: "background-color 0.35s ease",
+                  transition: "background-color 0.12s ease",
                 }}
               >
                 <div className="flex-1">
@@ -18255,7 +18282,7 @@ const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, t
                         backgroundColor: highlightBg(highlightColor, activeTranslation && activeTranslation.code === nativeLang && activeTranslation.id === p.id),
                         borderRadius: 5,
                         padding: activeTranslation && activeTranslation.code === nativeLang && activeTranslation.id === p.id ? "2px 4px" : "2px 0",
-                        transition: "background-color 0.35s ease",
+                        transition: "background-color 0.12s ease",
                       }}
                     >
                       {getNativeText(p)}
@@ -18307,7 +18334,7 @@ const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, t
                             backgroundColor: highlightBg(highlightColor, isTransActive),
                             borderRadius: 5,
                             padding: isTransActive ? "2px 4px" : "2px 0",
-                            transition: "background-color 0.35s ease",
+                            transition: "background-color 0.12s ease",
                           }}
                         >
                           {p.t[l.code] ? (
@@ -19827,7 +19854,7 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
                     padding: activeWordId === w.id ? "2px 4px" : "2px 0",
                     WebkitBoxDecorationBreak: "clone",
                     boxDecorationBreak: "clone",
-                    transition: "background-color 0.35s ease",
+                    transition: "background-color 0.12s ease",
                   }}
                 >
                   <ClickableSentence
@@ -20073,7 +20100,7 @@ function WordTargetTranslation({ word, wordId, pos, level, langCode, abbr, known
     padding: isActiveLine ? "2px 4px" : "2px 0",
     WebkitBoxDecorationBreak: "clone",
     boxDecorationBreak: "clone",
-    transition: "background-color 0.35s ease",
+    transition: "background-color 0.12s ease",
   };
 
   return (
@@ -20279,7 +20306,7 @@ function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings, highl
             padding: isActive ? "2px 4px" : "2px 0",
             WebkitBoxDecorationBreak: "clone",
             boxDecorationBreak: "clone",
-            transition: "background-color 0.35s ease",
+            transition: "background-color 0.12s ease",
           }}
         >
           {translation}
@@ -20344,7 +20371,7 @@ function VocabBookExample({ collocation, example, targetLangs, aiSettings, nativ
                 padding: collocationActive ? "2px 4px" : "2px 0",
                 WebkitBoxDecorationBreak: "clone",
                 boxDecorationBreak: "clone",
-                transition: "background-color 0.35s ease",
+                transition: "background-color 0.12s ease",
               }}
             >
               <ClickableSentence
@@ -20371,7 +20398,7 @@ function VocabBookExample({ collocation, example, targetLangs, aiSettings, nativ
                 padding: exampleActive ? "2px 4px" : "2px 0",
                 WebkitBoxDecorationBreak: "clone",
                 boxDecorationBreak: "clone",
-                transition: "background-color 0.35s ease",
+                transition: "background-color 0.12s ease",
               }}
             >
               <ClickableSentence
