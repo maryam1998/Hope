@@ -3348,10 +3348,22 @@ const speechController = (() => {
 
   // مکثِ بعد از پایانِ یه جمله‌ی واقعی — تنها جایی که خودمون دستی مکث
   // اضافه می‌کنیم؛ چون سرِ مرزِ دو جمله‌ی جداست، مصنوعی به‌نظر نمی‌رسه.
-  function sentenceGapMs(r) {
-    const base = 360;
+  // 🎙️ طولِ این مکث دیگه برای همه‌ی جمله‌ها ثابت نیست: جمله‌های سؤالی/
+  // تعجبی/سه‌نقطه‌دار طبیعتاً یه ذره مکثِ محسوس‌ترِ بعدشون لازم دارن (دقیقاً
+  // همون چیزی که آدمِ واقعی موقعِ خوندنِ بلند هم انجام می‌ده) تا حسِ
+  // یک‌نواختِ خبریِ صرف نده.
+  function sentenceGapMs(r, chunkText) {
+    const last = String(chunkText || "").trim().slice(-1);
+    const base = "!！".includes(last) ? 420 : "?؟？".includes(last) ? 400 : "…".includes(last) ? 480 : 360;
     return Math.round(base / Math.min(Math.max(r, 0.2), 2));
   }
+  // مکثِ خیلی‌کوتاهِ بینِ تکه‌های حاصل از شکستنِ اضطراریِ یه جمله‌ی خیلی‌بلندِ
+  // بدونِ نقطه (boundary: "none") — قبلاً اینجا اصلاً مکثی نبود (۰ میلی‌ثانیه)
+  // که رویِ بعضی موتورها/WebViewها با شروعِ بی‌درنگِ utteranceِ بعدی، صدا
+  // یه‌جور «تیک»/قطعِ ریزِ مصنوعی می‌داد؛ یه مکثِ خیلی‌کوچیک (نامحسوس، نه
+  // به‌اندازه‌ی مکثِ بینِ‌جمله) این گذارِ بینِ تکه‌ها رو نرم‌تر می‌کنه بدونِ
+  // اینکه اصلاً به‌عنوانِ «مکثِ بینِ‌جمله» حس بشه.
+  const CHUNK_CONTINUATION_GAP_MS = 30;
 
   // پیچِ (pitch) گرم و دوستانه — کمی بالاتر از پیشِ‌فرضِ خنثیِ ۱٫۰ (که
   // معمولاً هر موتوری خودش می‌ذاره)، ولی نه اونقدر بالا که غیرطبیعی/کارتونی
@@ -3360,45 +3372,60 @@ const speechController = (() => {
   // رو به یه معلمِ زبانِ دوستانه نزدیک‌تر می‌کنه — بدونِ هیچ درخواستِ شبکه‌ای.
   const FRIENDLY_PITCH = 1.05;
 
-  // 🔥 انتخاب صدای بهتر (Google Voices در کروم/اج) — با نرخِ ترجیح:
-  // صدایِ ذخیره‌شده‌ی کاربر > Google/Natural (زن یا مرد) > Google/Natural
-  // (بی‌جنسیت) > Enhanced/Premium > هر صدایِ منطبق با زبون. هر ۴ حالت از
-  // فهرستِ کش‌شده (getCachedVoices) می‌خونن، نه مستقیم از getVoices().
+  // 🎙️ اینتونیشن بر اساسِ نوعِ جمله — موتورهای TTS مرورگر/گوشی نمی‌تونن
+  // یه کانتورِ پیچِ داخلِ خودِ جمله (مثلاً بالارفتنِ تدریجیِ پیچ در آخرِ یه
+  // سؤال) بسازن؛ چیزی که *می‌شه* کنترلش کرد همون یه پیچ/ریتِ ثابت برایِ
+  // کلِ utteranceه. برای همین، بر اساسِ علامتِ‌نگارشیِ پایانِ جمله (که از
+  // قبل توسطِ sanitizeForTTS نگه داشته شده)، کلِ اون یه جمله رو با یه پیچ/
+  // ریتِ کمی متفاوت می‌خونیم — سؤال کمی زیرتر (حسِ پرسشی)، تعجب کمی
+  // زیرتر و تندتر (حسِ هیجان)، خبری همون پایه‌ی خنثی. این دقیقاً همون
+  // چیزیه که نبودش باعث می‌شد کلِ داستان با یه لحنِ کاملاً صاف و تخت
+  // (یعنی «رباتیک») خونده بشه، صرف‌نظر از این‌که جمله سؤاله یا خبر.
+  function sentenceIntonation(chunkText) {
+    const last = String(chunkText || "").trim().slice(-1);
+    if ("?؟？".includes(last)) return { pitchDelta: 0.14, rateMul: 1 };
+    if ("!！".includes(last)) return { pitchDelta: 0.1, rateMul: 1.05 };
+    return { pitchDelta: 0, rateMul: 1 };
+  }
+
+  // 🔥 انتخاب صدای بهتر — با نرخِ ترجیح: صدایِ ذخیره‌شده‌ی کاربر > صدایی که
+  // کیفیتِ موتورش (از رویِ نامش) بالاترین سطح رو داره (Neural/Wavenet/
+  // Chirp/Studio/Natural/Premium/Enhanced/Polyglot — این‌ها اسم‌هایی هستن
+  // که مرورگرها/گوشی‌ها معمولاً روی صداهای عصبیِ باکیفیت می‌ذارن، در برابرِ
+  // موتورهایِ پایه‌ای/robotic مثلِ eSpeak) > هر صدایِ Google دیگه > هر
+  // صدایِ منطبق با زبون. هر ۴ حالت از فهرستِ کش‌شده (getCachedVoices)
+  // می‌خونن، نه مستقیم از getVoices().
   function getBestVoice(langCode) {
     const voices = getCachedVoices();
     const langPrefix = normalizeLangCode(langCode).split("-")[0];
+    const matching = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith(langPrefix));
+    if (!matching.length) return null;
 
     // اگه کاربر خودش از تنظیمات یه صدای مشخص برای این زبون انتخاب کرده
     // (از بینِ صداهایی که گوشی‌اش واقعاً نصب داره)، همیشه همون اولویت داره.
     try {
       const savedURI = loadVoicePrefs()[langPrefix];
       if (savedURI) {
-        const savedVoice = voices.find(v => v.voiceURI === savedURI);
+        const savedVoice = matching.find((v) => v.voiceURI === savedURI);
         if (savedVoice) return savedVoice;
       }
     } catch (e) {}
 
-    let preferred = voices.find(v =>
-      v.lang.startsWith(langPrefix) &&
-      (v.name.includes("Google") || v.name.includes("Natural")) &&
-      (v.name.includes("Female") || v.name.includes("Male"))
-    );
-    if (!preferred) {
-      preferred = voices.find(v =>
-        v.lang.startsWith(langPrefix) &&
-        (v.name.includes("Google") || v.name.includes("Natural"))
-      );
+    // به ترتیبِ کیفیتِ معمولِ این کلیدواژه‌ها در نامِ صداها. اول دنبالِ
+    // نسخه‌ی جنسیت‌دارِ هر کلیدواژه می‌گردیم (که معمولاً طبیعی‌تر شنیده
+    // می‌شه)، بعد بدونِ جنسیت.
+    const QUALITY_KEYWORDS = ["neural", "wavenet", "chirp", "studio", "natural", "premium", "enhanced", "polyglot"];
+    for (const kw of QUALITY_KEYWORDS) {
+      const withGender = matching.find((v) => v.name.toLowerCase().includes(kw) && /female|male/i.test(v.name));
+      if (withGender) return withGender;
     }
-    if (!preferred) {
-      preferred = voices.find(v =>
-        v.lang.startsWith(langPrefix) &&
-        (v.name.includes("Enhanced") || v.name.includes("Premium"))
-      );
+    for (const kw of QUALITY_KEYWORDS) {
+      const found = matching.find((v) => v.name.toLowerCase().includes(kw));
+      if (found) return found;
     }
-    if (!preferred) {
-      preferred = voices.find(v => v.lang.startsWith(langPrefix));
-    }
-    return preferred || null;
+    const google = matching.find((v) => v.name.toLowerCase().includes("google"));
+    if (google) return google;
+    return matching[0];
   }
 
   function speakChunk(idx, forceRestart = false, isRepeatContinuation = false, resumeOffset = 0) {
@@ -3441,8 +3468,12 @@ const speechController = (() => {
 
     const utter = new SpeechSynthesisUtterance(sanitizeForTTS(textToSpeak));
     utter.lang = locale;
-    utter.rate = engineRate(rate);
-    utter.pitch = FRIENDLY_PITCH;
+    // اینتونیشنِ این جمله (سؤالی/تعجبی/خبری) رو از رویِ کلِ متنِ جمله تشخیص
+    // می‌دیم (نه فقط باقیِ بخشی که بعدِ یه ادامه‌ی مکث ممکنه خونده بشه) —
+    // چون علامتِ‌نگارشیِ پایان همیشه سرِ خودِ fullChunkText هست.
+    const intonation = sentenceIntonation(fullChunkText);
+    utter.rate = engineRate(rate) * intonation.rateMul;
+    utter.pitch = Math.min(2, Math.max(0, FRIENDLY_PITCH + intonation.pitchDelta));
     utter.volume = muted ? 0 : 1;
     utter.onstart = () => {
       chunkStartedAt = Date.now();
@@ -3458,11 +3489,11 @@ const speechController = (() => {
 
     utter.onend = () => {
       if (status !== "playing") return;
-      // فقط سرِ پایانِ یه جمله‌ی واقعی مکثِ دستی می‌ذاریم؛ تکه‌های حاصل از
-      // شکستنِ اضطراریِ وسطِ متنِ خیلی‌بلند (boundary: "none") بدونِ مکثِ
-      // اضافه پشتِ‌سرِهم ادامه پیدا می‌کنن.
+      // فقط سرِ پایانِ یه جمله‌ی واقعی مکثِ کاملِ بینِ‌جمله می‌ذاریم؛ تکه‌های
+      // حاصل از شکستنِ اضطراریِ وسطِ متنِ خیلی‌بلند (boundary: "none") فقط
+      // یه مکثِ خیلی‌کوچیک برای نرمیِ گذار می‌گیرن، نه مکثِ کاملِ بینِ‌جمله.
       const boundary = chunks[idx] && chunks[idx].boundary;
-      const gap = boundary === "sentence" ? sentenceGapMs(rate) : 0;
+      const gap = boundary === "sentence" ? sentenceGapMs(rate, fullChunkText) : CHUNK_CONTINUATION_GAP_MS;
 
       // تکرارِ سراسری (اگه روشن باشه) اینجا اعمال می‌شه: قبل از رفتن سراغِ
       // جمله‌ی بعد، همینِ جمله‌ی همین‌الان‌تمام‌شده رو دوباره می‌خونه — به
