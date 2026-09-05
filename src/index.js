@@ -507,7 +507,17 @@ async function safeJson(r) {
 // Reads AI_PROVIDER (comma-separated, e.g. "huggingface,groq,gemini") and
 // falls back through them in order — same behavior as the old Express
 // server. Defaults to huggingface alone if not set.
-const VALID_PROVIDERS = ["huggingface", "groq", "gemini", "deepseek", "openai", "avalai", "grok", "openrouter", "mistral", "cerebras"];
+// 🆕 لیستِ https://github.com/mnfst/awesome-free-llm-apis — همه‌ی پرووایدرهای
+// اون لیست اینجا اضافه شدن. سه‌تاشون (kilocode, llm7, ovhcloud) اصلاً کلید
+// نمی‌خوان، بقیه هرکدوم یه کلیدِ جداگونه لازم دارن (اسمِ متغیرِ محیطیش کنارِ
+// خودِ تابعش کامنت شده). یادت باشه: چون خودِ حساب یه مقدارِ صریح برای
+// AI_PROVIDER توی داشبوردِ Cloudflare گذاشته، صرفاً اضافه‌کردنِ این توابع به
+// کد کافی نیست — باید همون env var رو توی داشبورد هم آپدیت کنی تا اسمِ
+// پرووایدرهای جدید رو شامل بشه (پایین‌تر توضیح دادم).
+const VALID_PROVIDERS = [
+  "huggingface", "groq", "gemini", "deepseek", "openai", "avalai", "grok", "openrouter", "mistral", "cerebras",
+  "aionlabs", "cohere", "zai", "cloudflareai", "kilocode", "llm7", "modelscope", "nvidianim", "ollamacloud", "ovhcloud", "siliconflow",
+];
 function getProviderChain(env) {
   // Gemini is geo-blocked by Google itself for requests from Iran-adjacent
   // Cloudflare edge locations ("User location is not supported for the API
@@ -517,14 +527,16 @@ function getProviderChain(env) {
   // outbound call FROM Cloudflare's servers TO Google). Hugging Face's
   // router has also been consistently unreachable (Cloudflare error 1016 —
   // likely blocked/broken for the same region-based reason).
-  // Default chain now leads with the providers the app owner actually holds
-  // API keys for (openrouter/mistral/groq/gemini/cerebras) — set
-  // OPENROUTER_API_KEY, MISTRAL_API_KEY, GROQ_API_KEY, GEMINI_API_KEY,
-  // CEREBRAS_API_KEY (and/or GROK_API_KEY) in the Worker's environment
-  // variables (wrangler.toml / dashboard → Settings → Variables) for these
-  // to actually work; any provider whose key isn't set is skipped
-  // automatically and the chain moves on to the next one.
-  const raw = (env.AI_PROVIDER || "openrouter,mistral,groq,gemini,cerebras,grok,huggingface").toLowerCase();
+  // 🆕 ترتیبِ پیش‌فرضِ جدید: اول سه‌تایی که اصلاً کلید نمی‌خوان (kilocode،
+  // llm7، ovhcloud) — این‌ها همیشه یه شانسِ رایگان و بی‌نیاز از تنظیمات
+  // می‌دن. بعدش پرووایدرهایی که سقفِ رایگانِ سخاوتمندتری دارن (groq،
+  // nvidianim، ollamacloud، cloudflareai)، و آخرِ صف همونایی که یا کلید
+  // لازم دارن و تنظیم نشدن یا طبق تجربه‌ی قبلی مشکل‌دار بودن (gemini،
+  // huggingface). هر پرووایدری که کلیدش تنظیم نشده باشه خودکار رد می‌شه.
+  const raw = (
+    env.AI_PROVIDER ||
+    "kilocode,llm7,ovhcloud,groq,nvidianim,ollamacloud,cloudflareai,mistral,cohere,zai,aionlabs,modelscope,siliconflow,openrouter,cerebras,grok,gemini,huggingface"
+  ).toLowerCase();
   const chain = raw
     .split(",")
     .map((p) => p.trim())
@@ -543,8 +555,270 @@ async function callProvider(provider, prompt, maxTokens, env) {
   if (provider === "openrouter") return callOpenRouter(prompt, maxTokens, env);
   if (provider === "mistral") return callMistral(prompt, maxTokens, env);
   if (provider === "cerebras") return callCerebras(prompt, maxTokens, env);
+  if (provider === "aionlabs") return callAionLabs(prompt, maxTokens, env);
+  if (provider === "cohere") return callCohere(prompt, maxTokens, env);
+  if (provider === "zai") return callZai(prompt, maxTokens, env);
+  if (provider === "cloudflareai") return callCloudflareAI(prompt, maxTokens, env);
+  if (provider === "kilocode") return callKiloCode(prompt, maxTokens, env);
+  if (provider === "llm7") return callLLM7(prompt, maxTokens, env);
+  if (provider === "modelscope") return callModelScope(prompt, maxTokens, env);
+  if (provider === "nvidianim") return callNvidiaNim(prompt, maxTokens, env);
+  if (provider === "ollamacloud") return callOllamaCloud(prompt, maxTokens, env);
+  if (provider === "ovhcloud") return callOvhCloud(prompt, maxTokens, env);
+  if (provider === "siliconflow") return callSiliconFlow(prompt, maxTokens, env);
   throw new Error(`Unknown provider "${provider}"`);
 }
+
+// --- Aion Labs (OpenAI-compatible) ------------------------------------------
+// کلید: AIONLABS_API_KEY — از https://www.aionlabs.ai/app/api-keys/
+async function callAionLabs(prompt, maxTokens, env) {
+  const key = env.AIONLABS_API_KEY;
+  if (!key) throw new Error("AIONLABS_API_KEY not set");
+  const r = await fetch("https://api.aionlabs.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: env.AIONLABS_MODEL || "aion-labs/aion-3.0-mini",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.error?.message || data?.error || `Aion Labs HTTP ${r.status}`);
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text) throw new Error("Aion Labs returned empty response");
+  return text;
+}
+
+// --- Cohere (v2 chat API — پاسخش با بقیه فرق داره) --------------------------
+// کلید: COHERE_API_KEY — از https://dashboard.cohere.com/api-keys
+// ⚠️ اسمِ دقیقِ مدل رو خودِ Cohere مدام آپدیت می‌کنه؛ اگه command-r7b-12-2024
+// جواب نداد، اسمِ فعلیِ درست رو از داشبورد/داکیومنتِ خودشون بگیر و بذار توی
+// COHERE_MODEL.
+async function callCohere(prompt, maxTokens, env) {
+  const key = env.COHERE_API_KEY;
+  if (!key) throw new Error("COHERE_API_KEY not set");
+  const r = await fetch("https://api.cohere.com/v2/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: env.COHERE_MODEL || "command-r7b-12-2024",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.message || `Cohere HTTP ${r.status}`);
+  const parts = data?.message?.content || [];
+  const text = parts.map((p) => p.text || "").join("").trim();
+  if (!text) throw new Error("Cohere returned empty response");
+  return text;
+}
+
+// --- Z AI / Zhipu (OpenAI-compatible, endpointِ بین‌المللی) -----------------
+// کلید: ZAI_API_KEY — از https://open.bigmodel.cn/usercenter/apikeys
+async function callZai(prompt, maxTokens, env) {
+  const key = env.ZAI_API_KEY;
+  if (!key) throw new Error("ZAI_API_KEY not set");
+  const r = await fetch("https://api.z.ai/api/paas/v4/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: env.ZAI_MODEL || "glm-4.7-flash",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.error?.message || data?.error || `Z AI HTTP ${r.status}`);
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text) throw new Error("Z AI returned empty response");
+  return text;
+}
+
+// --- Cloudflare Workers AI (فرمتِ متفاوت — result.response) -----------------
+// کلید: CF_API_TOKEN + CF_ACCOUNT_ID — از داشبوردِ خودِ Cloudflare
+// (Profile → API Tokens برای توکن، و آدرس‌بارِ داشبورد یا Workers Overview
+// برای Account ID). چون این Workerِ خودمون هم روی Cloudflare ـه، این
+// پرووایدر رایگان‌ترین/نزدیک‌ترینه (۱۰٬۰۰۰ نورون در روز).
+async function callCloudflareAI(prompt, maxTokens, env) {
+  const token = env.CF_API_TOKEN;
+  const accountId = env.CF_ACCOUNT_ID;
+  if (!token || !accountId) throw new Error("CF_API_TOKEN/CF_ACCOUNT_ID not set");
+  const model = env.CF_AI_MODEL || "@cf/openai/gpt-oss-120b";
+  const r = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: maxTokens,
+      }),
+    }
+  );
+  const data = await safeJson(r);
+  if (!r.ok || data?.success === false) {
+    const errMsg = (data?.errors || []).map((e) => e.message).join("; ");
+    throw new Error(errMsg || `Cloudflare Workers AI HTTP ${r.status}`);
+  }
+  const text = data?.result?.response || "";
+  if (!text) throw new Error("Cloudflare Workers AI returned empty response");
+  return text;
+}
+
+// --- Kilo Code (بدونِ نیاز به کلید — گیت‌وی رایگانِ عمومی) -------------------
+// اگه بعداً کلید گرفتی، توی KILOCODE_API_KEY بذار تا هدرِ Authorization هم
+// اضافه بشه؛ وگرنه بدونِ هیچ کلیدی هم کار می‌کنه (طبقِ داکیومنتِ خودشون).
+async function callKiloCode(prompt, maxTokens, env) {
+  const headers = { "Content-Type": "application/json" };
+  if (env.KILOCODE_API_KEY) headers.Authorization = `Bearer ${env.KILOCODE_API_KEY}`;
+  const r = await fetch("https://api.kilo.ai/api/gateway/v1/chat/completions", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: env.KILOCODE_MODEL || "openrouter/free",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.error?.message || data?.error || `Kilo Code HTTP ${r.status}`);
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text) throw new Error("Kilo Code returned empty response");
+  return text;
+}
+
+// --- LLM7.io (بدونِ نیاز به کلید — سطحِ anonymous) ---------------------------
+// اگه از https://token.llm7.io یه توکنِ رایگان گرفتی، توی LLM7_API_KEY بذار
+// تا سقفِ نرخ بالاتر بره؛ وگرنه بدونِ کلید هم (با سقفِ کمتر) کار می‌کنه.
+async function callLLM7(prompt, maxTokens, env) {
+  const headers = { "Content-Type": "application/json" };
+  if (env.LLM7_API_KEY) headers.Authorization = `Bearer ${env.LLM7_API_KEY}`;
+  const r = await fetch("https://api.llm7.io/v1/chat/completions", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: env.LLM7_MODEL || "gpt-oss:20b",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.error?.message || data?.error || `LLM7.io HTTP ${r.status}`);
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text) throw new Error("LLM7.io returned empty response");
+  return text;
+}
+
+// --- ModelScope (OpenAI-compatible) -----------------------------------------
+// کلید: MODELSCOPE_API_KEY — از https://modelscope.cn/my/myaccesstoken
+// (نیازمندِ اتصال به حسابِ Alibaba Cloud + احرازِ هویت).
+async function callModelScope(prompt, maxTokens, env) {
+  const key = env.MODELSCOPE_API_KEY;
+  if (!key) throw new Error("MODELSCOPE_API_KEY not set");
+  const r = await fetch("https://api-inference.modelscope.cn/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: env.MODELSCOPE_MODEL || "Qwen/Qwen3.5-35B-A3B",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.error?.message || data?.error || `ModelScope HTTP ${r.status}`);
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text) throw new Error("ModelScope returned empty response");
+  return text;
+}
+
+// --- NVIDIA NIM (OpenAI-compatible) -----------------------------------------
+// کلید: NVIDIA_API_KEY — از https://build.nvidia.com/explore/discover
+// (نیازمندِ عضویتِ رایگانِ NVIDIA Developer Program).
+async function callNvidiaNim(prompt, maxTokens, env) {
+  const key = env.NVIDIA_API_KEY;
+  if (!key) throw new Error("NVIDIA_API_KEY not set");
+  const r = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.error?.message || data?.error || `NVIDIA NIM HTTP ${r.status}`);
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text) throw new Error("NVIDIA NIM returned empty response");
+  return text;
+}
+
+// --- Ollama Cloud (OpenAI-compatible endpoint) ------------------------------
+// کلید: OLLAMA_API_KEY — از https://ollama.com/settings/keys
+async function callOllamaCloud(prompt, maxTokens, env) {
+  const key = env.OLLAMA_API_KEY;
+  if (!key) throw new Error("OLLAMA_API_KEY not set");
+  const r = await fetch("https://ollama.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: env.OLLAMA_MODEL || "gpt-oss:120b",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.error?.message || data?.error || `Ollama Cloud HTTP ${r.status}`);
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text) throw new Error("Ollama Cloud returned empty response");
+  return text;
+}
+
+// --- OVHcloud AI Endpoints (سطحِ anonymous — بدونِ نیاز به کلید) ------------
+// اگه بعداً API key گرفتی (سقفِ بالاتر)، توی OVHCLOUD_API_KEY بذار.
+async function callOvhCloud(prompt, maxTokens, env) {
+  const headers = { "Content-Type": "application/json" };
+  if (env.OVHCLOUD_API_KEY) headers.Authorization = `Bearer ${env.OVHCLOUD_API_KEY}`;
+  const r = await fetch("https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: env.OVHCLOUD_MODEL || "gpt-oss-120b",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.error?.message || data?.error || `OVHcloud HTTP ${r.status}`);
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text) throw new Error("OVHcloud returned empty response");
+  return text;
+}
+
+// --- SiliconFlow (OpenAI-compatible) ----------------------------------------
+// کلید: SILICONFLOW_API_KEY — از https://cloud.siliconflow.cn/account/ak
+// (نیازمندِ احرازِ هویت).
+async function callSiliconFlow(prompt, maxTokens, env) {
+  const key = env.SILICONFLOW_API_KEY;
+  if (!key) throw new Error("SILICONFLOW_API_KEY not set");
+  const r = await fetch("https://api.siliconflow.cn/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: env.SILICONFLOW_MODEL || "Qwen/Qwen3-8B",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+    }),
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data?.error?.message || data?.error || `SiliconFlow HTTP ${r.status}`);
+  const text = data.choices?.[0]?.message?.content || "";
+  if (!text) throw new Error("SiliconFlow returned empty response");
+  return text;
+}
+
 
 // --- Hugging Face ------------------------------------------------------------
 // api-inference.huggingface.co was retired — HF now routes every model
