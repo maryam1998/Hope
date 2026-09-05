@@ -3,14 +3,43 @@ main = "src/index.js"
 compatibility_date = "2026-08-01"
 
 # Non-secret config (visible in the dashboard, fine to keep here).
-# Which provider(s) to use, in order — same behavior as the old
-# server/.env.example. AvalAI is the default since it covers DeepSeek/OpenAI
-# behind one key.
+# ⚠️ نکته‌ی مهم: هر بار `wrangler deploy` اجرا بشه (چه دستی، چه از طریقِ
+# ورک‌فلوی گیت‌هاب‌اکشنز)، همینجا (نه هرچی دستی توی داشبوردِ Cloudflare
+# گذاشته باشی) منبعِ حقیقت می‌شه — یعنی اگه بعداً بخوای ترتیب/لیستِ
+# پرووایدرها رو عوض کنی، باید همینجا (نه فقط توی داشبورد) عوضش کنی، وگرنه
+# دفعه‌ی بعد که پوش کنی، دوباره برمی‌گرده به همین مقدار.
+#
+# ترتیب زیر: اول سه‌تایی که اصلاً کلید نمی‌خوان (kilocode، llm7،
+# ovhcloud) — این‌ها همیشه یه شانسِ رایگان و بی‌نیاز از تنظیمات می‌دن.
+# بعدش پرووایدرهایی با سقفِ رایگانِ سخاوتمندتر، و آخرِ صف هرکدوم که یا
+# کلید ندارن یا طبقِ تجربه مشکل‌دار بودن (gemini/huggingface). هر
+# پرووایدری که کلیدش (پایین‌تر، به‌صورتِ secret) ست نشده باشه، خودکار رد
+# می‌شه و زنجیره می‌ره سراغِ بعدی — پس عیبی نداره اگه فعلاً کلیدِ همه‌شون
+# رو نداری.
 [vars]
-AI_PROVIDER = "avalai"
-AVALAI_MODEL = "deepseek-chat"
-# DEEPSEEK_MODEL = "deepseek-chat"
-# OPENAI_MODEL = "gpt-4o-mini"
+AI_PROVIDER = "kilocode,llm7,ovhcloud,groq,nvidianim,ollamacloud,cloudflareai,mistral,cohere,zai,aionlabs,modelscope,siliconflow,openrouter,cerebras,grok,avalai,deepseek,openai,gemini,huggingface"
+GEMINI_MODEL = "gemini-3.6-flash"
+HF_MODEL = "openai/gpt-oss-120b"
 
-# API keys are NOT set here — set them as secrets instead (see README.md),
-# so they never end up in git or the dashboard's plain-text vars.
+# API keys are NOT set here — set them as secrets instead (see README.md
+# and DEPLOY.md), so they never end up in git or the dashboard's
+# plain-text vars. Set each one you actually have with:
+#   npx wrangler secret put GROQ_API_KEY
+#   npx wrangler secret put MISTRAL_API_KEY
+#   npx wrangler secret put OPENROUTER_API_KEY
+#   npx wrangler secret put GEMINI_API_KEY
+#   npx wrangler secret put HF_API_KEY
+#   npx wrangler secret put CEREBRAS_API_KEY
+#   npx wrangler secret put GROK_API_KEY
+#   npx wrangler secret put AIONLABS_API_KEY
+#   npx wrangler secret put COHERE_API_KEY
+#   npx wrangler secret put ZAI_API_KEY
+#   npx wrangler secret put CF_API_TOKEN
+#   npx wrangler secret put CF_ACCOUNT_ID
+#   npx wrangler secret put MODELSCOPE_API_KEY
+#   npx wrangler secret put NVIDIA_API_KEY
+#   npx wrangler secret put OLLAMA_API_KEY
+#   npx wrangler secret put SILICONFLOW_API_KEY
+# (kilocode/llm7/ovhcloud need no key at all — skip those three.)
+# Secrets set this way persist across deploys; `wrangler deploy` never
+# touches or clears them.
