@@ -1,0 +1,44 @@
+# این ورک‌فلو به‌صورتِ خودکار، هر بار که src/index.js یا wrangler.toml عوض
+# بشه و روی main پوش بشه، Workerِ بک‌اندِ AI (phrasebook-api) رو با
+# wrangler دیپلوی می‌کنه — دیگه لازم نیست دستی از سیستمِ خودت یا از
+# داشبوردِ Cloudflare (Quick Edit) دیپلویش کنی.
+#
+# نصب: این فایل رو دقیقاً تو مسیرِ .github/workflows/deploy-worker.yml تو
+# ریشه‌ی همین ریپو (کنارِ build-bundle.yml) بذار.
+#
+# قبل از اینکه کار کنه، دو تا Secret باید توی گیت‌هاب تنظیم کنی:
+#   ریپو → Settings → Secrets and variables → Actions → New repository secret
+#   1) CLOUDFLARE_API_TOKEN — از dash.cloudflare.com → My Profile →
+#      API Tokens → Create Token → قالبِ «Edit Cloudflare Workers»
+#      (دسترسیِ Workers Scripts:Edit کافیه).
+#   2) CLOUDFLARE_ACCOUNT_ID — از همون داشبورد، صفحه‌ی Workers & Pages
+#      (سمتِ راست/پایینِ صفحه، یا توی آدرسِ URL بعد از dash.cloudflare.com/).
+#
+# ⚠️ این ورک‌فلو فقط کدِ Worker و vars (توی wrangler.toml) رو دیپلوی
+# می‌کنه — کلیدهای واقعیِ AI (GROQ_API_KEY و بقیه) رو دست نمی‌زنه، چون
+# اون‌ها secret هستن و باید جدا (یه‌بار، با `wrangler secret put`)
+# تنظیم بشن؛ توضیحش توی wrangler.toml هست.
+
+name: Deploy Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/index.js"
+      - "wrangler.toml"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
