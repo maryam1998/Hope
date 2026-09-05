@@ -549,10 +549,14 @@ async function callProvider(provider, prompt, maxTokens, env) {
 // --- Hugging Face ------------------------------------------------------------
 // api-inference.huggingface.co was retired — HF now routes every model
 // through router.huggingface.co with an OpenAI-compatible chat endpoint.
+// 🔧 google/gemma-2-2b-it (قبلی) دیگه توسطِ هیچ‌کدوم از inference-providerهای
+// فعالِ حساب پشتیبانی نمی‌شه (خطای "not supported by any provider you have
+// enabled") — openai/gpt-oss-120b همون مدلِ متن‌بازیه که Groq هم به‌عنوانِ
+// پیش‌فرض استفاده می‌کنه و روی روترِ HF هم در دسترسه.
 async function callHuggingFace(prompt, maxTokens, env) {
   const key = env.HF_API_KEY;
   if (!key) throw new Error("HF_API_KEY not set");
-  const model = env.HF_MODEL || "google/gemma-2-2b-it";
+  const model = env.HF_MODEL || "openai/gpt-oss-120b";
   const r = await fetch("https://router.huggingface.co/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
@@ -596,10 +600,15 @@ async function callGroq(prompt, maxTokens, env) {
 }
 
 // --- Gemini -------------------------------------------------------------------
+// 🔧 gemini-2.0-flash (قبلی) رو گوگل خاموش کرده (۱ ژوئن ۲۰۲۶) و خودِ خطاش
+// می‌گفت به‌جاش gemini-3.6-flash رو صدا بزنیم. توجه: طبقِ توضیحِ
+// getProviderChain پایین‌تر، Gemini از قبل به‌خاطرِ بلاکِ جغرافیاییِ گوگل
+// روی ادج‌لوکیشن‌های نزدیکِ ایران ممکنه مستقل از اسمِ مدل شکست بخوره —
+// این فقط باگِ «اسمِ مدلِ منسوخ» رو رفع می‌کنه، نه احتمالاً خودِ بلاکِ جغرافیایی.
 async function callGemini(prompt, maxTokens, env) {
   const key = env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY not set");
-  const model = env.GEMINI_MODEL || "gemini-2.0-flash";
+  const model = env.GEMINI_MODEL || "gemini-3.6-flash";
   const r = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
     {
