@@ -4015,6 +4015,22 @@ let latestStoryTextContext = { text: "", code: "" };
 // speechController.pauseForFocus برای TTS، بتونه صوتِ آپلودی رو هم موقعِ
 // بازشدنِ پاپ‌آپِ لغت مکث کنه.
 let activeUserAudioFocusPause = null; // function | null
+// درست مثلِ activeUserAudioFocusPause، ولی نسخه‌ی «مکثِ سادهِ بدونِ تایمرِ
+// خودکار» (userAudio.pause خامِ خودِ هوک) — GlobalAddToStorySelection وقتی
+// کاربر صراحتاً روی 🔊ِ پاپ‌آپ می‌زنه از این استفاده می‌کنه، چون این کار
+// خودش تایمرِ سه‌ثانیه‌ایِ pauseForFocus (که با بازشدنِ پاپ‌آپ شروع شده
+// بود) رو هم لغو می‌کنه — وگرنه ممکن بود صوتِ آپلودی وسطِ خواندنِ همون
+// لغت با TTS، خودش‌به‌خود (زودتر از موعد) دوباره پخش بشه.
+let activeUserAudioPause = null; // function | null
+// همون دلیلِ activeUserAudioFocusPause بالا: وقتی کاربر داخلِ پاپ‌آپِ لغت
+// روی 🔊 می‌زنه تا تلفظِ تکیِ همون لغت با TTS خونده بشه (درحالی‌که پلیرِ
+// اصلی رو حالتِ «صوتِ من» ایستاده)، بعد از تمومِ خواندنِ همون لغت باید
+// خودِ صوتِ آپلودیِ کاربر خودکار ادامه پیدا کنه — نه اینکه بمونه پازشده یا
+// خواندنِ کلِ داستان به TTS بیفته. activeUserAudioPlay دقیقاً همون
+// userAudio.play (بدونِ منطقِ تایمرِ سه‌ثانیه‌ایِ pauseForFocus) رو در
+// دسترسِ GlobalAddToStorySelection می‌ذاره تا بتونه خودش، بعد از پایانِ
+// خواندنِ لغت + یه مکثِ کوتاه، صدا بزنتش.
+let activeUserAudioPlay = null; // function | null
 
 // ---------------------------------------------------------------------------
 // اسکرول خودکار — استفاده‌شده توسط PhraseList / WordList / VocabList. خودش
@@ -7428,7 +7444,7 @@ function MuteButton({ color }) {
 // WordList و...) با subscribe شدن به همین speechController و مقایسه‌ی
 // key/chunkIndex کار می‌کنن؛ پس چون key دست‌نخورده می‌مونه، هایلایت هم
 // بدونِ هیچ تغییرِ اضافه‌ای، خودش با chunkIndexِ صفر هماهنگ می‌شه.
-function RestartButton({ color, startText, startCode }) {
+function RestartButton({ color, startText, startCode, sentenceBoundaries }) {
   const [state, setState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setState), []);
 
@@ -7450,7 +7466,10 @@ function RestartButton({ color, startText, startCode }) {
       // آفستِ ۰ رو صریح حساب نمی‌کنه (۰ یعنی «آفستِ صریح نداده»، پس ممکنه
       // به‌جاش نقطه‌ی ادامه‌ی قبلاً ذخیره‌شده رو بردارد) — برای همین بلافاصله
       // بعدش seekToChunk(0) رو هم صدا می‌زنیم تا مطمئن از ابتدا شروع بشه.
-      speechController.toggle(startText, startCode);
+      // sentenceBoundaries رو هم پاس می‌دیم (اگه موجود باشه) تا اینجا هم مثلِ
+      // MainPlayButton از مرزهای دقیقِ جمله‌های خودِ اپ استفاده کنه، نه از
+      // تشخیصِ خامِ نقطه‌محور.
+      speechController.toggle(startText, startCode, undefined, { sentenceBoundaries });
       speechController.seekToChunk(0);
     }
   };
@@ -7519,7 +7538,7 @@ function UserAudioRestartButton({ ua, color }) {
 //    فعلی — داستان/مکالمه/لیست‌کلمات)، با زدنش همون متن با تنظیمِ تکرارِ
 //    سراسری شروع به پخش می‌کنه. این همون کاریه که قبلاً یه SpeakButtonِ
 //    جدا کنارِ پلیر انجامش می‌داد؛ الان همون قابلیت داخلِ دکمه‌ی مرکزیه.
-function MainPlayButton({ startText, startCode, resolveStartOffset, color, size }) {
+function MainPlayButton({ startText, startCode, resolveStartOffset, sentenceBoundaries, color, size }) {
   const [state, setState] = useState(() => speechController.getState());
   const [localMsg, setLocalMsg] = useState(null);
   useEffect(() => speechController.subscribe(setState), []);
@@ -7552,7 +7571,7 @@ function MainPlayButton({ startText, startCode, resolveStartOffset, color, size 
     }
     if (!startText) return;
     const offset = resolveStartOffset ? resolveStartOffset() : undefined;
-    const result = speechController.toggle(startText, startCode, offset, { loop: true });
+    const result = speechController.toggle(startText, startCode, offset, { loop: true, sentenceBoundaries });
     // به‌جای alert، همین‌جا زیرِ دکمه‌ی مرکزیِ پلیر نشون داده می‌شه.
     if (result === "unsupported") {
       setLocalMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
@@ -10691,10 +10710,14 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
   // برای مکث‌کردن نیست و همین متغیر باید null بمونه.
   useEffect(() => {
     activeUserAudioFocusPause = playbackMode === "user" && userAudio.hasAudio ? userAudio.pauseForFocus : null;
+    activeUserAudioPause = playbackMode === "user" && userAudio.hasAudio ? userAudio.pause : null;
+    activeUserAudioPlay = playbackMode === "user" && userAudio.hasAudio ? userAudio.play : null;
     return () => {
       activeUserAudioFocusPause = null;
+      activeUserAudioPause = null;
+      activeUserAudioPlay = null;
     };
-  }, [playbackMode, userAudio.hasAudio, userAudio.pauseForFocus]);
+  }, [playbackMode, userAudio.hasAudio, userAudio.pauseForFocus, userAudio.pause, userAudio.play]);
   // وقتی از پاپ‌آپِ کلمه یا محدوده‌ی انتخابی، دکمه‌ی پخش زده می‌شه، همین‌جا
   // موقعیت (نسبت به کلِ fullStoryText) به‌خاطر سپرده می‌شه — تا دفعه‌ی بعد
   // که دکمه‌ی «پخشِ کل متن» روی نوارِ پلیر زده بشه، از همون‌جا (نه از اول)
@@ -10901,8 +10924,18 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
   // پلیر با چک‌کردنِ تبِ فعال کنترل می‌شه، نه با خالی‌بودنِ این متن.)
   useEffect(() => {
     latestStoryTextContext = { text: fullStoryText, code: storyLang };
-    if (onFullTextChange) onFullTextChange({ text: fullStoryText, code: storyLang });
-  }, [fullStoryText, storyLang]);
+    // 🐛 اصلاحِ باگ: قبلاً این‌جا فقط {text, code} به بیرون گزارش می‌شد — یعنی
+    // دکمه‌ی «پخشِ مرکزیِ» نوارِ سراسریِ پایینِ صفحه (MainPlayButton/RestartButton)
+    // با toggle کردنِ fullStoryText بدونِ sentenceBoundaries شروع می‌کرد، و
+    // چون اون مسیر از همون splitSentencesRaw خامِ regex-محور استفاده می‌کنه
+    // (نه از مرزهای دقیقِ جمله‌های خودِ اپ)، جمله‌هایی که کاربر آخرشون نقطه
+    // نذاشته با جمله‌ی بعدی توی یه چانکِ TTS واحد ادغام می‌شدن — دقیقاً همون
+    // «هایلایت/اسکرول دیرتر از جمله‌ی واقعی عوض می‌شه» که فقط وقتی از خودِ
+    // StoryBuilder (دکمه‌های کنارِ هر جمله، storySentenceBoundaries) پخش
+    // می‌شد درست بود. حالا storySentenceBoundaries رو هم همراهِ متن می‌فرستیم
+    // تا دکمه‌ی مرکزی هم دقیقاً همون مرزبندی رو استفاده کنه.
+    if (onFullTextChange) onFullTextChange({ text: fullStoryText, code: storyLang, sentenceBoundaries: storySentenceBoundaries });
+  }, [fullStoryText, storyLang, storySentenceBoundaries]);
 
   // درست مثلِ onFullTextChange بالا — هر بار وضعیتِ صوتِ کاربر (آپلود شده یا
   // نه، در حالِ پخش یا نه، زمانِ فعلی/کل، و اینکه پلیر الان رو حالتِ tts یا
@@ -17304,6 +17337,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
       ? {
           text: storyPlayerText.text,
           code: storyPlayerText.code,
+          sentenceBoundaries: storyPlayerText.sentenceBoundaries,
           resolveStartOffset: () =>
             consumeMainTextResumeOffset(`${TTS_LOCALE[storyPlayerText.code] || "en-US"}::${storyPlayerText.text}`),
         }
@@ -17348,7 +17382,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
         position: "relative",
       }}
     >
-      <GlobalAddToStorySelection fallbackLangCode={nativeLang} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} />
+      <GlobalAddToStorySelection fallbackLangCode={nativeLang} nativeLang={nativeLang} nativeLabel={nativeLabel} aiSettings={aiSettings} isStoryUserAudioMode={isStoryUserAudioMode} />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Lora:ital@0;1&display=swap');
         * { box-sizing: border-box; }
@@ -17927,7 +17961,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             {isStoryUserAudioMode ? (
               <UserAudioRestartButton color={colors.gold} ua={storyUserAudio} />
             ) : (
-              <RestartButton color={colors.gold} startText={activeTabAudio?.text} startCode={activeTabAudio?.code} />
+              <RestartButton color={colors.gold} startText={activeTabAudio?.text} startCode={activeTabAudio?.code} sentenceBoundaries={activeTabAudio?.sentenceBoundaries} />
             )}
             {isStoryUserAudioMode ? (
               <UserAudioABButton ua={storyUserAudio} color={colors.gold} />
@@ -17947,6 +17981,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                   startText={activeTabAudio?.text}
                   startCode={activeTabAudio?.code}
                   resolveStartOffset={activeTabAudio?.resolveStartOffset}
+                  sentenceBoundaries={activeTabAudio?.sentenceBoundaries}
                   color={colors.teal}
                 />
               )}
@@ -18546,7 +18581,7 @@ const VocabList = React.memo(function VocabList({ words, nativeLang, targetLangs
 // (پاپ‌آپ ذخیره/گرامر) دست‌نخورده کار می‌کنه.
 const STORY_SELECTION_HIGHLIGHT = "hope-story-sel";
 
-function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, nativeLabel, aiSettings }) {
+function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, nativeLabel, aiSettings, isStoryUserAudioMode }) {
   const [popup, setPopup] = useState(null); // { top, left, text, langCode } | null
   // ترجمه‌ی خودِ محدوده‌ی انتخاب‌شده به زبان مبدأ/مادریِ کاربر (nativeLang) —
   // دقیقاً همون کاری که برای تک‌کلمه‌ها توی ClickableSentence با
@@ -18583,6 +18618,39 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
   // همون الگویی که SpeakButton خودش استفاده می‌کنه.
   const [speakState, setSpeakState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setSpeakState), []);
+  // پیگیریِ «برگردوندنِ خودکارِ صوتِ آپلودی بعد از تمومِ خواندنِ یه لغتِ تکی
+  // با TTS» — وقتی کاربر رو حالتِ «صوتِ من» روی 🔊ِ پاپ‌آپ می‌زنه. یه رفرنس
+  // نگه می‌داریم تا هم بشه اگه کاربر پشتِ‌سرِهم چند لغت رو زد، تلاشِ قبلی رو
+  // لغو کرد (وگرنه دو تا resume برنامه‌ریزی‌شده روی هم می‌افتادن)، هم موقعِ
+  // unmount شدنِ کامپوننت تمیز پاک بشه.
+  const userAudioResumeRef = useRef(null); // { unsub, timer } | null
+  function clearPendingUserAudioResume() {
+    if (userAudioResumeRef.current) {
+      userAudioResumeRef.current.unsub?.();
+      if (userAudioResumeRef.current.timer) clearTimeout(userAudioResumeRef.current.timer);
+      userAudioResumeRef.current = null;
+    }
+  }
+  useEffect(() => clearPendingUserAudioResume, []);
+  // بعد از اینکه TTS تلفظِ همون یه لغت رو تموم کرد (state.status می‌ره
+  // "idle" برای همون کلید)، دو ثانیه صبر می‌کنیم و بعد صوتِ آپلودیِ کاربر
+  // رو دوباره play می‌کنیم — دقیقاً همون تاخیرِ کوتاهی که خودِ کاربر
+  // خواسته، تا صدای TTS و صوتِ آپلودی روی هم نیفتن.
+  function scheduleUserAudioResumeAfterWord(text, langCode) {
+    clearPendingUserAudioResume();
+    const myKey = `${TTS_LOCALE[langCode] || "en-US"}::${text}`;
+    const unsub = speechController.subscribe((state) => {
+      if (state.key !== myKey || state.status !== "idle") return;
+      const entry = userAudioResumeRef.current;
+      if (entry) entry.unsub?.();
+      const timer = setTimeout(() => {
+        userAudioResumeRef.current = null;
+        activeUserAudioPlay?.();
+      }, 2000);
+      userAudioResumeRef.current = { unsub: null, timer };
+    });
+    userAudioResumeRef.current = { unsub, timer: null };
+  }
   // پیغامِ خطای پخشِ صدا برای دکمه‌ی 🔊ِ همین پاپ‌آپ — به‌جای alert، زیرِ
   // متنِ انتخاب‌شده‌ی داخلِ خودِ پاپ‌آپ نشون داده می‌شه.
   const [popupSpeakMsg, setPopupSpeakMsg] = useState(null);
@@ -19077,7 +19145,28 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
           onClick={(e) => {
             e.stopPropagation();
             if (isGhostEvent()) return;
+            // 🐛 اصلاحِ باگ: این دکمه از موتورِ TTS خودِ اپ برای خوندنِ تکِ
+            // محدوده‌ی انتخاب‌شده استفاده می‌کنه — این خودش درست و خواسته‌ست،
+            // حتی وقتی محدوده از داخلِ متنِ اصلیِ داستانی باشه که کاربر همین
+            // الان با «صوتِ آپلودیِ خودش» داره گوش می‌ده (دقیقاً مثلِ حالتِ
+            // TTS: کاربر روی لغت می‌زنه، صدای تلفظش رو می‌شنوه، و بعد خودش
+            // خودکار ادامه پیدا می‌کنه). چیزی که قبلاً خراب بود این بود که
+            // چون speechController یه singleton سراسریه و این تلفظِ تکی رو
+            // مستقل از userAudio پخش می‌کنه، هیچ‌کس به userAudio نمی‌گفت
+            // «بعد از تمومِ این لغت دوباره ادامه بده» — نتیجه این می‌شد که یا
+            // صوتِ آپلودی برای همیشه پازشده می‌موند، یا (بدتر) تایمرِ
+            // سه‌ثانیه‌ایِ pauseForFocusِ همون لحظه‌ی بازشدنِ پاپ‌آپ، وسطِ
+            // خواندنِ لغت با TTS خودش‌به‌خود صوتِ آپلودی رو دوباره پخش
+            // می‌کرد و روی صدای TTS می‌افتاد. حالا: اگه محدوده از خودِ متنِ
+            // داستان بوده و پخش رو حالتِ «صوتِ من» ایستاده، اول با
+            // activeUserAudioPause صوتِ آپلودی رو مکث می‌کنیم (این خودش
+            // تایمرِ زودهنگامِ بالا رو هم لغو می‌کنه)، بعد TTS همون لغت رو
+            // می‌خونه، و وقتی TTS تمام شد، دو ثانیه بعد خودمون صوتِ آپلودی
+            // رو دوباره play می‌کنیم.
+            const inStoryUserAudio = isStoryUserAudioMode && popup.storyResumeOffset != null;
+            if (inStoryUserAudio) activeUserAudioPause?.();
             const result = speechController.toggle(popup.text, popup.langCode);
+            if (inStoryUserAudio) scheduleUserAudioResumeAfterWord(popup.text, popup.langCode);
             // اگه این محدوده از متنِ اصلیِ داستان بوده (آفستش شناخته شده)، همون
             // نقطه رو برای دفعه‌ی بعدِ زدنِ «پخشِ کل داستان» به‌خاطر می‌سپاریم —
             // فقط وقتی زبانِ محدوده با زبانِ فعلیِ داستان یکیه، وگرنه به‌درد
