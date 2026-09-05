@@ -858,14 +858,19 @@ function useStoryUserAudio(storyKey, allSentences) {
     if (!el) return;
     // نکته‌ی مهمِ کارایی: این هوک داخلِ StoryBuilder صدا زده می‌شه — یعنی
     // کامپوننتی که کلِ متنِ داستان (پاراگراف‌ها، جمله‌های قابل‌کلیک) رو هم
-    // رندر می‌کنه. رویدادِ «timeupdate» مرورگرها رو معمولاً چندین‌بار در
-    // ثانیه صدا می‌زنن؛ اگه هر بار state رو آپدیت کنیم، کلِ StoryBuilder
-    // (با همه‌ی اون متنِ سنگین) هم چندین‌بار در ثانیه دوباره رندر می‌شه —
-    // دقیقاً همون چیزی که با فایل‌های صوتیِ طولانی (که مدتِ بیشتری در حالِ
-    // پخش می‌مونن) باعثِ کند/هنگ‌شدنِ محسوس می‌شه. برای همین، currentTime رو
-    // فقط وقتی به state می‌بریم که حداقل نیم‌ثانیه از آخرین آپدیت گذشته
-    // باشه — برایِ نوارِ پیشرفت/نمایشِ زمان کاملاً کافیه، ولی تعدادِ
-    // رندرها رو ۴-۸ برابر کم می‌کنه.
+    // رندر می‌کنه؛ و هر تغییرِ این state از طریقِ onUserAudioStateChange به
+    // PhrasebookMain (بالاترین سطح) هم گزارش می‌شه، پس عملاً کلِ اپ رو
+    // دوباره رندر می‌کنه. رویدادِ «timeupdate» مرورگرها رو معمولاً چندین‌بار
+    // در ثانیه صدا می‌زنن؛ اگه هر بار state رو آپدیت کنیم، این رندرهای
+    // زنجیره‌ای هم چندین‌بار در ثانیه تکرار می‌شن — دقیقاً همون چیزی که با
+    // داستان‌های طولانی (که هر رندرشون خودش سنگینه) باعثِ کند/هنگ‌شدنِ
+    // محسوس می‌شه (و چون همون رندرِ سراسری، تایمرِ رندرِ آدمکِ لینگوا رو هم
+    // تحتِ‌فشار می‌ذاره، باعثِ در‌جا‌زدنِ آدمک هم می‌شه). برای همین،
+    // currentTime رو فقط وقتی به state می‌بریم که حداقل یک ثانیه از آخرین
+    // آپدیت گذشته باشه — برایِ نوارِ پیشرفت/نمایشِ زمان کاملاً کافیه، ولی
+    // تعدادِ رندرها رو به‌شدت کم می‌کنه. (تکمیلِ این فیکس: LingovaMascot و
+    // GrammarPanel هم جداگانه با React.memo از این رندرهای زنجیره‌ای معاف
+    // شدن.)
     const onTime = () => {
       const t = el.currentTime || 0;
       // مکانیزمِ تکرارِ A-B: وقتی هر دو نقطه ثبت شده باشن، محدوده رو
@@ -881,7 +886,7 @@ function useStoryUserAudio(storyKey, allSentences) {
       // سینک‌شده) که حذف شد — هایلایت/manualIndex فقط با اقدامِ صریحِ
       // کاربر (دکمه‌ی جمله‌ی بعد/قبل، تپ‌کردنِ روی یه جمله، ری‌استارت) عوض
       // می‌شه، نه خودکار حینِ پخش.
-      if (Math.abs(t - lastReportedTimeRef.current) >= 0.5) {
+      if (Math.abs(t - lastReportedTimeRef.current) >= 1) {
         lastReportedTimeRef.current = t;
         setCurrentTime(t);
       }
@@ -10318,8 +10323,26 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
   const [retranslatingSentences, setRetranslatingSentences] = useState({});
   // دکمه‌ی رفرشِ ترجمه‌ی هر جمله — اگه ترجمه‌ی خودکار یه جمله اشتباه از آب
   // دراومد، کاربر می‌تونه فقط همون یکی رو (بدون دست‌زدن به بقیه‌ی داستان)
-  // دوباره از زنجیره‌ی translateFree بگیره؛ forceVerify=true یعنی حتی اگه
-  // نتیجه‌ی رایگان مشکوک نبود هم یه بار با AI بررسی/تأیید بشه.
+  // دوباره ترجمه کنه.
+  // 🐛 اصلاحِ باگ: قبلاً این دکمه از همون translateFree معمولی (با
+  // forceVerify=true) استفاده می‌کرد — یعنی اولش کشِ IndexedDB رو چک
+  // می‌کرد، و چون خودِ همون ترجمه‌ی غلط از قبل توی کش نشسته بود (کاربر
+  // داره دقیقاً به‌خاطرِ همین ترجمه‌ی غلط رفرش می‌زنه!)، اگه heuristic
+  // (looksLikelyMistranslated) اون رو «مشکوک» تشخیص نمی‌داد، دقیقاً همون
+  // ترجمه‌ی غلط بدونِ هیچ درخواستِ تازه‌ای دوباره برمی‌گشت — انگار دکمه
+  // اصلاً کاری نکرده. زدنِ دکمه‌ی رفرش خودش یعنی «این ترجمه مشکل داره»،
+  // پس دیگه نیازی به حدسِ heuristic نیست: مستقیم می‌ریم سراغِ بک‌اندِ AI
+  // (بدونِ چک‌کردنِ کش، بدونِ صف‌ایستادنِ پشتِ سرویس‌های رایگان). فقط اگه
+  // AI در دسترس نبود (تنظیم نشده یا شبکه قطع بود)، به‌عنوانِ آخرین چاره
+  // مستقیم سراغِ شبکه‌ی سرویس‌های رایگان می‌ریم (نه از کش، چون همون کش
+  // مشکل‌داره).
+  async function retranslateOneSentenceText(text, code) {
+    try {
+      return await translateViaAI(text || "", code, storyLang, aiSettings);
+    } catch {
+      return await translateFreeNetwork(text || "", code, storyLang, aiSettings, true);
+    }
+  }
   // نسخه‌ی پاراگرافیِ رفرش — وقتی نمایش روی حالتِ «پاراگراف» (نه جمله‌به‌جمله)
   // باشه، ترجمه‌ی کلِ پاراگراف از join همه‌ی s.t[code] ساخته می‌شه؛ پس رفرشِ
   // اینجا یعنی همه‌ی جمله‌های همون پاراگراف رو برای این زبان دوباره بگیریم.
@@ -10331,7 +10354,8 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
       await Promise.all(
         sentences.map(async (s, si) => {
           try {
-            const translated = await translateFree(s.text || "", code, storyLang, aiSettings, true);
+            const translated = await retranslateOneSentenceText(s.text || "", code);
+            setCachedTranslation(s.text || "", code, storyLang, translated); // fire-and-forget — جایِ ترجمه‌ی غلطِ قبلی رو تو کش می‌گیره
             setParagraphs((prevParagraphs) => {
               const target = prevParagraphs[pi];
               const targetSentence = target?.sentences?.[si];
@@ -10359,7 +10383,8 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     const key = `${pi}-${si}-${code}`;
     setRetranslatingSentences((prev) => ({ ...prev, [key]: true }));
     try {
-      const translated = await translateFree(text || "", code, storyLang, aiSettings, true);
+      const translated = await retranslateOneSentenceText(text, code);
+      setCachedTranslation(text || "", code, storyLang, translated); // fire-and-forget — جایِ ترجمه‌ی غلطِ قبلی رو تو کش می‌گیره
       setParagraphs((prevParagraphs) => {
         const target = prevParagraphs[pi];
         const targetSentence = target?.sentences?.[si];
@@ -11306,10 +11331,18 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
           const job = jobs[nextIndex++];
           let translated;
           try {
-            // forceVerify=true: جمله‌های خودِ داستان مهم‌ترین متنِ اپن —
-            // این‌جا حتی اگه تست‌های رایگان چیزی مشکوک ندیدن هم یه بار
-            // (فقط دفعه‌ی اول، بعدش برای همیشه کش می‌شه) AI بررسیش کنه.
-            translated = await translateFree(job.text, job.code, storyLang, aiSettings, true);
+            // 🔧 قبلاً اینجا forceVerify=true بود: یعنی هر جمله‌ی هر داستان،
+            // برای هر زبونِ مقصد، حتی وقتی نتیجه‌ی سرویس‌های رایگان اصلاً
+            // مشکوک نبود، یه بار مستقیم با AI بازبینی می‌شد. با دیکشنری‌های
+            // چندهزارتایی و داستان‌های زیاد، همین یه‌جا به‌تنهایی حجمِ AI رو
+            // چند برابر می‌کرد و سهمیه‌ی روزانه‌ی همه‌ی پرووایدرها
+            // (OpenRouter/Mistral/Groq/Gemini/HF) رو زود ته می‌کشید — بعدش
+            // حتی بخش‌های دیگه‌ی اپ (مثل ساخت داستان) هم با خطای سرور روبه‌رو
+            // می‌شدن. حالا مثلِ بقیه‌ی جاهای اپ، فقط به heuristic رایگانِ
+            // looksLikelyMistranslated اعتماد می‌کنیم: نتیجه‌ی رایگان اول
+            // نشون داده می‌شه، و AI فقط وقتی صدا زده می‌شه که خودِ
+            // translateFreeNetwork این نتیجه رو مشکوک تشخیص بده.
+            translated = await translateFree(job.text, job.code, storyLang, aiSettings, false);
           } catch (e) {
             translated = job.text;
           }
@@ -15278,7 +15311,21 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
 // `jumpTo` arrives from requestGrammarJump() (word popover) with a fresh
 // word to fetch + show immediately, offering a "save" button once it loads.
 // ---------------------------------------------------------------------------
-function GrammarPanel({
+// ⚡️ فیکسِ سرعت: طبقِ توضیحِ خودِ aiSettings (پایین‌تر، تویِ PhrasebookMain)
+// این کامپوننت قرار بود یکی از چند کامپوننتِ React.memo‌شده باشه که از
+// مموایز‌شدنِ aiSettings سود می‌بره — ولی خودِ GrammarPanel هیچ‌وقت واقعاً
+// با React.memo پیچیده نشده بود! نتیجه: با اینکه پراپ‌هاش (aiSettings و
+// بقیه) پایدار بودن، خودِ کامپوننت باز هم با هر رندرِ PhrasebookMain
+// (مثلاً هر نیم‌ثانیه‌ی تیکِ currentTimeِ صوتِ آپلودیِ داستان، یا هر تایپ
+// تو جستجوهای دیگه) کامل reconcile می‌شد. چون این کامپوننت همیشه mount
+// می‌مونه (حتی وقتی تبِ فعلی «گرامر» نیست، فقط display:none می‌شه — نگاه
+// کن به کامنتِ محلِ رندرش) و خودش هم شاملِ لیستِ یادداشت‌ها هم چتِ شناورِ
+// تمرینِ جمله‌سازیه، این reconcile‌های الکی دقیقاً همون چیزی بودن که با
+// بازشدنِ تبِ گرامر (که علاوه بر reconcile، مرورگر باید لِی‌آوت‌شو هم از
+// صفر حساب کنه چون از display:none داشته میومده بیرون) حسِ کند/پرلگ
+// می‌داد. با اضافه‌کردنِ خودِ React.memo، این reconcile‌های بی‌ربط کاملاً
+// حذف می‌شن.
+const GrammarPanel = React.memo(function GrammarPanel({
   nativeLang,
   nativeLabel,
   targetOrder,
@@ -16777,7 +16824,7 @@ function GrammarPanel({
       )}
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Main App
@@ -21597,7 +21644,21 @@ function useLingovaMascot(trackWidth, uiLang, pinned, walking, pinStartX, paused
   };
 }
 
-function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = true, characterKey = "classic" }) {
+// ⚡️ فیکسِ سرعت: این کامپوننت خودش (با تایمرِ داخلیِ ۴۵ میلی‌ثانیه‌ایِ
+// useLingovaMascot) مستقل راه می‌ره و مشکلی نداره؛ مشکل اونجاست که چون
+// والدش (PhrasebookMain) به‌خاطرِ چیزهایی کاملاً بی‌ربط — مثلاً هر نیم‌ثانیه
+// یک‌بار، همون‌قدر که صوتِ آپلودیِ کاربر در حالِ پخشه (نگاه کن به توضیحِ
+// useStoryUserAudio) — مدام دوباره رندر می‌شه، بدونِ React.memo این آدمک هم
+// هر بار مجبور بود کاملاً دوباره reconcile بشه. وقتی هم‌زمان یه داستانِ
+// خیلی طولانی باز باشه (که خودِ اون رندرِ والد رو کند می‌کنه)، این
+// reconcile‌های اضافه‌ی آدمک دقیقاً همون فریم‌هایی رو می‌خورن که برایِ
+// حرکتِ نرمِ خودش لازم داره — نتیجه‌ش همون «هنگ کردن/در جا زدن»ه. چون
+// پراپ‌های این کامپوننت (uiLang/fontZoom/outfitKey/enabled/characterKey)
+// همه مقدارهایِ ساده‌ان و عملاً به‌ندرت عوض می‌شن، با React.memo این
+// reconcile‌هایِ الکی رو کاملاً حذف می‌کنیم؛ خودِ راه‌رفتنِ آدمک (که از
+// تایمر/useReducerِ داخلیِ خودش میاد، نه از پراپ) دست‌نخورده و کاملاً
+// طبیعی ادامه پیدا می‌کنه.
+const LingovaMascot = React.memo(function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = true, characterKey = "classic" }) {
   const trackRef = useRef(null);
   const [trackWidth, setTrackWidth] = useState(0);
 
@@ -22161,7 +22222,7 @@ function LingovaMascot({ uiLang, fontZoom = 1, outfitKey = "classic", enabled = 
       `}</style>
     </>
   );
-}
+});
 
 // -----------------------------------------------------------------------------
 // Top-level export: gates the whole app behind login/signup, and remounts
