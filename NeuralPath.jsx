@@ -458,7 +458,17 @@ function NeuralCalendar({ events, c }) {
 // تازه می‌ره؛ با حذفِ یه رشته («یک روز گذشت، انجام ندادم») هم یه پالسِ
 // محوشونده‌ی قرمزِکم‌رنگ رویِ آخرین رشته می‌ره تا حسِ «کم‌شدن» منتقل بشه.
 const CIRCLE_SIZE = 34;
-const MAX_RENDERED_FIBERS = 80;
+// قبلاً روی ۸۰ تا قفل بود و رشته‌های بیشتر اصلاً رندر نمی‌شدن (رشته‌ی صدم و
+// دویستم و پونصدم هیچ فرقی با رشته‌ی هشتادم نداشت). حالا خودِ کاربر تا
+// ۵۰۰ رشته رو واقعاً می‌بینه.
+const MAX_RENDERED_FIBERS = 500;
+
+// هش سادهٔ قطعی (نه Math.random) — برای هر ایندکسِ رشته همیشه همون عددِ
+// «تصادفی» رو می‌ده، پس بین رندرها نمی‌پره و جای رشته‌ها ثابت می‌مونه.
+function seededJitter(seed) {
+  const x = Math.sin(seed * 12.9898) * 43758.5453;
+  return x - Math.floor(x); // بین ۰ و ۱
+}
 function NeuralFibers({ fiberCount, habitFormed, c }) {
   const prevCountRef = useRef(fiberCount);
   const [pulse, setPulse] = useState(null); // { key, kind: "add" | "remove" } | null
@@ -477,23 +487,36 @@ function NeuralFibers({ fiberCount, habitFormed, c }) {
   if (fiberCount <= 0) return null;
 
   const n = Math.min(fiberCount, MAX_RENDERED_FIBERS);
-  // پهنایِ بازشدنِ عدسی: با تعدادِ رشته‌ها کم‌کم زیاد می‌شه، ولی همیشه یه
-  // سقفِ منطقی داره تا از کادر بیرون نزنه.
-  const spread = Math.min(26, 6 + n * 0.7);
+  // پهنایِ بازشدنِ عدسی: رشدش با ریشه‌ی تعداد کنده می‌شه (نه خطی)، وگرنه با
+  // چند صد رشته از کادر می‌زنه بیرون؛ با sqrt هم برای ۱۰ تا هم برای ۵۰۰ تا
+  // فرق قابلِ‌دیدن داره.
+  const spread = Math.min(34, 8 + Math.sqrt(n) * 1.2);
+  // رشته‌ها دیگه هر دوتا سرشون رو دقیقاً روی همون یه پیکسل نمی‌ذارن — یه
+  // کمی جابه‌جاییِ ثابت (نه رندوم واقعی) روی محیطِ نورون می‌گیرن تا وقتی
+  // تعداد زیاد شد، سرها هم مثلِ یه دسته‌ی واقعی از رشته باز شن، نه یه نقطه‌ی
+  // تیره‌ی توپر.
+  const endpointSpread = Math.min(9, 2 + Math.sqrt(n) * 0.35);
+  // هرچی رشته بیشتر باشه، هر تکِ رشته کم‌رنگ‌تر و نازک‌تر می‌شه — این باعث
+  // می‌شه دسته‌ی رشته‌ها به‌جای یه لکه‌ی توپرِ تیره، مثلِ یه بافتِ ظریف دیده
+  // بشه، حتی وقتی ۵۰۰ تا روی هم‌اند.
+  const baseOpacity = Math.max(0.15, 0.6 - n * 0.0008);
+  const baseWidth = n > 200 ? 0.5 : n > 80 ? 0.75 : 1;
   const paths = [];
   for (let i = 0; i < n; i++) {
     const t = n === 1 ? 0.5 : i / (n - 1);
     const bow = -spread / 2 + t * spread; // از بالا به پایینِ عدسی پخش می‌شن
+    const startJitter = (seededJitter(i * 2 + 1) - 0.5) * endpointSpread;
+    const endJitter = (seededJitter(i * 2 + 2) - 0.5) * endpointSpread;
     const isNewest = i === n - 1;
     paths.push(
       <path
         key={i}
-        d={`M 14 20 Q 50 ${20 + bow} 86 20`}
+        d={`M 14 ${20 + startJitter} Q 50 ${20 + bow} 86 ${20 + endJitter}`}
         fill="none"
         stroke={strandColor}
-        strokeWidth={isNewest && pulse && pulse.kind === "add" ? 1.6 : 1}
+        strokeWidth={isNewest && pulse && pulse.kind === "add" ? 1.6 : baseWidth}
         strokeLinecap="round"
-        opacity={isNewest ? 0.95 : 0.55}
+        opacity={isNewest ? 0.95 : baseOpacity}
       />
     );
   }
