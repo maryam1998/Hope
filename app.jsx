@@ -7050,7 +7050,6 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
         <NeuralPathButton
           id={neuralItemId}
           label={neuralLabel}
-          align={edge === "end" ? "start" : "end"}
           colors={{
             paper: colors.paper,
             border: colors.cardBorder,

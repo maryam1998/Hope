@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 
 /* =============================================================================
    🧬 مسیرهای عصبی (Neural Paths)
@@ -332,7 +333,7 @@ function NeuralCalendar({ events, c }) {
   );
 }
 
-function NeuralPathCard({ id, label, c }) {
+function NeuralPathCard({ id, label, c, onClose }) {
   const events = useNeuralEvents(id);
   const s = useMemo(() => summarize(events), [events]);
   const [manualCount, setManualCount] = useState(1);
@@ -350,52 +351,65 @@ function NeuralPathCard({ id, label, c }) {
         background: c.paper,
         border: `1px solid ${c.border}`,
         borderRadius: 14,
-        padding: 12,
-        width: 272,
-        maxWidth: "85vw",
-        boxShadow: "0 6px 20px rgba(0,0,0,0.12)",
+        padding: 10,
+        width: 232,
+        maxWidth: "78vw",
+        maxHeight: "80vh",
+        overflowY: "auto",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.22)",
       }}
     >
-      <div style={{ fontSize: 13, fontWeight: 800, color: c.ink, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-        <span>🧬</span>
-        <span>مسیر عصبی این {label}</span>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: c.ink, display: "flex", alignItems: "center", gap: 5 }}>
+          <span>🧬</span>
+          <span>مسیر عصبی این {label}</span>
+        </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            aria-label="بستن"
+            style={{ width: 20, height: 20, flexShrink: 0, border: "none", background: "transparent", color: c.inkSoft, fontSize: 13, cursor: "pointer" }}
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {!s.stage ? (
-        <p style={{ fontSize: 12.5, color: c.inkSoft, lineHeight: 1.9, marginBottom: 10 }}>
+        <p style={{ fontSize: 11.5, color: c.inkSoft, lineHeight: 1.85, marginBottom: 8 }}>
           هنوز مسیر عصبی برای این {label} ساخته نشده — همین امروز تمرینش کن تا اولین رشته‌ی عصبی ساخته بشه.
         </p>
       ) : (
         <>
-          <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 8 }}>
             {["یادگیری", "تثبیت"].map((stageLabel) => {
               const active = s.stage === stageLabel;
               return (
                 <div key={stageLabel} style={{ textAlign: "center" }}>
                   <div
                     style={{
-                      width: 44,
-                      height: 44,
+                      width: 34,
+                      height: 34,
                       borderRadius: "50%",
-                      margin: "0 auto 4px",
+                      margin: "0 auto 3px",
                       background: active ? c.gold : c.soft,
                       border: `2px solid ${active ? c.gold : c.border}`,
                     }}
                   />
-                  <span style={{ fontSize: 11, fontWeight: 700, color: active ? c.ink : c.inkSoft }}>{stageLabel}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: active ? c.ink : c.inkSoft }}>{stageLabel}</span>
                 </div>
               );
             })}
           </div>
 
-          <div style={{ background: c.soft, borderRadius: 10, padding: "10px 8px", textAlign: "center", marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: c.inkSoft, marginBottom: 6 }}>رشته‌های ساخته‌شده</div>
-            <div style={{ display: "flex", justifyContent: "center", gap: 4, flexWrap: "wrap" }}>
+          <div style={{ background: c.soft, borderRadius: 9, padding: "8px 6px", textAlign: "center", marginBottom: 8 }}>
+            <div style={{ fontSize: 10, color: c.inkSoft, marginBottom: 5 }}>رشته‌های ساخته‌شده</div>
+            <div style={{ display: "flex", justifyContent: "center", gap: 3, flexWrap: "wrap" }}>
               {s.strandDays.map((d) => (
-                <span key={d} style={{ width: 7, height: 7, borderRadius: "50%", background: c.teal, display: "inline-block" }} />
+                <span key={d} style={{ width: 6, height: 6, borderRadius: "50%", background: c.teal, display: "inline-block" }} />
               ))}
             </div>
-            <div style={{ fontSize: 10.5, color: c.inkSoft, marginTop: 6 }}>
+            <div style={{ fontSize: 9.5, color: c.inkSoft, marginTop: 5 }}>
               {s.total} تکرار · آخرین تمرین: {fmtRel(s.last)}
             </div>
           </div>
@@ -406,39 +420,39 @@ function NeuralPathCard({ id, label, c }) {
         onClick={doToday}
         style={{
           width: "100%",
-          padding: "8px 0",
-          borderRadius: 9,
+          padding: "7px 0",
+          borderRadius: 8,
           border: "none",
           background: c.teal,
           color: "#fff",
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: 700,
           cursor: "pointer",
-          marginBottom: 8,
+          marginBottom: 6,
         }}
       >
         ✨ امروز انجام دادم
       </button>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
         <input
           type="number"
           min={1}
           max={999}
           value={manualCount}
           onChange={(e) => setManualCount(e.target.value)}
-          style={{ width: 48, padding: "6px 4px", borderRadius: 8, border: `1px solid ${c.border}`, fontSize: 12, textAlign: "center" }}
+          style={{ width: 42, padding: "5px 3px", borderRadius: 7, border: `1px solid ${c.border}`, fontSize: 11, textAlign: "center" }}
         />
         <button
           onClick={doManual}
           style={{
             flex: 1,
-            padding: "7px 0",
-            borderRadius: 8,
+            padding: "6px 0",
+            borderRadius: 7,
             border: `1px solid ${c.gold}`,
             background: "transparent",
             color: c.gold,
-            fontSize: 11,
+            fontSize: 10,
             fontWeight: 700,
             cursor: "pointer",
           }}
@@ -451,11 +465,11 @@ function NeuralPathCard({ id, label, c }) {
         onClick={() => setShowCalendar((v) => !v)}
         style={{
           width: "100%",
-          padding: "4px 0",
+          padding: "3px 0",
           background: "transparent",
           border: "none",
           color: c.inkSoft,
-          fontSize: 11,
+          fontSize: 10,
           cursor: "pointer",
           textDecoration: "underline",
         }}
@@ -471,39 +485,25 @@ function NeuralPathCard({ id, label, c }) {
  *  مسیر عصبیِ همون آیتم به‌صورتِ popover باز می‌شه — پیش‌فرض چیزی نشون
  *  داده نمی‌شه تا هیچ‌جا شلوغ نشه.
  */
-export function NeuralPathButton({ id, label, colors: cOverride, align = "end" }) {
+export function NeuralPathButton({ id, label, colors: cOverride }) {
   const [open, setOpen] = useState(false);
-  const wrapRef = useRef(null);
   const c = cOverride || DEFAULT_C;
   const safeLabel = label || "مورد";
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("touchstart", onDoc);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("touchstart", onDoc);
-    };
-  }, [open]);
 
   if (!id) return null;
 
   return (
-    <span ref={wrapRef} style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}>
+    <span style={{ display: "inline-flex", flexShrink: 0 }}>
       <button
         onClick={(e) => {
           e.stopPropagation();
-          setOpen((v) => !v);
+          setOpen(true);
         }}
         title="مسیر عصبی"
         aria-label="مسیر عصبی"
         style={{
-          width: 20,
-          height: 20,
+          width: 16,
+          height: 16,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -511,27 +511,37 @@ export function NeuralPathButton({ id, label, colors: cOverride, align = "end" }
           border: "none",
           background: "transparent",
           cursor: "pointer",
-          fontSize: 13,
+          fontSize: 11,
           lineHeight: 1,
-          opacity: 0.62,
+          opacity: 0.6,
           flexShrink: 0,
+          padding: 0,
         }}
       >
         🧬
       </button>
-      {open && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: "absolute",
-            zIndex: 60,
-            top: "130%",
-            ...(align === "start" ? { insetInlineStart: 0 } : { insetInlineEnd: 0 }),
-          }}
-        >
-          <NeuralPathCard id={id} label={safeLabel} c={c} />
-        </div>
-      )}
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            onClick={() => setOpen(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(20,20,15,0.35)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 99999,
+              padding: 16,
+            }}
+          >
+            <div onClick={(e) => e.stopPropagation()}>
+              <NeuralPathCard id={id} label={safeLabel} c={c} onClose={() => setOpen(false)} />
+            </div>
+          </div>,
+          document.body
+        )}
     </span>
   );
 }
