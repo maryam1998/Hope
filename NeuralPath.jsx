@@ -500,7 +500,7 @@ function NeuralFibers({ fiberCount, habitFormed, c }) {
   // می‌شه دسته‌ی رشته‌ها به‌جای یه لکه‌ی توپرِ تیره، مثلِ یه بافتِ ظریف دیده
   // بشه، حتی وقتی ۵۰۰ تا روی هم‌اند.
   const baseOpacity = Math.max(0.15, 0.6 - n * 0.0008);
-  const baseWidth = n > 200 ? 0.3 : n > 80 ? 0.45 : 0.6;
+  const baseWidth = n > 200 ? 0.2 : n > 80 ? 0.3 : 0.4;
   const paths = [];
   for (let i = 0; i < n; i++) {
     const t = n === 1 ? 0.5 : i / (n - 1);
@@ -514,7 +514,7 @@ function NeuralFibers({ fiberCount, habitFormed, c }) {
         d={`M 14 ${20 + startJitter} Q 50 ${20 + bow} 86 ${20 + endJitter}`}
         fill="none"
         stroke={strandColor}
-        strokeWidth={isNewest && pulse && pulse.kind === "add" ? baseWidth + 0.5 : baseWidth}
+        strokeWidth={isNewest && pulse && pulse.kind === "add" ? baseWidth + 0.2 : baseWidth}
         strokeLinecap="round"
         opacity={isNewest ? 0.95 : baseOpacity}
       />
