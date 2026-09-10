@@ -457,6 +457,7 @@ function NeuralCalendar({ events, c }) {
 // دادم») یه رشته‌ی تازه اضافه می‌شه و یه پالسِ نورانی رویِ همون رشته‌ی
 // تازه می‌ره؛ با حذفِ یه رشته («یک روز گذشت، انجام ندادم») هم یه پالسِ
 // محوشونده‌ی قرمزِکم‌رنگ رویِ آخرین رشته می‌ره تا حسِ «کم‌شدن» منتقل بشه.
+const CIRCLE_SIZE = 34;
 const MAX_RENDERED_FIBERS = 80;
 function NeuralFibers({ fiberCount, habitFormed, c }) {
   const prevCountRef = useRef(fiberCount);
@@ -504,17 +505,6 @@ function NeuralFibers({ fiberCount, habitFormed, c }) {
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "visible", pointerEvents: "none" }}
     >
       {paths}
-      {pulse && pulse.kind === "add" && (
-        <path
-          key={`pulse-${pulse.key}`}
-          d={`M 14 20 Q 50 ${20 + (n === 1 ? 0 : spread / 2)} 86 20`}
-          fill="none"
-          stroke={c.gold}
-          strokeWidth={6}
-          strokeLinecap="round"
-          style={{ animation: "neuralStrandPulse 0.9s ease-out" }}
-        />
-      )}
       {pulse && pulse.kind === "remove" && (
         <path
           key={`pulse-${pulse.key}`}
@@ -546,16 +536,11 @@ function NeuralPathCard({ id, label, c, onClose }) {
   // رسیده، رنگِ کامل می‌گیره وقتی به سقف رسیده یا کاربر خودش قفلش کرده.
   const nodeMid = habitFormed || fiberCount >= Math.ceil(NEURAL_FIBER_CAP / 3);
   const nodeStrong = habitFormed || fiberCount >= NEURAL_FIBER_CAP;
-  const [manualCount, setManualCount] = useState(1);
   const [showCalendar, setShowCalendar] = useState(false);
 
   const doToday = () => addNeuralFiber(id);
   const doMissedDay = () => removeNeuralFiber(id);
   const doToggleHabit = () => toggleHabitFormed(id);
-  const doManual = () => {
-    const n = Math.max(1, Math.min(999, Number(manualCount) || 1));
-    recordNeuralRepeat(id, { source: "manual", count: n });
-  };
 
   let status;
   if (habitFormed) status = `این ${label} کاملاً جاافتاده — یک رشته‌ی عصبیِ واقعی 🎉`;
@@ -603,8 +588,8 @@ function NeuralPathCard({ id, label, c, onClose }) {
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div
             style={{
-              width: 44,
-              height: 44,
+              width: CIRCLE_SIZE,
+              height: CIRCLE_SIZE,
               borderRadius: "50%",
               flexShrink: 0,
               background: c.soft,
@@ -613,8 +598,8 @@ function NeuralPathCard({ id, label, c, onClose }) {
           />
           <div
             style={{
-              width: 44,
-              height: 44,
+              width: CIRCLE_SIZE,
+              height: CIRCLE_SIZE,
               borderRadius: "50%",
               flexShrink: 0,
               background: nodeStrong ? c.goldSoft : c.soft,
@@ -624,8 +609,8 @@ function NeuralPathCard({ id, label, c, onClose }) {
         </div>
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: c.inkSoft, width: 44, flexShrink: 0, textAlign: "center" }}>رفتار</span>
-        <span style={{ fontSize: 10, fontWeight: 700, color: nodeMid ? c.ink : c.inkSoft, width: 44, flexShrink: 0, textAlign: "center" }}>عادت</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: c.inkSoft, width: CIRCLE_SIZE, flexShrink: 0, textAlign: "center" }}>یادگیری</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: nodeMid ? c.ink : c.inkSoft, width: CIRCLE_SIZE, flexShrink: 0, textAlign: "center" }}>تثبیت</span>
       </div>
 
       <div style={{ background: c.soft, borderRadius: 9, padding: "8px 6px", textAlign: "center", marginBottom: 8 }}>
@@ -693,36 +678,9 @@ function NeuralPathCard({ id, label, c, onClose }) {
             marginBottom: 6,
           }}
         >
-          {habitFormed ? "↩️ هنوز کافی نیست، ادامه بده" : "✅ همینه، این عادت جاافتاد"}
+          {habitFormed ? "↩️ هنوز کافی نیست، ادامه بده" : "✅ همینه، رفت تو حافظه‌ی دائمیم"}
         </button>
       )}
-
-      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
-        <input
-          type="number"
-          min={1}
-          max={999}
-          value={manualCount}
-          onChange={(e) => setManualCount(e.target.value)}
-          style={{ width: 42, padding: "5px 3px", borderRadius: 7, border: `1px solid ${c.border}`, fontSize: 11, textAlign: "center" }}
-        />
-        <button
-          onClick={doManual}
-          style={{
-            flex: 1,
-            padding: "6px 0",
-            borderRadius: 7,
-            border: `1px solid ${c.gold}`,
-            background: "transparent",
-            color: c.gold,
-            fontSize: 10,
-            fontWeight: 700,
-            cursor: "pointer",
-          }}
-        >
-          ثبت دستیِ تعداد تکرار (فقط برای آمار)
-        </button>
-      </div>
 
       <button
         onClick={() => setShowCalendar((v) => !v)}
