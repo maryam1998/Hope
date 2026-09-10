@@ -3210,21 +3210,66 @@ const speechController = (() => {
   // ویرگول رو حالا موتور خودش به‌طورِ طبیعی توی همون یک‌ utterance می‌سازه).
   const MAX_WORDS_PER_CHUNK = 40;
 
-  // متن رو اول به جمله تقسیم می‌کنه (روی .!?؟ و غیره)، بعد فقط اگه یه
-  // «جمله» به‌طرز غیرعادی بلند بود (یعنی احتمالاً اصلاً جمله نیست، یه بلوکِ
-  // متنِ بدونِ نقطه‌ست) به تکه‌های چندکلمه‌ای می‌شکنه.
+  // -----------------------------------------------------------------------
+  // محافظت از نقطه‌های داخلِ مخفف‌ها/اعدادِ اعشاری/حروفِ‌اولِ اسم (initials)
+  // در برابرِ splitSentencesRaw. بدونِ این محافظت، splitSentencesRaw هر
+  // نقطه رو مرزِ پایانِ جمله حساب می‌کرد، پس مثلاً "I saw Dr. Lee." به دو
+  // «جمله»ی غلط («I saw Dr.» و «Lee.») می‌شکست و هر کدوم جدا جدا (وقتی
+  // تنظیمِ تکرار روشن بود) تکرار می‌شدن — دقیقاً همون باگِ گزارش‌شده.
+  // راه‌حل کاملاً کد-محور و بدونِ اتصال به هوش مصنوعی: قبل از اجرایِ
+  // regexِ جمله‌بندی، نقطه‌ی این موارد رو با یه کاراکترِ کنترلیِ نامرئی
+  // (SENTENCE_DOT_PLACEHOLDER) عوض می‌کنیم — چون این جایگزینی همیشه یک‌به‌یک
+  // (یک کاراکتر با یک کاراکتر) انجام می‌شه، طولِ رشته و در نتیجه همه‌ی
+  // آفست‌های start/end دست‌نخورده می‌مونن. بعدِ جمله‌بندی، همون کاراکتر رو
+  // به نقطه برمی‌گردونیم.
+  const SENTENCE_DOT_PLACEHOLDER = "\u0000";
+  // توجه: عمداً کلمه‌هایی مثل "no" اینجا نیستن — تویِ مکالمه‌های روزمره،
+  // "No." خودش می‌تونه یه جمله‌ی کاملِ تک‌کلمه‌ای باشه (مثلِ جوابِ کوتاهِ
+  // «No.» به یه سؤالِ بله/خیر)، پس محافظت‌کردنِ نقطه‌ش باعثِ ادغامِ غلطش با
+  // جمله‌ی بعدی می‌شد — دقیقاً برعکسِ چیزی که این تابع باید جلوش رو بگیره.
+  const SENTENCE_ABBREVIATIONS = [
+    "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "sgt", "capt", "gen",
+    "rev", "hon", "gov", "lt", "col", "cmdr", "adm", "maj", "fr", "pres",
+    "vs", "etc", "approx", "vol", "fig", "eq", "dept", "univ", "assn",
+    "est", "al", "inc", "ltd", "co", "corp",
+    "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec",
+    "mon", "tue", "wed", "thu", "fri", "sat", "sun",
+  ];
+  const SENTENCE_ABBR_RE = new RegExp("\\b(" + SENTENCE_ABBREVIATIONS.join("|") + ")\\.(?=\\s|[A-Z]|$)", "gi");
+  // مخفف‌هایی که خودشون از قبل یه نقطه‌ی داخلی دارن (e.g. i.e. a.m. p.m. ...)
+  const SENTENCE_MULTI_DOT_ABBR_RE = /\b([ei]\.g|i\.e|[ap]\.m|u\.s|u\.k|u\.n|e\.u)\.(?=\s|$)/gi;
+
+  function protectAbbreviationDots(text) {
+    let out = text;
+    out = out.replace(SENTENCE_MULTI_DOT_ABBR_RE, (m) => m.replace(/\./g, SENTENCE_DOT_PLACEHOLDER));
+    out = out.replace(SENTENCE_ABBR_RE, (m) => m.slice(0, -1) + SENTENCE_DOT_PLACEHOLDER);
+    // اعدادِ اعشاری: 3.14 — نقطه‌ی بینِ دو رقم هیچ‌وقت پایانِ جمله نیست.
+    out = out.replace(/(\d)\.(?=\d)/g, `$1${SENTENCE_DOT_PLACEHOLDER}`);
+    // حروفِ‌اولِ اسم (initials): "J. K. Rowling" یا "U. S." — یه حرفِ بزرگِ
+    // تنها که نقطه‌ش بلافاصله با یه حرفِ بزرگِ دیگه (نقطه‌دار یا شروعِ کلمه) دنبال می‌شه.
+    out = out.replace(/\b([A-Z])\.(?=\s?[A-Z](?:\.|[a-z]))/g, `$1${SENTENCE_DOT_PLACEHOLDER}`);
+    return out;
+  }
+
+  // متن رو اول به جمله تقسیم می‌کنه (روی .!?؟ و غیره، با محافظتِ بالا برای
+  // مخفف‌ها)، بعد فقط اگه یه «جمله» به‌طرز غیرعادی بلند بود (یعنی احتمالاً
+  // اصلاً جمله نیست، یه بلوکِ متنِ بدونِ نقطه‌ست) به تکه‌های چندکلمه‌ای می‌شکنه.
   function splitSentencesRaw(text) {
     const t = text || "";
     if (!t) return [];
+    const protectedText = protectAbbreviationDots(t);
     const re = /[^.!?؟。！]+[.!?؟。！]*/g;
     const sentences = [];
     let m;
-    while ((m = re.exec(t))) {
+    while ((m = re.exec(protectedText))) {
       const raw = m[0];
       const trimmed = raw.trim();
       if (!trimmed) continue;
       const start = m.index + raw.indexOf(trimmed[0]);
-      sentences.push({ start, end: start + trimmed.length, text: trimmed });
+      // نقطه‌هایِ محافظت‌شده رو برمی‌گردونیم؛ چون جایگزینی یک‌به‌یک بود،
+      // طولِ trimmed عوض نشده و start/end همچنان درسته.
+      const restored = trimmed.split(SENTENCE_DOT_PLACEHOLDER).join(".");
+      sentences.push({ start, end: start + restored.length, text: restored });
     }
     if (!sentences.length) return [{ start: 0, end: t.length, text: t }];
 
@@ -3549,7 +3594,15 @@ const speechController = (() => {
       // «رسیدن به آخرِ متن → از اول شروع کن یا نه» استفاده می‌شه؛ اینجا
       // فقط singleShot (پخشِ تک‌ضربه‌ی بدونِ تکرار و بدونِ لوپ) باید
       // خاموشش کنه.
-      if (!singleShot) {
+      // تکرار فقط سرِ پایانِ یه «جمله»ی واقعی (boundary === "sentence")
+      // اعمال می‌شه، نه سرِ تکه‌های مصنوعیِ ۴۰کلمه‌ای (boundary === "none")
+      // که فقط یه دریچه‌ی اطمینان برای متنِ خیلی‌بلندِ بدونِ علامتِ‌نگارشی‌ان.
+      // قبلاً هر تکه (even boundary:"none") جدا جدا تا تعدادِ تنظیمِ تکرار
+      // خونده می‌شد، پس یه متنِ بدونِ نقطه، تکه‌به‌تکه گیر می‌کرد و کاربر
+      // حس می‌کرد «تکرار ادامه‌دار شده تا جایی که نقطه هست» — دقیقاً همون
+      // باگِ گزارش‌شده. الان این تکه‌ها فقط یک‌بار (بدونِ تکرار) خونده
+      // می‌شن و بی‌درنگ به تکه‌ی بعدی می‌رن؛ فقط جمله‌ی واقعیِ پایانی تکرار می‌شه.
+      if (!singleShot && boundary === "sentence") {
         const isMultiChunk = chunks.length > 1;
         // تنظیمِ تکرار یعنی «کلاً N بار خونده بشه»، نه «N بار اضافه بر
         // خوندنِ اولش». چون همینِ خط داره برای اولین‌بار تمومِ خوندنش رو
@@ -17412,7 +17465,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
             consumeMainTextResumeOffset(`${TTS_LOCALE[storyPlayerText.code] || "en-US"}::${storyPlayerText.text}`),
         }
       : tab === "conversations" && dailyPlayerText.text
-      ? { text: dailyPlayerText.text, code: dailyPlayerText.code }
+      ? { text: dailyPlayerText.text, code: dailyPlayerText.code, sentenceBoundaries: dailyPlayerText.sentenceBoundaries }
       : (tab === "words" || tab === "vocabInUse" || tab === "slang" || tab === "favorites") && wordListPlayerText.text
       ? {
           text: wordListPlayerText.text,

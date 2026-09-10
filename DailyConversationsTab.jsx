@@ -163,6 +163,16 @@ const TTS_LOCALE_MINI = {
 // نباشه، دقیقاً مثل نسخه‌ی مرجع.
 const TOPIC_BADGE_COLORS = ["#EAF4F1", "#FBF0DA", "#F3ECFB", "#FBE9E4"];
 
+// یه رشته رو، فقط برای مصرفِ TTS/هایلایت (نه نمایشِ رویِ صفحه)، اگه با
+// یکی از علامت‌های‌نگارشیِ پایانِ‌جمله (فارسی/عربی/لاتین/آسیای‌شرقی) تموم
+// نشده باشه، با یه نقطه‌ی معمولی می‌بنده — تا splitSentencesRaw همیشه
+// بتونه مرزِ این خط رو تشخیص بده.
+function ensureSentenceEnd(s) {
+  const trimmed = (s || "").trim();
+  if (!trimmed) return trimmed;
+  return /[.!?؟。！…]$/.test(trimmed) ? trimmed : trimmed + ".";
+}
+
 function TopicCard({ meta, index, hasData, onClick, uiLang, isRead, onToggleRead, readDoneColor, readDoneBg }) {
   const label = uiLang === "fa" ? meta.fa : (meta.enLabel || meta.en);
   const badgeColor = TOPIC_BADGE_COLORS[(index || 0) % TOPIC_BADGE_COLORS.length];
@@ -744,8 +754,16 @@ export default function DailyConversationsTab({
   const openScenarioData = activeTopicData && openScenario != null ? activeTopicData.scenarios[openScenario] : null;
   const readableLines = useMemo(() => {
     if (!openScenarioData) return [];
-    const a = filterByLevel(openScenarioData.speakerA || []).map((it, i) => ({ text: it.en, variant: "hear", i }));
-    const b = filterByLevel(openScenarioData.speakerB || []).map((it, i) => ({ text: it.en, variant: "say", i }));
+    // هر خطِ مکالمه رو برای مصرفِ TTS/هایلایت (نه نمایش — نمایش همچنان از
+    // رویِ it.en خامِ خودش انجام می‌شه) با یه نقطه‌ی پایانی تضمین می‌کنیم،
+    // اگه خودش قبلاً با یکی از علامت‌های‌نگارشیِ جمله تموم نشده باشه. بدونِ
+    // این، وقتی چند خطِ بدونِ‌نقطه پشتِ‌سرِهم فقط با یه فاصله به fullText
+    // می‌چسبیدن، splitSentencesRaw نمی‌تونست بفهمه کجا یه خط تموم و خطِ
+    // بعدی شروع می‌شه؛ نتیجه‌ش یا ادغامِ چند خط توی یه «جمله»ی مصنوعیِ خیلی
+    // بلند بود، یا (وقتی این ادغام از حدِ ۴۰کلمه رد می‌شد) تکه‌تکه‌شدنِ
+    // دلبخواهی که حالتِ تکرار روش گیر می‌کرد.
+    const a = filterByLevel(openScenarioData.speakerA || []).map((it, i) => ({ text: ensureSentenceEnd(it.en), variant: "hear", i }));
+    const b = filterByLevel(openScenarioData.speakerB || []).map((it, i) => ({ text: ensureSentenceEnd(it.en), variant: "say", i }));
     return [...a, ...b];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openScenarioData, levelFilter]);
@@ -761,6 +779,13 @@ export default function DailyConversationsTab({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fullText]);
+
+  // مرزهایِ دقیقِ شروعِ هر خطِ مکالمه، برای دادن به speechController به‌عنوانِ
+  // sentenceBoundaries — این تضمین می‌کنه دو خطِ مکالمه‌ی جدا، حتی اگه علامتِ
+  // نگارشیِ خودِ splitSentencesRaw هم قاطی‌شون بشه، هیچ‌وقت توی یه «جمله»/
+  // چانکِ TTS واحد ادغام نشن (دقیقاً همون مکانیزمی که StoryBuilder برایِ
+  // storySentenceBoundaries استفاده می‌کنه).
+  const sentenceBoundaries = useMemo(() => lineOffsets.map((l) => l.start), [lineOffsets]);
 
   // خطی که همین الان، در حینِ پخشِ «کل متن» از روی پلیر، داره خونده می‌شه —
   // فقط برای اسکرولِ خودکار استفاده می‌شه (هایلایتِ بصری نداره).
@@ -838,14 +863,15 @@ export default function DailyConversationsTab({
       const parts = [];
       const offsets = [];
       readableLines.forEach((l) => {
-        const val = langMap[`${l.variant}-${l.i}`];
-        if (!val) return;
+        const rawVal = langMap[`${l.variant}-${l.i}`];
+        if (!rawVal) return;
+        const val = ensureSentenceEnd(rawVal);
         const start = offset;
         parts.push(val);
         offset += val.length + 1; // فاصله‌ی join(" ")
         offsets.push({ variant: l.variant, i: l.i, start, end: start + val.length });
       });
-      info[code] = { fullText: parts.join(" "), lineOffsets: offsets };
+      info[code] = { fullText: parts.join(" "), lineOffsets: offsets, sentenceBoundaries: offsets.map((o) => o.start) };
     });
     return info;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -874,13 +900,13 @@ export default function DailyConversationsTab({
   // درحالِ پخشِ خودِ متنِ انگلیسی) برمی‌گرده رو پیش‌فرضِ انگلیسی.
   useEffect(() => {
     if (!speechController) {
-      if (onFullTextChange) onFullTextChange({ text: fullText, code: "en" });
+      if (onFullTextChange) onFullTextChange({ text: fullText, code: "en", sentenceBoundaries });
       return;
     }
     const update = (state) => {
       if (!state.key || state.status === "idle") {
         setActiveTranslationLine(null);
-        if (onFullTextChange) onFullTextChange({ text: fullText, code: "en" });
+        if (onFullTextChange) onFullTextChange({ text: fullText, code: "en", sentenceBoundaries });
         return;
       }
       for (const code of targetLangCodes) {
@@ -890,7 +916,7 @@ export default function DailyConversationsTab({
         if (state.key !== myKey) continue;
         // همین الان ترجمه‌ی همینِ زبان در حالِ پخشِ پیوسته‌ست — نوارِ
         // پلیرِ سراسری رو هم به همینِ ترجمه وصل کن، نه به متنِ انگلیسی.
-        if (onFullTextChange) onFullTextChange({ text: info.fullText, code });
+        if (onFullTextChange) onFullTextChange({ text: info.fullText, code, sentenceBoundaries: info.sentenceBoundaries });
         const offset = speechController.getCharOffset();
         let found = info.lineOffsets[0] || null;
         for (const l of info.lineOffsets) {
@@ -908,11 +934,11 @@ export default function DailyConversationsTab({
       // هیچ ترجمه‌ای در حالِ پخش نیست (مثلاً خودِ متنِ انگلیسی در حالِ
       // پخشه) — پلیرِ سراسری رو به پیش‌فرضِ انگلیسی برگردون.
       setActiveTranslationLine(null);
-      if (onFullTextChange) onFullTextChange({ text: fullText, code: "en" });
+      if (onFullTextChange) onFullTextChange({ text: fullText, code: "en", sentenceBoundaries });
     };
     update(speechController.getState());
     return speechController.subscribe(update);
-  }, [targetLangCodes, translationTextInfo, speechController, fullText, onFullTextChange]);
+  }, [targetLangCodes, translationTextInfo, speechController, fullText, sentenceBoundaries, onFullTextChange]);
 
   const lineRefs = useRef({});
   const registerLineRef = (variant, i, el) => {

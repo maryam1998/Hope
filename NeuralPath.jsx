@@ -48,9 +48,15 @@ function persist() {
 
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (e) => {
-    if (e.key !== STORE_KEY) return;
-    cache = null;
-    loadStore();
+    if (e.key === STORE_KEY) {
+      cache = null;
+      loadStore();
+    } else if (e.key === CONSOLIDATED_KEY) {
+      consolidatedCache = null;
+      loadConsolidatedStore();
+    } else {
+      return;
+    }
     listeners.forEach((fn) => {
       try {
         fn();
@@ -85,6 +91,80 @@ export function clearNeuralPath(id) {
     delete store[id];
     persist();
   }
+}
+
+/** برعکسِ recordNeuralRepeat: یه «رشته»ی کامل (یعنی همه‌ی تکرارهای
+ *  جدیدترین روزِ متفاوتی که توش تکرار ثبت شده) رو برمی‌داره — نه فقط یه
+ *  تکرارِ تکی. این همون دکمه‌ی «یک روز گذشت، انجام ندادم»ه: کاربر داره
+ *  می‌گه یه روز از این مسیر جا مونده، پس یکی از رشته‌هایی که تا الان
+ *  ساخته بود (جدیدترینش) از بین می‌ره.
+ */
+export function removeNeuralStrand(id) {
+  if (!id) return;
+  const store = loadStore();
+  const list = store[id];
+  if (!list || !list.length) return;
+  let latestDay = null;
+  for (const e of list) {
+    const dk = dayKey(e.t);
+    if (latestDay === null || dk > latestDay) latestDay = dk;
+  }
+  if (latestDay === null) return;
+  const filtered = list.filter((e) => dayKey(e.t) !== latestDay);
+  if (filtered.length) store[id] = filtered;
+  else delete store[id];
+  persist();
+}
+
+// -----------------------------------------------------------------------
+// «تثبیتِ دستی» — وقتی کاربر خودش حس می‌کنه یه جمله دیگه کاملاً تثبیت
+// شده (دکمه‌ی «همینه، این تثبیت شد ✅»)، صرف‌نظر از تعدادِ روزهای واقعیِ
+// تمرین‌شده، مرحله رو برای همیشه رویِ «تثبیت» قفل می‌کنیم. یه فروشگاهِ
+// جدا و سبک (فقط یه مجموعه از idها) — تا منطقِ رویدادها/رشته‌های بالا
+// دست‌نخورده بمونه.
+const CONSOLIDATED_KEY = "phrasebook-neural-consolidated-v1";
+let consolidatedCache = null;
+
+function loadConsolidatedStore() {
+  if (consolidatedCache) return consolidatedCache;
+  try {
+    consolidatedCache = JSON.parse(window.localStorage.getItem(CONSOLIDATED_KEY) || "{}");
+  } catch {
+    consolidatedCache = {};
+  }
+  return consolidatedCache;
+}
+
+function persistConsolidated() {
+  try {
+    window.localStorage.setItem(CONSOLIDATED_KEY, JSON.stringify(consolidatedCache));
+  } catch {}
+  listeners.forEach((fn) => {
+    try {
+      fn();
+    } catch {}
+  });
+}
+
+export function markManuallyConsolidated(id) {
+  if (!id) return;
+  const store = loadConsolidatedStore();
+  store[id] = true;
+  persistConsolidated();
+}
+
+export function isManuallyConsolidated(id) {
+  return !!(id && loadConsolidatedStore()[id]);
+}
+
+export function useManuallyConsolidated(id) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((n) => n + 1);
+    listeners.add(fn);
+    return () => listeners.delete(fn);
+  }, []);
+  return isManuallyConsolidated(id);
 }
 
 export function useNeuralEvents(id) {
@@ -333,54 +413,78 @@ function NeuralCalendar({ events, c }) {
   );
 }
 
-// 🧬 خودِ «رشته‌ی عصبی» — خطی که دو نرون (دایره‌ی یادگیری و دایره‌ی
-// تثبیت) رو به‌هم وصل می‌کنه. به‌جای اینکه هر تکرار یه خطِ جدا و جدا
-// بکشه (که با تکرارهای زیاد از کادر می‌زد بیرون)، همیشه فقط *یه* خط
-// هست که ضخامتش با تعدادِ تکرارها (رشدِ لگاریتمی، نه خطی) کم‌کم بیشتر
-// می‌شه — یعنی رشته‌ها روی هم «جمع» می‌شن، نه کنارِ هم ردیف. هر بار که
-// یه تکرارِ تازه ثبت بشه (چه با «امروز انجام دادم»، چه خودکار از
-// پلیر)، یه پالسِ نورانیِ کوتاه هم روی خط می‌ره تا لحظه‌ی «ساخته‌شدنِ»
-// همون رشته‌ی تازه، حس بشه.
-function NeuralStrand({ total, stage, c }) {
-  const prevTotalRef = useRef(total);
-  const [pulseKey, setPulseKey] = useState(0);
+// 🧬 خودِ «رشته‌های عصبی» — خط‌هایی که دو نرون (دایره‌ی یادگیری و دایره‌ی
+// تثبیت) رو به‌هم وصل می‌کنن. برخلافِ نسخه‌ی قبلی (یه خطِ تکی که فقط
+// ضخیم‌تر می‌شد)، الان هر «رشته» (یعنی هر روزِ متفاوتی که توش تمرین ثبت
+// شده) یه خطِ نازکِ جداگانه‌ست — دقیقاً مثلِ یه کابلِ بافته‌شده از چندین
+// رشته‌ی باریک که هرکدوم کنارِ هم (نه روی هم) جمع می‌شن، شکلِ عدسی‌مانندِ
+// وسطش با هر رشته‌ی تازه یه‌کم بازتر می‌شه. با هر ثبتِ تازه («امروز انجام
+// دادم») یه رشته‌ی تازه اضافه می‌شه و یه پالسِ نورانی رویِ همون رشته‌ی
+// تازه می‌ره؛ با حذفِ یه رشته («یک روز گذشت، انجام ندادم») هم یه پالسِ
+// محوشونده‌ی قرمزِکم‌رنگ رویِ آخرین رشته می‌ره تا حسِ «کم‌شدن» منتقل بشه.
+const MAX_RENDERED_STRANDS = 60;
+function NeuralStrand({ strandCount, stage, c }) {
+  const prevCountRef = useRef(strandCount);
+  const [pulse, setPulse] = useState(null); // { key, kind: "add" | "remove" } | null
 
   useEffect(() => {
-    if (total > prevTotalRef.current) setPulseKey((k) => k + 1);
-    prevTotalRef.current = total;
-  }, [total]);
+    if (strandCount > prevCountRef.current) setPulse({ key: Date.now(), kind: "add" });
+    else if (strandCount < prevCountRef.current) setPulse({ key: Date.now(), kind: "remove" });
+    prevCountRef.current = strandCount;
+  }, [strandCount]);
 
-  // رشدِ لگاریتمی: از یه خطِ خیلی نازک شروع می‌شه و هیچ‌وقت واقعاً از
-  // یه سقفِ منطقی (که داخلِ کادر جا بشه) رد نمی‌شه — حتی با تکرارِ
-  // نامحدود.
-  const width = total > 0 ? Math.min(9, 1.6 + Math.log2(total + 1) * 1.9) : 0;
   const consolidated = stage === "تثبیت";
   const strandColor = consolidated ? c.gold : c.teal;
 
-  if (total <= 0) return null;
+  if (strandCount <= 0) return null;
+
+  const n = Math.min(strandCount, MAX_RENDERED_STRANDS);
+  // پهنایِ بازشدنِ عدسی: با تعدادِ رشته‌ها کم‌کم زیاد می‌شه، ولی همیشه یه
+  // سقفِ منطقی داره تا از کادر بیرون نزنه.
+  const spread = Math.min(26, 6 + n * 0.7);
+  const paths = [];
+  for (let i = 0; i < n; i++) {
+    const t = n === 1 ? 0.5 : i / (n - 1);
+    const bow = -spread / 2 + t * spread; // از بالا به پایینِ عدسی پخش می‌شن
+    const isNewest = i === n - 1;
+    paths.push(
+      <path
+        key={i}
+        d={`M 14 20 Q 50 ${20 + bow} 86 20`}
+        fill="none"
+        stroke={strandColor}
+        strokeWidth={isNewest && pulse && pulse.kind === "add" ? 1.6 : 1}
+        strokeLinecap="round"
+        opacity={isNewest ? 0.95 : 0.55}
+      />
+    );
+  }
 
   return (
     <svg
-      viewBox="0 0 100 34"
+      viewBox="0 0 100 40"
       preserveAspectRatio="none"
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "visible", pointerEvents: "none" }}
     >
-      <path
-        d="M 25 17 Q 50 8 75 17"
-        fill="none"
-        stroke={strandColor}
-        strokeWidth={width}
-        strokeLinecap="round"
-        opacity={0.8}
-        style={{ transition: "stroke-width 0.5s ease, stroke 0.5s ease" }}
-      />
-      {pulseKey > 0 && (
+      {paths}
+      {pulse && pulse.kind === "add" && (
         <path
-          key={pulseKey}
-          d="M 25 17 Q 50 8 75 17"
+          key={`pulse-${pulse.key}`}
+          d={`M 14 20 Q 50 ${20 + (n === 1 ? 0 : spread / 2)} 86 20`}
           fill="none"
           stroke={c.gold}
-          strokeWidth={width + 5}
+          strokeWidth={6}
+          strokeLinecap="round"
+          style={{ animation: "neuralStrandPulse 0.9s ease-out" }}
+        />
+      )}
+      {pulse && pulse.kind === "remove" && (
+        <path
+          key={`pulse-${pulse.key}`}
+          d="M 14 20 Q 50 20 86 20"
+          fill="none"
+          stroke={c.rose || "#B4483F"}
+          strokeWidth={6}
           strokeLinecap="round"
           style={{ animation: "neuralStrandPulse 0.9s ease-out" }}
         />
@@ -398,10 +502,17 @@ function NeuralStrand({ total, stage, c }) {
 function NeuralPathCard({ id, label, c, onClose }) {
   const events = useNeuralEvents(id);
   const s = useMemo(() => summarize(events), [events]);
+  const manuallyConsolidated = useManuallyConsolidated(id);
+  // مرحله‌ای که واقعاً نشون داده می‌شه: اگه کاربر خودش دستی «تثبیت»ش
+  // کرده باشه، صرف‌نظر از تعدادِ روزهای واقعی، همیشه «تثبیت» می‌مونه.
+  const displayStage = manuallyConsolidated ? "تثبیت" : s.stage;
+  const strandCount = s.strandDays.length;
   const [manualCount, setManualCount] = useState(1);
   const [showCalendar, setShowCalendar] = useState(false);
 
   const doToday = () => recordNeuralRepeat(id, { source: "manual", count: 1 });
+  const doMissedDay = () => removeNeuralStrand(id);
+  const doConsolidate = () => markManuallyConsolidated(id);
   const doManual = () => {
     const n = Math.max(1, Math.min(999, Number(manualCount) || 1));
     recordNeuralRepeat(id, { source: "manual", count: n });
@@ -443,22 +554,25 @@ function NeuralPathCard({ id, label, c, onClose }) {
         </p>
       ) : (
         <>
-          {/* دو نرون («یادگیری» و «تثبیت») + خطِ رشته‌ی عصبی که بینشون
-              وصل می‌شه. خطِ رشته پشتِ خودِ دایره‌ها (لایه‌ی اول) نشسته،
-              دایره‌ها روی همون فضا (لایه‌ی دوم، absolute) قرار می‌گیرن —
-              این‌جوری همیشه دقیقاً بینِ دو نرون کشیده می‌مونه. */}
-          <div style={{ position: "relative", height: 34, marginBottom: 3 }}>
-            <NeuralStrand total={s.total} stage={s.stage} c={c} />
-            <div style={{ position: "absolute", inset: 0, display: "flex", justifyContent: "space-around" }}>
+          {/* دو نرون («یادگیری» و «تثبیت») در دو سرِ کادر + دسته‌ای از
+              رشته‌های عصبیِ نازک که بینشون، مثلِ یه کابلِ بافته‌شده، وصل
+              می‌شن. خطوطِ رشته پشتِ خودِ دایره‌ها (لایه‌ی اول) نشستن،
+              دایره‌ها روی همون فضا (لایه‌ی دوم، absolute در دو سر) قرار
+              می‌گیرن — این‌جوری همیشه دقیقاً از یه نرون به نرونِ دیگه
+              کشیده می‌مونن.  */}
+          <div style={{ position: "relative", height: 62, marginBottom: 3 }}>
+            <NeuralStrand strandCount={strandCount} stage={displayStage} c={c} />
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               {["یادگیری", "تثبیت"].map((stageLabel) => {
-                const active = s.stage === stageLabel;
+                const active = displayStage === stageLabel;
                 return (
                   <div
                     key={stageLabel}
                     style={{
-                      width: 34,
-                      height: 34,
+                      width: 44,
+                      height: 44,
                       borderRadius: "50%",
+                      flexShrink: 0,
                       background: active ? c.gold : c.soft,
                       border: `2px solid ${active ? c.gold : c.border}`,
                     }}
@@ -467,11 +581,11 @@ function NeuralPathCard({ id, label, c, onClose }) {
               })}
             </div>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
             {["یادگیری", "تثبیت"].map((stageLabel) => {
-              const active = s.stage === stageLabel;
+              const active = displayStage === stageLabel;
               return (
-                <span key={stageLabel} style={{ fontSize: 10, fontWeight: 700, color: active ? c.ink : c.inkSoft, flex: 1, textAlign: "center" }}>
+                <span key={stageLabel} style={{ fontSize: 10, fontWeight: 700, color: active ? c.ink : c.inkSoft, width: 44, flexShrink: 0, textAlign: "center" }}>
                   {stageLabel}
                 </span>
               );
@@ -480,15 +594,17 @@ function NeuralPathCard({ id, label, c, onClose }) {
 
           <div style={{ background: c.soft, borderRadius: 9, padding: "8px 6px", textAlign: "center", marginBottom: 8 }}>
             <div style={{ fontSize: 10, color: c.inkSoft, marginBottom: 5 }}>رشته‌های ساخته‌شده</div>
-            <div style={{ display: "flex", justifyContent: "center", gap: 3, flexWrap: "wrap" }}>
-              {s.strandDays.map((d) => (
-                <span key={d} style={{ width: 6, height: 6, borderRadius: "50%", background: c.teal, display: "inline-block" }} />
-              ))}
-            </div>
-            <div style={{ fontSize: 9.5, color: c.inkSoft, marginTop: 5 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: c.ink, marginBottom: 5 }}>{strandCount}</div>
+            <div style={{ fontSize: 9.5, color: c.inkSoft }}>
               {s.total} تکرار · آخرین تمرین: {fmtRel(s.last)}
             </div>
           </div>
+
+          {/* دقیقاً همون پیامِ «این یه مسیرِ عصبیِ جاافتاده‌ست» — با
+              اصطلاحِ این تب («جمله») به‌جایِ «عادت». */}
+          <p style={{ fontSize: 10.5, color: c.inkSoft, lineHeight: 1.85, marginBottom: 8, textAlign: "center" }}>
+            این {label} یه مسیرِ عصبیِ محکم و جاافتاده‌ست — اگه حس می‌کنی واقعاً تثبیت شده، می‌تونی خودت همین‌جا علامتش بزنی.
+          </p>
         </>
       )}
 
@@ -508,6 +624,44 @@ function NeuralPathCard({ id, label, c, onClose }) {
         }}
       >
         ✨ امروز انجام دادم
+      </button>
+
+      <button
+        onClick={doMissedDay}
+        disabled={strandCount === 0}
+        style={{
+          width: "100%",
+          padding: "7px 0",
+          borderRadius: 8,
+          border: `1px solid ${c.border}`,
+          background: "transparent",
+          color: strandCount === 0 ? c.border : c.inkSoft,
+          fontSize: 11,
+          fontWeight: 700,
+          cursor: strandCount === 0 ? "default" : "pointer",
+          marginBottom: 6,
+        }}
+      >
+        یک روز گذشت، انجام ندادم
+      </button>
+
+      <button
+        onClick={doConsolidate}
+        disabled={manuallyConsolidated || !s.stage}
+        style={{
+          width: "100%",
+          padding: "7px 0",
+          borderRadius: 8,
+          border: `1px solid ${manuallyConsolidated || !s.stage ? c.border : "#3F9B72"}`,
+          background: manuallyConsolidated ? c.soft : "transparent",
+          color: manuallyConsolidated || !s.stage ? c.inkSoft : "#2E7D5B",
+          fontSize: 11,
+          fontWeight: 700,
+          cursor: manuallyConsolidated || !s.stage ? "default" : "pointer",
+          marginBottom: 6,
+        }}
+      >
+        {manuallyConsolidated ? "✅ این تثبیت شد" : "همینه، این تثبیت شد ✅"}
       </button>
 
       <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
