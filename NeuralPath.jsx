@@ -19,10 +19,14 @@ import { createPortal } from "react-dom";
    ============================================================================= */
 
 const STORE_KEY = "phrasebook-neural-log-v1";
-// بعد از تمرین در این‌همه روزِ متفاوت، مرحله می‌شه «تثبیت» — قبلش «یادگیری»
-const CONSOLIDATE_AFTER_DAYS = 3;
+// دفترچه‌ی رشته‌های عصبی: هر آیتم یه {logs:{}, habitFormed:false} داره —
+// جدا از رویدادهای بالا (که فقط برای آمار/تقویم نگه داشته می‌شن).
+const LEDGER_KEY = "phrasebook-neural-ledger-v1";
+// سقفِ نمایشی برای رنگِ نورونِ «عادت» — تعدادِ واقعیِ رشته‌ها می‌تونه بیشتر باشه
+const NEURAL_FIBER_CAP = 10;
 
 let cache = null;
+let ledgerCache = null;
 const listeners = new Set();
 
 function loadStore() {
@@ -51,9 +55,9 @@ if (typeof window !== "undefined") {
     if (e.key === STORE_KEY) {
       cache = null;
       loadStore();
-    } else if (e.key === CONSOLIDATED_KEY) {
-      consolidatedCache = null;
-      loadConsolidatedStore();
+    } else if (e.key === LEDGER_KEY) {
+      ledgerCache = null;
+      loadLedger();
     } else {
       return;
     }
@@ -86,58 +90,54 @@ export function getNeuralEvents(id) {
 }
 
 export function clearNeuralPath(id) {
-  const store = loadStore();
-  if (store[id]) {
-    delete store[id];
-    persist();
-  }
-}
-
-/** برعکسِ recordNeuralRepeat: یه «رشته»ی کامل (یعنی همه‌ی تکرارهای
- *  جدیدترین روزِ متفاوتی که توش تکرار ثبت شده) رو برمی‌داره — نه فقط یه
- *  تکرارِ تکی. این همون دکمه‌ی «یک روز گذشت، انجام ندادم»ه: کاربر داره
- *  می‌گه یه روز از این مسیر جا مونده، پس یکی از رشته‌هایی که تا الان
- *  ساخته بود (جدیدترینش) از بین می‌ره.
- */
-export function removeNeuralStrand(id) {
   if (!id) return;
   const store = loadStore();
-  const list = store[id];
-  if (!list || !list.length) return;
-  let latestDay = null;
-  for (const e of list) {
-    const dk = dayKey(e.t);
-    if (latestDay === null || dk > latestDay) latestDay = dk;
+  const ledger = loadLedger();
+  let changed = false;
+  if (store[id]) {
+    delete store[id];
+    changed = true;
   }
-  if (latestDay === null) return;
-  const filtered = list.filter((e) => dayKey(e.t) !== latestDay);
-  if (filtered.length) store[id] = filtered;
-  else delete store[id];
-  persist();
+  if (ledger[id]) {
+    delete ledger[id];
+    changed = true;
+  }
+  if (changed) {
+    try {
+      window.localStorage.setItem(STORE_KEY, JSON.stringify(cache));
+    } catch {}
+    try {
+      window.localStorage.setItem(LEDGER_KEY, JSON.stringify(ledgerCache));
+    } catch {}
+    listeners.forEach((fn) => {
+      try {
+        fn();
+      } catch {}
+    });
+  }
 }
 
 // -----------------------------------------------------------------------
-// «تثبیتِ دستی» — وقتی کاربر خودش حس می‌کنه یه جمله دیگه کاملاً تثبیت
-// شده (دکمه‌ی «همینه، این تثبیت شد ✅»)، صرف‌نظر از تعدادِ روزهای واقعیِ
-// تمرین‌شده، مرحله رو برای همیشه رویِ «تثبیت» قفل می‌کنیم. یه فروشگاهِ
-// جدا و سبک (فقط یه مجموعه از idها) — تا منطقِ رویدادها/رشته‌های بالا
-// دست‌نخورده بمونه.
-const CONSOLIDATED_KEY = "phrasebook-neural-consolidated-v1";
-let consolidatedCache = null;
-
-function loadConsolidatedStore() {
-  if (consolidatedCache) return consolidatedCache;
+// «رشته‌های عصبی» — دفترچه‌ی جداگانه‌ای از رویدادهای بالا: هر آیتم یه
+// {logs:{}, habitFormed:false} داره. هر بار کاربر دکمه‌ی «امروز انجام
+// دادم» رو بزنه یه فیبرِ true اضافه می‌شه، هر بار «یک روز گذشت، انجام
+// ندادم» رو بزنه یه فیبرِ false. «رشته‌های ساخته‌شده» = (تعداد true) −
+// (تعداد false)، هیچ‌وقت منفی نمی‌شه. برخلافِ سیستمِ «بازی فراوانی»، اینجا
+// (چون هر آیتم با هزاران آیتمِ دیگه رقابت می‌کنه) هیچ کاهشِ خودکاری برای
+// روزهای بی‌تمرین نداریم — فقط با کلیکِ خودِ کاربر رشته اضافه/کم می‌شه.
+function loadLedger() {
+  if (ledgerCache) return ledgerCache;
   try {
-    consolidatedCache = JSON.parse(window.localStorage.getItem(CONSOLIDATED_KEY) || "{}");
+    ledgerCache = JSON.parse(window.localStorage.getItem(LEDGER_KEY) || "{}");
   } catch {
-    consolidatedCache = {};
+    ledgerCache = {};
   }
-  return consolidatedCache;
+  return ledgerCache;
 }
 
-function persistConsolidated() {
+function persistLedger() {
   try {
-    window.localStorage.setItem(CONSOLIDATED_KEY, JSON.stringify(consolidatedCache));
+    window.localStorage.setItem(LEDGER_KEY, JSON.stringify(ledgerCache));
   } catch {}
   listeners.forEach((fn) => {
     try {
@@ -146,25 +146,64 @@ function persistConsolidated() {
   });
 }
 
-export function markManuallyConsolidated(id) {
+function ensureLedgerEntry(id) {
+  const store = loadLedger();
+  if (!store[id] || typeof store[id] !== "object") store[id] = { logs: {}, habitFormed: false };
+  if (!store[id].logs || typeof store[id].logs !== "object") store[id].logs = {};
+  return store[id];
+}
+
+// کلید یکتا برای هر رشته — هر کلیک رشته‌ی جدای خودش رو می‌سازه
+function fiberKey() {
+  return "f" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+}
+
+export function neuralFiberCount(logs) {
+  let n = 0;
+  Object.keys(logs || {}).forEach((k) => {
+    if (logs[k] === true) n++;
+    else if (logs[k] === false) n--;
+  });
+  return Math.max(0, n);
+}
+
+/** «امروز انجام دادم»: نامحدود، همیشه یه رشته‌ی تازه اضافه می‌کنه */
+export function addNeuralFiber(id) {
   if (!id) return;
-  const store = loadConsolidatedStore();
-  store[id] = true;
-  persistConsolidated();
+  const entry = ensureLedgerEntry(id);
+  entry.logs[fiberKey()] = true;
+  persistLedger();
 }
 
-export function isManuallyConsolidated(id) {
-  return !!(id && loadConsolidatedStore()[id]);
+/** «یک روز گذشت، انجام ندادم»: نامحدود، یه رشته کم می‌کنه (تا صفر) */
+export function removeNeuralFiber(id) {
+  if (!id) return;
+  const entry = ensureLedgerEntry(id);
+  entry.logs[fiberKey()] = false;
+  persistLedger();
 }
 
-export function useManuallyConsolidated(id) {
+/** دکمه‌ی «همینه، این عادت جاافتاد» — یه قفلِ toggle‌شونده، نه یه‌طرفه */
+export function toggleHabitFormed(id) {
+  if (!id) return;
+  const entry = ensureLedgerEntry(id);
+  entry.habitFormed = !entry.habitFormed;
+  persistLedger();
+}
+
+export function getNeuralLedger(id) {
+  if (!id) return { logs: {}, habitFormed: false };
+  return ensureLedgerEntry(id);
+}
+
+export function useNeuralLedger(id) {
   const [, force] = useState(0);
   useEffect(() => {
     const fn = () => force((n) => n + 1);
     listeners.add(fn);
     return () => listeners.delete(fn);
   }, []);
-  return isManuallyConsolidated(id);
+  return getNeuralLedger(id);
 }
 
 export function useNeuralEvents(id) {
@@ -190,12 +229,8 @@ function yearKey(ts) {
 }
 
 function summarize(events) {
-  const days = new Map();
-  events.forEach((e) => days.set(dayKey(e.t), (days.get(dayKey(e.t)) || 0) + 1));
-  const strandDays = Array.from(days.keys()).sort();
-  const stage = strandDays.length === 0 ? null : strandDays.length >= CONSOLIDATE_AFTER_DAYS ? "تثبیت" : "یادگیری";
   const last = events.length ? Math.max(...events.map((e) => e.t)) : null;
-  return { total: events.length, strandDays, stage, last };
+  return { total: events.length, last };
 }
 
 function fmtRel(ts) {
@@ -422,23 +457,25 @@ function NeuralCalendar({ events, c }) {
 // دادم») یه رشته‌ی تازه اضافه می‌شه و یه پالسِ نورانی رویِ همون رشته‌ی
 // تازه می‌ره؛ با حذفِ یه رشته («یک روز گذشت، انجام ندادم») هم یه پالسِ
 // محوشونده‌ی قرمزِکم‌رنگ رویِ آخرین رشته می‌ره تا حسِ «کم‌شدن» منتقل بشه.
-const MAX_RENDERED_STRANDS = 60;
-function NeuralStrand({ strandCount, stage, c }) {
-  const prevCountRef = useRef(strandCount);
+const MAX_RENDERED_FIBERS = 80;
+function NeuralFibers({ fiberCount, habitFormed, c }) {
+  const prevCountRef = useRef(fiberCount);
   const [pulse, setPulse] = useState(null); // { key, kind: "add" | "remove" } | null
 
   useEffect(() => {
-    if (strandCount > prevCountRef.current) setPulse({ key: Date.now(), kind: "add" });
-    else if (strandCount < prevCountRef.current) setPulse({ key: Date.now(), kind: "remove" });
-    prevCountRef.current = strandCount;
-  }, [strandCount]);
+    if (fiberCount > prevCountRef.current) setPulse({ key: Date.now(), kind: "add" });
+    else if (fiberCount < prevCountRef.current) setPulse({ key: Date.now(), kind: "remove" });
+    prevCountRef.current = fiberCount;
+  }, [fiberCount]);
 
-  const consolidated = stage === "تثبیت";
-  const strandColor = consolidated ? c.gold : c.teal;
+  // مثلِ نورونِ «عادت»: وقتی رشته‌ها به سقف می‌رسن یا عادت قفل شده، رنگِ
+  // رشته‌ها هم طلایی می‌شه؛ قبلش رنگِ خنثی‌تر (teal).
+  const strong = habitFormed || fiberCount >= NEURAL_FIBER_CAP;
+  const strandColor = strong ? c.gold : c.teal;
 
-  if (strandCount <= 0) return null;
+  if (fiberCount <= 0) return null;
 
-  const n = Math.min(strandCount, MAX_RENDERED_STRANDS);
+  const n = Math.min(fiberCount, MAX_RENDERED_FIBERS);
   // پهنایِ بازشدنِ عدسی: با تعدادِ رشته‌ها کم‌کم زیاد می‌شه، ولی همیشه یه
   // سقفِ منطقی داره تا از کادر بیرون نزنه.
   const spread = Math.min(26, 6 + n * 0.7);
@@ -502,21 +539,30 @@ function NeuralStrand({ strandCount, stage, c }) {
 function NeuralPathCard({ id, label, c, onClose }) {
   const events = useNeuralEvents(id);
   const s = useMemo(() => summarize(events), [events]);
-  const manuallyConsolidated = useManuallyConsolidated(id);
-  // مرحله‌ای که واقعاً نشون داده می‌شه: اگه کاربر خودش دستی «تثبیت»ش
-  // کرده باشه، صرف‌نظر از تعدادِ روزهای واقعی، همیشه «تثبیت» می‌مونه.
-  const displayStage = manuallyConsolidated ? "تثبیت" : s.stage;
-  const strandCount = s.strandDays.length;
+  const ledger = useNeuralLedger(id);
+  const fiberCount = neuralFiberCount(ledger.logs);
+  const habitFormed = !!ledger.habitFormed;
+  // آستانه‌های رنگِ نورونِ «عادت»: یه‌کم رنگ می‌گیره وقتی به یه سومِ سقف
+  // رسیده، رنگِ کامل می‌گیره وقتی به سقف رسیده یا کاربر خودش قفلش کرده.
+  const nodeMid = habitFormed || fiberCount >= Math.ceil(NEURAL_FIBER_CAP / 3);
+  const nodeStrong = habitFormed || fiberCount >= NEURAL_FIBER_CAP;
   const [manualCount, setManualCount] = useState(1);
   const [showCalendar, setShowCalendar] = useState(false);
 
-  const doToday = () => recordNeuralRepeat(id, { source: "manual", count: 1 });
-  const doMissedDay = () => removeNeuralStrand(id);
-  const doConsolidate = () => markManuallyConsolidated(id);
+  const doToday = () => addNeuralFiber(id);
+  const doMissedDay = () => removeNeuralFiber(id);
+  const doToggleHabit = () => toggleHabitFormed(id);
   const doManual = () => {
     const n = Math.max(1, Math.min(999, Number(manualCount) || 1));
     recordNeuralRepeat(id, { source: "manual", count: n });
   };
+
+  let status;
+  if (habitFormed) status = `این ${label} کاملاً جاافتاده — یک رشته‌ی عصبیِ واقعی 🎉`;
+  else if (fiberCount <= 0) status = `هنوز مسیرِ عصبی‌ای برای این ${label} شکل نگرفته — همین امروز انجامش بده.`;
+  else if (!nodeMid) status = `اولین رشته‌های عصبیِ این ${label} شکل گرفتن، ادامه بده.`;
+  else if (!nodeStrong) status = `رشته‌های این ${label} دارن کنار هم جمع و ضخیم می‌شن.`;
+  else status = `این ${label} یه مسیرِ عصبیِ محکم و جاافتاده شده — اگه حس می‌کنی واقعاً عادت شده، می‌تونی قفلش کنی.`;
 
   return (
     <div
@@ -548,65 +594,51 @@ function NeuralPathCard({ id, label, c, onClose }) {
         )}
       </div>
 
-      {!s.stage ? (
-        <p style={{ fontSize: 11.5, color: c.inkSoft, lineHeight: 1.85, marginBottom: 8 }}>
-          هنوز مسیر عصبی برای این {label} ساخته نشده — همین امروز تمرینش کن تا اولین رشته‌ی عصبی ساخته بشه.
-        </p>
-      ) : (
-        <>
-          {/* دو نرون («یادگیری» و «تثبیت») در دو سرِ کادر + دسته‌ای از
-              رشته‌های عصبیِ نازک که بینشون، مثلِ یه کابلِ بافته‌شده، وصل
-              می‌شن. خطوطِ رشته پشتِ خودِ دایره‌ها (لایه‌ی اول) نشستن،
-              دایره‌ها روی همون فضا (لایه‌ی دوم، absolute در دو سر) قرار
-              می‌گیرن — این‌جوری همیشه دقیقاً از یه نرون به نرونِ دیگه
-              کشیده می‌مونن.  */}
-          <div style={{ position: "relative", height: 62, marginBottom: 3 }}>
-            <NeuralStrand strandCount={strandCount} stage={displayStage} c={c} />
-            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              {["یادگیری", "تثبیت"].map((stageLabel) => {
-                const active = displayStage === stageLabel;
-                return (
-                  <div
-                    key={stageLabel}
-                    style={{
-                      width: 44,
-                      height: 44,
-                      borderRadius: "50%",
-                      flexShrink: 0,
-                      background: active ? c.gold : c.soft,
-                      border: `2px solid ${active ? c.gold : c.border}`,
-                    }}
-                  />
-                );
-              })}
-            </div>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-            {["یادگیری", "تثبیت"].map((stageLabel) => {
-              const active = displayStage === stageLabel;
-              return (
-                <span key={stageLabel} style={{ fontSize: 10, fontWeight: 700, color: active ? c.ink : c.inkSoft, width: 44, flexShrink: 0, textAlign: "center" }}>
-                  {stageLabel}
-                </span>
-              );
-            })}
-          </div>
+      {/* دو نرون («رفتار» و «عادت») در دو سرِ کادر + دسته‌ای از رشته‌های
+          عصبیِ نازک که بینشون، مثلِ یه کابلِ بافته‌شده، وصل می‌شن. نرونِ
+          «رفتار» همیشه خنثی می‌مونه؛ نرونِ «عادت» هرچی رشته‌ها بیشتر بشن
+          پررنگ‌تر می‌شه. */}
+      <div style={{ position: "relative", height: 62, marginBottom: 3 }}>
+        <NeuralFibers fiberCount={fiberCount} habitFormed={habitFormed} c={c} />
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: "50%",
+              flexShrink: 0,
+              background: c.soft,
+              border: `2px solid ${c.border}`,
+            }}
+          />
+          <div
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: "50%",
+              flexShrink: 0,
+              background: nodeStrong ? c.goldSoft : c.soft,
+              border: `2px solid ${nodeMid ? c.gold : c.border}`,
+            }}
+          />
+        </div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: c.inkSoft, width: 44, flexShrink: 0, textAlign: "center" }}>رفتار</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: nodeMid ? c.ink : c.inkSoft, width: 44, flexShrink: 0, textAlign: "center" }}>عادت</span>
+      </div>
 
-          <div style={{ background: c.soft, borderRadius: 9, padding: "8px 6px", textAlign: "center", marginBottom: 8 }}>
-            <div style={{ fontSize: 10, color: c.inkSoft, marginBottom: 5 }}>رشته‌های ساخته‌شده</div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: c.ink, marginBottom: 5 }}>{strandCount}</div>
-            <div style={{ fontSize: 9.5, color: c.inkSoft }}>
-              {s.total} تکرار · آخرین تمرین: {fmtRel(s.last)}
-            </div>
+      <div style={{ background: c.soft, borderRadius: 9, padding: "8px 6px", textAlign: "center", marginBottom: 8 }}>
+        <div style={{ fontSize: 10, color: c.inkSoft, marginBottom: 5 }}>رشته‌های ساخته‌شده</div>
+        <div style={{ fontSize: 15, fontWeight: 800, color: c.ink, marginBottom: 5 }}>{fiberCount}</div>
+        {s.total > 0 && (
+          <div style={{ fontSize: 9.5, color: c.inkSoft }}>
+            {s.total} تکرار · آخرین تمرین: {fmtRel(s.last)}
           </div>
+        )}
+      </div>
 
-          {/* دقیقاً همون پیامِ «این یه مسیرِ عصبیِ جاافتاده‌ست» — با
-              اصطلاحِ این تب («جمله») به‌جایِ «عادت». */}
-          <p style={{ fontSize: 10.5, color: c.inkSoft, lineHeight: 1.85, marginBottom: 8, textAlign: "center" }}>
-            این {label} یه مسیرِ عصبیِ محکم و جاافتاده‌ست — اگه حس می‌کنی واقعاً تثبیت شده، می‌تونی خودت همین‌جا علامتش بزنی.
-          </p>
-        </>
-      )}
+      <p style={{ fontSize: 10.5, color: c.inkSoft, lineHeight: 1.85, marginBottom: 8, textAlign: "center" }}>{status}</p>
 
       <button
         onClick={doToday}
@@ -628,41 +660,42 @@ function NeuralPathCard({ id, label, c, onClose }) {
 
       <button
         onClick={doMissedDay}
-        disabled={strandCount === 0}
+        disabled={fiberCount === 0}
         style={{
           width: "100%",
           padding: "7px 0",
           borderRadius: 8,
           border: `1px solid ${c.border}`,
           background: "transparent",
-          color: strandCount === 0 ? c.border : c.inkSoft,
+          color: fiberCount === 0 ? c.border : c.inkSoft,
           fontSize: 11,
           fontWeight: 700,
-          cursor: strandCount === 0 ? "default" : "pointer",
+          cursor: fiberCount === 0 ? "default" : "pointer",
           marginBottom: 6,
         }}
       >
         یک روز گذشت، انجام ندادم
       </button>
 
-      <button
-        onClick={doConsolidate}
-        disabled={manuallyConsolidated || !s.stage}
-        style={{
-          width: "100%",
-          padding: "7px 0",
-          borderRadius: 8,
-          border: `1px solid ${manuallyConsolidated || !s.stage ? c.border : "#3F9B72"}`,
-          background: manuallyConsolidated ? c.soft : "transparent",
-          color: manuallyConsolidated || !s.stage ? c.inkSoft : "#2E7D5B",
-          fontSize: 11,
-          fontWeight: 700,
-          cursor: manuallyConsolidated || !s.stage ? "default" : "pointer",
-          marginBottom: 6,
-        }}
-      >
-        {manuallyConsolidated ? "✅ این تثبیت شد" : "همینه، این تثبیت شد ✅"}
-      </button>
+      {(fiberCount > 0 || habitFormed) && (
+        <button
+          onClick={doToggleHabit}
+          style={{
+            width: "100%",
+            padding: "7px 0",
+            borderRadius: 8,
+            border: `1px solid ${habitFormed ? c.border : "#3F9B72"}`,
+            background: habitFormed ? c.soft : "transparent",
+            color: habitFormed ? c.inkSoft : "#2E7D5B",
+            fontSize: 11,
+            fontWeight: 700,
+            cursor: "pointer",
+            marginBottom: 6,
+          }}
+        >
+          {habitFormed ? "↩️ هنوز کافی نیست، ادامه بده" : "✅ همینه، این عادت جاافتاد"}
+        </button>
+      )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
         <input
@@ -687,7 +720,7 @@ function NeuralPathCard({ id, label, c, onClose }) {
             cursor: "pointer",
           }}
         >
-          ثبت دستیِ تعداد تکرار
+          ثبت دستیِ تعداد تکرار (فقط برای آمار)
         </button>
       </div>
 
