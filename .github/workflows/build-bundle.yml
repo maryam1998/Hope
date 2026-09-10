@@ -1,5 +1,5 @@
 # این ورک‌فلو به‌صورتِ خودکار، هر بار که یکی از فایل‌های سورس (app.jsx،
-# RangeSliderFilter.jsx، DailyConversationsTab.jsx، یا هر کدوم از فایل‌های
+# RangeSliderFilter.jsx، DailyConversationsTab.jsx، NeuralPath.jsx، یا هر کدوم از فایل‌های
 # داده مثل SLANG_WORDS.js یا LINGOVA_CHARACTERS.js) عوض بشه و push بشه، دوباره app.bundle.min.js رو
 # با esbuild می‌سازه و همون فایلِ ساخته‌شده رو خودش commit می‌کنه. یعنی از
 # این به بعد فقط کافیه فایلِ سورس رو ویرایش و push کنی — دیگه لازم نیست
@@ -18,6 +18,7 @@ on:
       - "SpeakingPractice.jsx"
       - "RangeSliderFilter.jsx"
       - "DailyConversationsTab.jsx"
+      - "NeuralPath.jsx"
       - "VOCAB.js"
       - "WORDS_AZ.js"
       - "NEWS_WORDS.js"
