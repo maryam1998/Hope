@@ -10,7 +10,7 @@ import { VOCAB_IN_USE_UNITS } from "./vocabularyInUseData.js";
 import { DAILY_CONVERSATIONS,THEMATIC_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
 import DailyConversationsTab from "./DailyConversationsTab.jsx";
 import SpeakingPracticePanel from "./SpeakingPractice.jsx";
-import { recordNeuralRepeat, NeuralPathButton } from "./NeuralPath.jsx";
+import { recordNeuralRepeat, addNeuralFiber, NeuralPathButton } from "./NeuralPath.jsx";
 // مکالمات روزمره + مکالمات موضوعی، یکجا مرج‌شده — تا هرجا که قبلاً از
 // DAILY_CONVERSATIONS استفاده می‌شد (تبِ مکالمه، استخرِ جستجوی داستان‌ساز،
 // نگاشتِ سطح‌بندیِ لغات)، مکالمات موضوعی هم به‌صورت خودکار دیده بشن.
@@ -3658,7 +3658,11 @@ const speechController = (() => {
       return () => listeners.delete(cb);
     },
     getState() {
-      return { key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, muted, abState, abChunkA, abChunkB };
+      // repeatsDone: چندبار همینِ جمله‌ی فعلی (chunkIndex) تا الان، *علاوه‌بر*
+      // خوندنِ اولش، تکرار شده — برای اتصالِ خودکارِ «هر تکرار = یه رشته‌ی
+      // عصبی» (NeuralPath) به SpeakButton استفاده می‌شه: هر بار این عدد
+      // بالا می‌ره یعنی یه تکرارِ واقعی (نه صرفِ خوندنِ اول) کامل شده.
+      return { key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, muted, abState, abChunkA, abChunkB, repeatsDone: chunkRepeatsDone };
     },
     // دکمه‌ی گردِ A-B رویِ پلیر همینِ یه تابع رو صدا می‌زنه؛ خودش وضعیتِ
     // فعلی رو می‌چرخونه: idle -> waitingB -> looping -> idle.
@@ -6971,6 +6975,45 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
     const t = setTimeout(() => setVoiceHint(null), 6000);
     return () => clearTimeout(t);
   }, [voiceHint]);
+
+  // 🧬 اتصالِ خودکارِ «تکرار» به «رشته‌ی عصبی»: تا اینجا فقط با تپِ دستیِ
+  // «امروز انجام دادم» توی کارتِ NeuralPath یه رشته ساخته می‌شد. حالا وقتی
+  // کاربر روی همین جمله زده و پخش رو در حالتِ «تکرارِ سراسری» (دکمه‌ی 🔁)
+  // نگه داشته، خودِ speechController به‌ازایِ هر بار که این جمله‌ی خاص
+  // (chunkIndex) دوباره خونده می‌شه repeatsDone رو بالا می‌بره — این افکت
+  // دقیقاً همون لحظه‌ها رو می‌گیره و به‌ازای هر تکرارِ واقعی، یه رشته‌ی
+  // عصبیِ تازه (addNeuralFiber) برای همین آیتم می‌سازه؛ خواندنِ اولِ جمله
+  // (قبل از اولین تکرار) حساب نمی‌شه — فقط خودِ تکرارها.
+  const repeatFiberRef = useRef({ fireKey: null, count: 0 });
+  useEffect(() => {
+    if (!neuralItemId) return;
+    if (state.key !== myKey || state.status !== "playing") return;
+
+    // این جمله‌ی خاص، دقیقاً کدوم chunkIndex از پخشِ فعلیه؟ اگه fullText
+    // نداشته باشیم (پخشِ تکیِ همین متن)، همیشه chunk شماره‌ی ۰ خودمونه.
+    let myIdx = 0;
+    if (fullText) {
+      const effectiveStartOffset = resolveStartOffset ? resolveStartOffset() : startOffset;
+      const meta = speechController.getChunksMeta();
+      const off = Number.isInteger(effectiveStartOffset) ? effectiveStartOffset : 0;
+      for (let i = 0; i < meta.length; i++) {
+        if (off >= meta[i].start) myIdx = i;
+        else break;
+      }
+    }
+    if (state.chunkIndex !== myIdx) return;
+
+    const fireKey = `${myKey}#${myIdx}`;
+    if (repeatFiberRef.current.fireKey !== fireKey) {
+      repeatFiberRef.current = { fireKey, count: 0 };
+    }
+    const done = state.repeatsDone || 0;
+    if (done > repeatFiberRef.current.count) {
+      const delta = done - repeatFiberRef.current.count;
+      repeatFiberRef.current.count = done;
+      for (let i = 0; i < delta; i++) addNeuralFiber(neuralItemId);
+    }
+  }, [state, neuralItemId, myKey, fullText, startOffset, resolveStartOffset]);
 
   // اگه مسیرِ آنلاینِ جایگزین (وقتی گوشی صدایی برای این زبون نداره) کلاً
   // شکست خورد — نه فقط این دکمه ساکت شد، بلکه واقعاً هیچ صدایی از هیچ
