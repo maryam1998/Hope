@@ -762,13 +762,6 @@ export default function DailyConversationsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fullText]);
 
-  // هر بار متنِ خوندنیِ سناریوی بازشده عوض بشه، به بالا (App) خبر می‌دیم تا
-  // دکمه‌ی 🔊ِ روی نوارِ پلیر بتونه همین متن رو بخونه — دقیقاً همون الگویی
-  // که تبِ داستان‌ساز استفاده می‌کنه.
-  useEffect(() => {
-    if (onFullTextChange) onFullTextChange({ text: fullText, code: "en" });
-  }, [fullText]);
-
   // خطی که همین الان، در حینِ پخشِ «کل متن» از روی پلیر، داره خونده می‌شه —
   // فقط برای اسکرولِ خودکار استفاده می‌شه (هایلایتِ بصری نداره).
   const [activeLine, setActiveLine] = useState(null); // {variant, i} | null
@@ -867,11 +860,27 @@ export default function DailyConversationsTab({
     setActiveTranslationLine(null);
   }, [activeTopic, openScenario]);
 
+  // 🐛 باگِ «تکرار/پلیرِ ترجمه‌ها وصل نیست»: قبلاً به‌محضِ محاسبه‌ی fullText
+  // (متنِ اصلیِ انگلیسی)، یه‌بار onFullTextChange با همون متن صدا زده
+  // می‌شد و دیگه هیچ‌وقت عوض نمی‌شد — یعنی نوارِ پلیرِ سراسریِ پایینِ
+  // صفحه (دکمه‌های بازگشت‌به‌اول، جمله‌ی بعد/قبل، تکرارِ سراسری، دکمه‌ی
+  // مرکزیِ پخش وقتی چیزی پخش نیست) همیشه فقط متنِ انگلیسی رو می‌شناخت،
+  // حتی وقتی کاربر داشت یه ترجمه رو پخشِ پیوسته می‌کرد. نتیجه: زدنِ
+  // «بازگشت‌به‌اول» وسطِ پخشِ یه ترجمه، به‌جایِ ریستارت‌کردنِ همون
+  // ترجمه، متنِ انگلیسی رو از اول شروع می‌کرد. الان همین افکت (که
+  // زبانِ ترجمه‌ی در حالِ پخش رو تشخیص می‌ده) هر بار وضعیتِ پخش عوض
+  // بشه، onFullTextChange رو هم با متن/زبانِ *واقعاً در حالِ پخش*
+  // صدا می‌زنه — ترجمه‌ی فعال اگه چیزی پخش می‌شه، وگرنه (idle یا
+  // درحالِ پخشِ خودِ متنِ انگلیسی) برمی‌گرده رو پیش‌فرضِ انگلیسی.
   useEffect(() => {
-    if (!speechController) return;
+    if (!speechController) {
+      if (onFullTextChange) onFullTextChange({ text: fullText, code: "en" });
+      return;
+    }
     const update = (state) => {
       if (!state.key || state.status === "idle") {
         setActiveTranslationLine(null);
+        if (onFullTextChange) onFullTextChange({ text: fullText, code: "en" });
         return;
       }
       for (const code of targetLangCodes) {
@@ -879,6 +888,9 @@ export default function DailyConversationsTab({
         if (!info || !info.fullText) continue;
         const myKey = `${TTS_LOCALE_MINI[code] || "en-US"}::${info.fullText}`;
         if (state.key !== myKey) continue;
+        // همین الان ترجمه‌ی همینِ زبان در حالِ پخشِ پیوسته‌ست — نوارِ
+        // پلیرِ سراسری رو هم به همینِ ترجمه وصل کن، نه به متنِ انگلیسی.
+        if (onFullTextChange) onFullTextChange({ text: info.fullText, code });
         const offset = speechController.getCharOffset();
         let found = info.lineOffsets[0] || null;
         for (const l of info.lineOffsets) {
@@ -893,11 +905,14 @@ export default function DailyConversationsTab({
         }
         return;
       }
+      // هیچ ترجمه‌ای در حالِ پخش نیست (مثلاً خودِ متنِ انگلیسی در حالِ
+      // پخشه) — پلیرِ سراسری رو به پیش‌فرضِ انگلیسی برگردون.
       setActiveTranslationLine(null);
+      if (onFullTextChange) onFullTextChange({ text: fullText, code: "en" });
     };
     update(speechController.getState());
     return speechController.subscribe(update);
-  }, [targetLangCodes, translationTextInfo, speechController]);
+  }, [targetLangCodes, translationTextInfo, speechController, fullText, onFullTextChange]);
 
   const lineRefs = useRef({});
   const registerLineRef = (variant, i, el) => {

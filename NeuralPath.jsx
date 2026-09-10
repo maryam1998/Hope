@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 
 /* =============================================================================
@@ -333,6 +333,68 @@ function NeuralCalendar({ events, c }) {
   );
 }
 
+// 🧬 خودِ «رشته‌ی عصبی» — خطی که دو نرون (دایره‌ی یادگیری و دایره‌ی
+// تثبیت) رو به‌هم وصل می‌کنه. به‌جای اینکه هر تکرار یه خطِ جدا و جدا
+// بکشه (که با تکرارهای زیاد از کادر می‌زد بیرون)، همیشه فقط *یه* خط
+// هست که ضخامتش با تعدادِ تکرارها (رشدِ لگاریتمی، نه خطی) کم‌کم بیشتر
+// می‌شه — یعنی رشته‌ها روی هم «جمع» می‌شن، نه کنارِ هم ردیف. هر بار که
+// یه تکرارِ تازه ثبت بشه (چه با «امروز انجام دادم»، چه خودکار از
+// پلیر)، یه پالسِ نورانیِ کوتاه هم روی خط می‌ره تا لحظه‌ی «ساخته‌شدنِ»
+// همون رشته‌ی تازه، حس بشه.
+function NeuralStrand({ total, stage, c }) {
+  const prevTotalRef = useRef(total);
+  const [pulseKey, setPulseKey] = useState(0);
+
+  useEffect(() => {
+    if (total > prevTotalRef.current) setPulseKey((k) => k + 1);
+    prevTotalRef.current = total;
+  }, [total]);
+
+  // رشدِ لگاریتمی: از یه خطِ خیلی نازک شروع می‌شه و هیچ‌وقت واقعاً از
+  // یه سقفِ منطقی (که داخلِ کادر جا بشه) رد نمی‌شه — حتی با تکرارِ
+  // نامحدود.
+  const width = total > 0 ? Math.min(9, 1.6 + Math.log2(total + 1) * 1.9) : 0;
+  const consolidated = stage === "تثبیت";
+  const strandColor = consolidated ? c.gold : c.teal;
+
+  if (total <= 0) return null;
+
+  return (
+    <svg
+      viewBox="0 0 100 34"
+      preserveAspectRatio="none"
+      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "visible", pointerEvents: "none" }}
+    >
+      <path
+        d="M 25 17 Q 50 8 75 17"
+        fill="none"
+        stroke={strandColor}
+        strokeWidth={width}
+        strokeLinecap="round"
+        opacity={0.8}
+        style={{ transition: "stroke-width 0.5s ease, stroke 0.5s ease" }}
+      />
+      {pulseKey > 0 && (
+        <path
+          key={pulseKey}
+          d="M 25 17 Q 50 8 75 17"
+          fill="none"
+          stroke={c.gold}
+          strokeWidth={width + 5}
+          strokeLinecap="round"
+          style={{ animation: "neuralStrandPulse 0.9s ease-out" }}
+        />
+      )}
+      <style>{`
+        @keyframes neuralStrandPulse {
+          0% { opacity: 0.6; }
+          100% { opacity: 0; }
+        }
+      `}</style>
+    </svg>
+  );
+}
+
 function NeuralPathCard({ id, label, c, onClose }) {
   const events = useNeuralEvents(id);
   const s = useMemo(() => summarize(events), [events]);
@@ -381,23 +443,37 @@ function NeuralPathCard({ id, label, c, onClose }) {
         </p>
       ) : (
         <>
-          <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 8 }}>
-            {["یادگیری", "تثبیت"].map((stageLabel) => {
-              const active = s.stage === stageLabel;
-              return (
-                <div key={stageLabel} style={{ textAlign: "center" }}>
+          {/* دو نرون («یادگیری» و «تثبیت») + خطِ رشته‌ی عصبی که بینشون
+              وصل می‌شه. خطِ رشته پشتِ خودِ دایره‌ها (لایه‌ی اول) نشسته،
+              دایره‌ها روی همون فضا (لایه‌ی دوم، absolute) قرار می‌گیرن —
+              این‌جوری همیشه دقیقاً بینِ دو نرون کشیده می‌مونه. */}
+          <div style={{ position: "relative", height: 34, marginBottom: 3 }}>
+            <NeuralStrand total={s.total} stage={s.stage} c={c} />
+            <div style={{ position: "absolute", inset: 0, display: "flex", justifyContent: "space-around" }}>
+              {["یادگیری", "تثبیت"].map((stageLabel) => {
+                const active = s.stage === stageLabel;
+                return (
                   <div
+                    key={stageLabel}
                     style={{
                       width: 34,
                       height: 34,
                       borderRadius: "50%",
-                      margin: "0 auto 3px",
                       background: active ? c.gold : c.soft,
                       border: `2px solid ${active ? c.gold : c.border}`,
                     }}
                   />
-                  <span style={{ fontSize: 10, fontWeight: 700, color: active ? c.ink : c.inkSoft }}>{stageLabel}</span>
-                </div>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 8 }}>
+            {["یادگیری", "تثبیت"].map((stageLabel) => {
+              const active = s.stage === stageLabel;
+              return (
+                <span key={stageLabel} style={{ fontSize: 10, fontWeight: 700, color: active ? c.ink : c.inkSoft, flex: 1, textAlign: "center" }}>
+                  {stageLabel}
+                </span>
               );
             })}
           </div>
