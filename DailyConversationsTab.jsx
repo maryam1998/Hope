@@ -322,6 +322,8 @@ function LineTranslation({ text, langCode, variant, i, knownFa, aiSettings, tran
           edge="end"
           fullText={fullText}
           startOffset={myOffset ? myOffset.start : undefined}
+          neuralId={`conv:${langCode}::${text}`}
+          neuralLabel="ترجمه"
         />
       )}
       <span
@@ -445,6 +447,8 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
                   color={colors.teal}
                   fullText={fullText}
                   startOffset={lineOffset ? lineOffset.start : undefined}
+                  neuralId={`conv:en::${it.en}`}
+                  neuralLabel="جمله"
                 />
               )}
               <span

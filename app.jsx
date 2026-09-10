@@ -10,6 +10,7 @@ import { VOCAB_IN_USE_UNITS } from "./vocabularyInUseData.js";
 import { DAILY_CONVERSATIONS,THEMATIC_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
 import DailyConversationsTab from "./DailyConversationsTab.jsx";
 import SpeakingPracticePanel from "./SpeakingPractice.jsx";
+import { recordNeuralRepeat, NeuralPathButton } from "./NeuralPath.jsx";
 // مکالمات روزمره + مکالمات موضوعی، یکجا مرج‌شده — تا هرجا که قبلاً از
 // DAILY_CONVERSATIONS استفاده می‌شد (تبِ مکالمه، استخرِ جستجوی داستان‌ساز،
 // نگاشتِ سطح‌بندیِ لغات)، مکالمات موضوعی هم به‌صورت خودکار دیده بشن.
@@ -6887,10 +6888,13 @@ function TabButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyP
 // اون متنِ کامله. کلیدِ speechController همیشه بر اساسِ fullText+code
 // حساب می‌شه (نه text)، طوری که این دکمه دقیقاً همون سِشنِ پخشِ کلِ متن رو
 // (چه در حالِ پخش، چه مکث‌شده) پیدا کنه.
-function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolveStartOffset, onPlayed, fullText, onOverrideClick, sentenceBoundaries }) {
+function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolveStartOffset, onPlayed, fullText, onOverrideClick, sentenceBoundaries, neuralId, neuralLabel }) {
   const locale = TTS_LOCALE[code] || "en-US";
   const jumpText = fullText || text;
   const myKey = `${locale}::${jumpText}`;
+  // شناسه‌ی این آیتم برای رشته‌ی عصبی — پیش‌فرض از رویِ خودِ کلیدِ پخش
+  // ساخته می‌شه (کد زبان + متن)، مگر اینکه صراحتاً neuralId داده شده باشه.
+  const neuralItemId = neuralLabel ? neuralId || `${code}::${jumpText}` : null;
   const [state, setState] = useState(() => speechController.getState());
   // پیغامِ خطای فوری (سنکرون، از خودِ handleToggle) — مثلاً «مرورگر
   // پشتیبانی نمی‌کنه». چند ثانیه بعد خودش پاک می‌شه.
@@ -6936,6 +6940,7 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
     if (onOverrideClick) {
       onOverrideClick();
       if (onPlayed) onPlayed();
+      if (neuralItemId && !isPlaying) recordNeuralRepeat(neuralItemId, { source: "player" });
       return;
     }
     // نکته‌ی مهم: اگه resolveStartOffset پاس داده شده، به‌جای پراپِ
@@ -6989,11 +6994,13 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
         setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — فعلاً از اینترنت پخش می‌شه`);
       }
       if (onPlayed) onPlayed();
+      if (neuralItemId && !isPlaying) recordNeuralRepeat(neuralItemId, { source: "player" });
       return;
     }
 
     const result = speechController.toggle(text, code, effectiveStartOffset, forceRepeat ? { loop: true } : undefined);
     if (onPlayed) onPlayed();
+    if (neuralItemId && !isPlaying) recordNeuralRepeat(neuralItemId, { source: "player" });
     // "no-voice" دیگه پیش نمی‌آد چون خودکار می‌ره سراغ سرویس آنلاین رایگان
     // (result === "online-fallback")؛ فقط وقتی هیچ راهی — نه گوشی نه آنلاین —
     // ممکن نبود، خطا نشون می‌دیم. به‌جای alert، همین‌جا زیرِ دکمه نشون
@@ -7039,6 +7046,23 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
       >
         {isPlaying ? <Pause size={16} /> : <Volume2 size={16} />}
       </button>
+      {neuralItemId && (
+        <NeuralPathButton
+          id={neuralItemId}
+          label={neuralLabel}
+          align={edge === "end" ? "start" : "end"}
+          colors={{
+            paper: colors.paper,
+            border: colors.cardBorder,
+            soft: colors.paperDark,
+            ink: colors.ink,
+            inkSoft: colors.inkSoft,
+            gold: colors.gold,
+            goldSoft: colors.goldSoft,
+            teal: colors.teal,
+          }}
+        />
+      )}
       {(errorMsg || voiceHint) && (
         <span
           style={{
@@ -18538,7 +18562,7 @@ const VocabList = React.memo(function VocabList({ words, nativeLang, targetLangs
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <p style={{ fontWeight: 800, fontSize: 16, color: mainTextColor }}>{getNativeText(w)}</p>
-                <SpeakButton text={getNativeText(w)} code={nativeLang} />
+                <SpeakButton text={getNativeText(w)} code={nativeLang} neuralId={`word:${w.id}:${nativeLang}`} neuralLabel="لغت" />
                 {!w.t[nativeLang] && (
                   <NativeTextResolver
                     resolveKey={`${nativeLang}:${w.id}`}
@@ -18590,7 +18614,16 @@ const VocabList = React.memo(function VocabList({ words, nativeLang, targetLangs
                           "—"
                         )}
                       </p>
-                      {w.t[l.code] && <SpeakButton text={w.t[l.code]} code={l.code} color={translationColor} edge="end" />}
+                      {w.t[l.code] && (
+                        <SpeakButton
+                          text={w.t[l.code]}
+                          code={l.code}
+                          color={translationColor}
+                          edge="end"
+                          neuralId={`word:${w.id}:${l.code}`}
+                          neuralLabel="ترجمه"
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
