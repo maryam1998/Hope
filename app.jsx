@@ -300,6 +300,91 @@ async function deleteStoryAudioTimestamps(storyKey) {
 }
 
 // ============================================================
+// پس‌زمینه‌ی سفارشیِ اپ (عکسِ دلخواهِ کاربر برای زمینه‌ی کلِ برنامه) —
+// توی IndexedDB ذخیره می‌شه (نه localStorage)، چون می‌تونه چند مگابایت
+// باشه؛ فقط رویِ همین گوشی/مرورگر می‌مونه، هیچ‌وقت به Supabase یا جایِ
+// دیگه‌ای فرستاده نمی‌شه. یه رکوردِ تکی با کلیدِ ثابتِ "current" کافیه —
+// آپلودِ بعدی همیشه جایگزینِ قبلی می‌شه.
+// ============================================================
+const CUSTOM_BG_DB_NAME = "app-custom-background";
+const CUSTOM_BG_STORE = "bg";
+const CUSTOM_BG_KEY = "current";
+// فرمت‌هایِ عکسِ قابل‌قبول برایِ پس‌زمینه
+const CUSTOM_BG_ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/gif"];
+
+function openCustomBgDB() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") { reject(new Error("indexeddb-unavailable")); return; }
+    const req = indexedDB.open(CUSTOM_BG_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(CUSTOM_BG_STORE)) {
+        db.createObjectStore(CUSTOM_BG_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// رکورد: { blob: Blob, type: string, savedAt: number }
+async function saveCustomBackground(blob, type) {
+  try {
+    const db = await openCustomBgDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(CUSTOM_BG_STORE, "readwrite");
+      tx.objectStore(CUSTOM_BG_STORE).put({ blob, type, savedAt: Date.now() }, CUSTOM_BG_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function getCustomBackground() {
+  try {
+    const db = await openCustomBgDB();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(CUSTOM_BG_STORE, "readonly");
+      const req = tx.objectStore(CUSTOM_BG_STORE).get(CUSTOM_BG_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function deleteCustomBackground() {
+  try {
+    const db = await openCustomBgDB();
+    await new Promise((resolve) => {
+      const tx = db.transaction(CUSTOM_BG_STORE, "readwrite");
+      tx.objectStore(CUSTOM_BG_STORE).delete(CUSTOM_BG_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// تبدیلِ رنگِ هگز (#RRGGBB) به rgba با شفافیتِ دلخواه — برای رو-همِ رنگِ
+// تمِ فعال روی عکسِ پس‌زمینه، تا با هر میزان شفافیتی که کاربر انتخاب کنه
+// متن‌های رویِ صفحه هنوز خوانا بمونن.
+function hexToRgba(hex, alpha) {
+  const h = String(hex || "").replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const r = parseInt(full.substring(0, 2), 16) || 0;
+  const g = parseInt(full.substring(2, 4), 16) || 0;
+  const b = parseInt(full.substring(4, 6), 16) || 0;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// ============================================================
 // ذخیره‌سازیِ دائمیِ «نمایشِ PDF» (عکسِ اصلیِ هر صفحه + ترجمه) در
 // IndexedDBِ خودِ گوشی/مرورگر — تا کاربر مجبور نباشه هر بار که اپ رو
 // می‌بنده/رفرش می‌کنه، دوباره همون فایل رو آپلود و ترجمه کنه. هر صفحه
@@ -2033,9 +2118,13 @@ function loadAppPrefs() {
       // آدمکِ اصلیِ کدنویسی‌شده‌ست (پیش‌فرض)، بقیه‌ی کلیدها از LINGOVA_CHARACTERS
       // میان (تصویرهایِ آماده‌ای که کاربر اضافه کرد).
       mascotCharacter: LINGOVA_CHARACTER_KEYS.includes(parsed.mascotCharacter) ? parsed.mascotCharacter : "classic",
+      // پس‌زمینه‌ی سفارشی — خودِ عکس تو IndexedDB نگه داشته می‌شه (نه اینجا)؛
+      // این دو تا فقط می‌گن آیا نشون داده بشه و با چه میزان شفافیتی.
+      customBgEnabled: parsed.customBgEnabled === true,
+      customBgOpacity: Number.isFinite(parsed.customBgOpacity) ? Math.min(90, Math.max(15, parsed.customBgOpacity)) : 55,
     };
   } catch (e) {
-    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali", highlightColor: HIGHLIGHT_COLOR_PALETTE[0], mascotOutfit: "classic", mascotEnabled: true, mascotCharacter: "classic" };
+    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali", highlightColor: HIGHLIGHT_COLOR_PALETTE[0], mascotOutfit: "classic", mascotEnabled: true, mascotCharacter: "classic", customBgEnabled: false, customBgOpacity: 55 };
   }
 }
 function saveAppPrefs(prefs) {
@@ -6409,10 +6498,31 @@ function LanguageVoiceSettings({ uiLang, colors }) {
   );
 }
 
-function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
+function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCustomBgChange }) {
   const [offlineModalOpen, setOfflineModalOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const panelRef = useRef(null);
+  // پس‌زمینه‌ی سفارشی — پیش‌نمایشِ خودِ همین پنل، مستقل از customBg بالای
+  // App (که همون عکس رو برایِ نمایشِ واقعیِ پشتِ کلِ اپ می‌خونه).
+  const [bgPreviewUrl, setBgPreviewUrl] = useState(null);
+  const [bgBusy, setBgBusy] = useState(false);
+  const [bgError, setBgError] = useState("");
+  const bgInputRef = useRef(null);
+  useEffect(() => {
+    let active = true;
+    let url = null;
+    getCustomBackground().then((record) => {
+      if (!active) return;
+      if (record && record.blob) {
+        url = URL.createObjectURL(record.blob);
+        setBgPreviewUrl(url);
+      }
+    });
+    return () => {
+      active = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, []);
   const uiLang = appPrefs.uiLang || "fa";
   const panelDir = APP_LANGUAGES[uiLang]?.dir || "rtl";
   const panelFont = uiLang === "en" ? fontLatin : fontFa;
@@ -6439,6 +6549,50 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
   }, [open]);
 
   const update = (key, value) => setAppPrefs((prev) => ({ ...prev, [key]: value }));
+
+  // انتخابِ فایلِ عکسِ پس‌زمینه — فقط jpg/jpeg/png/gif قبول می‌شه، بعد تویِ
+  // IndexedDB ذخیره می‌شه (نه localStorage، چون می‌تونه چند مگابایت باشه).
+  const handleBgFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // تا انتخابِ دوباره‌ی همون فایل هم onChange رو دوباره بزنه
+    if (!file) return;
+    setBgError("");
+    const looksLikeAllowedExt = /\.(jpe?g|png|gif)$/i.test(file.name || "");
+    if (!CUSTOM_BG_ALLOWED_TYPES.includes(file.type) && !looksLikeAllowedExt) {
+      setBgError(uiLang === "en" ? "Only JPG, PNG, and GIF images are supported." : "فقط فرمت‌هایِ JPG، PNG و GIF پشتیبانی می‌شن.");
+      return;
+    }
+    const MAX_BYTES = 12 * 1024 * 1024;
+    if (file.size > MAX_BYTES) {
+      setBgError(uiLang === "en" ? "This image is too large (max 12MB)." : "حجمِ این عکس زیاده (حداکثر ۱۲ مگابایت).");
+      return;
+    }
+    setBgBusy(true);
+    const ok = await saveCustomBackground(file, file.type);
+    setBgBusy(false);
+    if (!ok) {
+      setBgError(uiLang === "en" ? "Couldn't save the image — try a smaller file." : "ذخیره‌ی عکس ناموفق بود — یه فایلِ کوچیک‌تر امتحان کن.");
+      return;
+    }
+    setBgPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+    update("customBgEnabled", true);
+    onCustomBgChange?.();
+  };
+
+  const handleRemoveBg = async () => {
+    setBgBusy(true);
+    await deleteCustomBackground();
+    setBgBusy(false);
+    setBgPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    update("customBgEnabled", false);
+    onCustomBgChange?.();
+  };
 
   return (
     <div style={{ position: "relative" }} ref={panelRef}>
@@ -6532,6 +6686,102 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings }) {
                 style={swatchButtonStyle(th.swatch, appPrefs.theme === key)}
               />
             ))}
+          </div>
+
+          {/* Custom background */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            <span>🖼️</span> {uiLang === "en" ? "Custom background" : "پس‌زمینه‌ی سفارشی"}
+          </p>
+          <div style={{ marginBottom: 16 }}>
+            <input
+              ref={bgInputRef}
+              type="file"
+              accept="image/jpeg,image/jpg,image/png,image/gif"
+              onChange={handleBgFileChange}
+              style={{ display: "none" }}
+            />
+            {bgPreviewUrl && (
+              <div
+                style={{
+                  width: "100%",
+                  height: 70,
+                  borderRadius: 10,
+                  marginBottom: 8,
+                  backgroundImage: `url(${bgPreviewUrl})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                  border: `1px solid ${colors.cardBorder}`,
+                  opacity: appPrefs.customBgEnabled ? 1 : 0.4,
+                }}
+              />
+            )}
+            <div className="flex items-center gap-2" style={{ marginBottom: bgPreviewUrl ? 8 : 0 }}>
+              <button
+                onClick={() => bgInputRef.current?.click()}
+                disabled={bgBusy}
+                className="flex items-center gap-1"
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 20,
+                  fontSize: 12,
+                  border: `1px solid ${colors.cardBorder}`,
+                  backgroundColor: "white",
+                  color: colors.ink,
+                  opacity: bgBusy ? 0.6 : 1,
+                }}
+              >
+                {bgBusy && <Loader2 size={12} className="spin" />}
+                {bgPreviewUrl
+                  ? (uiLang === "en" ? "Change photo" : "تغییرِ عکس")
+                  : (uiLang === "en" ? "Upload photo" : "آپلودِ عکس")}
+              </button>
+              {bgPreviewUrl && (
+                <button
+                  onClick={handleRemoveBg}
+                  disabled={bgBusy}
+                  style={{
+                    padding: "5px 12px",
+                    borderRadius: 20,
+                    fontSize: 12,
+                    border: "none",
+                    background: "none",
+                    color: colors.rose,
+                    opacity: bgBusy ? 0.6 : 1,
+                  }}
+                >
+                  {uiLang === "en" ? "Remove" : "حذف"}
+                </button>
+              )}
+            </div>
+            {bgPreviewUrl && (
+              <label className="flex items-center gap-2" style={{ fontSize: 12, color: colors.ink, marginBottom: 8, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={!!appPrefs.customBgEnabled}
+                  onChange={(e) => update("customBgEnabled", e.target.checked)}
+                />
+                {uiLang === "en" ? "Show this background" : "این پس‌زمینه نمایش داده بشه"}
+              </label>
+            )}
+            {bgPreviewUrl && appPrefs.customBgEnabled && (
+              <div>
+                <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 4 }}>
+                  {uiLang === "en" ? "Photo visibility" : "میزانِ نمایانیِ عکس"}
+                </p>
+                <input
+                  type="range"
+                  min={15}
+                  max={90}
+                  value={appPrefs.customBgOpacity ?? 55}
+                  onChange={(e) => update("customBgOpacity", Number(e.target.value))}
+                  style={{ width: "100%" }}
+                />
+              </div>
+            )}
+            {bgError && <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{bgError}</p>}
+            <p style={{ fontSize: 10.5, color: colors.inkSoft, marginTop: 6, opacity: 0.85 }}>
+              {uiLang === "en" ? "JPG, PNG, and GIF are supported." : "فرمت‌هایِ JPG، PNG و GIF پشتیبانی می‌شن."}
+            </p>
           </div>
 
           {/* Font family */}
@@ -7036,7 +7286,13 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
     if (onOverrideClick) {
       onOverrideClick();
       if (onPlayed) onPlayed();
-      if (neuralItemId && !isPlaying) recordNeuralRepeat(neuralItemId, { source: "player" });
+      // 🧬 اولین رشته‌ی عصبی همین لحظه که کاربر جمله رو زد (نه فقط تکرارهای
+      // بعدی) — تا شمارشِ رشته‌ها با تعدادِ واقعیِ خوانده‌شدن‌ها یکی‌به‌یکی
+      // بخونه (خواندنِ اول = رشته‌ی ۱، تکرارِ دوم = رشته‌ی ۲، و…).
+      if (neuralItemId && !isPlaying) {
+        recordNeuralRepeat(neuralItemId, { source: "player" });
+        addNeuralFiber(neuralItemId);
+      }
       return;
     }
     // نکته‌ی مهم: اگه resolveStartOffset پاس داده شده، به‌جای پراپِ
@@ -7090,13 +7346,22 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
         setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — فعلاً از اینترنت پخش می‌شه`);
       }
       if (onPlayed) onPlayed();
-      if (neuralItemId && !isPlaying) recordNeuralRepeat(neuralItemId, { source: "player" });
+      // 🧬 همون منطقِ بالا: اولین رشته‌ی عصبی همین لحظه‌ی تپ ساخته می‌شه،
+      // بعد هر تکرارِ خودکارِ بعدی (افکتِ repeatFiberRef پایین‌تر) رشته‌های
+      // بعدی رو اضافه می‌کنه.
+      if (neuralItemId && !isPlaying) {
+        recordNeuralRepeat(neuralItemId, { source: "player" });
+        addNeuralFiber(neuralItemId);
+      }
       return;
     }
 
     const result = speechController.toggle(text, code, effectiveStartOffset, forceRepeat ? { loop: true } : undefined);
     if (onPlayed) onPlayed();
-    if (neuralItemId && !isPlaying) recordNeuralRepeat(neuralItemId, { source: "player" });
+    if (neuralItemId && !isPlaying) {
+      recordNeuralRepeat(neuralItemId, { source: "player" });
+      addNeuralFiber(neuralItemId);
+    }
     // "no-voice" دیگه پیش نمی‌آد چون خودکار می‌ره سراغ سرویس آنلاین رایگان
     // (result === "online-fallback")؛ فقط وقتی هیچ راهی — نه گوشی نه آنلاین —
     // ممکن نبود، خطا نشون می‌دیم. به‌جای alert، همین‌جا زیرِ دکمه نشون
@@ -16948,7 +17213,7 @@ const GrammarPanel = React.memo(function GrammarPanel({
 // ---------------------------------------------------------------------------
 // Main App
 // ---------------------------------------------------------------------------
-function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
+function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChange }) {
   const [nativeLang, setNativeLang] = useState("fa");
   // طبق درخواست: هر بار که وارد اکانت می‌شی، زبان‌های مقصد نباید از دفعه‌ی
   // قبل به‌خاطر مونده باشن و از پیش انتخاب‌شده بیان — باید خالی شروع بشه و
@@ -17621,7 +17886,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs }) {
                 {(user?.name || user?.email || "?").trim().charAt(0).toUpperCase()}
               </div>
             )}
-            <SettingsMenu appPrefs={appPrefs} setAppPrefs={setAppPrefs} user={user} onLogout={onLogout} aiSettings={aiSettings} />
+            <SettingsMenu appPrefs={appPrefs} setAppPrefs={setAppPrefs} user={user} onLogout={onLogout} aiSettings={aiSettings} onCustomBgChange={onCustomBgChange} />
           </div>
         </div>
         <p style={{ color: colors.headerText, opacity: 0.85, fontSize: 13.5, fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }}>
@@ -22364,6 +22629,31 @@ export default function App() {
 
   useEffect(() => saveAppPrefs(appPrefs), [appPrefs]);
 
+  // پس‌زمینه‌ی سفارشی — عکسِ خودِ کاربر از IndexedDB خونده می‌شه و به یه
+  // object URL تبدیل می‌شه. customBgVersion فقط یه شمارنده‌ست: هر وقت از
+  // تنظیمات عکسِ جدیدی آپلود/حذف بشه، این رو یکی زیاد می‌کنیم تا همین
+  // useEffect دوباره از IndexedDB بخونه.
+  const [customBg, setCustomBg] = useState(null);
+  const [customBgVersion, setCustomBgVersion] = useState(0);
+  useEffect(() => {
+    let active = true;
+    let objectUrl = null;
+    getCustomBackground().then((record) => {
+      if (!active) return;
+      if (record && record.blob) {
+        objectUrl = URL.createObjectURL(record.blob);
+        setCustomBg({ url: objectUrl });
+      } else {
+        setCustomBg(null);
+      }
+    });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [customBgVersion]);
+  const onCustomBgChange = useCallback(() => setCustomBgVersion((v) => v + 1), []);
+
   // سشن واقعی Supabase: هم موقع بارگذاری اول صفحه (مثلاً بعد از برگشتن از
   // صفحه‌ی ورود گوگل) چک می‌کنیم، هم روی هر تغییر (ورود/خروج/تازه‌سازی توکن)
   // گوش می‌دیم. خود Supabase سشن رو تو localStorage نگه می‌داره، پس با
@@ -22457,6 +22747,18 @@ export default function App() {
     "--font-latin": font.latin,
     zoom: fontSize.zoom,
     minHeight: "100vh",
+    // پس‌زمینه‌ی سفارشی: عکسِ کاربر + یه لایه‌ی رنگِ همون تمِ فعال روش، با
+    // شفافیتی که از تنظیمات انتخاب کرده (customBgOpacity = میزانِ نمایانیِ
+    // خودِ عکس؛ هرچی کمتر، لایه‌ی رنگِ زیرش برای خواناترشدنِ متن‌ها پررنگ‌تر).
+    ...(appPrefs.customBgEnabled && customBg?.url
+      ? {
+          backgroundImage: `linear-gradient(${hexToRgba(theme.paper, 1 - (appPrefs.customBgOpacity ?? 55) / 100)}, ${hexToRgba(theme.paper, 1 - (appPrefs.customBgOpacity ?? 55) / 100)}), url(${customBg.url})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
+          backgroundAttachment: "fixed",
+        }
+      : {}),
   };
 
   if (checkingSession) {
@@ -22477,6 +22779,7 @@ export default function App() {
           user={user}
           appPrefs={appPrefs}
           setAppPrefs={setAppPrefs}
+          onCustomBgChange={onCustomBgChange}
           onLogout={async () => {
             try {
               await supabase.auth.signOut();
