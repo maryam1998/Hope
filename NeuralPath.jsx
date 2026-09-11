@@ -259,6 +259,56 @@ const DEFAULT_C = {
   teal: "#1B4640",
 };
 
+// ---------------------------------------------------------------------------
+// تبدیلاتِ تاریخِ شمسی/میلادی — نسخه‌ی استاندارد
+// ---------------------------------------------------------------------------
+const PERSIAN_MONTHS_FULL = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
+const EN_MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function gregorianToJalali(gy, gm, gd) {
+  const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+  let jy;
+  if (gy > 1600) { jy = 979; gy -= 1600; } else { jy = 0; gy -= 621; }
+  const gy2 = gm > 2 ? gy + 1 : gy;
+  let days = 365 * gy + Math.floor((gy2 + 3) / 4) - Math.floor((gy2 + 99) / 100) + Math.floor((gy2 + 399) / 400) - 80 + gd + g_d_m[gm - 1];
+  jy += 33 * Math.floor(days / 12053);
+  days %= 12053;
+  jy += 4 * Math.floor(days / 1461);
+  days %= 1461;
+  if (days > 365) { jy += Math.floor((days - 1) / 365); days = (days - 1) % 365; }
+  let jm, jd;
+  if (days < 186) { jm = 1 + Math.floor(days / 31); jd = 1 + (days % 31); }
+  else { jm = 7 + Math.floor((days - 186) / 30); jd = 1 + ((days - 186) % 30); }
+  return [jy, jm, jd];
+}
+
+function jalaliToGregorian(jy, jm, jd) {
+  let gy = jy > 979 ? 1600 : 621;
+  if (jy > 979) jy -= 979;
+  let days = 365 * jy + Math.floor(jy / 33) * 8 + Math.floor(((jy % 33) + 3) / 4) + 78 + jd + (jm < 7 ? (jm - 1) * 31 : (jm - 7) * 30 + 186);
+  gy += 400 * Math.floor(days / 146097);
+  days %= 146097;
+  if (days > 36524) { gy += 100 * Math.floor(--days / 36524); days %= 36524; if (days >= 365) days++; }
+  gy += 4 * Math.floor(days / 1461);
+  days %= 1461;
+  if (days > 365) { gy += Math.floor((days - 1) / 365); days = (days - 1) % 365; }
+  let gd = days + 1;
+  const isLeap = (gy % 4 === 0 && gy % 100 !== 0) || gy % 400 === 0;
+  const monthDays = [0, 31, isLeap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  let gm = 1;
+  while (gm <= 12 && gd > monthDays[gm]) { gd -= monthDays[gm]; gm++; }
+  return [gy, gm, gd];
+}
+
+function isJalaliLeapYear(jy) {
+  const [gy, gm, gd] = jalaliToGregorian(jy, 12, 30);
+  const [ry, rm, rd] = gregorianToJalali(gy, gm, gd);
+  return ry === jy && rm === 12 && rd === 30;
+}
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+function toEnDigits(s) { return String(s).replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))); }
+
 function navBtnStyle(c) {
   return {
     width: 24,
@@ -273,45 +323,76 @@ function navBtnStyle(c) {
 }
 
 function DayGrid({ cursor, setCursor, byDay, c }) {
-  const year = cursor.getFullYear();
-  const month = cursor.getMonth();
-  const first = new Date(year, month, 1);
-  const startWeekday = first.getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  // cursor یه Date میلادیه؛ معادلِ شمسیش رو در نظر می‌گیریم.
+  const [jy, jm] = gregorianToJalali(cursor.getFullYear(), cursor.getMonth() + 1, cursor.getDate());
+  const daysInMonth = jm <= 6 ? 31 : jm <= 11 ? 30 : (isJalaliLeapYear(jy) ? 30 : 29);
+
+  const [gy0, gm0, gd0] = jalaliToGregorian(jy, jm, 1);
+  const firstDate = new Date(gy0, gm0 - 1, gd0);
+  // هفته‌ی ایرانی از شنبه شروع می‌شه: ش=0, ی=1, ..., ج=6
+  // JS getDay(): Sun=0 ... Sat=6 → (getDay()+1)%7 می‌ده شنبه=0
+  const startCol = (firstDate.getDay() + 1) % 7;
+
   const cells = [];
-  for (let i = 0; i < startWeekday; i++) cells.push(null);
+  for (let i = 0; i < startCol; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  let monthLabel = `${month + 1}/${year}`;
-  try {
-    monthLabel = cursor.toLocaleDateString("fa-IR", { month: "long", year: "numeric" });
-  } catch {}
-  const todayKey = dayKey(Date.now());
+
+  const [gyEnd, gmEnd, gdEnd] = jalaliToGregorian(jy, jm, daysInMonth);
+
+  const today = new Date();
+  const [tjy, tjm, tjd] = gregorianToJalali(today.getFullYear(), today.getMonth() + 1, today.getDate());
+
+  // چند روزِ این ماه تمرین ثبت شده؟
+  let recordedDaysInMonth = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const [gy, gm, gd] = jalaliToGregorian(jy, jm, d);
+    const key = `${gy}-${pad2(gm)}-${pad2(gd)}`;
+    if ((byDay.get(key) || 0) > 0) recordedDaysInMonth++;
+  }
+
+  const goMonth = (delta) => {
+    let ny = jy, nm = jm + delta;
+    while (nm > 12) { nm -= 12; ny += 1; }
+    while (nm < 1) { nm += 12; ny -= 1; }
+    const [gy, gm, gd] = jalaliToGregorian(ny, nm, 1);
+    setCursor(new Date(gy, gm - 1, gd));
+  };
+  const goToday = () => setCursor(new Date());
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <button onClick={() => setCursor(new Date(year, month - 1, 1))} style={navBtnStyle(c)}>‹</button>
-        <span style={{ fontSize: 12.5, fontWeight: 800, color: c.ink }}>{monthLabel}</span>
-        <button onClick={() => setCursor(new Date(year, month + 1, 1))} style={navBtnStyle(c)}>›</button>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
-        {["ی", "د", "س", "چ", "پ", "ج", "ش"].map((d, idx) => (
-          <div key={idx} style={{ textAlign: "center", fontSize: 10, color: c.inkSoft, fontWeight: 700 }}>
-            {d}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 4 }}>
+        <button onClick={() => goMonth(-1)} style={{ ...navBtnStyle(c), width: 30, height: 30, fontSize: 15 }}>‹</button>
+        <div style={{ textAlign: "center", flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: c.ink }}>
+            {PERSIAN_MONTHS_FULL[jm - 1]} {jy}
           </div>
+          <div style={{ fontSize: 9.5, color: c.inkSoft }}>
+            {`${gd0} ${EN_MONTHS_SHORT[gm0 - 1]} – ${gdEnd} ${EN_MONTHS_SHORT[gmEnd - 1]} ${gy0}`}
+          </div>
+        </div>
+        <button onClick={() => goMonth(1)} style={{ ...navBtnStyle(c), width: 30, height: 30, fontSize: 15 }}>›</button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
+        {["ش", "ی", "د", "س", "چ", "پ", "ج"].map((d, idx) => (
+          <div key={idx} style={{ textAlign: "center", fontSize: 10, color: c.inkSoft, fontWeight: 700 }}>{d}</div>
         ))}
         {cells.map((d, idx) => {
           if (d === null) return <div key={idx} />;
-          const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+          const [gy, gm, gd] = jalaliToGregorian(jy, jm, d);
+          const key = `${gy}-${pad2(gm)}-${pad2(gd)}`;
           const n = byDay.get(key) || 0;
-          const isToday = key === todayKey;
+          const isToday = jy === tjy && jm === tjm && d === tjd;
           return (
             <div
               key={idx}
-              title={n ? `${n} تکرار` : ""}
+              title={`${d} ${PERSIAN_MONTHS_FULL[jm - 1]} ${jy} — ${gd} ${EN_MONTHS_SHORT[gm - 1]}${n ? ` · ${n} تکرار` : " · ثبت نشده"}`}
               style={{
+                position: "relative",
                 aspectRatio: "1",
                 display: "flex",
+                flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
                 borderRadius: 7,
@@ -319,15 +400,58 @@ function DayGrid({ cursor, setCursor, byDay, c }) {
                 fontWeight: n ? 800 : 500,
                 background: n ? c.gold : "transparent",
                 color: n ? "#fff" : c.inkSoft,
-                opacity: n ? Math.min(1, 0.45 + n * 0.15) : 1,
                 border: isToday ? `1.5px solid ${c.teal}` : "1px solid transparent",
+                padding: "1px 0",
               }}
             >
-              {d}
+              <span style={{ fontSize: 11, lineHeight: 1.1 }}>{d}</span>
+              <span style={{ fontSize: 7.5, lineHeight: 1, opacity: 0.7, marginTop: 1 }}>{gd}</span>
+              {n > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: 1,
+                    left: 2,
+                    fontSize: 7,
+                    fontWeight: 800,
+                    background: "#fff",
+                    color: c.gold,
+                    borderRadius: 5,
+                    padding: "0 3px",
+                    lineHeight: 1.3,
+                  }}
+                >
+                  {n}
+                </span>
+              )}
             </div>
           );
         })}
       </div>
+
+      {recordedDaysInMonth === 0 && (
+        <p style={{ fontSize: 10.5, color: c.inkSoft, textAlign: "center", marginTop: 8, fontStyle: "italic" }}>
+          این ماه هیچ تمرینی ثبت نشده.
+        </p>
+      )}
+
+      <button
+        onClick={goToday}
+        style={{
+          marginTop: 8,
+          width: "100%",
+          padding: "5px 0",
+          borderRadius: 8,
+          border: `1px solid ${c.border}`,
+          background: c.soft,
+          color: c.ink,
+          fontSize: 10.5,
+          fontWeight: 700,
+          cursor: "pointer",
+        }}
+      >
+        برو به امروز
+      </button>
     </div>
   );
 }
@@ -335,34 +459,60 @@ function DayGrid({ cursor, setCursor, byDay, c }) {
 const FA_MONTHS_SHORT = ["ژان", "فور", "مار", "آور", "می", "ژون", "جول", "اوت", "سپت", "اکت", "نوا", "دسا"];
 
 function MonthGrid({ cursor, setCursor, byMonth, c }) {
-  const year = cursor.getFullYear();
+  const [jy] = gregorianToJalali(cursor.getFullYear(), cursor.getMonth() + 1, cursor.getDate());
+
+  const cells = [];
+  for (let m = 1; m <= 12; m++) {
+    const daysInMonth = m <= 6 ? 31 : m <= 11 ? 30 : (isJalaliLeapYear(jy) ? 30 : 29);
+    const [gyStart, gmStart, gdStart] = jalaliToGregorian(jy, m, 1);
+    const [gyEnd, gmEnd, gdEnd] = jalaliToGregorian(jy, m, daysInMonth);
+    let count = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const [gy, gm] = jalaliToGregorian(jy, m, d);
+      count += byMonth.get(`${gy}-${pad2(gm)}`) || 0;
+    }
+    cells.push({ m, count, gyStart, gmStart, gdStart, gmEnd, gdEnd });
+  }
+
+  const goYear = (delta) => {
+    const [gy, gm, gd] = jalaliToGregorian(jy + delta, 1, 1);
+    setCursor(new Date(gy, gm - 1, gd));
+  };
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <button onClick={() => setCursor(new Date(year - 1, cursor.getMonth(), 1))} style={navBtnStyle(c)}>‹</button>
-        <span style={{ fontSize: 12.5, fontWeight: 800, color: c.ink }}>{year}</span>
-        <button onClick={() => setCursor(new Date(year + 1, cursor.getMonth(), 1))} style={navBtnStyle(c)}>›</button>
+        <button onClick={() => goYear(-1)} style={{ ...navBtnStyle(c), width: 30, height: 30, fontSize: 15 }}>‹</button>
+        <span style={{ fontSize: 12.5, fontWeight: 800, color: c.ink }}>{jy}</span>
+        <button onClick={() => goYear(1)} style={{ ...navBtnStyle(c), width: 30, height: 30, fontSize: 15 }}>›</button>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
-        {Array.from({ length: 12 }, (_, m) => {
-          const key = `${year}-${String(m + 1).padStart(2, "0")}`;
-          const n = byMonth.get(key) || 0;
-          return (
-            <div
-              key={m}
-              style={{
-                padding: "8px 4px",
-                borderRadius: 8,
-                textAlign: "center",
-                background: n ? c.goldSoft : c.soft,
-                border: `1px solid ${c.border}`,
-              }}
-            >
-              <div style={{ fontSize: 10, color: c.inkSoft, fontWeight: 700 }}>{FA_MONTHS_SHORT[m]}</div>
-              <div style={{ fontSize: 13, color: c.ink, fontWeight: 800 }}>{n || "—"}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 5 }}>
+        {cells.map((cell) => (
+          <div
+            key={cell.m}
+            title={`${PERSIAN_MONTHS_FULL[cell.m - 1]} ${jy} — از ${cell.gdStart} ${EN_MONTHS_SHORT[cell.gmStart - 1]} تا ${cell.gdEnd} ${EN_MONTHS_SHORT[cell.gmEnd - 1]}${cell.count ? ` · ${cell.count} تکرار` : " · ثبت نشده"}`}
+            onClick={() => {
+              const [gy, gm, gd] = jalaliToGregorian(jy, cell.m, 1);
+              setCursor(new Date(gy, gm - 1, gd));
+            }}
+            style={{
+              padding: "6px 3px",
+              borderRadius: 8,
+              textAlign: "center",
+              background: cell.count ? c.goldSoft : c.soft,
+              border: `1px solid ${cell.count ? c.gold : c.border}`,
+              cursor: "pointer",
+            }}
+          >
+            <div style={{ fontSize: 10.5, color: c.ink, fontWeight: 700 }}>{PERSIAN_MONTHS_FULL[cell.m - 1]}</div>
+            <div style={{ fontSize: 8.5, color: c.inkSoft }}>
+              {EN_MONTHS_SHORT[cell.gmStart - 1]}–{EN_MONTHS_SHORT[cell.gmEnd - 1]}
             </div>
-          );
-        })}
+            <div style={{ fontSize: 12, color: cell.count ? c.gold : c.inkSoft, fontWeight: 800 }}>
+              {cell.count || "—"}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -374,22 +524,28 @@ function YearList({ byYear, c }) {
     return <p style={{ fontSize: 12, color: c.inkSoft, textAlign: "center", padding: "6px 0" }}>هنوز داده‌ای برای نمای سالانه نیست.</p>;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {years.map((y) => (
-        <div
-          key={y}
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            padding: "7px 10px",
-            borderRadius: 8,
-            background: c.soft,
-            border: `1px solid ${c.border}`,
-          }}
-        >
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: c.ink }}>{y}</span>
-          <span style={{ fontSize: 12.5, fontWeight: 800, color: c.gold }}>{byYear.get(y)} تکرار</span>
-        </div>
-      ))}
+      {years.map((gy) => {
+        // معادلِ تقریبیِ شمسی: اول ژانویه‌ی همون سال میلادی رو تبدیل کن
+        const [jy] = gregorianToJalali(Number(gy), 1, 1);
+        return (
+          <div
+            key={gy}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              padding: "7px 10px",
+              borderRadius: 8,
+              background: c.soft,
+              border: `1px solid ${c.border}`,
+            }}
+          >
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: c.ink }}>
+              {gy} <span style={{ fontSize: 10, color: c.inkSoft }}>({jy} شمسی)</span>
+            </span>
+            <span style={{ fontSize: 12.5, fontWeight: 800, color: c.gold }}>{byYear.get(gy)} تکرار</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
