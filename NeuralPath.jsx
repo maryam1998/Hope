@@ -260,6 +260,37 @@ const DEFAULT_C = {
 };
 
 // ---------------------------------------------------------------------------
+// اتصال به تنظیمِ تقویمِ app.jsx — از همون localStorage می‌خونیم که خودِ
+// اپ تنظیمات رو اونجا ذخیره می‌کنه. هم به رویدادِ storage (تغییر بین تب‌ها)
+// گوش می‌دیم، هم به رویدادِ custom (تغییر تو همون تب).
+// ---------------------------------------------------------------------------
+const APP_PREFS_KEY = "phrasebook-app-prefs";
+const APP_PREFS_CHANGED_EVENT = "phrasebook:appPrefsChanged";
+
+function getCalendarSystem() {
+  try {
+    const raw = window.localStorage.getItem(APP_PREFS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return ["jalali", "gregorian", "both"].includes(parsed.calendarSystem) ? parsed.calendarSystem : "jalali";
+  } catch {
+    return "jalali";
+  }
+}
+function useCalendarSystem() {
+  const [cs, setCs] = useState(getCalendarSystem);
+  useEffect(() => {
+    const refresh = () => setCs(getCalendarSystem());
+    window.addEventListener("storage", refresh);
+    window.addEventListener(APP_PREFS_CHANGED_EVENT, refresh);
+    return () => {
+      window.removeEventListener("storage", refresh);
+      window.removeEventListener(APP_PREFS_CHANGED_EVENT, refresh);
+    };
+  }, []);
+  return cs;
+}
+
+// ---------------------------------------------------------------------------
 // تبدیلاتِ تاریخِ شمسی/میلادی — نسخه‌ی استاندارد
 // ---------------------------------------------------------------------------
 const PERSIAN_MONTHS_FULL = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
@@ -322,32 +353,94 @@ function navBtnStyle(c) {
   };
 }
 
-function DayGrid({ cursor, setCursor, byDay, c }) {
-  // cursor یه Date میلادیه؛ معادلِ شمسیش رو در نظر می‌گیریم.
+function DayGrid({ cursor, setCursor, byDay, c, calendarSystem }) {
+  const isGregorian = calendarSystem === "gregorian";
+  const showSecondary = calendarSystem === "both";
+
+  // ---------- حالتِ میلادی ----------
+  if (isGregorian) {
+    const gyear = cursor.getFullYear();
+    const gmonth = cursor.getMonth();
+    const daysInMonth = new Date(gyear, gmonth + 1, 0).getDate();
+    const startCol = new Date(gyear, gmonth, 1).getDay(); // یکشنبه=۰
+    const cells = [];
+    for (let i = 0; i < startCol; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+    const today = new Date();
+    let recorded = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+      if ((byDay.get(`${gyear}-${pad2(gmonth + 1)}-${pad2(d)}`) || 0) > 0) recorded++;
+    }
+    return (
+      <div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <button onClick={() => setCursor(new Date(gyear, gmonth - 1, 1))} style={{ ...navBtnStyle(c), width: 30, height: 30, fontSize: 15 }}>‹</button>
+          <span style={{ fontSize: 12.5, fontWeight: 800, color: c.ink }}>
+            {["January","February","March","April","May","June","July","August","September","October","November","December"][gmonth]} {gyear}
+          </span>
+          <button onClick={() => setCursor(new Date(gyear, gmonth + 1, 1))} style={{ ...navBtnStyle(c), width: 30, height: 30, fontSize: 15 }}>›</button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
+          {["S","M","T","W","T","F","S"].map((d, i) => (
+            <div key={i} style={{ textAlign: "center", fontSize: 10, color: c.inkSoft, fontWeight: 700 }}>{d}</div>
+          ))}
+          {cells.map((d, i) => {
+            if (d === null) return <div key={i} />;
+            const key = `${gyear}-${pad2(gmonth + 1)}-${pad2(d)}`;
+            const n = byDay.get(key) || 0;
+            const isToday = today.getFullYear() === gyear && today.getMonth() === gmonth && today.getDate() === d;
+            return (
+              <div
+                key={i}
+                title={`${d} ${EN_MONTHS_SHORT[gmonth]} ${gyear}${n ? ` · ${n} تکرار` : " · ثبت نشده"}`}
+                style={{
+                  position: "relative", aspectRatio: "1", display: "flex",
+                  alignItems: "center", justifyContent: "center", borderRadius: 7,
+                  fontSize: 11, fontWeight: n ? 800 : 500,
+                  background: n ? c.gold : "transparent",
+                  color: n ? "#fff" : c.inkSoft,
+                  border: isToday ? `1.5px solid ${c.teal}` : "1px solid transparent",
+                }}
+              >
+                {d}
+                {n > 0 && (
+                  <span style={{ position: "absolute", top: 1, left: 2, fontSize: 7, fontWeight: 800, background: "#fff", color: c.gold, borderRadius: 5, padding: "0 3px", lineHeight: 1.3 }}>
+                    {n}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {recorded === 0 && (
+          <p style={{ fontSize: 10.5, color: c.inkSoft, textAlign: "center", marginTop: 8, fontStyle: "italic" }}>
+            این ماه هیچ تمرینی ثبت نشده.
+          </p>
+        )}
+        <button onClick={() => setCursor(new Date())} style={{ marginTop: 8, width: "100%", padding: "5px 0", borderRadius: 8, border: `1px solid ${c.border}`, background: c.soft, color: c.ink, fontSize: 10.5, fontWeight: 700, cursor: "pointer" }}>
+          برو به امروز
+        </button>
+      </div>
+    );
+  }
+
+  // ---------- حالتِ شمسی (یا هردو) ----------
   const [jy, jm] = gregorianToJalali(cursor.getFullYear(), cursor.getMonth() + 1, cursor.getDate());
   const daysInMonth = jm <= 6 ? 31 : jm <= 11 ? 30 : (isJalaliLeapYear(jy) ? 30 : 29);
-
   const [gy0, gm0, gd0] = jalaliToGregorian(jy, jm, 1);
   const firstDate = new Date(gy0, gm0 - 1, gd0);
-  // هفته‌ی ایرانی از شنبه شروع می‌شه: ش=0, ی=1, ..., ج=6
-  // JS getDay(): Sun=0 ... Sat=6 → (getDay()+1)%7 می‌ده شنبه=0
-  const startCol = (firstDate.getDay() + 1) % 7;
-
+  const startCol = (firstDate.getDay() + 1) % 7; // شنبه=۰
   const cells = [];
   for (let i = 0; i < startCol; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-
   const [gyEnd, gmEnd, gdEnd] = jalaliToGregorian(jy, jm, daysInMonth);
-
   const today = new Date();
   const [tjy, tjm, tjd] = gregorianToJalali(today.getFullYear(), today.getMonth() + 1, today.getDate());
 
-  // چند روزِ این ماه تمرین ثبت شده؟
-  let recordedDaysInMonth = 0;
+  let recorded = 0;
   for (let d = 1; d <= daysInMonth; d++) {
     const [gy, gm, gd] = jalaliToGregorian(jy, jm, d);
-    const key = `${gy}-${pad2(gm)}-${pad2(gd)}`;
-    if ((byDay.get(key) || 0) > 0) recordedDaysInMonth++;
+    if ((byDay.get(`${gy}-${pad2(gm)}-${pad2(gd)}`) || 0) > 0) recorded++;
   }
 
   const goMonth = (delta) => {
@@ -357,7 +450,6 @@ function DayGrid({ cursor, setCursor, byDay, c }) {
     const [gy, gm, gd] = jalaliToGregorian(ny, nm, 1);
     setCursor(new Date(gy, gm - 1, gd));
   };
-  const goToday = () => setCursor(new Date());
 
   return (
     <div>
@@ -367,37 +459,32 @@ function DayGrid({ cursor, setCursor, byDay, c }) {
           <div style={{ fontSize: 12.5, fontWeight: 800, color: c.ink }}>
             {PERSIAN_MONTHS_FULL[jm - 1]} {jy}
           </div>
-          <div style={{ fontSize: 9.5, color: c.inkSoft }}>
-            {`${gd0} ${EN_MONTHS_SHORT[gm0 - 1]} – ${gdEnd} ${EN_MONTHS_SHORT[gmEnd - 1]} ${gy0}`}
-          </div>
+          {showSecondary && (
+            <div style={{ fontSize: 9.5, color: c.inkSoft }}>
+              {`${gd0} ${EN_MONTHS_SHORT[gm0 - 1]} – ${gdEnd} ${EN_MONTHS_SHORT[gmEnd - 1]} ${gy0}`}
+            </div>
+          )}
         </div>
         <button onClick={() => goMonth(1)} style={{ ...navBtnStyle(c), width: 30, height: 30, fontSize: 15 }}>›</button>
       </div>
-
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
-        {["ش", "ی", "د", "س", "چ", "پ", "ج"].map((d, idx) => (
-          <div key={idx} style={{ textAlign: "center", fontSize: 10, color: c.inkSoft, fontWeight: 700 }}>{d}</div>
+        {["ش","ی","د","س","چ","پ","ج"].map((d, i) => (
+          <div key={i} style={{ textAlign: "center", fontSize: 10, color: c.inkSoft, fontWeight: 700 }}>{d}</div>
         ))}
-        {cells.map((d, idx) => {
-          if (d === null) return <div key={idx} />;
+        {cells.map((d, i) => {
+          if (d === null) return <div key={i} />;
           const [gy, gm, gd] = jalaliToGregorian(jy, jm, d);
           const key = `${gy}-${pad2(gm)}-${pad2(gd)}`;
           const n = byDay.get(key) || 0;
           const isToday = jy === tjy && jm === tjm && d === tjd;
           return (
             <div
-              key={idx}
-              title={`${d} ${PERSIAN_MONTHS_FULL[jm - 1]} ${jy} — ${gd} ${EN_MONTHS_SHORT[gm - 1]}${n ? ` · ${n} تکرار` : " · ثبت نشده"}`}
+              key={i}
+              title={`${d} ${PERSIAN_MONTHS_FULL[jm - 1]} ${jy}${showSecondary ? ` — ${gd} ${EN_MONTHS_SHORT[gm - 1]}` : ""}${n ? ` · ${n} تکرار` : " · ثبت نشده"}`}
               style={{
-                position: "relative",
-                aspectRatio: "1",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                borderRadius: 7,
-                fontSize: 10.5,
-                fontWeight: n ? 800 : 500,
+                position: "relative", aspectRatio: "1", display: "flex",
+                flexDirection: "column", alignItems: "center", justifyContent: "center",
+                borderRadius: 7, fontSize: 10.5, fontWeight: n ? 800 : 500,
                 background: n ? c.gold : "transparent",
                 color: n ? "#fff" : c.inkSoft,
                 border: isToday ? `1.5px solid ${c.teal}` : "1px solid transparent",
@@ -405,22 +492,11 @@ function DayGrid({ cursor, setCursor, byDay, c }) {
               }}
             >
               <span style={{ fontSize: 11, lineHeight: 1.1 }}>{d}</span>
-              <span style={{ fontSize: 7.5, lineHeight: 1, opacity: 0.7, marginTop: 1 }}>{gd}</span>
+              {showSecondary && (
+                <span style={{ fontSize: 7.5, lineHeight: 1, opacity: 0.7, marginTop: 1 }}>{gd}</span>
+              )}
               {n > 0 && (
-                <span
-                  style={{
-                    position: "absolute",
-                    top: 1,
-                    left: 2,
-                    fontSize: 7,
-                    fontWeight: 800,
-                    background: "#fff",
-                    color: c.gold,
-                    borderRadius: 5,
-                    padding: "0 3px",
-                    lineHeight: 1.3,
-                  }}
-                >
+                <span style={{ position: "absolute", top: 1, left: 2, fontSize: 7, fontWeight: 800, background: "#fff", color: c.gold, borderRadius: 5, padding: "0 3px", lineHeight: 1.3 }}>
                   {n}
                 </span>
               )}
@@ -428,28 +504,12 @@ function DayGrid({ cursor, setCursor, byDay, c }) {
           );
         })}
       </div>
-
-      {recordedDaysInMonth === 0 && (
+      {recorded === 0 && (
         <p style={{ fontSize: 10.5, color: c.inkSoft, textAlign: "center", marginTop: 8, fontStyle: "italic" }}>
           این ماه هیچ تمرینی ثبت نشده.
         </p>
       )}
-
-      <button
-        onClick={goToday}
-        style={{
-          marginTop: 8,
-          width: "100%",
-          padding: "5px 0",
-          borderRadius: 8,
-          border: `1px solid ${c.border}`,
-          background: c.soft,
-          color: c.ink,
-          fontSize: 10.5,
-          fontWeight: 700,
-          cursor: "pointer",
-        }}
-      >
+      <button onClick={() => setCursor(new Date())} style={{ marginTop: 8, width: "100%", padding: "5px 0", borderRadius: 8, border: `1px solid ${c.border}`, background: c.soft, color: c.ink, fontSize: 10.5, fontWeight: 700, cursor: "pointer" }}>
         برو به امروز
       </button>
     </div>
@@ -458,27 +518,61 @@ function DayGrid({ cursor, setCursor, byDay, c }) {
 
 const FA_MONTHS_SHORT = ["ژان", "فور", "مار", "آور", "می", "ژون", "جول", "اوت", "سپت", "اکت", "نوا", "دسا"];
 
-function MonthGrid({ cursor, setCursor, byMonth, c }) {
-  const [jy] = gregorianToJalali(cursor.getFullYear(), cursor.getMonth() + 1, cursor.getDate());
+function MonthGrid({ cursor, setCursor, byMonth, c, calendarSystem }) {
+  const isGregorian = calendarSystem === "gregorian";
+  const showSecondary = calendarSystem === "both";
 
+  // ---------- میلادی ----------
+  if (isGregorian) {
+    const gyear = cursor.getFullYear();
+    const cells = [];
+    for (let m = 0; m < 12; m++) {
+      let count = 0;
+      const daysInMonth = new Date(gyear, m + 1, 0).getDate();
+      for (let d = 1; d <= daysInMonth; d++) count += byMonth.get(`${gyear}-${pad2(m + 1)}`) || 0;
+      cells.push({ m, count });
+    }
+    return (
+      <div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <button onClick={() => setCursor(new Date(gyear - 1, 0, 1))} style={{ ...navBtnStyle(c), width: 30, height: 30, fontSize: 15 }}>‹</button>
+          <span style={{ fontSize: 12.5, fontWeight: 800, color: c.ink }}>{gyear}</span>
+          <button onClick={() => setCursor(new Date(gyear + 1, 0, 1))} style={{ ...navBtnStyle(c), width: 30, height: 30, fontSize: 15 }}>›</button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 5 }}>
+          {cells.map((cell) => (
+            <div
+              key={cell.m}
+              onClick={() => setCursor(new Date(gyear, cell.m, 1))}
+              style={{ padding: "6px 3px", borderRadius: 8, textAlign: "center", background: cell.count ? c.goldSoft : c.soft, border: `1px solid ${cell.count ? c.gold : c.border}`, cursor: "pointer" }}
+            >
+              <div style={{ fontSize: 10.5, color: c.ink, fontWeight: 700 }}>{EN_MONTHS_SHORT[cell.m]}</div>
+              <div style={{ fontSize: 12, color: cell.count ? c.gold : c.inkSoft, fontWeight: 800 }}>{cell.count || "—"}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- شمسی / هر دو ----------
+  const [jy] = gregorianToJalali(cursor.getFullYear(), cursor.getMonth() + 1, cursor.getDate());
   const cells = [];
   for (let m = 1; m <= 12; m++) {
     const daysInMonth = m <= 6 ? 31 : m <= 11 ? 30 : (isJalaliLeapYear(jy) ? 30 : 29);
-    const [gyStart, gmStart, gdStart] = jalaliToGregorian(jy, m, 1);
-    const [gyEnd, gmEnd, gdEnd] = jalaliToGregorian(jy, m, daysInMonth);
+    const [gyS, gmS, gdS] = jalaliToGregorian(jy, m, 1);
+    const [gyE, gmE, gdE] = jalaliToGregorian(jy, m, daysInMonth);
     let count = 0;
     for (let d = 1; d <= daysInMonth; d++) {
       const [gy, gm] = jalaliToGregorian(jy, m, d);
       count += byMonth.get(`${gy}-${pad2(gm)}`) || 0;
     }
-    cells.push({ m, count, gyStart, gmStart, gdStart, gmEnd, gdEnd });
+    cells.push({ m, count, gyS, gmS, gdS, gmE, gdE });
   }
-
   const goYear = (delta) => {
     const [gy, gm, gd] = jalaliToGregorian(jy + delta, 1, 1);
     setCursor(new Date(gy, gm - 1, gd));
   };
-
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
@@ -490,27 +584,17 @@ function MonthGrid({ cursor, setCursor, byMonth, c }) {
         {cells.map((cell) => (
           <div
             key={cell.m}
-            title={`${PERSIAN_MONTHS_FULL[cell.m - 1]} ${jy} — از ${cell.gdStart} ${EN_MONTHS_SHORT[cell.gmStart - 1]} تا ${cell.gdEnd} ${EN_MONTHS_SHORT[cell.gmEnd - 1]}${cell.count ? ` · ${cell.count} تکرار` : " · ثبت نشده"}`}
             onClick={() => {
               const [gy, gm, gd] = jalaliToGregorian(jy, cell.m, 1);
               setCursor(new Date(gy, gm - 1, gd));
             }}
-            style={{
-              padding: "6px 3px",
-              borderRadius: 8,
-              textAlign: "center",
-              background: cell.count ? c.goldSoft : c.soft,
-              border: `1px solid ${cell.count ? c.gold : c.border}`,
-              cursor: "pointer",
-            }}
+            style={{ padding: "6px 3px", borderRadius: 8, textAlign: "center", background: cell.count ? c.goldSoft : c.soft, border: `1px solid ${cell.count ? c.gold : c.border}`, cursor: "pointer" }}
           >
             <div style={{ fontSize: 10.5, color: c.ink, fontWeight: 700 }}>{PERSIAN_MONTHS_FULL[cell.m - 1]}</div>
-            <div style={{ fontSize: 8.5, color: c.inkSoft }}>
-              {EN_MONTHS_SHORT[cell.gmStart - 1]}–{EN_MONTHS_SHORT[cell.gmEnd - 1]}
-            </div>
-            <div style={{ fontSize: 12, color: cell.count ? c.gold : c.inkSoft, fontWeight: 800 }}>
-              {cell.count || "—"}
-            </div>
+            {showSecondary && (
+              <div style={{ fontSize: 8.5, color: c.inkSoft }}>{EN_MONTHS_SHORT[cell.gmS - 1]}–{EN_MONTHS_SHORT[cell.gmE - 1]}</div>
+            )}
+            <div style={{ fontSize: 12, color: cell.count ? c.gold : c.inkSoft, fontWeight: 800 }}>{cell.count || "—"}</div>
           </div>
         ))}
       </div>
@@ -518,29 +602,24 @@ function MonthGrid({ cursor, setCursor, byMonth, c }) {
   );
 }
 
-function YearList({ byYear, c }) {
+function YearList({ byYear, c, calendarSystem }) {
   const years = Array.from(byYear.keys()).sort();
   if (years.length === 0)
     return <p style={{ fontSize: 12, color: c.inkSoft, textAlign: "center", padding: "6px 0" }}>هنوز داده‌ای برای نمای سالانه نیست.</p>;
+  const isGregorian = calendarSystem === "gregorian";
+  const showSecondary = calendarSystem === "both";
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {years.map((gy) => {
-        // معادلِ تقریبیِ شمسی: اول ژانویه‌ی همون سال میلادی رو تبدیل کن
         const [jy] = gregorianToJalali(Number(gy), 1, 1);
+        const primary = isGregorian ? gy : jy;
+        const secondaryLabel = isGregorian
+          ? (showSecondary ? `(${jy} شمسی)` : "")
+          : (showSecondary ? `(${gy} میلادی)` : "");
         return (
-          <div
-            key={gy}
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              padding: "7px 10px",
-              borderRadius: 8,
-              background: c.soft,
-              border: `1px solid ${c.border}`,
-            }}
-          >
+          <div key={gy} style={{ display: "flex", justifyContent: "space-between", padding: "7px 10px", borderRadius: 8, background: c.soft, border: `1px solid ${c.border}` }}>
             <span style={{ fontSize: 12.5, fontWeight: 700, color: c.ink }}>
-              {gy} <span style={{ fontSize: 10, color: c.inkSoft }}>({jy} شمسی)</span>
+              {primary} {secondaryLabel && <span style={{ fontSize: 10, color: c.inkSoft }}>{secondaryLabel}</span>}
             </span>
             <span style={{ fontSize: 12.5, fontWeight: 800, color: c.gold }}>{byYear.get(gy)} تکرار</span>
           </div>
@@ -551,6 +630,7 @@ function YearList({ byYear, c }) {
 }
 
 function NeuralCalendar({ events, c }) {
+  const calendarSystem = useCalendarSystem();
   const [mode, setMode] = useState("day");
   const [cursor, setCursor] = useState(() => new Date());
 
@@ -597,9 +677,9 @@ function NeuralCalendar({ events, c }) {
         {tabBtn("month", "ماهانه")}
         {tabBtn("year", "سالانه")}
       </div>
-      {mode === "day" && <DayGrid cursor={cursor} setCursor={setCursor} byDay={byDay} c={c} />}
-      {mode === "month" && <MonthGrid cursor={cursor} setCursor={setCursor} byMonth={byMonth} c={c} />}
-      {mode === "year" && <YearList byYear={byYear} c={c} />}
+      {mode === "day" && <DayGrid cursor={cursor} setCursor={setCursor} byDay={byDay} c={c} calendarSystem={calendarSystem} />}
+      {mode === "month" && <MonthGrid cursor={cursor} setCursor={setCursor} byMonth={byMonth} c={c} calendarSystem={calendarSystem} />}
+      {mode === "year" && <YearList byYear={byYear} c={c} calendarSystem={calendarSystem} />}
     </div>
   );
 }

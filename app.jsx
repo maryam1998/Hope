@@ -2130,6 +2130,10 @@ function loadAppPrefs() {
 function saveAppPrefs(prefs) {
   try {
     localStorage.setItem(APP_PREFS_KEY, JSON.stringify(prefs));
+    // 🧬 به NeuralPath هم خبر بده که تنظیماتِ اپ عوض شده — چون اون فایل
+    // مستقل از این فایله و از همون localStorage می‌خونه؛ این رویداد باعث
+    // می‌شه تقویمِ مسیرِ عصبی همون لحظه خودش رو با تنظیمِ جدید تطبیق بده.
+    window.dispatchEvent(new Event("phrasebook:appPrefsChanged"));
   } catch (e) {}
 }
 
@@ -6924,8 +6928,8 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
           </p>
           <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
             {[
-              ["jalali", "calendarJalali"],
               ["gregorian", "calendarGregorian"],
+              ["jalali", "calendarJalali"],
               ["both", "calendarBoth"],
             ].map(([key, labelKey]) => (
               <button
