@@ -7243,23 +7243,41 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
   const repeatFiberRef = useRef({ fireKey: null, lastSeenRepeat: -1 });
   useEffect(() => {
     if (!neuralItemId) return;
-    if (state.key !== myKey || state.status !== "playing") return;
+    if (!state.key || state.status !== "playing") return;
 
-    // این جمله‌ی خاص، دقیقاً کدوم chunkIndex از پخشِ فعلیه؟ اگه fullText
-    // نداشته باشیم (پخشِ تکیِ همین متن)، همیشه chunk شماره‌ی ۰ خودمونه.
-    let myIdx = 0;
-    if (fullText) {
-      const effectiveStartOffset = resolveStartOffset ? resolveStartOffset() : startOffset;
-      const meta = speechController.getChunksMeta();
-      const off = Number.isInteger(effectiveStartOffset) ? effectiveStartOffset : 0;
-      for (let i = 0; i < meta.length; i++) {
-        if (off >= meta[i].start) myIdx = i;
-        else break;
+    // 🐛 چرا این چکِ جدید لازمه: این SpeakButton در دو حالت مختلف استفاده
+    // می‌شه: (۱) پخشِ کلِ متن (fullText + startOffset)، (۲) پخشِ تکی.
+    // لیستِ مکالماتِ روزمره از حالتِ (۱) استفاده می‌کنه ولی startOffset
+    // رو پاس نمی‌ده، پس myIdx همیشه صفر محاسبه می‌شد و افکت برای جمله‌های
+    // بعدی هیچ‌وقت شلیک نمی‌شد — دقیقاً همون «فقط ۱ رشته ساخته می‌شه».
+    // حالا دو حالت رو جدا پوشش می‌دیم:
+    //   A) کلیدِ پخش === کلیدِ این SpeakButton → با startOffset (اگه باشه)
+    //      بفهم کدوم chunk.
+    //   B) کلید یکسان نیست، ولی متنِ chunkِ در حالِ پخش عیناً همون textِ
+    //      این SpeakButtonه → این SpeakButton یه جمله/لغتِ درونِ اون
+    //      متنِ بزرگ‌تره.
+    let matched = false;
+    if (state.key === myKey) {
+      let myIdx = 0;
+      if (fullText) {
+        const effectiveStartOffset = resolveStartOffset ? resolveStartOffset() : startOffset;
+        if (Number.isInteger(effectiveStartOffset)) {
+          const meta = speechController.getChunksMeta();
+          for (let i = 0; i < meta.length; i++) {
+            if (effectiveStartOffset >= meta[i].start) myIdx = i;
+            else break;
+          }
+        }
       }
+      if (state.chunkIndex === myIdx) matched = true;
+    } else {
+      const chunkText = (speechController.getChunkText(state.chunkIndex) || "").trim().replace(/\s+/g, " ");
+      const ownText = (text || "").trim().replace(/\s+/g, " ");
+      if (chunkText && ownText && chunkText === ownText) matched = true;
     }
-    if (state.chunkIndex !== myIdx) return;
+    if (!matched) return;
 
-    const fireKey = `${myKey}#${myIdx}`;
+    const fireKey = `${state.key}#${state.chunkIndex}#${neuralItemId}`;
     if (repeatFiberRef.current.fireKey !== fireKey) {
       repeatFiberRef.current = { fireKey, lastSeenRepeat: -1 };
     }
@@ -7272,7 +7290,7 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
       repeatFiberRef.current.lastSeenRepeat = done;
       for (let i = 0; i < delta; i++) addNeuralFiber(neuralItemId);
     }
-  }, [state, neuralItemId, myKey, fullText, startOffset, resolveStartOffset]);
+  }, [state, neuralItemId, myKey, text, fullText, startOffset, resolveStartOffset]);
 
   // اگه مسیرِ آنلاینِ جایگزین (وقتی گوشی صدایی برای این زبون نداره) کلاً
   // شکست خورد — نه فقط این دکمه ساکت شد، بلکه واقعاً هیچ صدایی از هیچ
