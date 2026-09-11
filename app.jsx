@@ -3207,6 +3207,12 @@ const speechController = (() => {
     };
     audio.onended = () => {
       if (status !== "playing") return;
+      // بی‌نهایت: همین گروهِ آنلاین رو از نو پخش کن، نه گروهِ بعدی.
+      // کاربر باید خودش دکمه‌ی «جمله‌ی بعد» رو بزنه.
+      if (!singleShot && globalRepeatSetting === "inf") {
+        playOnlineChunkUrls(onlineTtsProviders(onlineChunks[idx], onlineLangForTts), 0, idx);
+        return;
+      }
       playOnlineChunk(nextOnlineIdx(idx));
     };
     audio.onerror = () => {
@@ -3692,7 +3698,6 @@ const speechController = (() => {
       // باگِ گزارش‌شده. الان این تکه‌ها فقط یک‌بار (بدونِ تکرار) خونده
       // می‌شن و بی‌درنگ به تکه‌ی بعدی می‌رن؛ فقط جمله‌ی واقعیِ پایانی تکرار می‌شه.
       if (!singleShot && boundary === "sentence") {
-        const isMultiChunk = chunks.length > 1;
         // تنظیمِ تکرار یعنی «کلاً N بار خونده بشه»، نه «N بار اضافه بر
         // خوندنِ اولش». چون همینِ خط داره برای اولین‌بار تمومِ خوندنش رو
         // اعلام می‌کنه (یعنی همون ۱ بار اول قبلاً اتفاق افتاده)، فقط N-1
@@ -3700,9 +3705,7 @@ const speechController = (() => {
         // مثلاً تنظیمِ ۳، در واقع ۴ بار خونده می‌شد.
         const repeatTarget =
           globalRepeatSetting === "inf"
-            ? isMultiChunk
-              ? CHUNK_REPEAT_INFINITE_CAP
-              : Infinity
+            ? Infinity
             : Math.max(0, (Number(globalRepeatSetting) || 0) - 1);
         if (chunkRepeatsDone < repeatTarget) {
           chunkRepeatsDone += 1;
@@ -7234,7 +7237,10 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
   // دقیقاً همون لحظه‌ها رو می‌گیره و به‌ازای هر تکرارِ واقعی، یه رشته‌ی
   // عصبیِ تازه (addNeuralFiber) برای همین آیتم می‌سازه؛ خواندنِ اولِ جمله
   // (قبل از اولین تکرار) حساب نمی‌شه — فقط خودِ تکرارها.
-  const repeatFiberRef = useRef({ fireKey: null, count: 0 });
+  // 🧬 این افکت تنها مسئولِ ساختِ رشته‌هاست — هم برای خوندنِ خودکار،
+  // هم برای تپِ دستی، هم برای تکرار. با -1 شروع می‌کنیم تا خوندنِ اول
+  // هم به‌عنوانِ رشته حساب بشه.
+  const repeatFiberRef = useRef({ fireKey: null, lastSeenRepeat: -1 });
   useEffect(() => {
     if (!neuralItemId) return;
     if (state.key !== myKey || state.status !== "playing") return;
@@ -7255,12 +7261,15 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
 
     const fireKey = `${myKey}#${myIdx}`;
     if (repeatFiberRef.current.fireKey !== fireKey) {
-      repeatFiberRef.current = { fireKey, count: 0 };
+      repeatFiberRef.current = { fireKey, lastSeenRepeat: -1 };
+    }
+    if (repeatFiberRef.current.lastSeenRepeat > (state.repeatsDone || 0)) {
+      repeatFiberRef.current.lastSeenRepeat = -1;
     }
     const done = state.repeatsDone || 0;
-    if (done > repeatFiberRef.current.count) {
-      const delta = done - repeatFiberRef.current.count;
-      repeatFiberRef.current.count = done;
+    if (done > repeatFiberRef.current.lastSeenRepeat) {
+      const delta = done - repeatFiberRef.current.lastSeenRepeat;
+      repeatFiberRef.current.lastSeenRepeat = done;
       for (let i = 0; i < delta; i++) addNeuralFiber(neuralItemId);
     }
   }, [state, neuralItemId, myKey, fullText, startOffset, resolveStartOffset]);
@@ -7346,22 +7355,11 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
         setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — فعلاً از اینترنت پخش می‌شه`);
       }
       if (onPlayed) onPlayed();
-      // 🧬 همون منطقِ بالا: اولین رشته‌ی عصبی همین لحظه‌ی تپ ساخته می‌شه،
-      // بعد هر تکرارِ خودکارِ بعدی (افکتِ repeatFiberRef پایین‌تر) رشته‌های
-      // بعدی رو اضافه می‌کنه.
-      if (neuralItemId && !isPlaying) {
-        recordNeuralRepeat(neuralItemId, { source: "player" });
-        addNeuralFiber(neuralItemId);
-      }
       return;
     }
 
     const result = speechController.toggle(text, code, effectiveStartOffset, forceRepeat ? { loop: true } : undefined);
     if (onPlayed) onPlayed();
-    if (neuralItemId && !isPlaying) {
-      recordNeuralRepeat(neuralItemId, { source: "player" });
-      addNeuralFiber(neuralItemId);
-    }
     // "no-voice" دیگه پیش نمی‌آد چون خودکار می‌ره سراغ سرویس آنلاین رایگان
     // (result === "online-fallback")؛ فقط وقتی هیچ راهی — نه گوشی نه آنلاین —
     // ممکن نبود، خطا نشون می‌دیم. به‌جای alert، همین‌جا زیرِ دکمه نشون
@@ -14635,7 +14633,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                   ? () => jumpToLineInUserAudio(pi, si, sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0)
                                   : undefined
                               }
-                              neuralId={`story:${currentStoryId}:${pi}:${si}:${storyLang}`}
+                              neuralId={`story:${storyLang}::${s.text}`}
                               neuralLabel="جمله"
                             />
                             <p
@@ -14841,7 +14839,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                   ? () => jumpToLineInUserAudio(pi, 0, paragraphBaseOffsetMap[pi] ?? 0)
                                   : undefined
                               }
-                              neuralId={`story:${currentStoryId}:${pi}:p:${storyLang}`}
+                              neuralId={`story:${storyLang}::${paragraphText}`}
                               neuralLabel="پاراگراف"
                             />
                             <p
