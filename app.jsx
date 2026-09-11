@@ -3292,7 +3292,7 @@ const speechController = (() => {
       lastOffsetByKey.set(key, chunks[chunkIndex].start);
     }
     listeners.forEach((cb) =>
-      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, ttsError, muted, abState, abChunkA, abChunkB })
+      cb({ key, status, chunkIndex, total: chunks.length, rate, globalRepeatSetting, remaining, ttsError, muted, abState, abChunkA, abChunkB, repeatsDone: chunkRepeatsDone })
     );
   }
 
