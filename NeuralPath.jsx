@@ -549,7 +549,7 @@ function NeuralFibers({ fiberCount, habitFormed, c }) {
   );
 }
 
-function NeuralPathCard({ id, label, c, onClose }) {
+function NeuralPathCard({ id, label, c, onClose, dragHandleProps }) {
   const events = useNeuralEvents(id);
   const s = useMemo(() => summarize(events), [events]);
   const ledger = useNeuralLedger(id);
@@ -586,20 +586,30 @@ function NeuralPathCard({ id, label, c, onClose }) {
         boxShadow: "0 8px 24px rgba(0,0,0,0.22)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <div style={{ fontSize: 12, fontWeight: 800, color: c.ink, display: "flex", alignItems: "center", gap: 5 }}>
-          <span>🧬</span>
-          <span>مسیر عصبی این {label}</span>
+      {/* دستگیره‌ی جابجایی — یه نوارِ کوچیکِ بالای کارت + کلِ ردیفِ عنوان،
+          هر دو با انگشت/موس قابلِ کشیدنن (dragHandleProps از رویِ
+          NeuralPathButton میاد). دکمه‌ی ✕ از این قانون مستثناست تا فشار
+          دادنش با شروعِ درگ قاطی نشه. */}
+      <div {...dragHandleProps} style={{ cursor: "grab", touchAction: "none", marginBottom: 6 }}>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 6 }}>
+          <div style={{ width: 34, height: 4, borderRadius: 2, background: c.border }} />
         </div>
-        {onClose && (
-          <button
-            onClick={onClose}
-            aria-label="بستن"
-            style={{ width: 20, height: 20, flexShrink: 0, border: "none", background: "transparent", color: c.inkSoft, fontSize: 13, cursor: "pointer" }}
-          >
-            ✕
-          </button>
-        )}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: c.ink, display: "flex", alignItems: "center", gap: 5 }}>
+            <span>🧬</span>
+            <span>مسیر عصبی این {label}</span>
+          </div>
+          {onClose && (
+            <button
+              onClick={onClose}
+              onPointerDown={(e) => e.stopPropagation()}
+              aria-label="بستن"
+              style={{ width: 20, height: 20, flexShrink: 0, border: "none", background: "transparent", color: c.inkSoft, fontSize: 13, cursor: "pointer" }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       {/* دو نرون («رفتار» و «عادت») در دو سرِ کادر + دسته‌ای از رشته‌های
@@ -734,6 +744,41 @@ export function NeuralPathButton({ id, label, colors: cOverride }) {
   const c = cOverride || DEFAULT_C;
   const safeLabel = label || "مورد";
 
+  // جابجاییِ کارت با انگشت/موس — موقعیتِ کارت به‌صورتِ یه آفستِ نسبیِ
+  // {x,y} از مرکزِ صفحه نگه داشته می‌شه. از Pointer Events (نه Touch/Mouse
+  // جدا) استفاده شده چون هم لمسِ گوشی، هم موسِ دسکتاپ رو با یه کد پوشش
+  // می‌ده؛ setPointerCapture هم باعث می‌شه حتی اگه انگشت سریع حرکت کنه و
+  // از رویِ دستگیره بیرون بره، درگ قطع نشه.
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const dragRef = useRef({ dragging: false, startX: 0, startY: 0, baseX: 0, baseY: 0 });
+
+  const onDragPointerDown = (e) => {
+    e.stopPropagation();
+    dragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, baseX: pos.x, baseY: pos.y };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
+  };
+  const onDragPointerMove = (e) => {
+    if (!dragRef.current.dragging) return;
+    e.stopPropagation();
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    setPos({ x: dragRef.current.baseX + dx, y: dragRef.current.baseY + dy });
+  };
+  const onDragPointerUp = (e) => {
+    dragRef.current.dragging = false;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+  };
+  const dragHandleProps = {
+    onPointerDown: onDragPointerDown,
+    onPointerMove: onDragPointerMove,
+    onPointerUp: onDragPointerUp,
+    onPointerCancel: onDragPointerUp,
+  };
+
   if (!id) return null;
 
   return (
@@ -741,6 +786,9 @@ export function NeuralPathButton({ id, label, colors: cOverride }) {
       <button
         onClick={(e) => {
           e.stopPropagation();
+          // هر بار که کارت از نو باز می‌شه، دوباره از وسطِ صفحه شروع کنه —
+          // نه از جایی که دفعه‌ی قبل کاربر جابجاش کرده بود.
+          setPos({ x: 0, y: 0 });
           setOpen(true);
         }}
         title="مسیر عصبی"
@@ -772,7 +820,11 @@ export function NeuralPathButton({ id, label, colors: cOverride }) {
             style={{
               position: "fixed",
               inset: 0,
-              background: "rgba(20,20,15,0.35)",
+              // 🩹 طبقِ درخواستِ کاربر: این پاپ‌آور دیگه پشتِ خودش رو
+              // کم‌رنگ/تیره نمی‌کنه — پس‌زمینه کاملاً شفافه (صفحه‌ی اصلی
+              // ۱۰۰٪ واضح می‌مونه)؛ این لایه فقط برایِ گرفتنِ کلیکِ «بیرونِ
+              // کارت = بستن» نگه داشته شده.
+              background: "transparent",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -780,8 +832,11 @@ export function NeuralPathButton({ id, label, colors: cOverride }) {
               padding: 16,
             }}
           >
-            <div onClick={(e) => e.stopPropagation()}>
-              <NeuralPathCard id={id} label={safeLabel} c={c} onClose={() => setOpen(false)} />
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
+            >
+              <NeuralPathCard id={id} label={safeLabel} c={c} onClose={() => setOpen(false)} dragHandleProps={dragHandleProps} />
             </div>
           </div>,
           document.body
