@@ -5357,7 +5357,7 @@ const MiniMarkdown = React.memo(function MiniMarkdown({ text, speakCode, nativeL
                   سمت راست می‌شینه)، ولی خط‌های زبانِ خارجی auto می‌شن ltr —
                   اونجا باید edge="end" بدیم وگرنه بلندگو برعکس، سمت چپ
                   می‌افته و انگار تورفتگی/جابه‌جایی داره. */}
-              {shouldSpeak(li) && <SpeakButton text={li} code={speakCode} color={colors.inkSoft} edge={isPersianScriptLine(li) ? undefined : "end"} />}
+              {shouldSpeak(li) && <SpeakButton text={li} code={speakCode} color={colors.inkSoft} edge={isPersianScriptLine(li) ? undefined : "end"} neuralLabel="جمله" />}
               <span style={{ flex: 1 }}>{renderContent(li, `${blocks.length}-${i}`)}</span>
             </li>
           ))}
@@ -5389,7 +5389,7 @@ const MiniMarkdown = React.memo(function MiniMarkdown({ text, speakCode, nativeL
             ...blockAlignStyle,
           }}
         >
-          {shouldSpeak(content) && <SpeakButton text={content} code={speakCode} color={colors.inkSoft} edge={isPersianScriptLine(content) ? undefined : "end"} />}
+          {shouldSpeak(content) && <SpeakButton text={content} code={speakCode} color={colors.inkSoft} edge={isPersianScriptLine(content) ? undefined : "end"} neuralLabel="جمله" />}
           <span style={{ flex: 1 }}>{renderContent(content, blocks.length)}</span>
         </p>
       );
@@ -5409,7 +5409,7 @@ const MiniMarkdown = React.memo(function MiniMarkdown({ text, speakCode, nativeL
     flushList();
     blocks.push(
       <p key={blocks.length} dir={blockDir(line)} className="flex items-start gap-1" style={{ margin: "4px 0", lineHeight: 1.9, ...blockAlignStyle }}>
-        {shouldSpeak(line) && <SpeakButton text={line} code={speakCode} color={colors.inkSoft} edge={isPersianScriptLine(line) ? undefined : "end"} />}
+        {shouldSpeak(line) && <SpeakButton text={line} code={speakCode} color={colors.inkSoft} edge={isPersianScriptLine(line) ? undefined : "end"} neuralLabel="جمله" />}
         <span style={{ flex: 1 }}>{renderContent(line, blocks.length)}</span>
       </p>
     );
@@ -9375,6 +9375,7 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
                         code={langCode}
                         color={colors.goldSoft}
                         onPlayed={onSpeakOffset ? () => onSpeakOffset(activeTermLocalEnd) : undefined}
+                        neuralLabel="لغت"
                       />
                       <span dir="auto" style={{ fontWeight: 800, fontSize: 13 }}>
                         {activeTerm}
@@ -14634,6 +14635,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                   ? () => jumpToLineInUserAudio(pi, si, sentenceOffsetMap[`${pi}-${si}`]?.start ?? 0)
                                   : undefined
                               }
+                              neuralId={`story:${currentStoryId}:${pi}:${si}:${storyLang}`}
+                              neuralLabel="جمله"
                             />
                             <p
                               style={{
@@ -14776,6 +14779,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                         fullText={fullTranslated || translated}
                                         startOffset={translatedStartOffset}
                                         sentenceBoundaries={translatedSentenceBoundariesByLang[code]}
+                                        neuralId={`story:${currentStoryId}:${pi}:${si}:${code}`}
+                                        neuralLabel="ترجمه"
                                       />
                                     )}
                                     <button
@@ -14836,6 +14841,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                   ? () => jumpToLineInUserAudio(pi, 0, paragraphBaseOffsetMap[pi] ?? 0)
                                   : undefined
                               }
+                              neuralId={`story:${currentStoryId}:${pi}:p:${storyLang}`}
+                              neuralLabel="پاراگراف"
                             />
                             <p
                               style={{
@@ -14952,6 +14959,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                     fullText={fullTranslated || translated}
                                     startOffset={translatedStartOffset}
                                     sentenceBoundaries={translatedSentenceBoundariesByLang[code]}
+                                    neuralId={`story:${currentStoryId}:${pi}:p:${code}`}
+                                    neuralLabel="ترجمه"
                                   />
                                 )}
                                 {translated && (
@@ -15618,7 +15627,7 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                           </button>
                         </span>
                         <span className="flex items-center gap-1" style={{ flexShrink: 0 }} data-jump-exclude="1">
-                          <SpeakButton text={e.word} code={code} color={colors.gold} />
+                          <SpeakButton text={e.word} code={code} color={colors.gold} neuralId={`word:${e.word}:${code}`} neuralLabel="لغت" />
                           <button
                             onClick={() => removeSavedStoryWord(e.word, code)}
                             style={{ color: colors.inkSoft, display: "flex" }}
@@ -15670,7 +15679,7 @@ function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabe
                             >
                               {translation || "…"}
                             </div>
-                            {translation && <SpeakButton text={translation} code={toLang} color={colors.teal} />}
+                            {translation && <SpeakButton text={translation} code={toLang} color={colors.teal} neuralId={`word:${e.word}:${toLang}`} neuralLabel="ترجمه" />}
                           </div>
                         );
                       })}
@@ -16313,7 +16322,7 @@ const GrammarPanel = React.memo(function GrammarPanel({
         <div style={{ backgroundColor: "white", border: `1px solid ${colors.gold}`, borderRadius: 16, padding: 16 }}>
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <SpeakButton text={pending.word} code={pending.langCode} />
+              <SpeakButton text={pending.word} code={pending.langCode} neuralLabel="لغت" />
               <p dir="auto" style={{ fontWeight: 700 }}>
                 {pending.word}
               </p>
@@ -16537,7 +16546,7 @@ const GrammarPanel = React.memo(function GrammarPanel({
                             {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
                           </span>
                         ) : (
-                          <SpeakButton text={extractSpeakableText(n.markdown) || n.word} code={n.langCode} />
+                          <SpeakButton text={extractSpeakableText(n.markdown) || n.word} code={n.langCode} neuralId={`grammar:${n.id}`} neuralLabel="یادداشت گرامری" />
                         )}
                         <div>
                           <p dir="auto" style={{ fontWeight: 700, fontSize: 14 }}>
@@ -18782,6 +18791,8 @@ const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, t
                       edge="end"
                       fullText={nativeInfo.fullText}
                       startOffset={nativeInfo.offsets.find((o) => o.id === p.id)?.start}
+                      neuralId={`phrase:${p.id}:${nativeLang}`}
+                      neuralLabel="عبارت"
                     />
                     {!p.t[nativeLang] && (
                       <NativeTextResolver
@@ -18846,6 +18857,8 @@ const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, t
                             edge="end"
                             fullText={info ? info.fullText : undefined}
                             startOffset={myOffset ? myOffset.start : undefined}
+                            neuralId={`phrase:${p.id}:${l.code}`}
+                            neuralLabel="ترجمه"
                           />
                         )}
                       </div>
@@ -19698,7 +19711,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
           )}
           {translation.status === "done" && (
             <div style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 13 }}>
-              <SpeakButton text={translation.text} code={nativeLang || fallbackLangCode} color={colors.goldSoft} />
+              <SpeakButton text={translation.text} code={nativeLang || fallbackLangCode} color={colors.goldSoft} neuralLabel="ترجمه" />
               <span
                 style={{
                   flex: 1,
@@ -20472,6 +20485,8 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
                 edge="end"
                 fullText={fullText}
                 startOffset={wordOffsets.find((o) => o.id === w.id)?.start}
+                neuralId={`vocabuse:${w.id}:en`}
+                neuralLabel="لغت"
               />
             </div>
             {/* ترجمه‌ی این لغت به همه‌ی زبان‌های مقصدِ انتخاب‌شده — نه فقط
@@ -20696,6 +20711,8 @@ function WordTargetTranslation({ word, wordId, pos, level, langCode, abbr, known
             edge="end"
             fullText={fullText}
             startOffset={myOffset ? myOffset.start : undefined}
+            neuralId={`vocabuse:${wordId}:${langCode}`}
+            neuralLabel="ترجمه"
           />
           <button
             onClick={handleRetry}
@@ -20864,7 +20881,7 @@ function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings, highl
           {translation}
         </span>
       </p>
-      <SpeakButton text={translation} code={targetLang} color={translationColor} edge="end" />
+      <SpeakButton text={translation} code={targetLang} color={translationColor} edge="end" neuralLabel="ترجمه" />
       <button
         onClick={handleRetry}
         disabled={retrying}
@@ -20937,7 +20954,7 @@ function VocabBookExample({ collocation, example, targetLangs, aiSettings, nativ
               />
             </span>
           </p>
-          <SpeakButton text={collocation} code="en" color={colors.teal} edge="end" />
+          <SpeakButton text={collocation} code="en" color={colors.teal} edge="end" neuralLabel="کالوکیشن" />
         </div>
       )}
       {example && (
@@ -20963,7 +20980,7 @@ function VocabBookExample({ collocation, example, targetLangs, aiSettings, nativ
               />
             </span>
           </p>
-          <SpeakButton text={example} code="en" color={colors.teal} edge="end" />
+          <SpeakButton text={example} code="en" color={colors.teal} edge="end" neuralLabel="مثال" />
         </div>
       )}
       {example &&
@@ -21108,7 +21125,7 @@ function WordExampleTranslationLine({ example, word, langCode, targetLang, abbr,
           alignSourceLang={langCode}
         />
       </div>
-      <SpeakButton text={translation} code={targetLang} color={translationColor} edge="end" />
+      <SpeakButton text={translation} code={targetLang} color={translationColor} edge="end" neuralId={`example:${example.id}:${targetLang}`} neuralLabel="ترجمه" />
     </div>
   );
 }
@@ -21149,7 +21166,7 @@ function WordExampleRow({ example, word, langCode, nativeLang, targetLangs, aiSe
             fontSize={13}
           />
         </div>
-        <SpeakButton text={example.text} code={langCode} color={colors.teal} edge="end" />
+        <SpeakButton text={example.text} code={langCode} color={colors.teal} edge="end" neuralId={`example:${example.id}:${langCode}`} neuralLabel="مثال" />
       </div>
       {exampleTargetLangs.map((l) => (
         <WordExampleTranslationLine
@@ -21326,7 +21343,7 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
         <div onClick={() => setShowAnswer((s) => !s)} style={{ cursor: "pointer" }}>
           <div className="flex items-center justify-center gap-2">
             <p style={{ fontWeight: 800, fontSize: 18, color: mainTextColor }}>{getNativeText(current)}</p>
-            <SpeakButton text={getNativeText(current)} code={nativeLang} />
+            <SpeakButton text={getNativeText(current)} code={nativeLang} neuralId={`phrase:${current.id}:${nativeLang}`} neuralLabel="عبارت" />
             {current && !current.t[nativeLang] && (
               <NativeTextResolver
                 resolveKey={`${nativeLang}:${current.id}`}
@@ -21366,7 +21383,7 @@ function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, in
                 <p style={{ fontFamily: fontLatin, color: translationColor, fontWeight: 800, fontSize: 16 }}>
                   {current.t[l.code] ?? "—"}
                 </p>
-                {current.t[l.code] && <SpeakButton text={current.t[l.code]} code={l.code} color={translationColor} edge="end" />}
+                {current.t[l.code] && <SpeakButton text={current.t[l.code]} code={l.code} color={translationColor} edge="end" neuralId={`phrase:${current.id}:${l.code}`} neuralLabel="ترجمه" />}
               </div>
             ))}
           </div>
