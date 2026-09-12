@@ -866,7 +866,13 @@ function NeuralPathCard({ id, label, c, onClose, dragHandleProps }) {
   const nodeStrong = habitFormed || fiberCount >= NEURAL_FIBER_CAP;
   const [showCalendar, setShowCalendar] = useState(false);
 
-  const doToday = () => addNeuralFiber(id);
+  const doToday = () => {
+    // «امروز انجام دادم» هم باید رویِ رشته‌های عصبی (fiberِ ledger) اثر بذاره
+    // هم رویِ خودِ رویدادِ تکرار که تقویم/آمار ازش می‌خونن — تا وقتی کاربر
+    // دستی ثبت می‌کنه، توی تقویم هم با ساعتش (منبع: «ثبتِ دستی») دیده بشه.
+    recordNeuralRepeat(id, { source: "manual" });
+    addNeuralFiber(id);
+  };
   const doMissedDay = () => removeNeuralFiber(id);
   const doToggleHabit = () => toggleHabitFormed(id);
 

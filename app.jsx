@@ -7292,7 +7292,10 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
     if (done > repeatFiberRef.current.lastSeenRepeat) {
       const delta = done - repeatFiberRef.current.lastSeenRepeat;
       repeatFiberRef.current.lastSeenRepeat = done;
-      for (let i = 0; i < delta; i++) addNeuralFiber(neuralItemId);
+      for (let i = 0; i < delta; i++) {
+        recordNeuralRepeat(neuralItemId, { source: "player" });
+        addNeuralFiber(neuralItemId);
+      }
     }
   }, [state, neuralItemId, myKey, text, fullText, startOffset, resolveStartOffset]);
 
