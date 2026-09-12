@@ -8370,7 +8370,18 @@ function MyVoiceRecorder({ color, getAppAudioElement, appAudioActive }) {
     setMicError(false);
     setMixNote("");
     try {
-      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // درخواستِ کیفیتِ بالاترِ میکروفون: حذفِ اکو/نویز و تنظیمِ خودکارِ
+      // گین توسطِ خودِ مرورگر، به‌علاوه‌ی نرخِ نمونه‌برداریِ بالاتر، تا صدایِ
+      // ورودیِ کاربر واضح‌تر و تمیزتر ضبط بشه.
+      const micStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: 1,
+        },
+      });
       micStreamRef.current = micStream;
       let recordStream = micStream;
 
@@ -8386,8 +8397,14 @@ function MyVoiceRecorder({ color, getAppAudioElement, appAudioActive }) {
             const ctx = new AC();
             audioCtxRef.current = ctx;
             const dest = ctx.createMediaStreamDestination();
-            ctx.createMediaStreamSource(micStream).connect(dest);
-            ctx.createMediaStreamSource(appStream).connect(dest);
+            // میکروفون رو تقویت و صدایِ اپ رو کمی کم می‌کنیم تا موقعِ پخشِ
+            // همزمان، صدایِ خودِ کاربر توی فایلِ ضبط‌شده گم/خفه نشه.
+            const micGain = ctx.createGain();
+            micGain.gain.value = 1.8;
+            const appGain = ctx.createGain();
+            appGain.gain.value = 0.45;
+            ctx.createMediaStreamSource(micStream).connect(micGain).connect(dest);
+            ctx.createMediaStreamSource(appStream).connect(appGain).connect(dest);
             recordStream = dest.stream;
           } else {
             setMixNote("صدای اپ الان قابلِ ترکیب نبود؛ فقط صدای خودم ضبط می‌شه");
@@ -8400,7 +8417,8 @@ function MyVoiceRecorder({ color, getAppAudioElement, appAudioActive }) {
       }
 
       chunksRef.current = [];
-      const mr = new MediaRecorder(recordStream);
+      // نرخِ بیتِ بالاتر برای صدایِ ضبط‌شده تا کیفیتِ خروجی واضح‌تر بمونه.
+      const mr = new MediaRecorder(recordStream, { audioBitsPerSecond: 192000 });
       mr.ondataavailable = (ev) => {
         if (ev.data && ev.data.size > 0) chunksRef.current.push(ev.data);
       };
