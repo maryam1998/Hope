@@ -372,7 +372,7 @@ function DayGrid({ cursor, setCursor, byDay, c, calendarSystem, selectedDay, onS
       if ((byDay.get(`${gyear}-${pad2(gmonth + 1)}-${pad2(d)}`) || 0) > 0) recorded++;
     }
     return (
-      <div>
+      <div dir="ltr">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
           <button onClick={() => setCursor(new Date(gyear, gmonth - 1, 1))} style={{ ...navBtnStyle(c), width: 30, height: 30, fontSize: 15 }}>‹</button>
           <span style={{ fontSize: 12.5, fontWeight: 800, color: c.ink }}>
@@ -456,7 +456,7 @@ function DayGrid({ cursor, setCursor, byDay, c, calendarSystem, selectedDay, onS
   };
 
   return (
-    <div>
+    <div dir="ltr">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 4 }}>
         <button onClick={() => goMonth(-1)} style={{ ...navBtnStyle(c), width: 30, height: 30, fontSize: 15 }}>‹</button>
         <div style={{ textAlign: "center", flex: 1, minWidth: 0 }}>
@@ -541,7 +541,7 @@ function MonthGrid({ cursor, setCursor, byMonth, c, calendarSystem }) {
       cells.push({ m, count });
     }
     return (
-      <div>
+      <div dir="ltr">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
           <button onClick={() => setCursor(new Date(gyear - 1, 0, 1))} style={{ ...navBtnStyle(c), width: 30, height: 30, fontSize: 15 }}>‹</button>
           <span style={{ fontSize: 12.5, fontWeight: 800, color: c.ink }}>{gyear}</span>
@@ -582,7 +582,7 @@ function MonthGrid({ cursor, setCursor, byMonth, c, calendarSystem }) {
     setCursor(new Date(gy, gm - 1, gd));
   };
   return (
-    <div>
+    <div dir="ltr">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
         <button onClick={() => goYear(-1)} style={{ ...navBtnStyle(c), width: 30, height: 30, fontSize: 15 }}>‹</button>
         <span style={{ fontSize: 12.5, fontWeight: 800, color: c.ink }}>{jy}</span>
@@ -617,7 +617,7 @@ function YearList({ byYear, c, calendarSystem }) {
   const isGregorian = calendarSystem === "gregorian";
   const showSecondary = calendarSystem === "both";
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div dir="ltr" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {years.map((gy) => {
         const [jy] = gregorianToJalali(Number(gy), 1, 1);
         const primary = isGregorian ? gy : jy;
