@@ -353,7 +353,7 @@ function navBtnStyle(c) {
   };
 }
 
-function DayGrid({ cursor, setCursor, byDay, c, calendarSystem }) {
+function DayGrid({ cursor, setCursor, byDay, c, calendarSystem, selectedDay, onSelectDay }) {
   const isGregorian = calendarSystem === "gregorian";
   const showSecondary = calendarSystem === "both";
 
@@ -389,9 +389,11 @@ function DayGrid({ cursor, setCursor, byDay, c, calendarSystem }) {
             const key = `${gyear}-${pad2(gmonth + 1)}-${pad2(d)}`;
             const n = byDay.get(key) || 0;
             const isToday = today.getFullYear() === gyear && today.getMonth() === gmonth && today.getDate() === d;
+            const isSelected = key === selectedDay;
             return (
               <div
                 key={i}
+                onClick={() => onSelectDay && onSelectDay(key)}
                 title={`${d} ${EN_MONTHS_SHORT[gmonth]} ${gyear}${n ? ` · ${n} تکرار` : " · ثبت نشده"}`}
                 style={{
                   position: "relative", aspectRatio: "1", display: "flex",
@@ -400,6 +402,8 @@ function DayGrid({ cursor, setCursor, byDay, c, calendarSystem }) {
                   background: n ? c.gold : "transparent",
                   color: n ? "#fff" : c.inkSoft,
                   border: isToday ? `1.5px solid ${c.teal}` : "1px solid transparent",
+                  boxShadow: isSelected ? `0 0 0 2px ${c.teal}` : "none",
+                  cursor: "pointer",
                 }}
               >
                 {d}
@@ -417,7 +421,7 @@ function DayGrid({ cursor, setCursor, byDay, c, calendarSystem }) {
             این ماه هیچ تمرینی ثبت نشده.
           </p>
         )}
-        <button onClick={() => setCursor(new Date())} style={{ marginTop: 8, width: "100%", padding: "5px 0", borderRadius: 8, border: `1px solid ${c.border}`, background: c.soft, color: c.ink, fontSize: 10.5, fontWeight: 700, cursor: "pointer" }}>
+        <button onClick={() => { const t = new Date(); setCursor(t); onSelectDay && onSelectDay(dayKey(t)); }} style={{ marginTop: 8, width: "100%", padding: "5px 0", borderRadius: 8, border: `1px solid ${c.border}`, background: c.soft, color: c.ink, fontSize: 10.5, fontWeight: 700, cursor: "pointer" }}>
           برو به امروز
         </button>
       </div>
@@ -477,9 +481,11 @@ function DayGrid({ cursor, setCursor, byDay, c, calendarSystem }) {
           const key = `${gy}-${pad2(gm)}-${pad2(gd)}`;
           const n = byDay.get(key) || 0;
           const isToday = jy === tjy && jm === tjm && d === tjd;
+          const isSelected = key === selectedDay;
           return (
             <div
               key={i}
+              onClick={() => onSelectDay && onSelectDay(key)}
               title={`${d} ${PERSIAN_MONTHS_FULL[jm - 1]} ${jy}${showSecondary ? ` — ${gd} ${EN_MONTHS_SHORT[gm - 1]}` : ""}${n ? ` · ${n} تکرار` : " · ثبت نشده"}`}
               style={{
                 position: "relative", aspectRatio: "1", display: "flex",
@@ -488,6 +494,8 @@ function DayGrid({ cursor, setCursor, byDay, c, calendarSystem }) {
                 background: n ? c.gold : "transparent",
                 color: n ? "#fff" : c.inkSoft,
                 border: isToday ? `1.5px solid ${c.teal}` : "1px solid transparent",
+                boxShadow: isSelected ? `0 0 0 2px ${c.teal}` : "none",
+                cursor: "pointer",
                 padding: "1px 0",
               }}
             >
@@ -509,7 +517,7 @@ function DayGrid({ cursor, setCursor, byDay, c, calendarSystem }) {
           این ماه هیچ تمرینی ثبت نشده.
         </p>
       )}
-      <button onClick={() => setCursor(new Date())} style={{ marginTop: 8, width: "100%", padding: "5px 0", borderRadius: 8, border: `1px solid ${c.border}`, background: c.soft, color: c.ink, fontSize: 10.5, fontWeight: 700, cursor: "pointer" }}>
+      <button onClick={() => { const t = new Date(); setCursor(t); onSelectDay && onSelectDay(dayKey(t)); }} style={{ marginTop: 8, width: "100%", padding: "5px 0", borderRadius: 8, border: `1px solid ${c.border}`, background: c.soft, color: c.ink, fontSize: 10.5, fontWeight: 700, cursor: "pointer" }}>
         برو به امروز
       </button>
     </div>
@@ -629,10 +637,66 @@ function YearList({ byYear, c, calendarSystem }) {
   );
 }
 
+// فرمتِ عنوانِ روزِ انتخاب‌شده، مطابقِ همون تنظیمِ تقویمِ کاربر (شمسی/میلادی/هردو)
+function formatDayHeader(key, calendarSystem) {
+  const [gy, gm, gd] = key.split("-").map(Number);
+  const gregorianStr = `${gd} ${EN_MONTHS_SHORT[gm - 1]} ${gy}`;
+  const [jy, jm, jd] = gregorianToJalali(gy, gm, gd);
+  const jalaliStr = `${jd} ${PERSIAN_MONTHS_FULL[jm - 1]} ${jy}`;
+  if (calendarSystem === "gregorian") return gregorianStr;
+  if (calendarSystem === "both") return `${jalaliStr} (${gregorianStr})`;
+  return jalaliStr;
+}
+
+// جزئیاتِ روزِ انتخاب‌شده: هر تکرارِ همون روز (چه متنِ اصلی چه ترجمه — هرکدوم
+// که این کارتِ مسیرِ عصبی مالِ همونه) با ساعتِ دقیقش و اینکه از طریقِ پلیر
+// پخش شده یا دستی ثبت شده. طبقِ درخواستِ کاربر: کلیک روی هر روزِ تقویم
+// (نه فقط امروز) باید همین لیست رو باز کنه.
+function DayDetailsPanel({ dayKeyStr, events, c, calendarSystem }) {
+  const dayEvents = useMemo(() => {
+    return (events || [])
+      .filter((e) => dayKey(e.t) === dayKeyStr)
+      .slice()
+      .sort((a, b) => a.t - b.t);
+  }, [events, dayKeyStr]);
+
+  if (!dayKeyStr) return null;
+  const header = formatDayHeader(dayKeyStr, calendarSystem);
+
+  return (
+    <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${c.border}` }}>
+      <div style={{ fontSize: 11, fontWeight: 800, color: c.ink, marginBottom: 6, textAlign: "center" }}>
+        {header}
+        {dayEvents.length > 0 && <span style={{ color: c.gold }}> · {dayEvents.length} تکرار</span>}
+      </div>
+      {dayEvents.length === 0 ? (
+        <p style={{ fontSize: 10.5, color: c.inkSoft, textAlign: "center", fontStyle: "italic" }}>
+          در این روز تمرینی ثبت نشده.
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 150, overflowY: "auto" }}>
+          {dayEvents.map((e, i) => (
+            <div
+              key={i}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 10.5, padding: "5px 9px", borderRadius: 7, background: c.soft }}
+            >
+              <span style={{ color: c.ink, fontWeight: 800 }}>
+                {new Date(e.t).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}
+              </span>
+              <span style={{ color: c.inkSoft }}>{e.s === "m" ? "ثبتِ دستی" : "پخش از پلیر"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NeuralCalendar({ events, c }) {
   const calendarSystem = useCalendarSystem();
   const [mode, setMode] = useState("day");
   const [cursor, setCursor] = useState(() => new Date());
+  const [selectedDay, setSelectedDay] = useState(() => dayKey(Date.now()));
 
   const byDay = useMemo(() => {
     const m = new Map();
@@ -677,7 +741,12 @@ function NeuralCalendar({ events, c }) {
         {tabBtn("month", "ماهانه")}
         {tabBtn("year", "سالانه")}
       </div>
-      {mode === "day" && <DayGrid cursor={cursor} setCursor={setCursor} byDay={byDay} c={c} calendarSystem={calendarSystem} />}
+      {mode === "day" && (
+        <>
+          <DayGrid cursor={cursor} setCursor={setCursor} byDay={byDay} c={c} calendarSystem={calendarSystem} selectedDay={selectedDay} onSelectDay={setSelectedDay} />
+          <DayDetailsPanel dayKeyStr={selectedDay} events={events} c={c} calendarSystem={calendarSystem} />
+        </>
+      )}
       {mode === "month" && <MonthGrid cursor={cursor} setCursor={setCursor} byMonth={byMonth} c={c} calendarSystem={calendarSystem} />}
       {mode === "year" && <YearList byYear={byYear} c={c} calendarSystem={calendarSystem} />}
     </div>
