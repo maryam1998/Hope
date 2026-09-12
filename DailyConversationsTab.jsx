@@ -1,82 +1,92 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { ChevronDown, Check } from "lucide-react";
+import {
+  Hand, UserPlus, Users, Home, MessageCircleQuestion, Mail, MailCheck, DoorOpen, Phone,
+  Bus, Fuel, CloudSun, UtensilsCrossed, ShoppingBag, BedDouble, Stethoscope,
+  Compass, Palette, Briefcase, Clock, Heart, HelpCircle, Sparkles, Plane,
+  HeartHandshake, UsersRound, Dumbbell, Laptop, PartyPopper, PawPrint, Languages,
+  Siren, Landmark, GraduationCap, Wallet, BookOpen, Leaf, ChefHat, Clapperboard,
+  Music, Building2, Mailbox, Sunrise, History, TreePine, Smile, Scroll, Store,
+  FlaskConical, Globe, Cpu, MapPin, MapPinned, Soup, Swords, Fingerprint,
+  HeartPulse, TrendingUp, Shirt, Scale, Newspaper, Building, MessageCircle,
+} from "lucide-react";
 
 /* =============================================================================
    نگاشت موضوع → (اسم فارسی، آیکون). کلید دقیقاً همون رشته‌ی topic توی
    DAILY_CONVERSATIONS.js هست، پس نیازی به تغییر دیتا نیست.
    ============================================================================= */
 const TOPIC_META_LIST = [
-  ["Greetings and Small Talk", "احوال‌پرسی و گفتگوی کوتاه", "👋"],
-  ["Introducing People", "معرفی افراد", "🤝"],
-  ["Visiting an Old Friend", "دیدار دوست قدیمی", "🏠"],
-  ["Getting Acquainted (Personal Questions)", "آشنایی (سوالات شخصی)", "💬"],
-  ["Invitations", "دعوت‌کردن", "✉️"],
-  ["Accepting or Refusing an Invitation", "پذیرفتن یا رد کردن دعوت", "✅"],
-  ["Saying Goodbye", "خداحافظی", "🚶"],
-  ["Telephone Conversation", "مکالمه تلفنی", "☎️"],
-  ["Transportation", "حمل‌ونقل", "🚌"],
-  ["Gas Station and Auto Repair", "پمپ بنزین و تعمیر ماشین", "⛽"],
-  ["Weather and Seasons", "آب‌وهوا و فصل‌ها", "☀️"],
-  ["At a Restaurant / Café", "رستوران و کافه", "🍽️"],
-  ["Shopping (Clothes and General)", "خرید (لباس و عمومی)", "🛍️"],
-  ["At a Hotel", "در هتل", "🏨"],
-  ["Health and Doctor's Visit", "سلامتی و ویزیت دکتر", "🩺"],
-  ["Asking for Directions / Landmarks", "پرسیدن آدرس و نشانی", "🧭"],
-  ["Plans and Free Time (Hobbies)", "برنامه‌ها و اوقات فراغت", "🎨"],
-  ["Work and Workplace", "کار و محیط کار", "💼"],
-  ["Time and Appointments", "زمان و قرار ملاقات", "⏰"],
-  ["Expressing Opinions and Feelings", "ابراز نظر و احساسات", "❤️"],
-  ["Asking for Help and Clarification", "درخواست کمک و توضیح", "🙋"],
-  ["Politeness and Compliments", "ادب و تعارفات", "🙏"],
-  ["Travel and Experiences", "سفر و تجربیات", "✈️"],
-  ["Apologies and Forgiveness", "عذرخواهی و بخشش", "🙇"],
-  ["Family and Cultural Questions", "خانواده و سوالات فرهنگی", "👪"],
-  ["Sports and Fitness", "ورزش و تناسب اندام", "🏃"],
-  ["Technology and Communication", "فناوری و ارتباطات", "💻"],
-  ["Holidays and Celebrations", "تعطیلات و جشن‌ها", "🎉"],
-  ["Pets and Animals", "حیوانات خانگی", "🐾"],
-  ["Learning a Language", "یادگیری زبان", "🗣️"],
-  ["Emergency Situations", "موقعیت‌های اضطراری", "🚨"],
-  ["City Attractions and Sightseeing", "جاذبه‌های شهری و گردش", "🏙️"],
-  ["Schools and Education", "مدرسه و آموزش", "🏫"],
-  ["Money and Expenses", "پول و هزینه‌ها", "💰"],
-  ["Books and Reading", "کتاب و مطالعه", "📚"],
-  ["Environment and Nature", "محیط‌زیست و طبیعت", "🌿"],
-  ["Cooking and Recipes", "آشپزی و دستور پخت", "🍳"],
-  ["Movies and TV Series", "فیلم و سریال", "🎬"],
-  ["Music", "موسیقی", "🎵"],
-  ["Banking and Financial Services", "بانک و خدمات مالی", "🏦"],
-  ["Post Office and Mail", "اداره پست", "📮"],
-  ["Neighbors and Community", "همسایه‌ها و جامعه", "🏘️"],
-  ["Future Plans and Dreams", "برنامه‌های آینده و رویاها", "🌅"],
-  ["Memories and Past Experiences", "خاطرات و تجربیات گذشته", "🕰️"],
+  ["Greetings and Small Talk", "احوال‌پرسی و گفتگوی کوتاه", Hand],
+  ["Introducing People", "معرفی افراد", UserPlus],
+  ["Visiting an Old Friend", "دیدار دوست قدیمی", Home],
+  ["Getting Acquainted (Personal Questions)", "آشنایی (سوالات شخصی)", MessageCircleQuestion],
+  ["Invitations", "دعوت‌کردن", Mail],
+  ["Accepting or Refusing an Invitation", "پذیرفتن یا رد کردن دعوت", MailCheck],
+  ["Saying Goodbye", "خداحافظی", DoorOpen],
+  ["Telephone Conversation", "مکالمه تلفنی", Phone],
+  ["Transportation", "حمل‌ونقل", Bus],
+  ["Gas Station and Auto Repair", "پمپ بنزین و تعمیر ماشین", Fuel],
+  ["Weather and Seasons", "آب‌وهوا و فصل‌ها", CloudSun],
+  ["At a Restaurant / Café", "رستوران و کافه", UtensilsCrossed],
+  ["Shopping (Clothes and General)", "خرید (لباس و عمومی)", ShoppingBag],
+  ["At a Hotel", "در هتل", BedDouble],
+  ["Health and Doctor's Visit", "سلامتی و ویزیت دکتر", Stethoscope],
+  ["Asking for Directions / Landmarks", "پرسیدن آدرس و نشانی", Compass],
+  ["Plans and Free Time (Hobbies)", "برنامه‌ها و اوقات فراغت", Palette],
+  ["Work and Workplace", "کار و محیط کار", Briefcase],
+  ["Time and Appointments", "زمان و قرار ملاقات", Clock],
+  ["Expressing Opinions and Feelings", "ابراز نظر و احساسات", Heart],
+  ["Asking for Help and Clarification", "درخواست کمک و توضیح", HelpCircle],
+  ["Politeness and Compliments", "ادب و تعارفات", Sparkles],
+  ["Travel and Experiences", "سفر و تجربیات", Plane],
+  ["Apologies and Forgiveness", "عذرخواهی و بخشش", HeartHandshake],
+  ["Family and Cultural Questions", "خانواده و سوالات فرهنگی", UsersRound],
+  ["Sports and Fitness", "ورزش و تناسب اندام", Dumbbell],
+  ["Technology and Communication", "فناوری و ارتباطات", Laptop],
+  ["Holidays and Celebrations", "تعطیلات و جشن‌ها", PartyPopper],
+  ["Pets and Animals", "حیوانات خانگی", PawPrint],
+  ["Learning a Language", "یادگیری زبان", Languages],
+  ["Emergency Situations", "موقعیت‌های اضطراری", Siren],
+  ["City Attractions and Sightseeing", "جاذبه‌های شهری و گردش", MapPinned],
+  ["Schools and Education", "مدرسه و آموزش", GraduationCap],
+  ["Money and Expenses", "پول و هزینه‌ها", Wallet],
+  ["Books and Reading", "کتاب و مطالعه", BookOpen],
+  ["Environment and Nature", "محیط‌زیست و طبیعت", Leaf],
+  ["Cooking and Recipes", "آشپزی و دستور پخت", ChefHat],
+  ["Movies and TV Series", "فیلم و سریال", Clapperboard],
+  ["Music", "موسیقی", Music],
+  ["Banking and Financial Services", "بانک و خدمات مالی", Building2],
+  ["Post Office and Mail", "اداره پست", Mailbox],
+  ["Neighbors and Community", "همسایه‌ها و جامعه", Users],
+  ["Future Plans and Dreams", "برنامه‌های آینده و رویاها", Sunrise],
+  ["Memories and Past Experiences", "خاطرات و تجربیات گذشته", History],
   // مکالمات موضوعی (THEMATIC_CONVERSATIONS) — همون توپیک‌ها به‌عنوان کارتِ
   // مستقل، کنار موضوعاتِ روزمره، تو همین گرید نشون داده می‌شن.
   // چهارمین عضوِ هر آرایه (enLabel) برچسبِ تمیزِ انگلیسیه که موقع
   // uiLang==="en" نشون داده می‌شه — جدا از کلیدِ اول (که عیناً همون رشته‌ی
   // مختلط فارسی/انگلیسیِ topic توی DAILY_CONVERSATIONS.js می‌مونه و فقط
   // برای lookup/شناسه استفاده می‌شه، هرگز رندر نمی‌شه).
-  ["طبیعت (Nature)", "طبیعت", "🌿", "Nature"],
-  ["احساسات (Emotions)", "احساسات", "❤️", "Emotions"],
-  ["مذهب و سیاست (Religion and Politics)", "مذهب و سیاست", "🕊️", "Religion and Politics"],
-  ["خرید (Retail)", "خرید", "🛒", "Retail"],
-  ["علوم (Science)", "علوم", "🔬", "Science"],
-  ["مسائل اجتماعی (Social Issues)", "مسائل اجتماعی", "🌍", "Social Issues"],
-  ["فناوری (Technology)", "فناوری", "💻", "Technology"],
-  ["سفر و گردشگری (Travel and Tourism)", "سفر و گردشگری", "🧳", "Travel and Tourism"],
-  ["غذا و آشپزی (Food and Cooking)", "غذا و آشپزی", "🍲", "Food and Cooking"],
-  ["جنگ و درگیری (War and Conflict)", "جنگ و درگیری", "⚔️", "War and Conflict"],
-  ["شغل (Work)", "شغل", "💼", "Work"],
-  ["شخصیت (Personality)", "شخصیت", "🎭", "Personality"],
-  ["بدن انسان (Body)", "بدن انسان", "🫀", "Body"],
-  ["کسب و کار (Business)", "کسب و کار", "📈", "Business"],
-  ["لباس و مد (Clothes and Fashion)", "لباس و مد", "👗", "Clothes and Fashion"],
-  ["جرم و قانون (Crime and Law)", "جرم و قانون", "⚖️", "Crime and Law"],
-  ["فرهنگ (Culture)", "فرهنگ", "🏛️", "Culture"],
-  ["آموزش و تحصیل (Education)", "آموزش و تحصیل", "🎓", "Education"],
-  ["رسانه (The Media)", "رسانه", "📰", "The Media"],
-  ["حیوانات (Animals)", "حیوانات", "🐾", "Animals"],
-  ["خانه (Home and Housing)", "خانه", "🏡", "Home and Housing"],
+  ["طبیعت (Nature)", "طبیعت", TreePine, "Nature"],
+  ["احساسات (Emotions)", "احساسات", Smile, "Emotions"],
+  ["مذهب و سیاست (Religion and Politics)", "مذهب و سیاست", Scroll, "Religion and Politics"],
+  ["خرید (Retail)", "خرید", Store, "Retail"],
+  ["علوم (Science)", "علوم", FlaskConical, "Science"],
+  ["مسائل اجتماعی (Social Issues)", "مسائل اجتماعی", Globe, "Social Issues"],
+  ["فناوری (Technology)", "فناوری", Cpu, "Technology"],
+  ["سفر و گردشگری (Travel and Tourism)", "سفر و گردشگری", MapPin, "Travel and Tourism"],
+  ["غذا و آشپزی (Food and Cooking)", "غذا و آشپزی", Soup, "Food and Cooking"],
+  ["جنگ و درگیری (War and Conflict)", "جنگ و درگیری", Swords, "War and Conflict"],
+  ["شغل (Work)", "شغل", Briefcase, "Work"],
+  ["شخصیت (Personality)", "شخصیت", Fingerprint, "Personality"],
+  ["بدن انسان (Body)", "بدن انسان", HeartPulse, "Body"],
+  ["کسب و کار (Business)", "کسب و کار", TrendingUp, "Business"],
+  ["لباس و مد (Clothes and Fashion)", "لباس و مد", Shirt, "Clothes and Fashion"],
+  ["جرم و قانون (Crime and Law)", "جرم و قانون", Scale, "Crime and Law"],
+  ["فرهنگ (Culture)", "فرهنگ", Landmark, "Culture"],
+  ["آموزش و تحصیل (Education)", "آموزش و تحصیل", GraduationCap, "Education"],
+  ["رسانه (The Media)", "رسانه", Newspaper, "The Media"],
+  ["حیوانات (Animals)", "حیوانات", PawPrint, "Animals"],
+  ["خانه (Home and Housing)", "خانه", Building, "Home and Housing"],
 ];
 const TOPIC_META = {};
 TOPIC_META_LIST.forEach(([en, fa, icon, enLabel]) => (TOPIC_META[en] = { fa, icon, enLabel: enLabel || en }));
@@ -176,6 +186,7 @@ function ensureSentenceEnd(s) {
 function TopicCard({ meta, index, hasData, onClick, uiLang, isRead, onToggleRead, readDoneColor, readDoneBg }) {
   const label = uiLang === "fa" ? meta.fa : (meta.enLabel || meta.en);
   const badgeColor = TOPIC_BADGE_COLORS[(index || 0) % TOPIC_BADGE_COLORS.length];
+  const Icon = meta.icon || MessageCircle;
   return (
     <div
       dir={uiLang === "fa" ? "rtl" : "ltr"}
@@ -233,12 +244,11 @@ function TopicCard({ meta, index, hasData, onClick, uiLang, isRead, onToggleRead
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 21,
           lineHeight: 1,
           background: isRead ? "rgba(255,255,255,.55)" : badgeColor,
         }}
       >
-        {meta.icon}
+        <Icon size={21} strokeWidth={2} color={isRead ? "#2E7D6C" : colors.teal} />
       </span>
       <span style={{ fontFamily: uiLang === "fa" ? fontFa : fontLatin, fontSize: 12.3, fontWeight: 600, color: colors.ink, lineHeight: 1.55 }}>
         {label}
@@ -964,7 +974,7 @@ export default function DailyConversationsTab({
     const q = query.trim().toLowerCase();
     const results = [];
     data.forEach((tp) => {
-      const meta = TOPIC_META[tp.topic] || { fa: tp.topic, icon: "💬" };
+      const meta = TOPIC_META[tp.topic] || { fa: tp.topic, icon: MessageCircle };
       (tp.scenarios || []).forEach((sc) => {
         const scenarioHit = sc.scenario && sc.scenario.toLowerCase().includes(q);
         [["speakerA", "hear"], ["speakerB", "say"]].forEach(([key, variant]) => {
@@ -989,8 +999,9 @@ export default function DailyConversationsTab({
         ) : (
           searchResults.map((r, i) => (
             <div key={i} style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11.5, color: colors.inkSoft, fontFamily: uiLang === "fa" ? fontFa : fontLatin, marginBottom: 5 }}>
-                {r.icon} {r.topicLabel} · {r.scenario}
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: colors.inkSoft, fontFamily: uiLang === "fa" ? fontFa : fontLatin, marginBottom: 5 }}>
+                <r.icon size={13} strokeWidth={2} color={colors.inkSoft} style={{ flexShrink: 0 }} />
+                <span>{r.topicLabel} · {r.scenario}</span>
               </div>
               <ConversationBox
                 items={[r.item]}
@@ -1176,7 +1187,10 @@ export default function DailyConversationsTab({
           </button>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-            <span style={{ fontSize: 22 }}>{TOPIC_META[activeTopic]?.icon}</span>
+            {(() => {
+              const HeaderIcon = TOPIC_META[activeTopic]?.icon || MessageCircle;
+              return <HeaderIcon size={22} strokeWidth={2} color={colors.teal} />;
+            })()}
             <span style={{ fontWeight: 800, fontSize: 16, color: colors.ink, fontFamily: uiLang === "fa" ? fontFa : fontLatin }}>
               {uiLang === "fa" ? TOPIC_META[activeTopic]?.fa : (TOPIC_META[activeTopic]?.enLabel || activeTopic)}
             </span>
