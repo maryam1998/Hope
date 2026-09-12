@@ -89,6 +89,41 @@ export function getNeuralEvents(id) {
   return id ? loadStore()[id] || [] : [];
 }
 
+// -----------------------------------------------------------------------
+// شناساییِ «زبان» از رویِ خودِ id: قالبِ رایج id‌ها به‌صورتِ
+// `نوع:شناسه:کدزبان` هست (مثلاً word:12:en) — یعنی آخرین بخشِ بعد از «:»
+// اگه شبیهِ یه کدِ زبان (۲ یا ۳ حرفِ لاتین، مثلِ en/es/fa) باشه، همون
+// «زبان»ه و باقیِ id قبلش «شناسه‌ی پایه»ی آیتمه. با این کار، نسخه‌ی
+// اصلیِ یه لغت/جمله و همه‌ی ترجمه‌هاش (که شناسه‌ی پایه‌شون یکیه) به‌هم
+// وصل می‌شن و می‌شه تکرارهاشون رو زبان‌به‌زبان کنارِ هم دید.
+const LANG_SUFFIX_RE = /^[a-z]{2,3}(-[a-zA-Z]{2,4})?$/;
+export function splitNeuralId(id) {
+  if (!id) return { base: id, lang: null };
+  const idx = id.lastIndexOf(":");
+  if (idx === -1) return { base: id, lang: null };
+  const lang = id.slice(idx + 1);
+  if (!LANG_SUFFIX_RE.test(lang)) return { base: id, lang: null };
+  return { base: id.slice(0, idx), lang };
+}
+
+/** همه‌ی رویدادهای مربوط به یه آیتم رو — از رویِ همه‌ی زبان‌هاش —
+ *  یکجا برمی‌گردونه؛ هر رویداد با {t, s, lang} مشخص می‌شه. برای تقویمی
+ *  که باید «به‌طور لحظه‌ای» زبان‌های مختلفِ یه آیتم رو کنارِ هم نشون بده.
+ */
+export function getNeuralEventsGrouped(id) {
+  if (!id) return [];
+  const { base } = splitNeuralId(id);
+  const store = loadStore();
+  const out = [];
+  Object.keys(store).forEach((key) => {
+    const parts = splitNeuralId(key);
+    if (parts.base !== base) return;
+    const lang = parts.lang || "?";
+    (store[key] || []).forEach((e) => out.push({ t: e.t, s: e.s, lang }));
+  });
+  return out;
+}
+
 export function clearNeuralPath(id) {
   if (!id) return;
   const store = loadStore();
@@ -214,6 +249,19 @@ export function useNeuralEvents(id) {
     return () => listeners.delete(fn);
   }, []);
   return getNeuralEvents(id);
+}
+
+/** نسخه‌ی زنده‌ی getNeuralEventsGrouped — با هر تغییر (حتی یه تکرارِ
+ *  آنی/لحظه‌ای)، بلافاصله دوباره محاسبه می‌شه، بدون نیاز به هیچ جمع‌زدنِ
+ *  دستی از طرفِ کامپوننت‌ها. */
+export function useNeuralEventsGrouped(id) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((n) => n + 1);
+    listeners.add(fn);
+    return () => listeners.delete(fn);
+  }, []);
+  return getNeuralEventsGrouped(id);
 }
 
 function dayKey(ts) {
@@ -648,17 +696,25 @@ function formatDayHeader(key, calendarSystem) {
   return jalaliStr;
 }
 
-// جزئیاتِ روزِ انتخاب‌شده: هر تکرارِ همون روز (چه متنِ اصلی چه ترجمه — هرکدوم
-// که این کارتِ مسیرِ عصبی مالِ همونه) با ساعتِ دقیقش و اینکه از طریقِ پلیر
-// پخش شده یا دستی ثبت شده. طبقِ درخواستِ کاربر: کلیک روی هر روزِ تقویم
-// (نه فقط امروز) باید همین لیست رو باز کنه.
+// جزئیاتِ روزِ انتخاب‌شده: طبقِ درخواستِ کاربر، دیگه ساعتِ دقیقِ هر
+// تکرار نشون داده نمی‌شه — فقط توی همین تقویم، برای اون روز، تعدادِ
+// تکرارِ هر زبان جدا جدا نشون داده می‌شه (مثلاً en: ۳ بار، es: ۶ بار).
+// چون events از getNeuralEventsGrouped میاد، خودِ زبان‌ها (نسخه‌ی اصلی +
+// همه‌ی ترجمه‌ها) به‌طور لحظه‌ای و بدون نیاز به جمع‌زدنِ دستی به‌هم
+// وصل‌ان — با هر تکرارِ تازه، لیست بلافاصله به‌روز می‌شه.
 function DayDetailsPanel({ dayKeyStr, events, c, calendarSystem }) {
   const dayEvents = useMemo(() => {
-    return (events || [])
-      .filter((e) => dayKey(e.t) === dayKeyStr)
-      .slice()
-      .sort((a, b) => a.t - b.t);
+    return (events || []).filter((e) => dayKey(e.t) === dayKeyStr);
   }, [events, dayKeyStr]);
+
+  const byLang = useMemo(() => {
+    const m = new Map();
+    dayEvents.forEach((e) => {
+      const lang = e.lang || "?";
+      m.set(lang, (m.get(lang) || 0) + 1);
+    });
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [dayEvents]);
 
   if (!dayKeyStr) return null;
   const header = formatDayHeader(dayKeyStr, calendarSystem);
@@ -675,15 +731,13 @@ function DayDetailsPanel({ dayKeyStr, events, c, calendarSystem }) {
         </p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 150, overflowY: "auto" }}>
-          {dayEvents.map((e, i) => (
+          {byLang.map(([lang, count]) => (
             <div
-              key={i}
+              key={lang}
               style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 10.5, padding: "5px 9px", borderRadius: 7, background: c.soft }}
             >
-              <span style={{ color: c.ink, fontWeight: 800 }}>
-                {new Date(e.t).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}
-              </span>
-              <span style={{ color: c.inkSoft }}>{e.s === "m" ? "ثبتِ دستی" : "پخش از پلیر"}</span>
+              <span style={{ color: c.ink, fontWeight: 800 }}>{lang}</span>
+              <span style={{ color: c.inkSoft }}>{count} بار</span>
             </div>
           ))}
         </div>
@@ -856,6 +910,9 @@ function NeuralFibers({ fiberCount, habitFormed, c }) {
 
 function NeuralPathCard({ id, label, c, onClose, dragHandleProps }) {
   const events = useNeuralEvents(id);
+  // تقویم جداگانه: تکرارهای همه‌ی زبان‌های همین آیتم (متنِ اصلی + هر
+  // ترجمه) رو کنارِ هم می‌بینه، نه فقط زبانِ همین دکمه.
+  const calendarEvents = useNeuralEventsGrouped(id);
   const s = useMemo(() => summarize(events), [events]);
   const ledger = useNeuralLedger(id);
   const fiberCount = neuralFiberCount(ledger.logs);
@@ -1041,7 +1098,7 @@ function NeuralPathCard({ id, label, c, onClose, dragHandleProps }) {
       >
         {showCalendar ? "بستنِ تقویم" : "نمایشِ تقویمِ این مسیر"}
       </button>
-      {showCalendar && <NeuralCalendar events={events} c={c} />}
+      {showCalendar && <NeuralCalendar events={calendarEvents} c={c} />}
     </div>
   );
 }
