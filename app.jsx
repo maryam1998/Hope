@@ -2213,6 +2213,7 @@ function formatSavedDate(iso, calendarSystem) {
 // همون تعدادِ کلمه‌های کلِ داستانه (چون داستان‌ها فایل جداگونه نیستن که
 // حجمِ بایتی معنی‌دار داشته باشن).
 const SAVED_STORIES_SORT_OPTIONS = [
+  { key: "favorite", fa: "علاقه‌مندی‌ها اول", en: "Favorites first" },
   { key: "newest", fa: "جدیدترین تاریخ", en: "Newest date" },
   { key: "oldest", fa: "قدیمی‌ترین تاریخ", en: "Oldest date" },
   { key: "wordsDesc", fa: "بیشترین تعداد کلمه", en: "Most words" },
@@ -2233,13 +2234,24 @@ function getStoryWordCount(entry) {
   return count;
 }
 
+// 🏷️ اگه کاربر خودش یه عنوانِ دستی گذاشته باشه (entry.title)، همون
+// معیارِ نام/مرتب‌سازیه؛ وگرنه (مثلِ قبل) از رویِ لغاتِ انتخاب‌شده ساخته
+// می‌شه.
 function getStoryNameKey(entry) {
+  if (entry?.title && entry.title.trim()) return entry.title.trim();
   return (entry?.selectedWords || []).join("، ").trim();
 }
 
 function sortSavedStories(list, sortKey) {
   const arr = [...list];
   switch (sortKey) {
+    case "favorite":
+      return arr.sort((a, b) => {
+        const fa = a.favorite ? 1 : 0;
+        const fb = b.favorite ? 1 : 0;
+        if (fb !== fa) return fb - fa;
+        return new Date(b.savedAt || 0) - new Date(a.savedAt || 0);
+      });
     case "oldest":
       return arr.sort((a, b) => new Date(a.savedAt || 0) - new Date(b.savedAt || 0));
     case "wordsDesc":
@@ -7320,13 +7332,13 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
     if (onOverrideClick) {
       onOverrideClick();
       if (onPlayed) onPlayed();
-      // 🧬 اولین رشته‌ی عصبی همین لحظه که کاربر جمله رو زد (نه فقط تکرارهای
-      // بعدی) — تا شمارشِ رشته‌ها با تعدادِ واقعیِ خوانده‌شدن‌ها یکی‌به‌یکی
-      // بخونه (خواندنِ اول = رشته‌ی ۱، تکرارِ دوم = رشته‌ی ۲، و…).
-      if (neuralItemId && !isPlaying) {
-        recordNeuralRepeat(neuralItemId, { source: "player" });
-        addNeuralFiber(neuralItemId);
-      }
+      // 🧬 ساختِ رشته برای این حالت (صوتِ آپلودیِ کاربر) حالا یکجا و
+      // متمرکز، با افکتِ activeSentence/isPloading نزدیکِ useStoryUserAudio
+      // انجام می‌شه (نگاه کن به توضیحِ کاملِ اونجا) — نه اینجا. اون افکت
+      // هم موردِ «تپِ مستقیم روی این دکمه» رو پوشش می‌ده، هم موردِ
+      // «جمله‌ی بعد/قبل» و «پخشِ مرکزی» رو، که قبلاً هیچ‌کدوم رشته
+      // نمی‌ساختن. اگه اینجا هم رشته می‌ساختیم، برایِ همین تپ، دوبار
+      // شمرده می‌شد.
       return;
     }
     // نکته‌ی مهم: اگه resolveStartOffset پاس داده شده، به‌جای پراپِ
@@ -10711,7 +10723,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     setEditingStoryText(false);
     setStoryEditDraft("");
   };
-  const applyEditedStoryText = () => {
+  const applyEditedStoryText = async () => {
     const raw = storyEditDraft.trim();
     if (!raw) return;
     const rawParagraphs = raw.split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean);
@@ -10719,6 +10731,26 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
       .map((paraText) => ({ sentences: splitTextIntoSentenceStrings(paraText).map((text) => ({ text })) }))
       .filter((p) => p.sentences.length);
     if (!storyParagraphs.length) return;
+
+    // 🎵 کلیدِ ذخیره‌سازیِ صوتِ آپلودیِ کاربر (mainStoryKey) شاملِ خودِ
+    // متنِ کاملِ داستانه؛ پس با کوچیک‌ترین ویرایشِ متن، این کلید عوض
+    // می‌شه و صوتِ آپلودیِ قبلی (که زیرِ کلیدِ قدیمی توی IndexedDB نشسته)
+    // دیگه پیدا نمی‌شه — نه اینکه واقعاً پاک شده باشه، فقط "گم" می‌شه و
+    // کاربر مجبور می‌شه دوباره آپلودش کنه. برای همین، قبل از اعمالِ متنِ
+    // تازه، اگه صوتی زیرِ کلیدِ قدیمی هست، به کلیدِ جدید منتقلش می‌کنیم.
+    const oldStoryKey = mainStoryKey;
+    const newFullText = storyParagraphs.flatMap((p) => p.sentences.map((s) => s.text)).join(" ");
+    const newStoryKey = newFullText ? `${TTS_LOCALE[storyLang] || "en-US"}::${newFullText}` : null;
+    if (oldStoryKey && newStoryKey && oldStoryKey !== newStoryKey) {
+      try {
+        const rec = await getStoryAudioRecord(oldStoryKey);
+        if (rec) {
+          await saveStoryAudioRecord(newStoryKey, rec);
+          await deleteStoryAudioRecord(oldStoryKey);
+        }
+      } catch {}
+    }
+
     setParagraphs(storyParagraphs);
     setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
     setQuestions([]);
@@ -10939,6 +10971,20 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     });
   };
   const [savedStoryRangeInput, setSavedStoryRangeInput] = useState({ from: "", to: "" });
+  // ✏️ ویرایشِ عنوانِ دلخواهِ یه داستانِ ذخیره‌شده — فقط یه کارت هم‌زمان
+  // می‌تونه تویِ حالتِ ویرایشِ عنوان باشه.
+  const [renamingStoryId, setRenamingStoryId] = useState(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const startRenamingStory = (s) => {
+    setRenamingStoryId(s.id);
+    setRenameDraft(s.title || "");
+  };
+  const commitRenamingStory = (id) => {
+    renameSavedStory(id, renameDraft);
+    setRenamingStoryId(null);
+    setRenameDraft("");
+  };
+
   // نقشه‌ی id-ِ داستانِ ذخیره‌شده → آیا صوتِ آپلودیِ کاربر داره یا نه؛ فقط
   // برای نشون‌دادنِ آیکونِ 🎵 کنارِ کارتِ داستان‌های ذخیره‌شده استفاده می‌شه.
   // چون صوت با کلیدِ متن (نه idِ داستان) توی IndexedDB ذخیره می‌شه، اینجا
@@ -11154,6 +11200,30 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     if (playbackMode === "user" && !userAudio.hasAudio) setPlaybackMode("tts");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mainStoryKey, userAudio.hasAudio]);
+
+  // 🧬 مسیرِ عصبی برایِ صوتِ آپلودیِ کاربر: برخلافِ TTS (که با تغییرِ
+  // chunkIndex داخلِ SpeakButton خودکار رشته می‌سازه)، اینجا manualIndex/
+  // activeSentence فقط با اقدامِ صریحِ کاربر عوض می‌شه (دکمه‌ی جمله‌ی
+  // بعد/قبل، تپِ مستقیم روی جمله، دکمه‌ی پخشِ مرکزی که چیزی رو جابه‌جا
+  // نمی‌کنه). قبلاً هیچ‌کدومِ این مسیرها recordNeuralRepeat/addNeuralFiber
+  // رو صدا نمی‌زدن — پس با گوش‌دادن از دکمه‌ی مرکزی/جمله‌ی بعد، هیچ رشته‌ای
+  // ساخته نمی‌شد. حالا با هر تغییرِ activeSentence، وقتی واقعاً در حالِ
+  // پخشیم و پلیر رویِ «صوتِ من» ایستاده، یه رشته برای همون جمله می‌سازیم.
+  const userAudioNeuralRef = useRef({ key: null });
+  useEffect(() => {
+    if (playbackMode !== "user") return;
+    if (!userAudio.isPlaying) return;
+    const as = userAudio.activeSentence;
+    if (!as) return;
+    const s = paragraphs[as.pi]?.sentences?.[as.si];
+    if (!s || !s.text) return;
+    const neuralId = `story:${storyLang}::${s.text}`;
+    const fireKey = `${neuralId}#${as.pi}#${as.si}`;
+    if (userAudioNeuralRef.current.key === fireKey) return;
+    userAudioNeuralRef.current.key = fireKey;
+    recordNeuralRepeat(neuralId, { source: "player" });
+    addNeuralFiber(neuralId);
+  }, [playbackMode, userAudio.isPlaying, userAudio.activeSentence, paragraphs, storyLang]);
   // پُلِ سراسری برای GlobalAddToStorySelection (نگاه کن به توضیحِ کاملِ
   // activeUserAudioFocusPause بالایِ فایل): فقط وقتی پلیر واقعاً رویِ
   // «صوتِ من» است و فایلی هم آپلود شده، تابعِ pauseForFocus رو در دسترسِ
@@ -13289,6 +13359,26 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     });
   };
 
+  // 🏷️ عنوانِ دلخواهِ کاربر برای یه داستانِ ذخیره‌شده — قبلاً فقط
+  // داستان‌های PDF یه title داشتن (اسمِ خودِ فایل)؛ حالا هر داستانی
+  // (متنی/PDF) می‌تونه یه عنوانِ دستی داشته باشه که به‌جایِ خلاصه‌ی
+  // خودکار (یا کنارِ اون) نشون داده می‌شه. عنوانِ خالی = برگشت به حالتِ
+  // پیش‌فرض (بدونِ عنوانِ دستی).
+  const renameSavedStory = (id, title) => {
+    const trimmed = (title || "").trim();
+    setSavedStories((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, title: trimmed || undefined } : s))
+    );
+  };
+
+  // ⭐ افزودن/حذفِ یه داستانِ ذخیره‌شده به/از علاقه‌مندی‌ها — برخلافِ
+  // ستاره‌ی لغات (favorites/wordFavorites که تویِ یه Setِ جدا نگه داشته
+  // می‌شن)، اینجا یه فیلدِ favorite رویِ خودِ entry نگه داشته می‌شه، چون
+  // این ستاره مالِ خودِ کارتِ داستانه، نه یه عبارت/لغتِ داخلِ متنش.
+  const toggleSavedStoryFavorite = (id) => {
+    setSavedStories((prev) => prev.map((s) => (s.id === id ? { ...s, favorite: !s.favorite } : s)));
+  };
+
   // 🆕 دکمه‌ی «ذخیره در داستان‌ها»یِ خودِ نمایشگرِ PDF — سندِ PDF از قبل با
   // بازشدنش خودکار تویِ IndexedDBِ خودش ذخیره شده (savePdfViewMeta/Page)،
   // این دکمه فقط یه کارتِ سبک (اشاره‌گر) براش تویِ همون لیستِ یکپارچه‌ی
@@ -13455,7 +13545,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             const searched = q
               ? savedStories.filter((s) => {
                   const haystack = [
-                    s.pdfDocId ? s.title : getStoryEntryFullText(s),
+                    s.title || "",
+                    s.pdfDocId ? "" : getStoryEntryFullText(s),
                     (s.selectedWords || []).join(" "),
                   ]
                     .join(" ")
@@ -13625,10 +13716,33 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                               </>
                             )}
                           </p>
-                          {s.pdfDocId ? (
+                          {renamingStoryId === s.id ? (
+                            <div className="flex items-center gap-1" style={{ marginTop: 2 }}>
+                              <input
+                                autoFocus
+                                value={renameDraft}
+                                onChange={(e) => setRenameDraft(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") commitRenamingStory(s.id);
+                                  if (e.key === "Escape") setRenamingStoryId(null);
+                                }}
+                                placeholder={uiLang === "en" ? "Custom title…" : "عنوانِ دلخواه…"}
+                                style={{ fontSize: 12, padding: "3px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, flex: 1, minWidth: 0 }}
+                              />
+                              <button onClick={() => commitRenamingStory(s.id)} aria-label={uiLang === "en" ? "Save title" : "ذخیره‌ی عنوان"}>
+                                <Check size={14} color={colors.teal} />
+                              </button>
+                              <button onClick={() => setRenamingStoryId(null)} aria-label={uiLang === "en" ? "Cancel" : "انصراف"}>
+                                <X size={14} color={colors.inkSoft} />
+                              </button>
+                            </div>
+                          ) : s.pdfDocId ? (
                             <p style={{ fontSize: 12, color: colors.ink, marginTop: 2 }}>{s.title}</p>
                           ) : (
                             <>
+                              {s.title && (
+                                <p style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, marginTop: 2 }}>{s.title}</p>
+                              )}
                               {getStoryEntryPreview(s) && (
                                 <p style={{ fontSize: 12, color: colors.ink, marginTop: 2 }}>{getStoryEntryPreview(s)}</p>
                               )}
@@ -13638,6 +13752,20 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => toggleSavedStoryFavorite(s.id)}
+                          aria-label={tr("addToFavoritesAria", uiLang)}
+                        >
+                          <Star size={16} color={STAR_FAVORITE_COLOR} fill={s.favorite ? STAR_FAVORITE_COLOR : "none"} />
+                        </button>
+                        {renamingStoryId !== s.id && (
+                          <button
+                            onClick={() => startRenamingStory(s)}
+                            aria-label={uiLang === "en" ? "Rename" : "تغییرِ نام"}
+                          >
+                            <Pencil size={14} color={colors.inkSoft} />
+                          </button>
+                        )}
                         <button
                           onClick={() => openSavedStory(s)}
                           style={{ fontSize: 12, color: colors.teal, textDecoration: "underline" }}
