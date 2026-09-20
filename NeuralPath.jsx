@@ -756,63 +756,249 @@ function DayDetailsPanel({ dayKeyStr, events, c, calendarSystem }) {
   );
 }
 
-function NeuralCalendar({ events, c }) {
+// ---------------------------------------------------------------------------
+// 🧭 تقویمِ دوره‌ای — همون منطقِ تقویمِ «دوره‌ی N روزه / ماه اول، ماه دوم، ...»
+// که توی Maghz هست: یه شبکه‌ی ۱۵ ستونه از روزهای دوره، که هر ۳۰ روز یه
+// سرتیتر «ماه X» (با بازه‌ی تاریخ) داره. روزی که توش حداقل یه تکرار ثبت
+// شده پر می‌شه. دوره‌ی جاری همیشه توی {days, startDate} می‌مونه؛ وقتی تموم
+// شد و کاربر «دوره‌ی بعدی» رو زد، همون به past اضافه می‌شه و هیچ‌وقت پاک
+// نمی‌شه (دوره‌ی اول، دوم، ...). برای هر آیتم جدا ذخیره می‌شه (مشترک بینِ
+// همه‌ی زبان‌های همون آیتم، مثلِ خودِ تقویم).
+// ---------------------------------------------------------------------------
+const PERIOD_KEY = "phrasebook-neural-period-v1";
+const PERIOD_DEFAULT_DAYS = 28;
+const PERIOD_MAX_DAYS = 365;
+const PERIOD_BLOCK_DAYS = 30;
+const PERIOD_MONTH_ORD = ["اول", "دوم", "سوم", "چهارم", "پنجم", "ششم", "هفتم", "هشتم", "نهم", "دهم", "یازدهم", "دوازدهم", "سیزدهم"];
+
+function parseDayKey(k) {
+  const [y, m, d] = String(k).split("-").map(Number);
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  return isNaN(dt.getTime()) ? new Date(new Date().setHours(0, 0, 0, 0)) : dt;
+}
+
+function loadPeriods() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(PERIOD_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveNeuralPeriod(id, period) {
+  if (!id) return;
+  const all = loadPeriods();
+  all[splitNeuralId(id).base] = period;
+  try {
+    window.localStorage.setItem(PERIOD_KEY, JSON.stringify(all));
+  } catch {}
+}
+
+// اولین باری که تقویمِ یه آیتم باز می‌شه، دوره‌ش از «امروز» شروع می‌شه.
+function loadNeuralPeriod(id) {
+  const saved = (id && loadPeriods()[splitNeuralId(id).base]) || {};
+  const n = parseInt(saved.days, 10);
+  const past = Array.isArray(saved.past)
+    ? saved.past.filter((p) => p && typeof p.startDate === "string" && parseInt(p.days, 10) >= 1)
+    : [];
+  const period = {
+    days: n >= 1 ? Math.min(n, PERIOD_MAX_DAYS) : PERIOD_DEFAULT_DAYS,
+    startDate: typeof saved.startDate === "string" && saved.startDate ? saved.startDate : dayKey(Date.now()),
+    past,
+  };
+  if (JSON.stringify(period) !== JSON.stringify(saved)) saveNeuralPeriod(id, period);
+  return period;
+}
+
+function NeuralCalendar({ id, events, c }) {
   const calendarSystem = useCalendarSystem();
-  const [mode, setMode] = useState("day");
-  const [cursor, setCursor] = useState(() => new Date());
-  const [selectedDay, setSelectedDay] = useState(() => dayKey(Date.now()));
+  const [period, setPeriod] = useState(() => loadNeuralPeriod(id));
+  const [selectedDay, setSelectedDay] = useState(null);
+  const [openPast, setOpenPast] = useState({});
+  const faNum = (n) => Number(n).toLocaleString("fa-IR");
+  const ord = (i) => PERIOD_MONTH_ORD[i] || faNum(i + 1);
 
   const byDay = useMemo(() => {
     const m = new Map();
     events.forEach((e) => m.set(dayKey(e.t), (m.get(dayKey(e.t)) || 0) + 1));
     return m;
   }, [events]);
-  const byMonth = useMemo(() => {
-    const m = new Map();
-    events.forEach((e) => m.set(monthKey(e.t), (m.get(monthKey(e.t)) || 0) + 1));
-    return m;
-  }, [events]);
-  const byYear = useMemo(() => {
-    const m = new Map();
-    events.forEach((e) => m.set(yearKey(e.t), (m.get(yearKey(e.t)) || 0) + 1));
-    return m;
-  }, [events]);
 
-  const tabBtn = (key, label) => (
-    <button
-      key={key}
-      onClick={() => setMode(key)}
-      style={{
-        flex: 1,
-        padding: "6px 0",
-        fontSize: 11.5,
-        fontWeight: 700,
-        borderRadius: 8,
-        border: `1px solid ${mode === key ? c.gold : "transparent"}`,
-        background: mode === key ? c.goldSoft : "transparent",
-        color: c.ink,
-        cursor: "pointer",
-      }}
-    >
-      {label}
-    </button>
-  );
+  const total = period.days;
+  const past = period.past || [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayKey = dayKey(Date.now());
+
+  // تاریخِ سرتیترِ هر «ماه»: میلادی فقط وقتی تنظیمِ تقویم «میلادی» باشه؛ در غیر این صورت شمسی
+  const fmtDate = (date) => {
+    if (calendarSystem === "gregorian") return `${date.getDate()} ${EN_MONTHS_SHORT[date.getMonth()]}`;
+    const [, jm, jd] = gregorianToJalali(date.getFullYear(), date.getMonth() + 1, date.getDate());
+    return `${faNum(jd)} ${PERSIAN_MONTHS_FULL[jm - 1]}`;
+  };
+
+  // یه دوره (روزِ شروع + تعدادِ روز) → شبکه‌ی «ماه اول، ماه دوم، ...»؛
+  // هم برای دوره‌ی جاری، هم برای دوره‌های قبلی.
+  const buildGrid = (startKey, days) => {
+    const start = parseDayKey(startKey);
+    const cells = [];
+    let doneCount = 0;
+    let hasSelected = false;
+    for (let d = 0; d < days; d++) {
+      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + d);
+      const key = dayKey(date);
+      if (d % PERIOD_BLOCK_DAYS === 0) {
+        const endDate = new Date(start.getFullYear(), start.getMonth(), start.getDate() + Math.min(d + PERIOD_BLOCK_DAYS - 1, days - 1));
+        const mIdx = d / PERIOD_BLOCK_DAYS;
+        cells.push(
+          <div
+            key={`${startKey}-m${d}`}
+            style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10.5, color: c.inkSoft, padding: d === 0 ? "0 2px 2px" : "6px 2px 2px" }}
+          >
+            <b style={{ fontSize: 11, color: c.ink }}>ماه {ord(mIdx)}</b>
+            <span>{fmtDate(date)} تا {fmtDate(endDate)}</span>
+          </div>
+        );
+      }
+      const n = byDay.get(key) || 0;
+      const done = n > 0;
+      if (done) doneCount++;
+      const isToday = key === todayKey;
+      const isFuture = date > today;
+      const isSelected = key === selectedDay;
+      if (isSelected) hasSelected = true;
+      const isMonthEnd = d % PERIOD_BLOCK_DAYS === PERIOD_BLOCK_DAYS - 1 || d === days - 1;
+      const shadows = [];
+      if (!done) shadows.push(`inset 0 0 0 1px ${c.border}`);
+      if (isMonthEnd) shadows.push(`inset 0 -3px 0 ${c.teal}`);
+      cells.push(
+        <div
+          key={`${startKey}-${key}`}
+          onClick={() => { if (!isFuture) setSelectedDay((cur) => (cur === key ? null : key)); }}
+          title={`${formatDayHeader(key, calendarSystem)}${n ? ` · ${n} تکرار` : " · ثبت نشده"}`}
+          style={{
+            aspectRatio: "1", minWidth: 0, borderRadius: 4,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 10, fontWeight: 800, lineHeight: 1, color: "#fff",
+            background: done ? c.gold : c.soft,
+            boxShadow: shadows.length ? shadows.join(", ") : "none",
+            outline: isSelected ? `2px solid ${c.ink}` : isToday ? `1.5px solid ${c.teal}` : "none",
+            outlineOffset: isSelected ? 1 : 0,
+            opacity: isFuture ? 0.3 : 1,
+            cursor: isFuture ? "default" : "pointer",
+          }}
+        >
+          {done ? "✓" : ""}
+        </div>
+      );
+    }
+    return { cells, doneCount, hasSelected };
+  };
+
+  const cur = buildGrid(period.startDate, total);
+  const gridStyle = { display: "grid", gridTemplateColumns: "repeat(15, minmax(0, 1fr))", gap: 3 };
+
+  const start = parseDayKey(period.startDate);
+  const passed = Math.round((today - start) / 86400000) + 1;
+  const dayNum = Math.max(1, Math.min(total, passed));
+  const endOfPeriod = new Date(start.getFullYear(), start.getMonth(), start.getDate() + total);
+  const finished = today >= endOfPeriod;
+
+  const askDays = (question) => {
+    const input = window.prompt(question, String(total));
+    if (input === null) return 0;
+    const norm = String(input).replace(/[۰-۹٠-٩]/g, (ch) => {
+      const i = "۰۱۲۳۴۵۶۷۸۹".indexOf(ch);
+      return i > -1 ? i : "٠١٢٣٤٥٦٧٨٩".indexOf(ch);
+    });
+    const n = parseInt(norm, 10);
+    if (!n || n < 1 || n > PERIOD_MAX_DAYS) {
+      window.alert(`یه عدد بین ۱ تا ${faNum(PERIOD_MAX_DAYS)} وارد کن`);
+      return 0;
+    }
+    return n;
+  };
+
+  // «⚙️ روزهای دوره»: فقط طولِ همین دوره‌ی جاری رو عوض می‌کنه
+  const changeDays = () => {
+    const n = askDays(`دوره‌ی ${ord(past.length)} چند روزه باشه؟ (۱ تا ${faNum(PERIOD_MAX_DAYS)})`);
+    if (!n) return;
+    const next = { ...period, days: n };
+    saveNeuralPeriod(id, next);
+    setPeriod(next);
+  };
+
+  // «▶️ شروع دوره‌ی بعدی»: دوره‌ی تمام‌شده به past می‌ره (پاک نمی‌شه) و دوره‌ی تازه از امروز شروع می‌شه
+  const startNextPeriod = () => {
+    const n = askDays(`دوره‌ی ${ord(past.length + 1)} چند روزه باشه؟ (۱ تا ${faNum(PERIOD_MAX_DAYS)})`);
+    if (!n) return;
+    const next = { days: n, startDate: todayKey, past: [...past, { days: total, startDate: period.startDate }] };
+    saveNeuralPeriod(id, next);
+    setPeriod(next);
+    setSelectedDay(null);
+  };
+
+  const detailsPanel = <DayDetailsPanel dayKeyStr={selectedDay} events={events} c={c} calendarSystem={calendarSystem} />;
 
   return (
-    <div style={{ marginTop: 10, borderTop: `1px dashed ${c.border}`, paddingTop: 10 }}>
-      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-        {tabBtn("day", "روزانه")}
-        {tabBtn("month", "ماهانه")}
-        {tabBtn("year", "سالانه")}
+    <div dir="rtl" style={{ marginTop: 10, borderTop: `1px dashed ${c.border}`, paddingTop: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 12, fontWeight: 800, color: c.ink, marginBottom: 8 }}>
+        <span>🧭 دوره‌ی {past.length ? `${ord(past.length)} — ` : ""}{faNum(total)} روزه</span>
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: c.inkSoft }}>روز {faNum(dayNum)} / {faNum(total)}</span>
       </div>
-      {mode === "day" && (
+      <div style={gridStyle}>{cur.cells}</div>
+      {cur.hasSelected && detailsPanel}
+      {finished ? (
         <>
-          <DayGrid cursor={cursor} setCursor={setCursor} byDay={byDay} c={c} calendarSystem={calendarSystem} selectedDay={selectedDay} onSelectDay={setSelectedDay} />
-          <DayDetailsPanel dayKeyStr={selectedDay} events={events} c={c} calendarSystem={calendarSystem} />
+          <div style={{ marginTop: 8, padding: "9px 11px", borderRadius: 10, background: c.soft, border: `1px solid ${c.goldSoft}`, fontSize: 11.5, fontWeight: 700, lineHeight: 1.8, color: c.ink }}>
+            🎉🥳 دوره‌ی {ord(past.length)} رو تموم کردی! {faNum(Math.min(cur.doneCount, total))} روز از {faNum(total)} روز تمرین کردی.
+            <br />
+            برای ادامه دوره‌ی بعدی رو شروع کن — دوره‌های قبلی همین‌جا می‌مونن.
+          </div>
+          <button
+            onClick={startNextPeriod}
+            style={{ marginTop: 8, width: "100%", padding: "8px 0", borderRadius: 8, border: `1px solid ${c.gold}`, background: c.goldSoft, color: c.ink, fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+          >
+            ▶️ شروع دوره‌ی {ord(past.length + 1)}
+          </button>
         </>
+      ) : (
+        <button
+          onClick={changeDays}
+          style={{ marginTop: 8, width: "100%", padding: "8px 0", borderRadius: 8, border: `1px solid ${c.border}`, background: c.soft, color: c.ink, fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+        >
+          ⚙️ روزهای دوره (الان {faNum(total)} روزه)
+        </button>
       )}
-      {mode === "month" && <MonthGrid cursor={cursor} setCursor={setCursor} byMonth={byMonth} c={c} calendarSystem={calendarSystem} />}
-      {mode === "year" && <YearList byYear={byYear} c={c} calendarSystem={calendarSystem} />}
+      {past.length > 0 && (
+        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+          {past
+            .map((p, i) => ({ p, i }))
+            .reverse()
+            .map(({ p, i }) => {
+              const g = buildGrid(p.startDate, p.days);
+              const open = !!openPast[i];
+              return (
+                <div key={`${p.startDate}-${i}`} style={{ padding: "8px 10px", borderRadius: 10, border: `1px solid ${c.border}`, background: c.soft }}>
+                  <div
+                    onClick={() => setOpenPast((o) => ({ ...o, [i]: !o[i] }))}
+                    style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11.5, fontWeight: 800, color: c.ink, cursor: "pointer" }}
+                  >
+                    <span>✅ دوره‌ی {ord(i)} — {faNum(p.days)} روزه</span>
+                    <span style={{ color: c.inkSoft }}>{faNum(g.doneCount)} / {faNum(p.days)} {open ? "▲" : "▼"}</span>
+                  </div>
+                  {open && (
+                    <>
+                      <div style={{ ...gridStyle, marginTop: 8 }}>{g.cells}</div>
+                      {g.hasSelected && detailsPanel}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1108,7 +1294,7 @@ function NeuralPathCard({ id, label, c, onClose, dragHandleProps }) {
       >
         {showCalendar ? "بستنِ تقویم" : "نمایشِ تقویمِ این مسیر"}
       </button>
-      {showCalendar && <NeuralCalendar events={calendarEvents} c={c} />}
+      {showCalendar && <NeuralCalendar id={id} events={calendarEvents} c={c} />}
     </div>
   );
 }
