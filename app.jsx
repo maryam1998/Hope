@@ -4254,7 +4254,7 @@ function useAutoplayOnScroll(enabled, items) {
 // ---------------------------------------------------------------------------
 const DEFAULT_BACKEND_URL = "https://phrasebook-api.maryam-s-sharifiyan.workers.dev";
 
-async function callAI({ prompt, maxTokens, retries = 2, aiSettings }) {
+async function callAI({ prompt, maxTokens, retries = 2, aiSettings, timeoutMs = 10000 }) {
   const base = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || DEFAULT_BACKEND_URL;
   const body = JSON.stringify({
     prompt,
@@ -4275,7 +4275,7 @@ async function callAI({ prompt, maxTokens, retries = 2, aiSettings }) {
       // اینجا می‌رسه) رو برای همیشه معطل می‌کرد. حالا مثلِ fetchWithTimeout
       // بالا، با AbortController یه سقفِ ۱۰ثانیه‌ای داره.
       const aiController = new AbortController();
-      const aiTimer = setTimeout(() => aiController.abort(), 10000);
+      const aiTimer = setTimeout(() => aiController.abort(), timeoutMs);
       let res;
       try {
         res = await fetch(`${base}/api/generate`, {
@@ -4330,13 +4330,16 @@ async function callAI({ prompt, maxTokens, retries = 2, aiSettings }) {
       const msg = String(e?.message || "");
       const isKnownServerError = msg.startsWith("ai-backend-error:");
       const isNetworkFailure = e instanceof TypeError; // fetch() throws TypeError on network/CORS failure
+      const isTimeout = e?.name === "AbortError" || e?.name === "TimeoutError";
       if (!isKnownServerError && attempt < retries) {
         await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
         continue;
       }
       if (isKnownServerError) throw e;
       throw new Error(
-        isNetworkFailure
+        isTimeout
+          ? `ai-backend-error: سرور تا ${Math.round(timeoutMs / 1000)} ثانیه جواب نداد (timeout) — دوباره امتحان کن.`
+          : isNetworkFailure
           ? `ai-backend-error: به سرور (${base}) وصل نشد. یعنی خودِ Cloudflare Worker جواب نداد — چک کن: ۱) آخرین دیپلوی توی داشبورد Cloudflare بدون خطا انجام شده باشه، ۲) این آدرس رو مستقیم توی مرورگر باز کن (${base}/health) و ببین یه JSON برمی‌گردونه یا خطا می‌ده، ۳) آدرس بک‌اند توی تنظیمات اپ (اگه دستی ست کردی) درست باشه.`
           : `ai-backend-error: ${msg || "خطای ناشناخته در اتصال"}`
       );
@@ -12193,42 +12196,83 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
           const entries = Object.entries(b).filter(([, c]) => c > 0);
           const line = entries.length
             ? entries.map(([w, c]) => `"${w}" ×${c}`).join(", ")
-            : "(no target word required here — just continue the narrative)";
+            : "(none)";
           return `Paragraph ${i + 1}: ${line}`;
         })
         .join("\n");
 
-      const buildPrompt = (correction) => `You are a skilled storyteller writing ${genre.prompt}, in ${storyLangLabel} at CEFR level ${storyLevel}, for a language learner whose native language is ${nativeLabel}.
+      const buildPrompt = (correction) => `Write ${genre.prompt} in ${storyLangLabel}, CEFR ${storyLevel}, for a learner whose native language is ${nativeLabel}.
+- It must clearly belong to that genre from the first sentence.
+- EXACTLY ${targetParagraphs} paragraphs, each with ${lengthCfg.sentencesHint}.
+- ONE coherent story with a real arc (not disconnected example sentences): each sentence follows from the previous one, later paragraphs refer back to earlier ones, and the plot is genuinely about the target words rather than a generic story with words inserted.
+- Use every word with its natural meaning and collocations; if a target word doesn't fit somewhere, rewrite or move it instead of forcing it.
+- Target-word usage per paragraph (all inflected forms count together, off by 1 is fine; a phrase/sentence with ×1 just means work it in once, naturally):
+${budgetTable}${correction ? "\n" + correction : ""}
+Don't lengthen paragraphs just to fit repetitions.
+Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of paragraph 1", "full text of paragraph 2"]}`;
 
-TOPIC/GENRE — hard requirement, not a suggestion: the story MUST genuinely be ${genre.prompt}. Its plot, tone, setting, and vocabulary must clearly and unmistakably belong to this genre from the first sentence — do not default to a generic everyday story if the genre is something else.
+      // زبان‌هایی با خطِ غیرلاتین (فارسی/عربی/هندی/روسی/چینی/کره‌ای/ژاپنی) برای همون
+      // تعداد جمله خیلی بیشتر توکن مصرف می‌کنن؛ با بودجه‌ی قبلی خروجیِ JSON
+      // وسط کار بریده می‌شد و می‌شد «JSON معتبر نبود».
+      const heavyScript = ["fa", "ar", "hi", "ru", "zh", "ko", "ja"].includes(storyLang);
+      // خروجی الان فقط متنِ داستانه (سؤال‌ها حذف شدن) — بودجه رو متناسب کم کردیم.
+      const tokenBudget = Math.min(Math.round((Math.round(lengthCfg.tokens * 0.6) + 150) * (heavyScript ? 1.6 : 1)), 6000);
 
-LENGTH — hard requirement: write EXACTLY ${targetParagraphs} paragraphs in total (not fewer, not more), each with ${lengthCfg.sentencesHint}. The "paragraphs" array in your JSON output must contain exactly ${targetParagraphs} paragraph objects, in order.
-
-NARRATIVE QUALITY:
-- Write ONE genuinely coherent, connected story with a real narrative arc (setup → development → payoff/ending appropriate to the genre) — NOT a disconnected list of example sentences that merely happen to sit next to each other.
-- Every sentence must follow logically or causally from the one before it and set up the one after it: consistent characters, setting, and cause-and-effect, the way a real short story reads — a reader should never be able to tell which sentence was "built around" which target word.
-- The plot and content must feel fully intentional and relevant to the target words themselves — build a story that is actually ABOUT something connected to these words, not a generic story with the words awkwardly inserted.
-- You do NOT need to introduce the target words in the order they're listed — use whatever order serves the story best.
-- Paragraphs must flow into each other (later paragraphs should refer back to people, places, or events from earlier ones), not restart the scene each time.
-- Every word/phrase you use — target words included — must be used with its correct, natural meaning and normal collocations, exactly as a native speaker would use it. Never force a target word into a sentence where it doesn't semantically fit just to hit the repetition budget (e.g. don't write something like "took off a pineapple from the table" — "take off" doesn't collocate with a fruit; "picked up a pineapple" would be correct). If a target word doesn't fit naturally in a given spot, rewrite the sentence or move the word elsewhere in the story instead of producing an unnatural sentence.
-
-REPETITION — follow this PER-PARAGRAPH budget exactly, instead of trying to track a global count yourself. Each line below lists which target words (and how many times each, counting all grammatical forms/inflections together) should appear in THAT paragraph specifically. This budget already sums to the right total across the whole story, so just follow it paragraph by paragraph — being off by 1 in a single paragraph is fine, but don't ignore the split. Weave the words naturally into the sentence flow — don't just list them mechanically. Note: some target items below are full sentences or phrases rather than single words — for those, a budget of "×1" simply means work that sentence/phrase into the story naturally once; you do NOT need to repeat a long phrase verbatim multiple times.
-
-${budgetTable}
-${correction ? "\n" + correction : ""}
-
-Do NOT lengthen any paragraph far beyond the sentence-count guideline above just to fit more repetitions of a word; if a word's budget doesn't fit naturally, reuse it within an existing sentence instead of adding new sentences.
-
-After the story, write 5 multiple-choice comprehension/vocabulary questions in ${storyLangLabel}, each testing ONE of the target words, with 4 options and exactly one correct answer. Respond ONLY with strict JSON, no markdown fences, no extra text, in this exact shape: {"paragraphs": [{"sentences": [{"text": "sentence in ${storyLang}"}]}], "questions": [{"word": "the target word this question tests, matching one from the list exactly", "question": "...", "options": ["...","...","...","..."], "answerIndex": 0}]}`;
-
-      const tokenBudget = Math.min(lengthCfg.tokens + 300, 8000);
+      // پارسِ تحمل‌پذیر: متنِ اضافه قبل/بعد از JSON، تگ <think>، و مهم‌تر از همه
+      // JSON بریده‌شده (به‌خاطر تموم‌شدن توکن) — در حالت بریده، بزرگ‌ترین پیشوندِ
+      // معتبر رو با بستنِ براکت‌ها برمی‌گردونه.
+      const parseJsonLoose = (raw) => {
+        let t = String(raw || "").replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/```(?:json)?/gi, "").trim();
+        const start = t.indexOf("{");
+        if (start === -1) throw new Error("no-json");
+        t = t.slice(start);
+        const end = t.lastIndexOf("}");
+        try { return JSON.parse(end === -1 ? t : t.slice(0, end + 1)); } catch {}
+        const stack = [];
+        const cuts = [];
+        let inStr = false, esc = false;
+        for (let i = 0; i < t.length; i++) {
+          const ch = t[i];
+          if (inStr) {
+            if (esc) esc = false;
+            else if (ch === "\\") esc = true;
+            else if (ch === '"') inStr = false;
+            continue;
+          }
+          if (ch === '"') inStr = true;
+          else if (ch === "{" || ch === "[") stack.push(ch);
+          else if (ch === "}" || ch === "]") {
+            stack.pop();
+            cuts.push({ i, closers: stack.map((c) => (c === "{" ? "}" : "]")).reverse().join("") });
+          }
+        }
+        for (let k = cuts.length - 1; k >= Math.max(0, cuts.length - 60); k--) {
+          try { return JSON.parse(t.slice(0, cuts[k].i + 1) + cuts[k].closers); } catch {}
+        }
+        throw new Error("bad-json");
+      };
 
       const runAttempt = async (correction) => {
-        const res = await callAI({ prompt: buildPrompt(correction), maxTokens: tokenBudget, aiSettings });
-        const cleaned = res.replace(/```json|```/g, "").trim();
+        // تولیدِ کلِ داستان (تا چند هزار توکن، از چند پرووایدرِ پشت‌سرهم) خیلی بیشتر از
+        // سقفِ پیش‌فرضِ ۱۰ثانیه‌ی callAI طول می‌کشه — همون «signal is aborted».
+        const res = await callAI({ prompt: buildPrompt(correction), maxTokens: tokenBudget, aiSettings, timeoutMs: 120000, retries: 1 });
         try {
-          return JSON.parse(cleaned);
+          const obj = parseJsonLoose(res);
+          if (!Array.isArray(obj.paragraphs) || !obj.paragraphs.length) throw new Error("no-paragraphs");
+          // مدل الان هر پاراگراف رو به‌شکل یه رشته‌ی ساده برمی‌گردونه (ارزون‌تر از
+          // آرایه‌ی {text}) — همین‌جا به ساختارِ همیشگیِ {sentences:[{text}]} برمی‌گردونیم.
+          obj.paragraphs = obj.paragraphs
+            .map((p) => {
+              const txt = typeof p === "string" ? p
+                : Array.isArray(p) ? p.join(" ")
+                : (p?.sentences || []).map((x) => x?.text || "").join(" ");
+              return { sentences: splitTextIntoSentenceStrings(txt).map((text) => ({ text })) };
+            })
+            .filter((p) => p.sentences.length);
+          if (!obj.paragraphs.length) throw new Error("no-paragraphs");
+          return obj;
         } catch (parseErr) {
+          console.warn("story JSON parse failed:", String(res).slice(0, 300), "…", String(res).slice(-200));
         throw new Error(uiLang === "en"
           ? "parse-error: The AI's response wasn't complete or valid JSON — try again."
           : "parse-error: پاسخ هوش مصنوعی کامل یا JSON معتبر نبود — دوباره امتحان کن.");
@@ -12295,22 +12339,22 @@ Paragraph to rewrite: ${current}
 
 Next paragraph (context only — do NOT rewrite this): ${next}
 
-Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the previous/next paragraphs and keeps roughly the same length and tone, but adjusts these word counts (counting all grammatical forms/inflections together): ${needsList}. Weave the words naturally into the sentences — don't just repeat them mechanically or list them. Respond ONLY with strict JSON, no markdown fences, no extra text: {"sentences": [{"text": "..."}]}`;
+Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the previous/next paragraphs and keeps roughly the same length and tone, but adjusts these word counts (counting all grammatical forms/inflections together): ${needsList}. Weave the words naturally into the sentences — don't just repeat them mechanically or list them. Respond ONLY with strict JSON, no markdown, no extra text: {"paragraph": "..."}`;
           };
 
           const patchResults = await Promise.allSettled(
             paragraphsToPatch.map((item) =>
-              callAI({ prompt: buildPatchPrompt(item), maxTokens: 900, aiSettings }).then((res) => {
-                const cleaned = res.replace(/```json|```/g, "").trim();
-                return { index: item.index, parsed: JSON.parse(cleaned) };
+              callAI({ prompt: buildPatchPrompt(item), maxTokens: 900, aiSettings, timeoutMs: 60000, retries: 1 }).then((res) => {
+                return { index: item.index, parsed: parseJsonLoose(res) };
               })
             )
           );
 
           const patchedParagraphs = [...best.parsed.paragraphs];
           patchResults.forEach((r) => {
-            if (r.status === "fulfilled" && r.value?.parsed?.sentences?.length) {
-              const resplit = splitTextIntoSentenceStrings(r.value.parsed.sentences.map((s) => s?.text || "").join(" "));
+            const patchedText = r.status === "fulfilled" ? r.value?.parsed?.paragraph : null;
+            if (typeof patchedText === "string" && patchedText.trim()) {
+              const resplit = splitTextIntoSentenceStrings(patchedText);
               patchedParagraphs[r.value.index] = { sentences: resplit.map((text) => ({ text })) };
             }
           });
@@ -12323,12 +12367,12 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       // اگه بعد از پچِ پاراگرافی هنوزم مشکل داشت (یا اصلاً تعداد پاراگراف‌ها
       // درست نبود که پچ اصلاً قابل‌اعمال نبود)، فقط یه بار — نه سه بار مثل
       // قبل — کل داستان رو با بازخوردِ دقیق از نو می‌سازیم.
-      if (best.offenders.length > 0 || !best.lengthOk) {
+      if (!best.lengthOk) {
         const repDetail = best.offenders.map((c) => `"${c.word}": you used it ${c.count} times, but the target is about ${c.target}`).join("; ");
         const lengthDetail = best.lengthOk
           ? ""
           : ` Also, your previous attempt had ${best.paraCount} paragraphs, but it must have exactly ${targetParagraphs} paragraphs — fix the paragraph count too.`;
-        const correction = `Your previous attempt had a large repetition imbalance for some words (${repDetail || "see above"}).${lengthDetail} Rewrite the story from scratch and this time follow the per-paragraph budget closely — being off by 1 in a single paragraph is fine, just avoid using a word way more than double or way less than half of its total target across the story. Keep the story just as natural, coherent, and connected as before (or more so) while you do this — don't turn it into disconnected example sentences to make counting easier.`;
+        const correction = `Your previous attempt was off: ${repDetail ? repDetail + "." : ""}${lengthDetail} Rewrite it from scratch, following the per-paragraph budget and the exact paragraph count, while keeping the story natural and coherent.`;
         try {
           const retryParsed = await runAttempt(correction);
           const retryScore = { parsed: retryParsed, ...scoreAttempt(retryParsed) };
@@ -12366,8 +12410,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       // می‌شه تا لغاتِ تازه‌ذخیره‌شده به اون داستانِ قدیمی نچسبن.
       setCurrentStoryId(null);
       
-      const finalQuestions = Array.isArray(parsed.questions) ? parsed.questions : [];
-      setQuestions(finalQuestions);
+      // سؤال‌های درک مطلب دیگه ساخته نمی‌شن (برای صرفه‌جویی در توکن).
 
       // توجه: قبلاً بعد از ساخت هر داستان، همه‌ی لغات ذخیره‌شده‌ی این زبان
       // از «لغات ذخیره‌شده» پاک می‌شدن. دیگه این کار انجام نمی‌شه — لغات
@@ -13399,26 +13442,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         savedAt: new Date().toISOString(),
       };
       return [entry, ...prev];
-    });
-  };
-
-  const submitQuiz = () => {
-    setSubmitted(true);
-    setWordStats((prev) => {
-      const next = { ...prev };
-      questions.forEach((q, i) => {
-        if (!q.word) return;
-        const key = `${storyLang}:${q.word.toLowerCase()}`;
-        const cur = next[key] || { lang: storyLang, word: q.word, missed: 0, correct: 0 };
-        const isRight = answers[i] === q.answerIndex;
-        next[key] = {
-          lang: storyLang,
-          word: q.word,
-          missed: cur.missed + (isRight ? 0 : 1),
-          correct: cur.correct + (isRight ? 1 : 0),
-        };
-      });
-      return next;
     });
   };
 
@@ -15226,76 +15249,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         </div>
       )}
 
-      {questions.length > 0 && (
-        <div
-          style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }}
-        >
-          <p style={{ fontWeight: 700, marginBottom: 12 }}>{uiLang === "en" ? "Comprehension practice" : "تمرین درک مطلب"}</p>
-          <div className="flex flex-col gap-4">
-            {questions.map((q, i) => (
-              <div key={i}>
-                <p style={{ fontSize: 14, marginBottom: 8 }}>
-                  {i + 1}. {q.question} <span style={{ color: colors.teal, fontSize: 12 }}>({q.word})</span>
-                </p>
-                <div className="flex flex-col gap-2">
-                  {q.options.map((opt, oi) => {
-                    const isChosen = answers[i] === oi;
-                    const isCorrect = q.answerIndex === oi;
-                    let bg = "white";
-                    if (submitted && isCorrect) bg = "#DDEEE4";
-                    else if (submitted && isChosen && !isCorrect) bg = "#F3DADA";
-                    else if (isChosen) bg = colors.paper;
-                    return (
-                      <button
-                        key={oi}
-                        disabled={submitted}
-                        onClick={() => setAnswers((prev) => ({ ...prev, [i]: oi }))}
-                        style={{
-                          textAlign: "right",
-                          padding: "8px 12px",
-                          borderRadius: 10,
-                          border: `1px solid ${colors.cardBorder}`,
-                          backgroundColor: bg,
-                          fontSize: 13,
-                        }}
-                      >
-                        {opt}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-          {!submitted ? (
-            <button
-              onClick={submitQuiz}
-              disabled={Object.keys(answers).length < questions.length}
-              style={{
-                marginTop: 16,
-                backgroundColor: colors.teal,
-                color: "white",
-                borderRadius: 12,
-                padding: "10px 16px",
-                fontWeight: 700,
-                opacity: Object.keys(answers).length < questions.length ? 0.6 : 1,
-              }}
-            >
-              {uiLang === "en" ? "Check answers" : "بررسی جواب‌ها"}
-            </button>
-          ) : (
-            <p style={{ marginTop: 16, fontSize: 14, fontWeight: 700 }}>
-              {uiLang === "en" ? (
-                <>{questions.filter((q, i) => answers[i] === q.answerIndex).length} of {questions.length} correct.
-                Words you got wrong will automatically show up under "Suggest based on forgetting" for your next story.</>
-              ) : (
-                <>{questions.filter((q, i) => answers[i] === q.answerIndex).length} از {questions.length} درست بود.
-                لغاتی که اشتباه زدی خودکار برای داستان بعدی «پیشنهاد بر اساس فراموشی» می‌شن.</>
-              )}
-            </p>
-          )}
-        </div>
-      )}
         </>
       )}
     </div>
