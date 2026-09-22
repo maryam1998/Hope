@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// کتاب مکالمه — Cloudflare Worker backend
+// OrbitHub — Cloudflare Worker backend
 // مسیر این فایل باید دقیقاً src/index.js باشه (طبق wrangler.toml).
 // ---------------------------------------------------------------------------
 
@@ -974,7 +974,7 @@ async function callOpenRouter(prompt, maxTokens, env) {
       // OpenRouter uses these purely for their own analytics/rankings —
       // optional, but recommended by their docs.
       "HTTP-Referer": env.OPENROUTER_SITE_URL || "https://maryam1998.github.io/Hope/",
-      "X-Title": "کتاب مکالمه من",
+      "X-Title": "OrbitHub",
     },
     body: JSON.stringify({
       model: env.OPENROUTER_MODEL || "deepseek/deepseek-chat",
