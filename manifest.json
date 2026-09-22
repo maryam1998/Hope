@@ -1,13 +1,12 @@
 {
-  "name": "کتاب مکالمه — Phrasebook",
-  "short_name": "کتاب مکالمه",
-  "description": "کتاب مکالمه و دیکشنری چندزبانه با تلفظ صوتی",
+  "name": "OrbitHub",
+  "short_name": "OrbitHub",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#F1E8D6",
-  "theme_color": "#1C2541",
+  "background_color": "#EFE6C9",
+  "theme_color": "#1B4640",
   "dir": "rtl",
   "lang": "fa",
   "icons": [
