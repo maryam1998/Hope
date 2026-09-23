@@ -1,6 +1,6 @@
 {
-  "name": "OrbitHub",
-  "short_name": "OrbitHub",
+  "name": "LingoLearn",
+  "short_name": "LingoLearn",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

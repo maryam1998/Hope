@@ -1973,7 +1973,7 @@ const UI_STRINGS = {
   tabReview: { fa: "مرور (جعبه لایتنر)", en: "Review (Leitner box)" },
   tabSpeaking: { fa: "تمرین مکالمه", en: "Speaking practice" },
   // Login / signup screen
-  loginTitle: { fa: "ورود به OrbitHub", en: "Sign in to OrbitHub" },
+  loginTitle: { fa: "ورود به LingoLearn", en: "Sign in to LingoLearn" },
   signupTitle: { fa: "ساخت حساب کاربری", en: "Create an account" },
   loginSubtitle: { fa: "برای ذخیره‌ی پیشرفت و واژه‌هایتان وارد شوید", en: "Sign in to save your progress and words" },
   continueWithGoogle: { fa: "ورود با حساب گوگل", en: "Continue with Google" },
@@ -2759,7 +2759,7 @@ function downloadTextFile(filename, content, mime = "text/markdown;charset=utf-8
 function conversationToMarkdown(nativeLang, targetOrder) {
   const langs = [nativeLang, ...targetOrder.filter((c) => c !== nativeLang)];
   const langLabels = langs.map((c) => LANGUAGES.find((l) => l.code === c)?.label || c);
-  let md = `# OrbitHub — عبارات\n\nزبان‌ها: ${langLabels.join(" / ")}\n\n`;
+  let md = `# LingoLearn — عبارات\n\nزبان‌ها: ${langLabels.join(" / ")}\n\n`;
   const byCategory = {};
   conversation .forEach((p) => {
     if (!byCategory[p.category]) byCategory[p.category] = [];
@@ -2777,7 +2777,7 @@ function conversationToMarkdown(nativeLang, targetOrder) {
 }
 
 function vocabToMarkdown() {
-  let md = `# OrbitHub — دیکشنری\n\n`;
+  let md = `# LingoLearn — دیکشنری\n\n`;
   VOCAB.forEach((v) => {
     md += `- **${v.t.en || v.t.fa}** _(${v.level}, ${POS_FA[v.pos] || v.pos})_ — ${v.meaningFa}\n`;
   });
