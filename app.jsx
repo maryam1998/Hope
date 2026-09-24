@@ -4709,6 +4709,25 @@ function updateWordExampleTranslation(word, langCode, exampleId, targetLangCode,
     window.dispatchEvent(new Event(WORD_EXAMPLES_CHANGED_EVENT));
   } catch {}
 }
+// دکمه‌ی «رفرشِ مثال»: وقتی هوش‌مصنوعی به‌جای یه جمله‌ی مثالِ تمیز، چیزِ
+// غلطی (مثلاً خودِ متنِ خامِ فکرکردنش) ساخته، به‌جای اضافه‌کردنِ یه مثالِ
+// تازه *در کنارِ* همون مثالِ خراب، همینِ رکورد رو با متنِ جدید جایگزین
+// می‌کنیم — id همون id قبلی می‌مونه (پس جایگاهش تویِ لیست عوض نمی‌شه)، ولی
+// translations خالی می‌شه چون ترجمه‌های قبلی مالِ متنِ قدیمی بودن و دیگه
+// معتبر نیستن.
+function replaceWordExample(word, langCode, exampleId, newText) {
+  const all = loadAllWordExamples();
+  const key = wordExamplesKey(word, langCode);
+  const list = all[key] || [];
+  const idx = list.findIndex((e) => e.id === exampleId);
+  if (idx === -1) return;
+  list[idx] = { ...list[idx], text: newText, translations: {} };
+  all[key] = list;
+  try {
+    window.localStorage.setItem(WORD_EXAMPLES_KEY, JSON.stringify(all));
+    window.dispatchEvent(new Event(WORD_EXAMPLES_CHANGED_EVENT));
+  } catch {}
+}
 
 // نسخه‌ی ابریِ مثال‌ها رو با نسخه‌ی محلی ادغام می‌کنه (نه جایگزینش) — هر
 // مثالی که یا فقط محلی بود یا فقط ابری، نگه داشته می‌شه؛ چیزی گم نمی‌شه.
@@ -21225,6 +21244,7 @@ function VocabBookExample({ collocation, example, targetLangs, aiSettings, nativ
 function WordExamples({ word, langCode, meaningNative, nativeLang, targetLangs, aiSettings }) {
   const [examples, setExamples] = useState(() => loadWordExamples(word, langCode));
   const [generating, setGenerating] = useState(false);
+  const [refreshingId, setRefreshingId] = useState(null);
   const [err, setErr] = useState("");
   const nativeLabel = LANGUAGES.find((l) => l.code === nativeLang)?.label || nativeLang;
 
@@ -21252,6 +21272,33 @@ function WordExamples({ word, langCode, meaningNative, nativeLang, targetLangs, 
     }
   }
 
+  // دکمه‌ی رفرشِ یه مثالِ مشخص — اگه همون مثال (نه یه مثالِ تازه‌ی اضافه)
+  // غلط از آب دراومده بود، دقیقاً همون رکورد رو با یه مثالِ تازه جایگزین
+  // می‌کنه؛ existingExamples هم بدونِ خودِ همین مثال فرستاده می‌شه تا AI
+  // احتمالاً همون جمله‌ی خراب رو دوباره تحویل نده.
+  async function handleRefreshExample(exampleId) {
+    if (refreshingId) return;
+    setRefreshingId(exampleId);
+    setErr("");
+    try {
+      const text = await generateWordExample({
+        word,
+        langCode,
+        meaningNative,
+        nativeLabel,
+        existingExamples: examples.filter((ex) => ex.id !== exampleId).map((ex) => ex.text),
+        aiSettings,
+      });
+      if (!text) throw new Error("empty");
+      replaceWordExample(word, langCode, exampleId, text);
+      setExamples(loadWordExamples(word, langCode));
+    } catch {
+      setErr("مثال ساخته نشد — دوباره امتحان کن.");
+    } finally {
+      setRefreshingId(null);
+    }
+  }
+
   return (
     <div style={{ marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
       <button
@@ -21276,7 +21323,18 @@ function WordExamples({ word, langCode, meaningNative, nativeLang, targetLangs, 
       </button>
       {err && <p style={{ color: colors.rose, fontSize: 11, marginTop: 4 }}>{err}</p>}
       {examples.map((ex) => (
-        <WordExampleRow key={ex.id} example={ex} word={word} langCode={langCode} nativeLang={nativeLang} nativeLabel={nativeLabel} targetLangs={targetLangs} aiSettings={aiSettings} />
+        <WordExampleRow
+          key={ex.id}
+          example={ex}
+          word={word}
+          langCode={langCode}
+          nativeLang={nativeLang}
+          nativeLabel={nativeLabel}
+          targetLangs={targetLangs}
+          aiSettings={aiSettings}
+          onRefresh={() => handleRefreshExample(ex.id)}
+          refreshing={refreshingId === ex.id}
+        />
       ))}
     </div>
   );
@@ -21288,6 +21346,7 @@ function WordExamples({ word, langCode, meaningNative, nativeLang, targetLangs, 
 // فقط nativeLang) تا مثلاً هم فارسی هم اسپانیایی هم‌زمان دیده بشن.
 function WordExampleTranslationLine({ example, word, langCode, targetLang, abbr, aiSettings, nativeLang, nativeLabel }) {
   const [translation, setTranslation] = useState(example.translations?.[targetLang] || "");
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (example.translations?.[targetLang]) {
@@ -21307,6 +21366,35 @@ function WordExampleTranslationLine({ example, word, langCode, targetLang, abbr,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [example.id, targetLang]);
+
+  // دکمه‌ی رفرشِ همینِ ترجمه — دقیقاً همون منطقِ retranslateStorySentence/
+  // retranslateOneSentenceText تویِ داستان‌ساز: چون خودِ کاربر با زدنِ این
+  // دکمه داره می‌گه «این ترجمه غلطه»، مستقیم سراغِ بک‌اندِ AI می‌ریم (بدونِ
+  // چک‌کردنِ کشِ IndexedDB — که خودِ همون ترجمه‌ی غلط رو نگه داشته)، و اگه
+  // AI در دسترس نبود، به‌عنوانِ آخرین چاره مستقیم سراغِ شبکه (بازم بدونِ کش).
+  async function handleRefreshTranslation(e) {
+    e.stopPropagation();
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      let t;
+      try {
+        t = await translateViaAI(example.text, targetLang, langCode, aiSettings);
+      } catch {
+        t = null;
+      }
+      if (!t) t = await translateFreeNetwork(example.text, targetLang, langCode, aiSettings, true);
+      if (t) {
+        setTranslation(t);
+        setCachedTranslation(example.text, targetLang, langCode, t); // fire-and-forget — جایِ ترجمه‌ی غلطِ قبلی رو تو کش می‌گیره
+        updateWordExampleTranslation(word, langCode, example.id, targetLang, t);
+      }
+    } catch {
+      // شکست خورد؛ ترجمه‌ی قبلی همون‌جا می‌مونه، کاربر می‌تونه دوباره امتحان کنه.
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   if (!translation) {
     return <p style={{ fontSize: 11, color: colors.inkSoft, marginTop: 4 }}>در حال ترجمه...</p>;
@@ -21349,11 +21437,29 @@ function WordExampleTranslationLine({ example, word, langCode, targetLang, abbr,
         />
       </div>
       <SpeakButton text={translation} code={targetLang} color={translationColor} edge="end" neuralId={`example:${example.id}:${targetLang}`} neuralLabel="ترجمه" />
+      <button
+        type="button"
+        onClick={handleRefreshTranslation}
+        disabled={refreshing}
+        title={nativeLang === "fa" ? "اگه این ترجمه اشتباهه، دوباره امتحان کن" : "If this translation is wrong, try again"}
+        aria-label={nativeLang === "fa" ? "ترجمه‌ی دوباره" : "Retranslate"}
+        style={{
+          background: "none",
+          border: "none",
+          padding: 4,
+          flexShrink: 0,
+          cursor: refreshing ? "default" : "pointer",
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
+        {refreshing ? <Loader2 size={12} className="spin" color={translationColor} /> : <RotateCcw size={12} color={translationColor} style={{ opacity: 0.6 }} />}
+      </button>
     </div>
   );
 }
 
-function WordExampleRow({ example, word, langCode, nativeLang, targetLangs, aiSettings, nativeLabel }) {
+function WordExampleRow({ example, word, langCode, nativeLang, targetLangs, aiSettings, nativeLabel, onRefresh, refreshing }) {
   const [added, setAdded] = useState(false);
   // زبان‌های مقصدی که کاربر بالای صفحه انتخاب/مرتب کرده، منهای خودِ زبانِ
   // مقصدی که جمله‌ی مثال بهش نوشته شده (langCode) — اگه چیزی انتخاب نشده
@@ -21390,6 +21496,30 @@ function WordExampleRow({ example, word, langCode, nativeLang, targetLangs, aiSe
           />
         </div>
         <SpeakButton text={example.text} code={langCode} color={colors.teal} edge="end" neuralId={`example:${example.id}:${langCode}`} neuralLabel="مثال" />
+        {/* دکمه‌ی رفرشِ خودِ مثال — اگه هوش‌مصنوعی به‌جای یه جمله‌ی درست چیزِ
+            غلطی (مثلاً متنِ خامِ فکرکردنش) ساخته، کاربر می‌تونه بدونِ اضافه
+            کردنِ یه مثالِ تازه‌ی جدا، همینِ یکی رو با یه مثالِ بهتر عوض کنه. */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRefresh?.();
+          }}
+          disabled={refreshing}
+          title={nativeLang === "fa" ? "اگه این مثال اشتباهه، دوباره بساز" : "If this example is wrong, try again"}
+          aria-label={nativeLang === "fa" ? "ساختِ دوبارهِ مثال" : "Regenerate example"}
+          style={{
+            background: "none",
+            border: "none",
+            padding: 4,
+            flexShrink: 0,
+            cursor: refreshing ? "default" : "pointer",
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          {refreshing ? <Loader2 size={12} className="spin" color={colors.teal} /> : <RotateCcw size={12} color={colors.teal} style={{ opacity: 0.7 }} />}
+        </button>
       </div>
       {exampleTargetLangs.map((l) => (
         <WordExampleTranslationLine
