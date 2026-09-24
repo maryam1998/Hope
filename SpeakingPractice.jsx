@@ -234,43 +234,45 @@ By the way, what's your name? Or tell me something about yourself.`;
   // جمله‌ی تصحیح از متن حذف بشه. متنِ نرمال‌شده (بدونِ *‌های مارک‌داون و
   // با گیومه‌ی یکسان) هم برگردونده می‌شه تا همون، عیناً، توی حبابِ چت
   // نمایش داده بشه — پس آفست‌ها همیشه با متنِ نمایشی هم‌خون می‌مونن.
+  // 🐛 باگِ اصلیِ «چت تعاملیه ولی اشتباهات رنگی نمی‌شن» دقیقاً همین‌جا بود:
+  // این تابع قبلاً کاملاً به این وابسته بود که AI عیناً همون جمله‌ی انگلیسیِ
+  // «Instead of "X", you should say "Y"» رو کلمه‌به‌کلمه بنویسه — ولی چون
+  // توی askSpeakingTeacher بهش می‌گفتیم «کلاً به زبانِ مقصد جواب بده»، خودِ
+  // همون جمله‌ی تصحیح رو هم (برای زبان‌های غیرِانگلیسی) ترجمه/بازنویسی
+  // می‌کرد، ریجکس مچ نمی‌شد، و corrections همیشه خالی می‌موند. حالا به‌جاش
+  // از AI فقط یه تگِ ماشین‌خوانِ ثابت و غیرقابل‌ترجمه (`FIX: ... => ...`)
+  // می‌خوایم، و خودِ کد جمله‌ی «اشتباه/پیشنهاد» رو با آفستِ دقیق می‌سازه —
+  // مستقل از اینکه زبانِ تمرین چیه یا مدل چقدر دقیق فرمت رو رعایت می‌کنه.
   function extractCorrections(reply) {
-    const text = normalizeAiText(reply);
-    const results = [];
-    const numberedPattern = /(\d+)\.\s*Instead of\s+["']([^"']+)["']\s*,?\s*(?:you should say|you should|you can|try|use)\s+["']([^"']+)["']/gid;
-    let match;
-    while ((match = numberedPattern.exec(text)) !== null) {
-      const [oStart, oEnd] = match.indices[2];
-      const [cStart, cEnd] = match.indices[3];
-      results.push({
-        original: match[2].trim(),
-        corrected: match[3].trim(),
-        oStart, oEnd, cStart, cEnd,
-      });
+    const normalized = normalizeAiText(reply);
+    const lines = normalized.split("\n");
+    const raw = [];
+    let i = 0;
+    while (i < lines.length) {
+      const m = lines[i].trim().match(/^FIX:\s*(.+?)\s*=>\s*(.+)$/i);
+      if (!m) break;
+      raw.push({ original: m[1].trim(), corrected: m[2].trim() });
+      i++;
+    }
+    const bodyText = lines.slice(i).join("\n").replace(/^\s+/, "");
+
+    if (raw.length === 0) {
+      return { corrections: [], text: normalized };
     }
 
-    if (results.length === 0) {
-      const simplePatterns = [
-        { re: /Instead of\s+["']([^"']+)["']\s*,?\s*(?:you should say|you should|you can|try|use)\s+["']([^"']+)["']/id, order: "oc" },
-        { re: /You should say\s+["']([^"']+)["']\s*(?:instead of|not)\s+["']([^"']+)["']/id, order: "co" },
-        { re: /Use\s+["']([^"']+)["']\s+not\s+["']([^"']+)["']/id, order: "co" },
-      ];
-      for (const { re, order } of simplePatterns) {
-        const m = text.match(re);
-        if (m) {
-          const [g1s, g1e] = m.indices[1];
-          const [g2s, g2e] = m.indices[2];
-          if (order === "oc") {
-            results.push({ original: m[1].trim(), corrected: m[2].trim(), oStart: g1s, oEnd: g1e, cStart: g2s, cEnd: g2e });
-          } else {
-            results.push({ original: m[2].trim(), corrected: m[1].trim(), oStart: g2s, oEnd: g2e, cStart: g1s, cEnd: g1e });
-          }
-          break;
-        }
-      }
-    }
+    let built = "";
+    const corrections = raw.map((c, idx) => {
+      const prefix = `${idx + 1}. Instead of "`;
+      const mid = `", you should say "`;
+      const oStart = built.length + prefix.length;
+      const oEnd = oStart + c.original.length;
+      const cStart = oEnd + mid.length;
+      const cEnd = cStart + c.corrected.length;
+      built += `${prefix}${c.original}${mid}${c.corrected}".\n`;
+      return { original: c.original, corrected: c.corrected, oStart, oEnd, cStart, cEnd };
+    });
 
-    return { corrections: results, text };
+    return { corrections, text: `${built}\n${bodyText}` };
   }
 
   // ✅ کاهشِ مصرفِ توکن — تاریخچه‌ای که هر بار توی prompt فرستاده می‌شه
@@ -305,10 +307,11 @@ You are Jimmy, a friendly patient ${langLabel} coach. Learner's native language:
 They just wrote${writtenInNative ? ` (in ${nativeLabelLocal}, not ${langLabel})` : ""}: "${userSentence}"
 
 Rules:
-- Reply ENTIRELY in ${langLabel}, plain text only (no markdown/asterisks).
-- If they wrote in ${langLabel} with mistakes, number each: 1. Instead of "X", you should say "Y".
-- If they wrote in ${nativeLabelLocal} instead (not a mistake), show the natural ${langLabel} equivalent in the SAME format: 1. Instead of "<what they wrote in ${nativeLabelLocal}>", you should say "<${langLabel} equivalent>".
-- Then continue the chat naturally and briefly — react, ask a follow-up, keep it like a real conversation, not a report.
+- If they wrote in ${langLabel} with mistakes, list each one on its own line at the very top, using EXACTLY this tag — keep the word FIX and the => symbol in English even though everything else you write is in ${langLabel}, do NOT translate this tag:
+FIX: <what they wrote> => <the correct version>
+(one FIX line per mistake, using their exact wording for "what they wrote")
+- If they wrote in ${nativeLabelLocal} instead of ${langLabel} (not a mistake, just the wrong language), use ONE such line: FIX: <what they wrote in ${nativeLabelLocal}> => <${langLabel} equivalent>
+- After the FIX line(s) — or immediately if there were no mistakes — leave a blank line, then continue the chat: reply ENTIRELY in ${langLabel}, plain text only (no markdown/asterisks), naturally and briefly — react, ask a follow-up, like a real conversation, not a report. Do NOT explain the mistakes yourself in prose; the FIX lines above are enough.
 
 Recent conversation:
 ${historyText}

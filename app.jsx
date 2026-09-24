@@ -1546,38 +1546,67 @@ function reportProviderOutcome(provider, succeeded) {
   }
 }
 
+// اجرای موازیِ چند سرویسِ ترجمه به‌جای پشت‌سرِهم — چون این ۴ سرویسِ خارجی
+// (Google/MyMemory/Lingva/Libre) معمولاً توی شبکه‌ی ایران فیلتر/بلاکن، حالتِ
+// قبلی (یکی‌یکی با تایم‌اوتِ جدا) یعنی کاربر باید تا ۱۶ ثانیه صبرِ سرویس‌های
+// مرده رو می‌کشید قبل از اینکه اصلاً نوبت به بک‌اندِ AI برسه. حالا همه رو
+// همزمان می‌فرستیم و اولین جوابِ غیرخالی برنده‌ست؛ بقیه فقط برای گزارشِ
+// شکست به circuit breaker استفاده می‌شن (چیزی که تأییدش می‌کنه رو return
+// نمی‌کنن، پس هزینه‌ی اضافه‌ای هم ندارن). مصرفِ AI دست‌نخورده می‌مونه: فقط
+// روی همون برنده (verify) یا وقتی هیچ‌کدوم جواب ندادن (translateViaAI)
+// صدا زده می‌شه — دقیقاً مثل قبل.
+function raceProviderResults(providers, text, targetLang, sourceLang) {
+  return new Promise((resolve) => {
+    if (providers.length === 0) { resolve(null); return; }
+    let remaining = providers.length;
+    let settled = false;
+    providers.forEach((provider) => {
+      provider(text, targetLang, sourceLang)
+        .then((result) => {
+          if (result && result.trim()) {
+            if (!settled) { settled = true; resolve({ result, provider }); }
+          } else {
+            // جواب خالی/بی‌محتوا هم یه‌جور شکستِ همون سرویسه
+            reportProviderOutcome(provider, false);
+          }
+        })
+        .catch((error) => {
+          reportProviderOutcome(provider, false);
+          console.warn(`ترجمه با ${provider.name} ناموفق بود:`, error?.message || error);
+        })
+        .finally(() => {
+          remaining -= 1;
+          if (remaining === 0 && !settled) resolve(null);
+        });
+    });
+  });
+}
+
 async function translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify) {
-  const providers = [translateViaGoogle, translateViaMyMemory, translateViaLingva, translateViaLibre];
-  for (const provider of providers) {
-    if (isProviderTemporarilyBlocked(provider)) continue;
-    try {
-      const result = await provider(text, targetLang, sourceLang);
-      if (result && result.trim()) {
-        // 🔎 فقط اگه یکی از تست‌های رایگانِ looksLikelyMistranslated مشکوک
-        // تشخیص داد (و aiSettings در دسترس بود)، همینجا (قبل از کش‌شدن)
-        // یه بررسی سریع با AI انجام می‌شه. چون این کل خط await شده، وقتی
-        // چیزی مشکوک نبود (اکثر جمله‌ها) صفر تأخیرِ اضافه داره؛ وقتی هم
-        // مشکوک بود، یه تأخیرِ کوتاه (یه کالِ سریعِ Groq) به‌جای نمایشِ
-        // ترجمه‌ی غلط، منطقی‌تره.
-        const finalResult =
-          aiSettings && (forceVerify || looksLikelyMistranslated(text, result, targetLang, sourceLang))
-            ? await verifyTranslationWithAI(text, targetLang, result, aiSettings)
-            : result;
-        // اگه بعد از تلاش برای اصلاح هم هنوز مشکوکه (یعنی AI هم در دسترس نبود
-        // و draft خام همون متن مبدأ برگشت)، کش نکن — برو سراغ سرویس بعدی به‌جای
-        // اینکه یه ترجمه‌ی غلط برای همیشه تو IndexedDB ذخیره بمونه.
-        if (looksLikelyMistranslated(text, finalResult, targetLang, sourceLang)) {
-          continue;
-        }
-        reportProviderOutcome(provider, true);
-        setCachedTranslation(text, targetLang, sourceLang, finalResult); // fire-and-forget
-        return finalResult;
-      }
-      // جواب خالی/بی‌محتوا هم یه‌جور شکستِ همون سرویسه
-      reportProviderOutcome(provider, false);
-    } catch (error) {
-      reportProviderOutcome(provider, false);
-      console.warn(`ترجمه با ${provider.name} ناموفق بود، رفتن سراغ سرویس بعدی:`, error?.message || error);
+  const providers = [translateViaGoogle, translateViaMyMemory, translateViaLingva, translateViaLibre].filter(
+    (p) => !isProviderTemporarilyBlocked(p)
+  );
+
+  const winner = await raceProviderResults(providers, text, targetLang, sourceLang);
+  if (winner) {
+    const { result, provider } = winner;
+    // 🔎 فقط اگه یکی از تست‌های رایگانِ looksLikelyMistranslated مشکوک
+    // تشخیص داد (و aiSettings در دسترس بود)، همینجا (قبل از کش‌شدن)
+    // یه بررسی سریع با AI انجام می‌شه. چون این کل خط await شده، وقتی
+    // چیزی مشکوک نبود (اکثر جمله‌ها) صفر تأخیرِ اضافه داره؛ وقتی هم
+    // مشکوک بود، یه تأخیرِ کوتاه (یه کالِ سریعِ Groq) به‌جای نمایشِ
+    // ترجمه‌ی غلط، منطقی‌تره.
+    const finalResult =
+      aiSettings && (forceVerify || looksLikelyMistranslated(text, result, targetLang, sourceLang))
+        ? await verifyTranslationWithAI(text, targetLang, result, aiSettings)
+        : result;
+    // اگه بعد از تلاش برای اصلاح هم هنوز مشکوکه (یعنی AI هم در دسترس نبود
+    // و draft خام همون متن مبدأ برگشت)، کش نکن — برو سراغِ بک‌اندِ AI به‌جای
+    // اینکه یه ترجمه‌ی غلط برای همیشه تو IndexedDB ذخیره بمونه.
+    if (!looksLikelyMistranslated(text, finalResult, targetLang, sourceLang)) {
+      reportProviderOutcome(provider, true);
+      setCachedTranslation(text, targetLang, sourceLang, finalResult); // fire-and-forget
+      return finalResult;
     }
   }
   // اگه هر ۴ سرویسِ رایگان شکست خوردن (مثلاً به‌خاطر فیلتر/بلاک‌بودنِ
