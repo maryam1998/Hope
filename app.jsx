@@ -11284,6 +11284,41 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     recordNeuralRepeat(neuralId, { source: "player" });
     addNeuralFiber(neuralId);
   }, [playbackMode, userAudio.isPlaying, userAudio.activeSentence, paragraphs, storyLang]);
+
+  // 🧬 مسیرِ عصبیِ خودکار حینِ پخشِ صوتِ آپلودی: اثرِ بالا فقط با
+  // جابه‌جاییِ دستیِ manualIndex/activeSentence فایر می‌شه (دکمه‌ی جمله‌ی
+  // بعد/تپِ روی جمله)؛ ولی وقتی کاربر فقط می‌ذاره فایل از اول تا آخر خودش
+  // پخش بشه (بدونِ هیچ تپ/دکمه‌ای)، activeSentence اصلاً عوض نمی‌شه — چون
+  // آپدیتِ خودکارِ هایلایت قبلاً عمداً حذف شده (نگاه کن به توضیحِ بالایِ
+  // useStoryUserAudio). نتیجه این بود که برایِ همچین گوشِ‌دادنِ ساده‌ای هیچ
+  // رشته‌ی عصبی‌ای ساخته نمی‌شد. این افکتِ جدید کاملاً مستقل از سیستمِ
+  // هایلایت/manualIndex عمل می‌کنه — هیچ stateِ UI/هایلایتی رو عوض نمی‌کنه،
+  // فقط از رویِ نسبتِ currentTime/duration (دقیقاً همون تخمینِ نسبی‌ای که
+  // jumpToLineInUserAudio برعکسش رو حساب می‌کنه: offset/fullStoryText.length
+  // ⇄ ratio*duration) حدس می‌زنه پخش الان رویِ کدوم جمله است، و با هر عبورِ
+  // واقعی به جمله‌یِ بعدی (نه با هر تیکِ زمان) یه رشته براش می‌سازه.
+  const userAudioAutoNeuralRef = useRef({ key: null, storyKey: null });
+  useEffect(() => {
+    if (playbackMode !== "user") return;
+    if (!userAudio.isPlaying) return;
+    if (!fullStoryText || !userAudio.duration) return;
+    if (userAudioAutoNeuralRef.current.storyKey !== mainStoryKey) {
+      userAudioAutoNeuralRef.current = { key: null, storyKey: mainStoryKey };
+    }
+    const ratio = userAudio.currentTime / userAudio.duration;
+    const charPos = ratio * fullStoryText.length;
+    const hit = sentenceOffsets.find((s) => charPos >= s.start && charPos < s.end);
+    if (!hit) return;
+    const s = paragraphs[hit.pi]?.sentences?.[hit.si];
+    if (!s || !s.text) return;
+    const neuralId = `story:${storyLang}::${s.text}`;
+    const fireKey = `${neuralId}#${hit.pi}#${hit.si}`;
+    if (userAudioAutoNeuralRef.current.key === fireKey) return;
+    userAudioAutoNeuralRef.current.key = fireKey;
+    recordNeuralRepeat(neuralId, { source: "player" });
+    addNeuralFiber(neuralId);
+  }, [playbackMode, userAudio.isPlaying, userAudio.currentTime, userAudio.duration, fullStoryText, sentenceOffsets, paragraphs, storyLang, mainStoryKey]);
+
   // پُلِ سراسری برای GlobalAddToStorySelection (نگاه کن به توضیحِ کاملِ
   // activeUserAudioFocusPause بالایِ فایل): فقط وقتی پلیر واقعاً رویِ
   // «صوتِ من» است و فایلی هم آپلود شده، تابعِ pauseForFocus رو در دسترسِ
