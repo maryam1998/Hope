@@ -2197,6 +2197,31 @@ function formatJalaliDateTime(date) {
 function formatGregorianDateTime(date) {
   return date.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
+// همینا ولی فقط تاریخ (بدون ساعت) و با نامِ روزِ هفته — برای هدرِ
+// گروه‌بندیِ روزانه‌ی یادداشت‌های گرامر (GrammarPanel)، که قبلاً بدونِ توجه
+// به calendarSystem همیشه با toLocaleDateString(nativeLang) رندر می‌شد و
+// همین باعثِ ناهماهنگی با بقیه‌ی جاهایی می‌شد که تنظیمِ تقویمِ کاربر رو
+// رعایت می‌کنن (مثلاً تاریخِ داستان‌های ذخیره‌شده).
+const PERSIAN_WEEKDAYS_SHORT = ["یک‌شنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنج‌شنبه", "جمعه", "شنبه"];
+function formatJalaliDateOnly(date) {
+  const [jy, jm, jd] = gregorianToJalali(date.getFullYear(), date.getMonth() + 1, date.getDate());
+  const weekday = PERSIAN_WEEKDAYS_SHORT[date.getDay()];
+  const jmStr = String(jm).padStart(2, "0");
+  const jdStr = String(jd).padStart(2, "0");
+  return toFaDigits(`${weekday} ${jy}/${jmStr}/${jdStr}`);
+}
+function formatGregorianDateOnly(date) {
+  return date.toLocaleDateString("en-GB", { weekday: "short", year: "numeric", month: "short", day: "numeric" });
+}
+// calendarSystem: "jalali" | "gregorian" | "both" — تاریخِ خالی (بدونِ ساعت)
+function formatCalendarDateOnly(iso, calendarSystem) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return "";
+  if (calendarSystem === "gregorian") return formatGregorianDateOnly(date);
+  if (calendarSystem === "both") return `${formatJalaliDateOnly(date)} — ${formatGregorianDateOnly(date)}`;
+  return formatJalaliDateOnly(date);
+}
 // calendarSystem: "jalali" | "gregorian" | "both"
 function formatSavedDate(iso, calendarSystem) {
   if (!iso) return "";
@@ -5637,7 +5662,7 @@ function findInVocab(word, langCode) {
 // never fully "cut off" — the popover always has *something* to show and
 // save. Result is cached in localStorage per (word + language) so it only
 // ever costs one network request per word per device.
-async function lookupWordMeaning({ word, sentence, langCode, nativeLang }) {
+async function lookupWordMeaning({ word, sentence, langCode, nativeLang, aiSettings }) {
   const local = nativeLang === "fa" ? findInVocab(word, langCode) : null;
   if (local) return local;
 
@@ -5645,7 +5670,10 @@ async function lookupWordMeaning({ word, sentence, langCode, nativeLang }) {
   const cache = loadWordCache();
   if (cache[cacheKey]) return { ...cache[cacheKey], source: "cache" };
 
-  const meaning = await translateFree(word, nativeLang || "fa", langCode);
+  // aiSettings رو پاس می‌دیم تا وقتی هر ۴ سرویسِ رایگان (گوگل/مای‌مموری/
+  // لینگوا/لیبره) بلاک/فیلتر باشن، به‌جای برگردوندنِ متنِ اصلی (ترجمه‌نشده)،
+  // بک‌اندِ AI خودِ اپ به‌عنوانِ آخرین چاره امتحان بشه.
+  const meaning = await translateFree(word, nativeLang || "fa", langCode, aiSettings);
   const result = { meaning: meaning || word };
   cache[cacheKey] = result;
   saveWordCache(cache);
@@ -9281,7 +9309,7 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     setOpenKey(key);
     setInfo("loading");
     try {
-      const result = await lookupWordMeaning({ word: term, sentence: text, langCode, nativeLang });
+      const result = await lookupWordMeaning({ word: term, sentence: text, langCode, nativeLang, aiSettings });
       setInfo(result);
       // اگه این لغت از قبل ذخیره شده بود ولی هنوز ترجمه‌اش به زبان مادری
       // کش نشده بود، همین حالا که معنی‌اش پیدا شد، کاملش کن — هم برای
@@ -9337,7 +9365,7 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
     if (!activeTerm) return;
     setInfo("loading");
     try {
-      const result = await lookupWordMeaning({ word: activeTerm, sentence: text, langCode, nativeLang });
+      const result = await lookupWordMeaning({ word: activeTerm, sentence: text, langCode, nativeLang, aiSettings });
       setInfo(result);
     } catch (e) {
       setInfo("error");
@@ -15845,6 +15873,7 @@ const GrammarPanel = React.memo(function GrammarPanel({
   nativeLabel,
   targetOrder,
   aiSettings,
+  calendarSystem,
   jumpTo,
   playerBarHeight = 0,
   practiceOpacity = 100,
@@ -15865,9 +15894,16 @@ const GrammarPanel = React.memo(function GrammarPanel({
     (iso) => {
       const d = new Date(iso);
       if (isNaN(d)) return (nativeLang === "fa") ? "بدون تاریخ" : "No date";
-      return d.toLocaleDateString(grammarLocale, { weekday: "short", year: "numeric", month: "short", day: "numeric" });
+      // قبلاً اینجا مستقیم toLocaleDateString(grammarLocale) صدا زده می‌شد —
+      // که چون لوکیلِ fa-IR توی جاوااسکریپت به‌طور پیش‌فرض از تقویمِ شمسی
+      // استفاده می‌کنه، این تاریخ همیشه شمسی نشون داده می‌شد، حتی اگه
+      // کاربر توی تنظیمات «میلادی» یا «هر دو» رو انتخاب کرده باشه — و همین
+      // ناهماهنگیِ بینِ این تب و بقیه‌ی جاها (مثلاً داستان‌های ذخیره‌شده) رو
+      // می‌ساخت. حالا از همون تابعِ عمومیِ formatCalendarDateOnly استفاده
+      // می‌کنیم که calendarSystem رو رعایت می‌کنه.
+      return formatCalendarDateOnly(iso, calendarSystem || "jalali");
     },
-    [grammarLocale, nativeLang]
+    [calendarSystem, nativeLang]
   );
   const formatNoteTime = useCallback(
     (iso) => {
@@ -18384,6 +18420,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
             nativeLabel={nativeLabel}
             targetOrder={targetOrder}
             aiSettings={aiSettings}
+            calendarSystem={appPrefs.calendarSystem || "jalali"}
             jumpTo={grammarJump}
             playerBarHeight={showPlayerBar ? playerBarHeight : 0}
             practiceOpacity={practiceOpacity}
