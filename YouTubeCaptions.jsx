@@ -691,7 +691,7 @@ export default function YouTubeCaptionPanel({
       )}
 
       {videoId && !cues.length && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 12, borderRadius: 10, background: colors.paperDark, border: `1px solid ${colors.cardBorder}` }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: colors.ink, fontFamily: fontFa }}>
             {isFa ? "زیرنویس رو چطور بگیریم؟" : "How should we get the captions?"}
           </p>
