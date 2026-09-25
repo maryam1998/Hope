@@ -14447,14 +14447,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
             : (showYoutubeImport ? "بستنِ وارد کردن از یوتیوب" : "وارد کردن از یک ویدیوی یوتیوب")}
         </button>
         {showYoutubeImport && (
-          <div
-            style={{
-              marginTop: 8,
-              border: `1px solid ${colors.cardBorder}`,
-              borderRadius: 14,
-              background: colors.paper,
-            }}
-          >
+          <div style={{ marginTop: 4 }}>
             <YouTubeCaptionPanel
               nativeLang={nativeLang}
               nativeLabel={nativeLabel}
@@ -15132,14 +15125,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 : (showReaderYoutubeImport ? "بستنِ ویدیوی یوتیوب" : "دیدنِ یک ویدیوی یوتیوب اینجا")}
             </button>
             {showReaderYoutubeImport && (
-              <div
-                style={{
-                  marginTop: 8,
-                  border: `1px solid ${colors.cardBorder}`,
-                  borderRadius: 14,
-                  background: colors.paper,
-                }}
-              >
+              <div style={{ marginTop: 4 }}>
                 <YouTubeCaptionPanel
                   nativeLang={nativeLang}
                   nativeLabel={nativeLabel}

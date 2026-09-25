@@ -448,14 +448,35 @@ export default function YouTubeCaptionPanel({
     };
   }, [videoId]);
 
-  // پولینگِ زمانِ پخش، فقط وقتی واقعاً در حالِ پخشه — برای پیداکردنِ خطِ
-  // فعال و هایلایت/اسکرولِ خودکار به همون خط.
+  // پولینگِ زمانِ پخش. 🩹 قبلاً این پولینگ فقط وقتی شروع می‌شد که isPlaying
+  // true باشه، و isPlaying فقط از رویدادِ onStateChangeِ پلیرِ یوتیوب
+  // (که از طریقِ postMessage میاد) ست می‌شد. تویِ شبکه‌های فیلتر/پراکسی‌شده
+  // (دقیقاً همون محدودیتِ ایران) این رویداد گاهی اصلاً نمی‌رسه — و چون هیچ
+  // جای دیگه‌ای isPlaying رو درست نمی‌کرد، پولینگ هیچ‌وقت شروع نمی‌شد:
+  // یعنی activeIndex برای همیشه رویِ -1 گیر می‌کرد، نه هایلایت/اسکرولِ
+  // خودکاری اتفاق می‌افتاد، و نه حتی ترجمه‌ها (که فقط برای خطِ فعال lazy
+  // لود می‌شن) — دقیقاً همون علامتی که دیده شد. حالا به‌جای اعتمادِ کامل
+  // به اون رویداد، تا وقتی پلیر و زیرنویس وجود دارن دائم (هر ۳۰۰ms) خودِ
+  // getPlayerState رو مستقیم می‌پرسیم و isPlaying رو هم از همینجا خودمون
+  // تصحیح می‌کنیم — پس حتی اگه رویداد نرسه، خودمون هر تیک وضعیتِ واقعی رو
+  // می‌گیریم.
   useEffect(() => {
-    if (!isPlaying || !playerRef.current || !cues.length) return;
+    if (!playerRef.current || !cues.length) return;
     pollRef.current = setInterval(() => {
+      const player = playerRef.current;
+      if (!player) return;
+      let state;
+      try {
+        state = player.getPlayerState();
+      } catch {
+        return;
+      }
+      const playingNow = state === 1; // YT.PlayerState.PLAYING
+      setIsPlaying((prev) => (prev !== playingNow ? playingNow : prev));
+      if (!playingNow) return;
       let t = 0;
       try {
-        t = playerRef.current.getCurrentTime() || 0;
+        t = player.getCurrentTime() || 0;
       } catch {
         return;
       }
@@ -463,7 +484,7 @@ export default function YouTubeCaptionPanel({
       setActiveIndex((prev) => (idx !== -1 && idx !== prev ? idx : idx === -1 ? prev : idx));
     }, 300);
     return () => clearInterval(pollRef.current);
-  }, [isPlaying, cues]);
+  }, [cues]);
 
   const translateOne = useCallback(
     async (text, langCode, forceFresh) => {
@@ -631,7 +652,7 @@ export default function YouTubeCaptionPanel({
   }
 
   return (
-    <div className="flex flex-col gap-4" style={{ padding: 16 }} dir={isFa ? "rtl" : "ltr"}>
+    <div className="flex flex-col gap-2" style={{ padding: 16 }} dir={isFa ? "rtl" : "ltr"}>
       <div>
         <label style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, fontFamily: fontFa }}>
           {isFa ? "لینکِ ویدیوی یوتیوب" : "YouTube video link"}
