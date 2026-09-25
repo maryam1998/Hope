@@ -1,22 +1,25 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Play, Pause, Loader2, RotateCcw, Upload, Sparkles, X } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import { Loader2 } from "lucide-react";
 
 // -----------------------------------------------------------------------
-// تبِ «یوتیوب»: کاربر یه لینک ویدیوی یوتیوب می‌ده، خودِ ویدیو همین‌جا
-// (نه توی مرورگرِ جدا) پخش می‌شه، زیرِ ویدیو رونوشتِ زیرنویس با تایم‌بندی
-// دیده می‌شه، و برای هر خط، هم‌زمان ترجمه به همه‌ی زبان‌های مقصدی که کاربر
-// از تنظیماتِ اصلیِ اپ چیده (targetOrder) نشون داده می‌شه — دقیقاً همون
-// الگویِ چند-زبانه‌ای که برای مثال‌سازِ لغت و داستان‌ساز استفاده شده.
+// تبِ «یوتیوب»: کاربر یه لینک ویدیوی یوتیوب می‌ده، خودِ ویدیو همین‌جا (نه
+// توی مرورگرِ جدا) پخش می‌شه.
 //
-// زیرنویس از دو راه قابلِ گرفتنه:
-//   ۱) خودکار: تلاش می‌کنیم لیستِ زیرنویس‌های رسمی/خودکارِ خودِ یوتیوب رو
-//      از endpoint نیمه‌رسمیِ timedtext بگیریم. این endpoint نه مستندِ
-//      رسمیِ گوگله و نه CORS‌ش تضمین‌شده — روی خیلی از شبکه‌ها/ویدیوها کار
-//      می‌کنه، ولی ممکنه گاهی (فیلترینگ، محدودیتِ ویدیوی خاص، تغییرِ
-//      endpoint توسطِ گوگل) شکست بخوره. اگه شکست خورد، پیامِ روشن نشون
-//      می‌دیم و راهِ دوم رو پیشنهاد می‌کنیم.
-//   ۲) دستی: آپلودِ فایلِ srt/vtt — این همیشه کار می‌کنه، چون کاملاً محلیه
-//      و به هیچ سرویسِ بیرونی وابسته نیست.
+// 🩹 قبلاً این پنل خودش یه راهِ جداگانه برای «گرفتنِ زیرنویس» هم داشت
+// (دریافتِ خودکار از یوتیوب، آپلودِ فایلِ srt/vtt، یا پیستِ متنِ زیرنویس تو
+// یه باکسِ مخصوصِ همینجا) — یعنی برای واردکردنِ متن، کاربر دو جای متفاوت
+// داشت (این پنل، و باکسِ عمومیِ «پیستِ متن/داستان» که بیرون از این پنل،
+// پایین‌ترِ همین صفحه هست). طبقِ خواسته‌ی کاربر، اون راهِ دوم و جداگانه
+// کاملاً حذف شده — این پنل الان فقط ویدیو رو نشون می‌ده؛ برای واردکردنِ
+// متنِ داستان، کاربر رونوشتِ ویدیو رو (از هرجا که خودش داره) کپی می‌کنه و تو
+// همون باکسِ عمومیِ «پیستِ متن/داستان» می‌چسبونه — یعنی فقط یه جا برای
+// پیستِ متن وجود داره، نه دوتا.
+//
+// 📌 ویدیو با position:fixed (نه sticky) نگه داشته می‌شه: چون این پنل خودش
+// فقط شاملِ اینپوتِ لینک + خودِ ویدیوعه و محتوایی که بعدش میاد (باکس‌های
+// PDF/لینک/پیستِ متن) بیرون از همین کامپوننته، sticky فقط تا آخرِ کانتینرِ
+// خودِ این پنل (که خیلی کوتاهه) دووم می‌آورد. با fixed، ویدیو مستقلِ از
+// اسکرولِ صفحه، تا وقتی همین پنل بازه، همیشه رویِ صفحه می‌مونه.
 // -----------------------------------------------------------------------
 
 const FALLBACK_COLORS = {
@@ -59,111 +62,6 @@ function extractYouTubeId(input) {
   return m2 ? m2[0] : null;
 }
 
-function timeStrToSeconds(str) {
-  const m = String(str || "")
-    .trim()
-    .match(/(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d+)/);
-  if (!m) return 0;
-  const [, hh, mm, ss, ms] = m;
-  const h = hh ? parseInt(hh, 10) : 0;
-  const msNum = parseInt(ms.padEnd(3, "0").slice(0, 3), 10);
-  return h * 3600 + parseInt(mm, 10) * 60 + parseInt(ss, 10) + msNum / 1000;
-}
-
-function formatSeconds(sec) {
-  const s = Math.max(0, Math.floor(sec || 0));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${String(r).padStart(2, "0")}`;
-}
-
-// پارسِ srt یا vtt به یه آرایه‌ی ساده‌ی { start, end, text } — تگ‌های
-// داخلیِ vtt (مثلِ <00:00:01.000> یا <c>) و شماره‌ی ردیفِ srt نادیده گرفته
-// می‌شن، فقط متنِ خام می‌مونه.
-function parseSubtitleFile(raw) {
-  const text = String(raw || "").replace(/^\uFEFF/, "");
-  const blocks = text.split(/\r?\n\r?\n+/).map((b) => b.trim()).filter(Boolean);
-  const cues = [];
-  for (const block of blocks) {
-    const lines = block.split(/\r?\n/).filter((l) => l.trim() !== "");
-    if (!lines.length) continue;
-    let idx = 0;
-    if (!/-->/.test(lines[0]) && lines[1] && /-->/.test(lines[1])) idx = 1;
-    const timeLine = lines[idx];
-    if (!timeLine) continue;
-    const m = timeLine.match(/([\d:.,]+)\s*-->\s*([\d:.,]+)/);
-    if (!m) continue;
-    const start = timeStrToSeconds(m[1]);
-    const end = timeStrToSeconds(m[2]);
-    const cueText = lines
-      .slice(idx + 1)
-      .join(" ")
-      .replace(/<[^>]+>/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!cueText) continue;
-    if (cues.length && cues[cues.length - 1].text === cueText && start - cues[cues.length - 1].end < 0.4) {
-      // خیلی از زیرنویس‌های خودکارِ یوتیوب همون خط رو با یه هم‌پوشانیِ
-      // چندصدمِ ثانیه‌ای دوباره تکرار می‌کنن؛ برای رونوشتِ تمیز، اینا رو
-      // یکی می‌کنیم به‌جای اینکه دوبار نشون بدیم.
-      cues[cues.length - 1].end = end;
-      continue;
-    }
-    cues.push({ start, end, text: cueText });
-  }
-  return cues;
-}
-
-// عملاً روی خیلی از هاست‌ها/شبکه‌ها، fetch مستقیم به video.google.com از
-// داخلِ مرورگر با CORS بلاک می‌شه (نتیجه‌ش دقیقاً همون خطای «دریافتِ خودکار
-// ناموفق بود» است که اکثرِ وقت‌ها دیده می‌شه) — پس اول یه تلاشِ مستقیم
-// می‌زنیم، و اگه شکست خورد، از همون پراکسیِ بک‌اندِ AI (که برای «وارد کردنِ
-// لینکِ صفحه» هم استفاده می‌شه) به‌عنوانِ واسط استفاده می‌کنیم.
-const YT_DEFAULT_BACKEND_URL = "https://phrasebook-api.maryam-s-sharifiyan.workers.dev";
-async function fetchTextWithProxyFallback(url, aiSettings) {
-  try {
-    const direct = await fetch(url);
-    if (direct.ok) {
-      const text = await direct.text();
-      if (text && text.trim()) return text;
-    }
-  } catch {
-    // مستقیم شکست خورد (به‌احتمالِ زیاد CORS) — می‌ریم سراغِ پراکسی
-  }
-  const base = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || YT_DEFAULT_BACKEND_URL;
-  const proxyRes = await fetch(`${base}/api/fetch-url?url=${encodeURIComponent(url)}`);
-  if (!proxyRes.ok) throw new Error(`proxy-failed-${proxyRes.status}`);
-  const proxied = await proxyRes.text();
-  if (!proxied || !proxied.trim()) throw new Error("proxy-empty");
-  return proxied;
-}
-
-// تلاش برای گرفتنِ لیستِ زیرنویس‌های موجودِ یه ویدیو از endpoint نیمه‌رسمیِ
-// timedtext. این endpoint مستقیماً از سمتِ گوگل مستند نشده، پس هم ممکنه
-// جوابِ خالی بده، هم ممکنه به‌خاطرِ CORS اصلاً fetch ناموفق بشه — هر دو
-// حالت با یه خطای روشن به کاربر گزارش می‌شه تا بره سراغِ آپلودِ دستی.
-async function fetchYouTubeCaptionTracks(videoId, aiSettings) {
-  const xml = await fetchTextWithProxyFallback(
-    `https://video.google.com/timedtext?type=list&v=${encodeURIComponent(videoId)}`,
-    aiSettings
-  );
-  const doc = new DOMParser().parseFromString(xml, "text/xml");
-  const nodes = Array.from(doc.getElementsByTagName("track"));
-  if (!nodes.length) throw new Error("no-tracks");
-  return nodes.map((n) => ({
-    code: n.getAttribute("lang_code") || "",
-    name: n.getAttribute("lang_translated") || n.getAttribute("lang_original") || n.getAttribute("lang_code") || "",
-    kind: n.getAttribute("kind") || "", // "asr" یعنی زیرنویسِ خودکار
-  }));
-}
-
-async function fetchYouTubeCaptionTrackText(videoId, langCode, kind, aiSettings) {
-  const params = new URLSearchParams({ v: videoId, lang: langCode, fmt: "vtt" });
-  if (kind) params.set("kind", kind);
-  const vtt = await fetchTextWithProxyFallback(`https://video.google.com/timedtext?${params.toString()}`, aiSettings);
-  return parseSubtitleFile(vtt);
-}
-
 // بارگذاریِ یک‌باره‌ی اسکریپتِ رسمیِ YouTube IFrame API — اگه قبلاً یه‌جای
 // دیگه‌ی صفحه لود شده باشه (یا این کامپوننت دوباره mount بشه)، دوباره
 // اسکریپت اضافه نمی‌شه.
@@ -190,160 +88,10 @@ function loadYouTubeIframeAPI() {
   return ytApiPromise;
 }
 
-// -----------------------------------------------------------------------
-// یک خطِ رونوشت: متنِ اصلی + ترجمه‌ی هم‌زمان به هر زبانِ مقصد. با تپ روی
-// خطِ اصلی، ویدیو به شروعِ همون خط سیک می‌شه.
-// -----------------------------------------------------------------------
-function CaptionLine({
-  cue,
-  active,
-  onSeek,
-  translations,
-  translationLangs,
-  onRefreshTranslation,
-  refreshingKey,
-  colors,
-  fontFa,
-  ClickableSentence,
-  SpeakButton,
-  subtitleLang,
-  nativeLang,
-  nativeLabel,
-  aiSettings,
-  listContainerRef,
-}) {
-  const ref = useRef(null);
-  // 🎥 قبلاً اینجا فقط scrollTop خودِ یه mini-باکسِ داخلی تنظیم می‌شد (نه
-  // اسکرولِ کلِ صفحه) — چون اون‌موقع position:sticky ویدیو درست کار
-  // نمی‌کرد و اسکرولِ کلِ صفحه باعث می‌شد ویدیو از دید بیرون بره. حالا که
-  // اون باگ رفع شده (ویدیو واقعاً sticky می‌مونه)، دیگه نیازی به اون
-  // mini-باکسِ جدا نیست — همون scrollIntoViewِ معمولی رو رویِ خودِ صفحه
-  // صدا می‌زنیم؛ ویدیو به‌خاطرِ sticky همونجا بالا می‌مونه.
-  useEffect(() => {
-    if (!active || !ref.current) return;
-    ref.current.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [active]);
-
-  // 🎨 دیگه هیچ باکسِ دورِ خطِ فعال نیست (نه background، نه border) — فقط
-  // خودِ متن با یه هایلایتِ نرمِ inline (span، نه کلِ ردیف) مشخص می‌شه؛
-  // دقیقاً همون جلوه‌ای که تویِ صفحه‌ی خوانشِ داستان برای جمله‌ی فعال
-  // استفاده می‌شه — تا این لیست دیگه شبیهِ یه پنلِ جداگانه نباشه، بلکه
-  // ادامه‌ی همون صفحه‌ی سفیدِ خوانش به‌نظر برسه.
-  return (
-    <div ref={ref} style={{ paddingInlineStart: 10, marginBottom: 14 }}>
-      <div className="flex items-start gap-2" dir="auto">
-        {SpeakButton && <SpeakButton text={cue.text} code={subtitleLang} color={colors.inkSoft} />}
-        <p
-          style={{
-            flex: 1,
-            minWidth: 0,
-            margin: 0,
-            fontSize: 15,
-            lineHeight: 1.8,
-            textAlign: "justify",
-            fontWeight: 700,
-            cursor: "pointer",
-          }}
-          onClick={() => onSeek(cue.start)}
-        >
-          <span
-            onClick={(e) => { e.stopPropagation(); onSeek(cue.start); }}
-            style={{ fontSize: 10, color: colors.inkSoft, fontFamily: "monospace" }}
-          >
-            [{formatSeconds(cue.start)}]{" "}
-          </span>
-          <span
-            style={{
-              backgroundColor: active ? colors.goldSoft : "transparent",
-              borderRadius: 5,
-              padding: active ? "2px 4px" : "2px 0",
-              WebkitBoxDecorationBreak: "clone",
-              boxDecorationBreak: "clone",
-              transition: "background-color 0.12s ease",
-            }}
-          >
-            {ClickableSentence ? (
-              <ClickableSentence
-                text={cue.text}
-                langCode={subtitleLang}
-                nativeLang={nativeLang}
-                nativeLabel={nativeLabel}
-                aiSettings={aiSettings}
-                color={colors.ink}
-                fontWeight={700}
-                fontSize={15}
-              />
-            ) : (
-              cue.text
-            )}
-          </span>
-        </p>
-      </div>
-      {translationLangs.map((l) => {
-        const key = `${cue.start}:${l.code}`;
-        const val = translations[key];
-        return (
-          <div key={l.code} className="flex items-start gap-2" style={{ marginTop: 3, direction: "ltr" }}>
-            <p style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 13.5, fontWeight: 700, color: colors.teal, textAlign: "justify", fontFamily: l.code === "fa" ? fontFa : "inherit" }}>
-              <span style={{ fontSize: 10, color: colors.gold }}>[{l.abbr || l.code}]</span>{" "}
-              {!val || val === "loading" ? (
-                <span style={{ color: colors.inkSoft, opacity: 0.7 }}>{val === "loading" ? "در حال ترجمه..." : "—"}</span>
-              ) : ClickableSentence ? (
-                <ClickableSentence
-                  text={val}
-                  langCode={l.code}
-                  nativeLang={nativeLang}
-                  nativeLabel={nativeLabel}
-                  aiSettings={aiSettings}
-                  color={colors.teal}
-                  fontWeight={700}
-                  fontSize={13.5}
-                  alignSourceText={cue.text}
-                  alignSourceLang={subtitleLang}
-                />
-              ) : val}
-            </p>
-            <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-              {SpeakButton && val && val !== "loading" && <SpeakButton text={val} code={l.code} color={colors.teal} />}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRefreshTranslation(cue, l.code);
-                }}
-                disabled={refreshingKey === key}
-                title="اگه این ترجمه اشتباهه، دوباره امتحان کن"
-                style={{ background: "none", border: "none", padding: 3, cursor: refreshingKey === key ? "default" : "pointer", display: "flex", alignItems: "center" }}
-              >
-                {refreshingKey === key ? (
-                  <Loader2 size={11} className="spin" color={colors.teal} />
-                ) : (
-                  <RotateCcw size={11} color={colors.teal} style={{ opacity: 0.6 }} />
-                )}
-              </button>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 export default function YouTubeCaptionPanel({
-  nativeLang,
-  nativeLabel,
-  targetOrder,
-  aiSettings,
   uiLang,
-  SpeakButton,
-  ClickableSentence,
-  translateFree,
-  translateViaAI,
-  translateFreeNetwork,
-  setCachedTranslation,
   colors: colorsProp,
   fontFa: fontFaProp,
-  onImportToStory,
 }) {
   const colors = colorsProp || FALLBACK_COLORS;
   const fontFa = fontFaProp || "inherit";
@@ -352,45 +100,9 @@ export default function YouTubeCaptionPanel({
   const [urlInput, setUrlInput] = useState("");
   const [videoId, setVideoId] = useState(null);
   const [playerReady, setPlayerReady] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
   const playerRef = useRef(null);
   const playerElRef = useRef(null);
-  const pollRef = useRef(null);
-  // کانتینرِ اسکرول‌شوندهٔ لیستِ زیرنویس — برای اینکه اسکرولِ خودکارِ خطِ
-  // فعال (تو CaptionLine) فقط همینجا اتفاق بیفته، نه توی کلِ صفحه.
-  const captionListRef = useRef(null);
-
-  const [cues, setCues] = useState([]);
-  const [subtitleLang, setSubtitleLang] = useState((targetOrder && targetOrder[0]) || "en");
-  const [activeIndex, setActiveIndex] = useState(-1);
-
-  const [autoTracks, setAutoTracks] = useState(null); // null = هنوز امتحان نشده
-  const [autoLoading, setAutoLoading] = useState(false);
-  const [autoError, setAutoError] = useState("");
   const [fileError, setFileError] = useState("");
-  // 📋 پیست‌کردنِ مستقیمِ متنِ زیرنویس — دقیقاً کنارِ آپلودِ فایل، برای وقتی
-  // کاربر خودِ فایلِ srt/vtt رو نداره ولی متنش رو (مثلاً از یه سایتِ دیگه)
-  // کپی کرده. اگه متنِ پیست‌شده فرمتِ زمان‌بندی‌دارِ srt/vtt باشه، دقیقاً
-  // مثلِ آپلودِ فایل با تایم‌بندیِ واقعی پارس می‌شه؛ اگه فقط متنِ سادهٔ
-  // بدونِ زمان‌بندی باشه (کپی از یه صفحه‌ی معمولی)، هر جمله یه ردیفِ
-  // بدونِ‌تایمِ واقعی می‌شه — هنوز قابلِ خوندن/ترجمه‌ست، فقط سیک‌کردنِ ویدیو
-  // رویِ اون خطِ خاص دقیق نیست.
-  const [showPasteSubtitle, setShowPasteSubtitle] = useState(false);
-  const [pastedSubtitleText, setPastedSubtitleText] = useState("");
-  const [pasteError, setPasteError] = useState("");
-
-  const [translations, setTranslations] = useState({}); // `${start}:${langCode}` -> text | "loading"
-  const [refreshingKey, setRefreshingKey] = useState(null);
-  const translationsRef = useRef(translations);
-  translationsRef.current = translations;
-
-  const nativeLabelSafe = nativeLabel || nativeLang;
-  // زبان‌هایی که هم‌زمان ترجمه‌شون زیرِ هر خط نشون داده می‌شه: همه‌ی
-  // زبان‌های مقصدی که کاربر توی تنظیماتِ اصلیِ اپ چیده، منهایِ خودِ زبانِ
-  // زیرنویس (ترجمه‌ی یه زبون به خودش بی‌معنیه).
-  const translationLangs = (targetOrder && targetOrder.length ? targetOrder : [nativeLang])
-    .filter((c) => c !== subtitleLang)
-    .map((c) => ({ code: c }));
 
   function loadVideo() {
     const id = extractYouTubeId(urlInput);
@@ -399,11 +111,6 @@ export default function YouTubeCaptionPanel({
       return;
     }
     setFileError("");
-    setAutoError("");
-    setAutoTracks(null);
-    setCues([]);
-    setTranslations({});
-    setActiveIndex(-1);
     setVideoId(id);
   }
 
@@ -428,10 +135,6 @@ export default function YouTubeCaptionPanel({
             if (cancelled) return;
             setPlayerReady(true);
           },
-          onStateChange: (e) => {
-            if (cancelled) return;
-            setIsPlaying(e.data === 1);
-          },
         },
       });
     });
@@ -445,209 +148,6 @@ export default function YouTubeCaptionPanel({
       }
     };
   }, [videoId]);
-
-  // پولینگِ زمانِ پخش. 🩹 قبلاً این پولینگ فقط وقتی شروع می‌شد که isPlaying
-  // true باشه، و isPlaying فقط از رویدادِ onStateChangeِ پلیرِ یوتیوب
-  // (که از طریقِ postMessage میاد) ست می‌شد. تویِ شبکه‌های فیلتر/پراکسی‌شده
-  // (دقیقاً همون محدودیتِ ایران) این رویداد گاهی اصلاً نمی‌رسه — و چون هیچ
-  // جای دیگه‌ای isPlaying رو درست نمی‌کرد، پولینگ هیچ‌وقت شروع نمی‌شد:
-  // یعنی activeIndex برای همیشه رویِ -1 گیر می‌کرد، نه هایلایت/اسکرولِ
-  // خودکاری اتفاق می‌افتاد، و نه حتی ترجمه‌ها (که فقط برای خطِ فعال lazy
-  // لود می‌شن) — دقیقاً همون علامتی که دیده شد. حالا به‌جای اعتمادِ کامل
-  // به اون رویداد، تا وقتی پلیر و زیرنویس وجود دارن دائم (هر ۳۰۰ms) خودِ
-  // getPlayerState رو مستقیم می‌پرسیم و isPlaying رو هم از همینجا خودمون
-  // تصحیح می‌کنیم — پس حتی اگه رویداد نرسه، خودمون هر تیک وضعیتِ واقعی رو
-  // می‌گیریم.
-  useEffect(() => {
-    if (!playerRef.current || !cues.length) return;
-    pollRef.current = setInterval(() => {
-      const player = playerRef.current;
-      if (!player) return;
-      let state;
-      try {
-        state = player.getPlayerState();
-      } catch {
-        return;
-      }
-      const playingNow = state === 1; // YT.PlayerState.PLAYING
-      setIsPlaying((prev) => (prev !== playingNow ? playingNow : prev));
-      if (!playingNow) return;
-      let t = 0;
-      try {
-        t = player.getCurrentTime() || 0;
-      } catch {
-        return;
-      }
-      const idx = cues.findIndex((c) => t >= c.start && t < c.end);
-      setActiveIndex((prev) => (idx !== -1 && idx !== prev ? idx : idx === -1 ? prev : idx));
-    }, 300);
-    return () => clearInterval(pollRef.current);
-  }, [cues]);
-
-  const translateOne = useCallback(
-    async (text, langCode, forceFresh) => {
-      if (forceFresh && translateViaAI) {
-        try {
-          const t = await translateViaAI(text, langCode, subtitleLang, aiSettings);
-          if (t) return t;
-        } catch {
-          // برمی‌گرده روی مسیرِ عادیِ زیر
-        }
-        if (translateFreeNetwork) {
-          try {
-            const t = await translateFreeNetwork(text, langCode, subtitleLang, aiSettings, true);
-            if (t) return t;
-          } catch {}
-        }
-      }
-      return translateFree(text, langCode, subtitleLang, aiSettings, true);
-    },
-    [translateFree, translateViaAI, translateFreeNetwork, aiSettings, subtitleLang]
-  );
-
-  // به‌محضِ اینکه یه خط فعال می‌شه، ترجمه‌ی همه‌ی زبان‌های مقصدش رو (اگه
-  // قبلاً نگرفته بودیم) هم‌زمان می‌گیریم — این یعنی «ترجمه‌ی هم‌زمانِ چند
-  // زبان» دقیقاً وقتی که خطِ مربوطه شنیده می‌شه.
-  useEffect(() => {
-    if (activeIndex < 0 || !cues[activeIndex]) return;
-    const cue = cues[activeIndex];
-    translationLangs.forEach((l) => {
-      const key = `${cue.start}:${l.code}`;
-      if (translationsRef.current[key]) return;
-      setTranslations((prev) => ({ ...prev, [key]: "loading" }));
-      translateOne(cue.text, l.code, false)
-        .then((t) => setTranslations((prev) => ({ ...prev, [key]: t || "—" })))
-        .catch(() => setTranslations((prev) => ({ ...prev, [key]: "—" })));
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeIndex, cues]);
-
-  async function handleRefreshTranslation(cue, langCode) {
-    const key = `${cue.start}:${langCode}`;
-    if (refreshingKey) return;
-    setRefreshingKey(key);
-    try {
-      const t = await translateOne(cue.text, langCode, true);
-      if (t) {
-        setTranslations((prev) => ({ ...prev, [key]: t }));
-        if (setCachedTranslation) setCachedTranslation(cue.text, langCode, subtitleLang, t);
-      }
-    } catch {
-      // شکست خورد؛ ترجمه‌ی قبلی همون‌جا می‌مونه
-    } finally {
-      setRefreshingKey(null);
-    }
-  }
-
-  // 📥 فرستادنِ رونوشتِ همین ویدیو به سیستمِ خوانشِ داستان‌ساز — ویدیو و
-  // پلیرِ همین‌جا دست‌نخورده و پخش‌شونده باقی می‌مونه (کاربر می‌تونه هم‌زمان
-  // ویدیو رو ببینه/بشنوه و از قابلیت‌های کاملِ داستان‌ساز — ترجمه، کلیک‌رویِ
-  // کلمه، ذخیره، سوال — روی همون متن استفاده کنه).
-  function handleImportToStory() {
-    if (!onImportToStory || !cues.length) return;
-    onImportToStory({ cues, subtitleLang, videoId });
-  }
-
-  function handleSeek(startSeconds) {
-    if (!playerRef.current) return;
-    try {
-      playerRef.current.seekTo(startSeconds, true);
-      playerRef.current.playVideo();
-    } catch {}
-  }
-
-  async function handleAutoFetch() {
-    if (!videoId || autoLoading) return;
-    setAutoLoading(true);
-    setAutoError("");
-    setAutoTracks(null);
-    try {
-      const tracks = await fetchYouTubeCaptionTracks(videoId, aiSettings);
-      setAutoTracks(tracks);
-    } catch {
-      setAutoError(
-        isFa
-          ? "دریافتِ خودکارِ زیرنویس ناموفق بود (ممکنه این ویدیو زیرنویس نداشته باشه، یا یوتیوب اجازه‌ی دسترسیِ مستقیم/پراکسی نداده). فایلِ srt/vtt رو دستی آپلود کن."
-          : "Automatic caption fetch failed (this video may have no captions, or YouTube blocked both direct and proxied access). Please upload an srt/vtt file instead."
-      );
-    } finally {
-      setAutoLoading(false);
-    }
-  }
-
-  async function handlePickAutoTrack(track) {
-    setAutoLoading(true);
-    setAutoError("");
-    try {
-      const parsed = await fetchYouTubeCaptionTrackText(videoId, track.code, track.kind, aiSettings);
-      setCues(parsed);
-      setTranslations({});
-      setActiveIndex(-1);
-      const pickedLang = track.code || subtitleLang;
-      setSubtitleLang(pickedLang);
-      // 📥 به‌محضِ گرفتنِ موفقِ زیرنویس، خودکار به داستان‌ساز فرستاده می‌شه —
-      // دقیقاً مثلِ بقیه‌ی منابعِ داستان‌ساز (PDF/پیست/لینک)، بدونِ نیاز به
-      // یه کلیکِ اضافه — تا کارتِ «داستان» و دکمه‌ی «ذخیره» بلافاصله ظاهر بشن.
-      if (onImportToStory) onImportToStory({ cues: parsed, subtitleLang: pickedLang, videoId });
-    } catch {
-      setAutoError(isFa ? "گرفتنِ متنِ همین زیرنویس ناموفق بود. فایلِ srt/vtt رو دستی آپلود کن." : "Couldn't fetch this caption's text. Please upload an srt/vtt file instead.");
-    } finally {
-      setAutoLoading(false);
-    }
-  }
-
-  function handleFileUpload(e) {
-    const file = e.target.files && e.target.files[0];
-    e.target.value = "";
-    if (!file) return;
-    setFileError("");
-    const reader = new FileReader();
-    reader.onload = () => {
-      const parsed = parseSubtitleFile(String(reader.result || ""));
-      if (!parsed.length) {
-        setFileError(isFa ? "فایل خوانده نشد یا خالی بود — فقط srt/vtt پشتیبانی می‌شه." : "The file couldn't be read or was empty — only srt/vtt are supported.");
-        return;
-      }
-      setCues(parsed);
-      setTranslations({});
-      setActiveIndex(-1);
-      // 📥 آپلودِ دستی هم دقیقاً مثلِ دریافتِ خودکار، بلافاصله به داستان‌ساز
-      // فرستاده می‌شه (زبانِ زیرنویس همون subtitleLangِ فعلیه که کاربر بالا
-      // تنظیم کرده).
-      if (onImportToStory) onImportToStory({ cues: parsed, subtitleLang, videoId });
-    };
-    reader.onerror = () => setFileError(isFa ? "خطا در خواندنِ فایل." : "Error reading the file.");
-    reader.readAsText(file);
-  }
-
-  // متنِ پیست‌شده رو اول با همون پارسرِ srt/vtt امتحان می‌کنیم (اگه
-  // زمان‌بندیِ واقعی داشته باشه)؛ اگه چیزی پیدا نشد، یعنی متنِ سادهٔ
-  // بدونِ‌تایمه — هر خطِ غیرِخالی رو یه ردیف حساب می‌کنیم، با یه تایمِ
-  // فرضیِ ۴ثانیه‌ای پشتِ‌سرِهم (فقط برای این‌که لیست/ترتیب معنی‌دار بمونه،
-  // نه این‌که واقعاً روی همون لحظه‌ی ویدیو منطبق باشه).
-  function handlePasteSubtitleText() {
-    const raw = pastedSubtitleText.trim();
-    if (!raw) return;
-    setPasteError("");
-    let parsed = parseSubtitleFile(raw);
-    if (!parsed.length) {
-      const lines = raw
-        .split(/\r?\n+/)
-        .map((l) => l.trim())
-        .filter(Boolean);
-      parsed = lines.map((text, i) => ({ start: i * 4, end: i * 4 + 4, text }));
-    }
-    if (!parsed.length) {
-      setPasteError(isFa ? "متنی برای استخراج پیدا نشد." : "No usable text was found.");
-      return;
-    }
-    setCues(parsed);
-    setTranslations({});
-    setActiveIndex(-1);
-    setPastedSubtitleText("");
-    setShowPasteSubtitle(false);
-    if (onImportToStory) onImportToStory({ cues: parsed, subtitleLang, videoId });
-  }
 
   return (
     <div className="flex flex-col gap-2" style={{ padding: 16 }} dir={isFa ? "rtl" : "ltr"}>
@@ -693,230 +193,42 @@ export default function YouTubeCaptionPanel({
       </div>
 
       {videoId && (
-        // 📌 پنلِ ویدیو رو sticky می‌کنیم (top: 8) تا هر جوری که لیستِ
-        // زیرنویس یا خودِ صفحه اسکرول بشه، ویدیو همیشه بالای دیدِ کاربر
-        // بمونه و همزمان با متن قابلِ دیدن باشه. background هم می‌ذاریم
-        // که وقتی sticky شد، محتوایِ پشتش رو نپوشونه با شفافیت.
-        <div style={{ position: "sticky", top: 8, zIndex: 5, background: colors.paper, paddingBottom: 8 }}>
-          <div style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${colors.cardBorder}`, background: "#000", position: "relative", paddingTop: "56.25%" }}>
-            <div ref={playerElRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
-            {!playerReady && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" }}>
-                <Loader2 size={22} className="spin" />
-              </div>
-            )}
+        <>
+          {/* 📌 جاگیرِ خالی (spacer) — چون خودِ ویدیو fixed شده و از جریانِ
+              عادیِ صفحه بیرون رفته، این باکسِ خالی (با همون نسبتِ تصویرِ
+              16:9) جایِ لازم رو تو جریانِ صفحه نگه می‌داره تا محتوایِ بعدی
+              زیرِ ویدیو گم نشه. */}
+          <div style={{ paddingTop: "56.25%" }} />
+          <div
+            style={{
+              position: "fixed",
+              top: 8,
+              left: 12,
+              right: 12,
+              zIndex: 20,
+              borderRadius: 10,
+              overflow: "hidden",
+              border: `1px solid ${colors.cardBorder}`,
+              background: "#000",
+              boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
+            }}
+          >
+            <div style={{ position: "relative", paddingTop: "56.25%" }}>
+              <div ref={playerElRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
+              {!playerReady && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" }}>
+                  <Loader2 size={22} className="spin" />
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
 
-      {videoId && !cues.length && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: colors.ink, fontFamily: fontFa }}>
-            {isFa ? "زیرنویس رو چطور بگیریم؟" : "How should we get the captions?"}
+          <p style={{ margin: 0, fontSize: 12, color: colors.inkSoft, fontFamily: fontFa }}>
+            {isFa
+              ? "برای واردکردنِ متنِ این ویدیو به داستان، رونوشتش رو کپی کن و پایین‌ترِ همین صفحه، توی باکسِ «یا یک متن/داستان رو اینجا پیست کن» بچسبونش."
+              : "To bring this video's text into the story, copy its transcript and paste it further down, in the “Or paste a text/story here” box."}
           </p>
-
-          <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
-            <button
-              onClick={handleAutoFetch}
-              disabled={autoLoading}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "7px 12px",
-                borderRadius: 8,
-                border: `1px solid ${colors.goldSoft}`,
-                background: "transparent",
-                color: colors.gold,
-                fontWeight: 700,
-                fontSize: 12,
-                fontFamily: fontFa,
-                cursor: autoLoading ? "default" : "pointer",
-                opacity: autoLoading ? 0.6 : 1,
-              }}
-            >
-              {autoLoading ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}
-              {isFa ? "دریافتِ خودکارِ زیرنویس" : "Auto-fetch captions"}
-            </button>
-
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "7px 12px",
-                borderRadius: 8,
-                border: `1px solid ${colors.cardBorder}`,
-                background: "transparent",
-                color: colors.teal,
-                fontWeight: 700,
-                fontSize: 12,
-                fontFamily: fontFa,
-                cursor: "pointer",
-              }}
-            >
-              <Upload size={14} />
-              {isFa ? "آپلودِ فایلِ زیرنویس (srt/vtt)" : "Upload subtitle file (srt/vtt)"}
-              <input type="file" accept=".srt,.vtt,text/vtt,text/plain" onChange={handleFileUpload} style={{ display: "none" }} />
-            </label>
-
-            <button
-              onClick={() => setShowPasteSubtitle((v) => !v)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "7px 12px",
-                borderRadius: 8,
-                border: `1px solid ${colors.cardBorder}`,
-                background: "transparent",
-                color: colors.teal,
-                fontWeight: 700,
-                fontSize: 12,
-                fontFamily: fontFa,
-                cursor: "pointer",
-              }}
-            >
-              <span>📋</span>
-              {isFa
-                ? (showPasteSubtitle ? "بستنِ پیستِ متن" : "پیست‌کردنِ متنِ زیرنویس")
-                : (showPasteSubtitle ? "Close text paste" : "Paste subtitle text")}
-            </button>
-          </div>
-
-          {showPasteSubtitle && (
-            <div>
-              <textarea
-                value={pastedSubtitleText}
-                onChange={(e) => setPastedSubtitleText(e.target.value)}
-                placeholder={
-                  isFa
-                    ? "متنِ srt/vtt رو با زمان‌بندی پیست کن، یا فقط متنِ سادهٔ زیرنویس رو خط‌به‌خط بچسبون…"
-                    : "Paste srt/vtt text with timestamps, or just plain subtitle text line by line…"
-                }
-                rows={6}
-                dir="auto"
-                style={{
-                  width: "100%",
-                  border: `1px solid ${colors.cardBorder}`,
-                  borderRadius: 8,
-                  padding: 8,
-                  fontSize: 12,
-                  fontFamily: "monospace",
-                  resize: "vertical",
-                }}
-              />
-              <button
-                onClick={handlePasteSubtitleText}
-                disabled={!pastedSubtitleText.trim()}
-                style={{
-                  marginTop: 6,
-                  padding: "6px 12px",
-                  borderRadius: 8,
-                  border: "none",
-                  background: colors.teal,
-                  color: "#fff",
-                  fontWeight: 700,
-                  fontSize: 12,
-                  fontFamily: fontFa,
-                  cursor: pastedSubtitleText.trim() ? "pointer" : "default",
-                  opacity: pastedSubtitleText.trim() ? 1 : 0.5,
-                }}
-              >
-                {isFa ? "استفاده از این متن" : "Use this text"}
-              </button>
-              {pasteError && <p style={{ color: colors.rose, fontSize: 12, marginTop: 4 }}>{pasteError}</p>}
-            </div>
-          )}
-
-          {autoError && <p style={{ color: colors.rose, fontSize: 12, margin: 0 }}>{autoError}</p>}
-
-          {autoTracks && autoTracks.length > 0 && (
-            <div>
-              <p style={{ margin: "4px 0", fontSize: 12, color: colors.inkSoft, fontFamily: fontFa }}>
-                {isFa ? "زبانِ زیرنویس رو انتخاب کن:" : "Pick a caption language:"}
-              </p>
-              <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
-                {autoTracks.map((t) => (
-                  <button
-                    key={`${t.code}:${t.kind}`}
-                    onClick={() => handlePickAutoTrack(t)}
-                    disabled={autoLoading}
-                    style={{
-                      padding: "5px 10px",
-                      borderRadius: 999,
-                      border: `1px solid ${colors.goldSoft}`,
-                      background: colors.paper,
-                      color: colors.ink,
-                      fontSize: 12,
-                      fontFamily: fontFa,
-                      cursor: autoLoading ? "default" : "pointer",
-                    }}
-                  >
-                    {t.name || t.code}
-                    {t.kind === "asr" ? (isFa ? " (خودکار)" : " (auto)") : ""}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {!!cues.length && (
-        <div>
-          <div className="flex items-center gap-2" style={{ marginBottom: 10, flexWrap: "wrap", opacity: 0.85 }}>
-            <input
-              value={subtitleLang}
-              onChange={(e) => setSubtitleLang(e.target.value.trim().toLowerCase())}
-              style={{ width: 50, padding: "2px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 11, direction: "ltr" }}
-              title={isFa ? "کدِ زبانِ زیرنویس (مثلاً en, fa, es)" : "Subtitle language code (e.g. en, fa, es)"}
-            />
-            {onImportToStory && (
-              <button
-                onClick={handleImportToStory}
-                style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: colors.teal, background: "none", border: "none", cursor: "pointer", fontFamily: fontFa }}
-              >
-                <Sparkles size={12} />
-                {isFa ? "افزودن به داستان‌ساز" : "Send to story reader"}
-              </button>
-            )}
-            <button
-              onClick={() => {
-                setCues([]);
-                setTranslations({});
-                setActiveIndex(-1);
-              }}
-              style={{ marginInlineStart: "auto", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: colors.rose, background: "none", border: "none", cursor: "pointer" }}
-            >
-              <X size={12} />
-              {isFa ? "پاک‌کردنِ زیرنویس" : "Clear captions"}
-            </button>
-          </div>
-
-          <div ref={captionListRef}>
-            {cues.map((cue, i) => (
-              <CaptionLine
-                key={`${cue.start}-${i}`}
-                cue={cue}
-                active={i === activeIndex}
-                onSeek={handleSeek}
-                translations={translations}
-                translationLangs={translationLangs}
-                onRefreshTranslation={handleRefreshTranslation}
-                refreshingKey={refreshingKey}
-                colors={colors}
-                fontFa={fontFa}
-                ClickableSentence={ClickableSentence}
-                SpeakButton={SpeakButton}
-                subtitleLang={subtitleLang}
-                nativeLang={nativeLang}
-                nativeLabel={nativeLabelSafe}
-                aiSettings={aiSettings}
-              />
-            ))}
-          </div>
-        </div>
+        </>
       )}
     </div>
   );
