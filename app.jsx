@@ -11,6 +11,7 @@ import { DAILY_CONVERSATIONS,THEMATIC_CONVERSATIONS } from "./DAILY_CONVERSATION
 import DailyConversationsTab from "./DailyConversationsTab.jsx";
 import SpeakingPracticePanel from "./SpeakingPractice.jsx";
 import { recordNeuralRepeat, addNeuralFiber, NeuralPathButton } from "./NeuralPath.jsx";
+import YouTubeCaptionPanel from "./YouTubeCaptions.jsx";
 // مکالمات روزمره + مکالمات موضوعی، یکجا مرج‌شده — تا هرجا که قبلاً از
 // DAILY_CONVERSATIONS استفاده می‌شد (تبِ مکالمه، استخرِ جستجوی داستان‌ساز،
 // نگاشتِ سطح‌بندیِ لغات)، مکالمات موضوعی هم به‌صورت خودکار دیده بشن.
@@ -10606,6 +10607,15 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
   const [pdfReadProgress, setPdfReadProgress] = useState("");
   const [pdfReadError, setPdfReadError] = useState("");
   const pdfReadInputRef = useRef(null);
+  // 🎬 «وارد کردن از یوتیوب» — اولین گزینه‌ی منبعِ داستان (قبل از PDF):
+  // برخلافِ «لینک یه صفحه رو وارد کن» پایین‌تر (که فقط زیرنویس رو به‌عنوانِ
+  // متنِ ساده می‌گیره)، این‌یکی خودِ پلیرِ واقعیِ یوتیوب رو همین‌جا نشون
+  // می‌ده (IFrame API — قابلِ پخش/توقف/سیک)، با دریافتِ زیرنویس هم به‌صورتِ
+  // خودکار (endpoint نیمه‌رسمیِ timedtext) و هم دستی (آپلودِ srt/vtt).
+  // کاربر می‌تونه از همون پنل، رونوشت رو با دکمه‌ی «افزودن به داستان‌ساز»
+  // به سیستمِ خوانش/ترجمه/سوالِ اپ منتقل کنه — بدونِ اینکه ویدیو از پخش
+  // بیفته یا پنل بسته بشه.
+  const [showYoutubeImport, setShowYoutubeImport] = useState(false);
   // «وارد کردنِ عکس برای خوندن/ترجمه» — دقیقاً همون الگوی «وارد کردنِ PDF
   // برای خوانش» بالا، فقط منبعش عکسه: با Tesseract.js (OCR)، متنِ رویِ
   // هر عکس تو خودِ مرورگر استخراج می‌شه (هیچ عکسی به هیچ سروری فرستاده
@@ -13557,6 +13567,48 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     }
   };
 
+  // 📥 وقتی کاربر از پنلِ «وارد کردن از یوتیوب» رونوشتِ یه ویدیو رو به
+  // داستان‌ساز می‌فرسته: دقیقاً همون مسیرِ نهاییِ handleLinkImportForReading
+  // (تقسیم به جمله → پاراگراف → paragraphs) طی می‌شه، فقط منبعِ متن به‌جای
+  // fetch مستقیم، خطوطِ زیرنویسی‌ایه که خودِ پنل (خودکار یا با آپلودِ
+  // دستیِ srt/vtt) از قبل گرفته. پلیرِ یوتیوب و پنلِ رونوشت همچنان باز و
+  // قابلِ‌پخش می‌مونن — این فقط یه کپیِ متنی از رونوشت رو وارد سیستمِ
+  // خوانش/ترجمه/سوالِ داستان‌ساز می‌کنه.
+  const handleImportYoutubeCuesToStory = (payload) => {
+    const ytCues = payload?.cues || [];
+    const ytLangCode = payload?.subtitleLang || "";
+    if (!ytCues.length) return;
+    const bodyText = ytCues.map((c) => c.text).join(" ").replace(/\s+/g, " ").trim();
+    let allSentences = splitTextIntoSentenceStrings(bodyText);
+    if (!allSentences.length) return;
+    let truncated = false;
+    if (allSentences.length > PDF_READ_MAX_SENTENCES) {
+      allSentences = allSentences.slice(0, PDF_READ_MAX_SENTENCES);
+      truncated = true;
+    }
+    if (ytLangCode) setStoryLang(ytLangCode);
+    setStoryLevel(detectTextCEFRLevel(bodyText));
+    const storyParagraphs = [];
+    for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
+      const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
+      storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
+    }
+    setParagraphs(storyParagraphs);
+    setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
+    setCurrentStoryId(null);
+    setQuestions([]);
+    setAnswers({});
+    setSubmitted(false);
+    setError("");
+    setRepeatNotice(
+      truncated
+        ? (uiLang === "en"
+            ? "Imported from YouTube — the transcript was long, so only part of it was made ready to read."
+            : "از یوتیوب وارد شد — چون رونوشت زیاد بود، فقط بخشی از اون آماده‌ی خوانش شد.")
+        : ""
+    );
+  };
+
   const saveCurrentStory = () => {
     if (!paragraphs.length) return;
     // اگه همین داستان (بدونِ تغییر) از قبل ذخیره شده (currentStoryId ست
@@ -14369,6 +14421,55 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         <Sparkles size={18} />
         {uiLang === "en" ? (generating ? "Generating story..." : "Generate story") : (generating ? "در حال ساخت داستان..." : "بساز داستان")}
       </button>
+
+      <div style={{ textAlign: "start", marginTop: 8 }}>
+        <button
+          onClick={() => setShowYoutubeImport((v) => !v)}
+          className="flex items-center justify-center gap-2"
+          style={{
+            width: "100%",
+            border: `1px dashed ${colors.cardBorder}`,
+            borderRadius: 14,
+            padding: "10px 16px",
+            fontWeight: 700,
+            fontSize: 13,
+            color: colors.teal,
+          }}
+        >
+          <span>🎬</span>
+          {uiLang === "en"
+            ? (showYoutubeImport ? "Close YouTube import" : "Import from a YouTube video")
+            : (showYoutubeImport ? "بستنِ وارد کردن از یوتیوب" : "وارد کردن از یک ویدیوی یوتیوب")}
+        </button>
+        {showYoutubeImport && (
+          <div
+            style={{
+              marginTop: 8,
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: 14,
+              overflow: "hidden",
+              background: colors.paper,
+            }}
+          >
+            <YouTubeCaptionPanel
+              nativeLang={nativeLang}
+              nativeLabel={nativeLabel}
+              targetOrder={targetOrder}
+              aiSettings={aiSettings}
+              uiLang={uiLang}
+              SpeakButton={SpeakButton}
+              ClickableSentence={ClickableSentence}
+              translateFree={translateFree}
+              translateViaAI={translateViaAI}
+              translateFreeNetwork={translateFreeNetwork}
+              setCachedTranslation={setCachedTranslation}
+              colors={colors}
+              fontFa={fontFa}
+              onImportToStory={handleImportYoutubeCuesToStory}
+            />
+          </div>
+        )}
+      </div>
 
       <div style={{ textAlign: "center" }}>
         <input
