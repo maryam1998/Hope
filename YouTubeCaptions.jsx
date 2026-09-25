@@ -114,14 +114,39 @@ function parseSubtitleFile(raw) {
   return cues;
 }
 
+// عملاً روی خیلی از هاست‌ها/شبکه‌ها، fetch مستقیم به video.google.com از
+// داخلِ مرورگر با CORS بلاک می‌شه (نتیجه‌ش دقیقاً همون خطای «دریافتِ خودکار
+// ناموفق بود» است که اکثرِ وقت‌ها دیده می‌شه) — پس اول یه تلاشِ مستقیم
+// می‌زنیم، و اگه شکست خورد، از همون پراکسیِ بک‌اندِ AI (که برای «وارد کردنِ
+// لینکِ صفحه» هم استفاده می‌شه) به‌عنوانِ واسط استفاده می‌کنیم.
+const YT_DEFAULT_BACKEND_URL = "https://phrasebook-api.maryam-s-sharifiyan.workers.dev";
+async function fetchTextWithProxyFallback(url, aiSettings) {
+  try {
+    const direct = await fetch(url);
+    if (direct.ok) {
+      const text = await direct.text();
+      if (text && text.trim()) return text;
+    }
+  } catch {
+    // مستقیم شکست خورد (به‌احتمالِ زیاد CORS) — می‌ریم سراغِ پراکسی
+  }
+  const base = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || YT_DEFAULT_BACKEND_URL;
+  const proxyRes = await fetch(`${base}/api/fetch-url?url=${encodeURIComponent(url)}`);
+  if (!proxyRes.ok) throw new Error(`proxy-failed-${proxyRes.status}`);
+  const proxied = await proxyRes.text();
+  if (!proxied || !proxied.trim()) throw new Error("proxy-empty");
+  return proxied;
+}
+
 // تلاش برای گرفتنِ لیستِ زیرنویس‌های موجودِ یه ویدیو از endpoint نیمه‌رسمیِ
 // timedtext. این endpoint مستقیماً از سمتِ گوگل مستند نشده، پس هم ممکنه
 // جوابِ خالی بده، هم ممکنه به‌خاطرِ CORS اصلاً fetch ناموفق بشه — هر دو
 // حالت با یه خطای روشن به کاربر گزارش می‌شه تا بره سراغِ آپلودِ دستی.
-async function fetchYouTubeCaptionTracks(videoId) {
-  const res = await fetch(`https://video.google.com/timedtext?type=list&v=${encodeURIComponent(videoId)}`);
-  if (!res.ok) throw new Error("list-failed");
-  const xml = await res.text();
+async function fetchYouTubeCaptionTracks(videoId, aiSettings) {
+  const xml = await fetchTextWithProxyFallback(
+    `https://video.google.com/timedtext?type=list&v=${encodeURIComponent(videoId)}`,
+    aiSettings
+  );
   const doc = new DOMParser().parseFromString(xml, "text/xml");
   const nodes = Array.from(doc.getElementsByTagName("track"));
   if (!nodes.length) throw new Error("no-tracks");
@@ -132,13 +157,10 @@ async function fetchYouTubeCaptionTracks(videoId) {
   }));
 }
 
-async function fetchYouTubeCaptionTrackText(videoId, langCode, kind) {
+async function fetchYouTubeCaptionTrackText(videoId, langCode, kind, aiSettings) {
   const params = new URLSearchParams({ v: videoId, lang: langCode, fmt: "vtt" });
   if (kind) params.set("kind", kind);
-  const res = await fetch(`https://video.google.com/timedtext?${params.toString()}`);
-  if (!res.ok) throw new Error("track-failed");
-  const vtt = await res.text();
-  if (!vtt || !vtt.trim()) throw new Error("track-empty");
+  const vtt = await fetchTextWithProxyFallback(`https://video.google.com/timedtext?${params.toString()}`, aiSettings);
   return parseSubtitleFile(vtt);
 }
 
@@ -497,13 +519,13 @@ export default function YouTubeCaptionPanel({
     setAutoError("");
     setAutoTracks(null);
     try {
-      const tracks = await fetchYouTubeCaptionTracks(videoId);
+      const tracks = await fetchYouTubeCaptionTracks(videoId, aiSettings);
       setAutoTracks(tracks);
     } catch {
       setAutoError(
         isFa
-          ? "دریافتِ خودکارِ زیرنویس ناموفق بود (ممکنه این ویدیو زیرنویس نداشته باشه، یا یوتیوب اجازه‌ی دسترسیِ مستقیم نداده). فایلِ srt/vtt رو دستی آپلود کن."
-          : "Automatic caption fetch failed (this video may have no captions, or YouTube blocked direct access). Please upload an srt/vtt file instead."
+          ? "دریافتِ خودکارِ زیرنویس ناموفق بود (ممکنه این ویدیو زیرنویس نداشته باشه، یا یوتیوب اجازه‌ی دسترسیِ مستقیم/پراکسی نداده). فایلِ srt/vtt رو دستی آپلود کن."
+          : "Automatic caption fetch failed (this video may have no captions, or YouTube blocked both direct and proxied access). Please upload an srt/vtt file instead."
       );
     } finally {
       setAutoLoading(false);
@@ -514,11 +536,16 @@ export default function YouTubeCaptionPanel({
     setAutoLoading(true);
     setAutoError("");
     try {
-      const parsed = await fetchYouTubeCaptionTrackText(videoId, track.code, track.kind);
+      const parsed = await fetchYouTubeCaptionTrackText(videoId, track.code, track.kind, aiSettings);
       setCues(parsed);
       setTranslations({});
       setActiveIndex(-1);
-      setSubtitleLang(track.code || subtitleLang);
+      const pickedLang = track.code || subtitleLang;
+      setSubtitleLang(pickedLang);
+      // 📥 به‌محضِ گرفتنِ موفقِ زیرنویس، خودکار به داستان‌ساز فرستاده می‌شه —
+      // دقیقاً مثلِ بقیه‌ی منابعِ داستان‌ساز (PDF/پیست/لینک)، بدونِ نیاز به
+      // یه کلیکِ اضافه — تا کارتِ «داستان» و دکمه‌ی «ذخیره» بلافاصله ظاهر بشن.
+      if (onImportToStory) onImportToStory({ cues: parsed, subtitleLang: pickedLang, videoId });
     } catch {
       setAutoError(isFa ? "گرفتنِ متنِ همین زیرنویس ناموفق بود. فایلِ srt/vtt رو دستی آپلود کن." : "Couldn't fetch this caption's text. Please upload an srt/vtt file instead.");
     } finally {
@@ -541,6 +568,10 @@ export default function YouTubeCaptionPanel({
       setCues(parsed);
       setTranslations({});
       setActiveIndex(-1);
+      // 📥 آپلودِ دستی هم دقیقاً مثلِ دریافتِ خودکار، بلافاصله به داستان‌ساز
+      // فرستاده می‌شه (زبانِ زیرنویس همون subtitleLangِ فعلیه که کاربر بالا
+      // تنظیم کرده).
+      if (onImportToStory) onImportToStory({ cues: parsed, subtitleLang, videoId });
     };
     reader.onerror = () => setFileError(isFa ? "خطا در خواندنِ فایل." : "Error reading the file.");
     reader.readAsText(file);
