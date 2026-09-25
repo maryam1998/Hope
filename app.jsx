@@ -14452,7 +14452,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               marginTop: 8,
               border: `1px solid ${colors.cardBorder}`,
               borderRadius: 14,
-              overflow: "hidden",
               background: colors.paper,
             }}
           >
@@ -15138,7 +15137,6 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                   marginTop: 8,
                   border: `1px solid ${colors.cardBorder}`,
                   borderRadius: 14,
-                  overflow: "hidden",
                   background: colors.paper,
                 }}
               >
