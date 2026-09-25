@@ -10,7 +10,6 @@ import { VOCAB_IN_USE_UNITS } from "./vocabularyInUseData.js";
 import { DAILY_CONVERSATIONS,THEMATIC_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
 import DailyConversationsTab from "./DailyConversationsTab.jsx";
 import SpeakingPracticePanel from "./SpeakingPractice.jsx";
-import YouTubeCaptionPanel from "./YouTubeCaptions.jsx";
 import { recordNeuralRepeat, addNeuralFiber, NeuralPathButton } from "./NeuralPath.jsx";
 // مکالمات روزمره + مکالمات موضوعی، یکجا مرج‌شده — تا هرجا که قبلاً از
 // DAILY_CONVERSATIONS استفاده می‌شد (تبِ مکالمه، استخرِ جستجوی داستان‌ساز،
@@ -2002,7 +2001,6 @@ const UI_STRINGS = {
   tabSlang: { fa: "اسلنگ", en: "Slang" },
   tabReview: { fa: "مرور (جعبه لایتنر)", en: "Review (Leitner box)" },
   tabSpeaking: { fa: "تمرین مکالمه", en: "Speaking practice" },
-  tabYoutube: { fa: "یوتیوب", en: "YouTube" },
   // Login / signup screen
   loginTitle: { fa: "ورود به LingoLearn", en: "Sign in to LingoLearn" },
   signupTitle: { fa: "ساخت حساب کاربری", en: "Create an account" },
@@ -13367,6 +13365,73 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
     return (bestLen > 200 ? best : doc.body)?.textContent || "";
   };
 
+  // اگه لینکِ واردشده یه ویدیوی یوتیوب باشه (watch؟v=، youtu.be/،
+  // shorts/، embed/، یا حتی خودِ آی‌دیِ خام)، آی‌دیِ ویدیو رو برمی‌گردونه؛
+  // وگرنه null — تا handleLinkImportForReading بفهمه باید متنِ صفحه رو
+  // بخونه یا زیرنویسِ ویدیو رو.
+  const extractYouTubeVideoId = (url) => {
+    try {
+      const u = new URL(url);
+      const host = u.hostname.replace(/^www\./, "");
+      if (host === "youtu.be") {
+        const id = u.pathname.split("/").filter(Boolean)[0];
+        return id && /^[\w-]{11}$/.test(id) ? id : null;
+      }
+      if (host === "youtube.com" || host === "m.youtube.com" || host === "music.youtube.com") {
+        const v = u.searchParams.get("v");
+        if (v && /^[\w-]{11}$/.test(v)) return v;
+        const m = u.pathname.match(/\/(shorts|embed|live)\/([\w-]{11})/);
+        if (m) return m[2];
+      }
+    } catch {
+      // URL نامعتبر بود
+    }
+    return null;
+  };
+
+  // متنِ خامِ زیرنویسِ یه ویدیوی یوتیوب رو می‌گیره (نه خودِ ویدیو رو — این
+  // مسیر فقط برای داستان‌ساز به همون متنِ ساده نیاز داره، دقیقاً مثلِ متنِ
+  // یه صفحه‌ی وب یا PDF)، بعد همون خط‌به‌خطِ vtt رو به یه پاراگرافِ ساده
+  // تبدیل می‌کنه تا از همون مسیرِ عادیِ splitTextIntoSentenceStrings پایین
+  // عبور کنه. لیستِ زیرنویس‌ها از endpoint نیمه‌رسمیِ timedtext یوتیوبه —
+  // نه رسمی/مستندِ گوگله و نه CORSش تضمین‌شده، پس ممکنه گاهی (بدونِ
+  // زیرنویس، محدودیتِ شبکه، تغییرِ endpoint) شکست بخوره؛ توی همچین حالتی
+  // یه خطای روشن پرتاب می‌شه که پیامِ مناسب نشونِ کاربر داده بشه.
+  const fetchYouTubeTranscriptText = async (videoId) => {
+    const listRes = await fetch(`https://video.google.com/timedtext?type=list&v=${encodeURIComponent(videoId)}`);
+    if (!listRes.ok) throw new Error("yt-list-failed");
+    const listXml = await listRes.text();
+    const listDoc = new DOMParser().parseFromString(listXml, "text/xml");
+    const tracks = Array.from(listDoc.getElementsByTagName("track")).map((n) => ({
+      code: n.getAttribute("lang_code") || "",
+      kind: n.getAttribute("kind") || "",
+    }));
+    if (!tracks.length) throw new Error("yt-no-captions");
+    // ترجیح: زبانِ فعلیِ داستان‌ساز (storyLang) → انگلیسی → هرچی که هست؛
+    // بینِ چندتا برایِ همون زبان، زیرنویسِ انسانی به خودکار (asr) ارجحیت داره.
+    const pick = (code) => tracks.find((t) => t.code === code && t.kind !== "asr") || tracks.find((t) => t.code === code);
+    const track = pick(storyLang) || pick("en") || tracks[0];
+    const params = new URLSearchParams({ v: videoId, lang: track.code, fmt: "vtt" });
+    if (track.kind) params.set("kind", track.kind);
+    const trackRes = await fetch(`https://video.google.com/timedtext?${params.toString()}`);
+    if (!trackRes.ok) throw new Error("yt-track-failed");
+    const vtt = await trackRes.text();
+    if (!vtt || !vtt.trim()) throw new Error("yt-track-empty");
+    const lines = vtt.split(/\r?\n/);
+    const textLines = [];
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t || /^WEBVTT/i.test(t) || /-->/.test(t) || /^\d+$/.test(t)) continue;
+      textLines.push(t.replace(/<[^>]+>/g, ""));
+    }
+    // زیرنویسِ خودکارِ یوتیوب معمولاً هر خط رو با یه هم‌پوشانیِ کوتاه دوباره
+    // تکرار می‌کنه — خط‌های عیناً تکراریِ پشتِ‌سرِهم رو یکی می‌کنیم.
+    const deduped = [];
+    for (const l of textLines) {
+      if (deduped[deduped.length - 1] !== l) deduped.push(l);
+    }
+    return { text: deduped.join(" ").replace(/\s+/g, " ").trim(), langCode: track.code || "" };
+  };
   // «وارد کردنِ یه لینک برای خوانش» — دقیقاً همون مقصدِ نهایی‌ای که PDF/پیست
   // دارن (paragraphs همون سیستمِ خوانش)، فقط منبعِ متن یه صفحه‌ی وبه. چون
   // فچِ مستقیمِ یه دامنه‌ی دلخواه از خودِ مرورگر معمولاً با CORS بلاک می‌شه،
@@ -13374,6 +13439,13 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   // خورد، از همون Workerِ بک‌اندِ AI به‌عنوانِ پراکسی استفاده می‌کنیم
   // (/api/fetch-url) — این مسیر باید جداگانه تو Worker اضافه بشه، وگرنه
   // پیامِ خطای روشن نشون داده می‌شه به‌جای هنگ‌کردنِ بی‌دلیل.
+  //
+  // 🎬 اگه همین لینک یه ویدیوی یوتیوب باشه، دیگه سراغِ HTMLِ صفحه نمی‌ریم
+  // (که فقط پوسته‌ی پخش‌کننده رو می‌ده، نه متنِ گفته‌شده) — به‌جاش زیرنویسِ
+  // خودِ ویدیو (fetchYouTubeTranscriptText) گرفته می‌شه و دقیقاً از همون‌جا
+  // به بعد (splitTextIntoSentenceStrings، تشخیصِ سطح، ساختِ پاراگراف‌ها)
+  // با بقیه‌ی لینک‌ها یکی می‌شه — یعنی داستان‌ساز، جمله‌به‌جمله/پاراگراف‌به‌
+  // پاراگراف، دقیقاً مثلِ هر داستانِ دیگه‌ای قابلِ خوندن/شنیدن/ترجمه‌ست.
   const handleLinkImportForReading = async () => {
     setLinkReadError("");
     let raw = linkReadUrl.trim();
@@ -13386,33 +13458,50 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
       setLinkReadError(uiLang === "en" ? "This link isn't valid — please enter the full page address" : "این لینک معتبر نیست — لطفاً آدرسِ کامل صفحه رو وارد کن");
       return;
     }
+    const youtubeVideoId = extractYouTubeVideoId(normalizedUrl);
     setLinkReadBusy(true);
     try {
-      let html = "";
-      try {
-        const directRes = await fetch(normalizedUrl);
-        if (directRes.ok) html = await directRes.text();
-      } catch {
-        // مستقیم شکست خورد (احتمالاً CORS) — می‌ریم سراغِ پراکسیِ بک‌اند
-      }
-      if (!html) {
-        const base = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || DEFAULT_BACKEND_URL;
-        const proxyRes = await fetch(`${base}/api/fetch-url?url=${encodeURIComponent(normalizedUrl)}`);
-        if (!proxyRes.ok) {
-          throw new Error(
-            proxyRes.status === 404
-              ? "fetch-url-not-configured"
-              : `HTTP ${proxyRes.status}`
+      let bodyText = "";
+      let youtubeLangCode = "";
+      if (youtubeVideoId) {
+        const transcript = await fetchYouTubeTranscriptText(youtubeVideoId);
+        bodyText = transcript.text;
+        youtubeLangCode = transcript.langCode;
+        if (!bodyText) {
+          setLinkReadError(
+            uiLang === "en"
+              ? "This YouTube video has no usable captions."
+              : "این ویدیوی یوتیوب زیرنویسِ قابلِ استفاده نداشت."
           );
+          return;
         }
-        html = await proxyRes.text();
-      }
-      const bodyText = extractMainBodyText(html).replace(/\s+/g, " ").trim();
-      if (!bodyText) {
-        setLinkReadError(uiLang === "en"
-          ? "No text was extracted from this page — the site's content might be built with JavaScript"
-          : "متنی از این صفحه استخراج نشد — شاید محتوای این سایت با جاوااسکریپت ساخته می‌شه");
-        return;
+      } else {
+        let html = "";
+        try {
+          const directRes = await fetch(normalizedUrl);
+          if (directRes.ok) html = await directRes.text();
+        } catch {
+          // مستقیم شکست خورد (احتمالاً CORS) — می‌ریم سراغِ پراکسیِ بک‌اند
+        }
+        if (!html) {
+          const base = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || DEFAULT_BACKEND_URL;
+          const proxyRes = await fetch(`${base}/api/fetch-url?url=${encodeURIComponent(normalizedUrl)}`);
+          if (!proxyRes.ok) {
+            throw new Error(
+              proxyRes.status === 404
+                ? "fetch-url-not-configured"
+                : `HTTP ${proxyRes.status}`
+            );
+          }
+          html = await proxyRes.text();
+        }
+        bodyText = extractMainBodyText(html).replace(/\s+/g, " ").trim();
+        if (!bodyText) {
+          setLinkReadError(uiLang === "en"
+            ? "No text was extracted from this page — the site's content might be built with JavaScript"
+            : "متنی از این صفحه استخراج نشد — شاید محتوای این سایت با جاوااسکریپت ساخته می‌شه");
+          return;
+        }
       }
       let allSentences = splitTextIntoSentenceStrings(bodyText);
       if (!allSentences.length) {
@@ -13424,7 +13513,10 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         allSentences = allSentences.slice(0, PDF_READ_MAX_SENTENCES);
         truncated = true;
       }
-      const detectedLang = detectPastedTextLanguage(bodyText);
+      // برای ویدیوهای یوتیوب، زبانِ خودِ زیرنویس (که یوتیوب مشخص کرده)
+      // دقیق‌تر از heuristicِ detectPastedTextLanguage روی متنِ ترانویسی‌شده‌ست؛
+      // فقط اگه یوتیوب زبان رو گزارش نکرده بود، همون heuristicِ همیشگی.
+      const detectedLang = youtubeVideoId ? youtubeLangCode || detectPastedTextLanguage(bodyText) : detectPastedTextLanguage(bodyText);
       if (detectedLang) setStoryLang(detectedLang);
       // همون تشخیصِ خودکارِ سطح، برای مسیرِ واردکردنِ لینک.
       setStoryLevel(detectTextCEFRLevel(bodyText));
@@ -13447,11 +13539,19 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         setLinkReadError(uiLang === "en" ? "Note: the page text was long, so only part of it was made ready to read" : "توجه: چون متنِ صفحه زیاد بود، فقط بخشی از اون آماده‌ی خوانش شد");
       }
     } catch (err) {
-      setLinkReadError(
-        err?.message === "fetch-url-not-configured"
-          ? (uiLang === "en" ? "Reading this link needs an extra server setting — use copy/paste for now" : "خوندنِ این لینک نیاز به یه تنظیمِ اضافه تو سرور داره — فعلاً از کپی/پیستِ متن استفاده کن")
-          : (uiLang === "en" ? "This link couldn't be read — either the site doesn't allow direct access, or the address is wrong" : "این لینک قابلِ خوندن نبود — یا سایت اجازه‌ی دسترسیِ مستقیم نمی‌ده، یا آدرس اشتباهه")
-      );
+      if (youtubeVideoId) {
+        setLinkReadError(
+          uiLang === "en"
+            ? "Couldn't fetch this YouTube video's captions — it may lack captions, or YouTube blocked direct access."
+            : "زیرنویسِ این ویدیوی یوتیوب گرفته نشد — یا ویدیو زیرنویس نداره، یا یوتیوب اجازه‌ی دسترسیِ مستقیم نداده."
+        );
+      } else {
+        setLinkReadError(
+          err?.message === "fetch-url-not-configured"
+            ? (uiLang === "en" ? "Reading this link needs an extra server setting — use copy/paste for now" : "خوندنِ این لینک نیاز به یه تنظیمِ اضافه تو سرور داره — فعلاً از کپی/پیستِ متن استفاده کن")
+            : (uiLang === "en" ? "This link couldn't be read — either the site doesn't allow direct access, or the address is wrong" : "این لینک قابلِ خوندن نبود — یا سایت اجازه‌ی دسترسیِ مستقیم نمی‌ده، یا آدرس اشتباهه")
+        );
+      }
     } finally {
       setLinkReadBusy(false);
     }
@@ -14574,7 +14674,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                 type="text"
                 value={linkReadUrl}
                 onChange={(e) => setLinkReadUrl(e.target.value)}
-                placeholder="https://example.com/article"
+                placeholder="https://example.com/article  یا  https://youtube.com/watch?v=..."
                 dir="ltr"
                 style={{
                   width: "100%",
@@ -14588,8 +14688,8 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
               />
               <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
                 {uiLang === "en"
-                  ? "Only the page's main text (body content) is extracted — menus, headers, footers, and ads are ignored."
-                  : "فقط متنِ اصلیِ صفحه (بدنه‌ی نوشته) استخراج می‌شه — منو، هدر، فوتر و تبلیغ‌ها نادیده گرفته می‌شن."}
+                  ? "Only the page's main text (body content) is extracted — menus, headers, footers, and ads are ignored. YouTube video links are also accepted — the video's captions become the story text."
+                  : "فقط متنِ اصلیِ صفحه (بدنه‌ی نوشته) استخراج می‌شه — منو، هدر، فوتر و تبلیغ‌ها نادیده گرفته می‌شن. لینکِ ویدیوی یوتیوب هم قبول می‌شه — زیرنویسِ همون ویدیو به‌عنوانِ متنِ داستان استفاده می‌شه."}
               </p>
               <button
                 onClick={handleLinkImportForReading}
@@ -18206,7 +18306,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
       <nav className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ backgroundColor: colors.paperDark }}>
         <TabButton label={tr("tabGrammar", appPrefs.uiLang)} icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabSpeaking", appPrefs.uiLang)} icon={MessageCircle} active={tab === "speaking"} onClick={() => setTab("speaking")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabYoutube", appPrefs.uiLang)} icon={PlayCircle} active={tab === "youtube"} onClick={() => setTab("youtube")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabWords", appPrefs.uiLang)} icon={Layers} active={tab === "words"} onClick={() => setTab("words")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabVocabInUse", appPrefs.uiLang)} icon={BookOpen} active={tab === "vocabInUse"} onClick={() => setTab("vocabInUse")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabFavorites", appPrefs.uiLang)} icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
@@ -18529,28 +18628,6 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
             saveGrammarNote={saveGrammarNote}
           />
         )}
-
-        {/* تبِ یوتیوب هم مثلِ گرامر/داستان‌ساز همیشه mount شده می‌مونه — تا
-            رفتن به تبِ دیگه و برگشتن، ویدیوی بارگذاری‌شده و زیرنویس/ترجمه‌ها
-            از بین نره (پلیرِ یوتیوب هم با هر بارِ mount شدنِ دوباره، iframeِ
-            تازه می‌سازه که کندتره). */}
-        <div style={{ display: tab === "youtube" ? "block" : "none" }}>
-          <YouTubeCaptionPanel
-            nativeLang={nativeLang}
-            nativeLabel={nativeLabel}
-            targetOrder={targetOrder}
-            aiSettings={aiSettings}
-            uiLang={appPrefs.uiLang || "fa"}
-            SpeakButton={SpeakButton}
-            ClickableSentence={ClickableSentence}
-            translateFree={translateFree}
-            translateViaAI={translateViaAI}
-            translateFreeNetwork={translateFreeNetwork}
-            setCachedTranslation={setCachedTranslation}
-            colors={colors}
-            fontFa={fontFa}
-          />
-        </div>
 
         {/* توجه: برخلاف بقیه‌ی تب‌ها، داستان‌ساز همیشه mount شده می‌مونه (فقط
             با display:none قایم می‌شه) نه این‌که با رفتن به تب دیگه کامل از
