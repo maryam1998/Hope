@@ -10,6 +10,7 @@ import { VOCAB_IN_USE_UNITS } from "./vocabularyInUseData.js";
 import { DAILY_CONVERSATIONS,THEMATIC_CONVERSATIONS } from "./DAILY_CONVERSATIONS.js";
 import DailyConversationsTab from "./DailyConversationsTab.jsx";
 import SpeakingPracticePanel from "./SpeakingPractice.jsx";
+import YouTubeCaptionPanel from "./YouTubeCaptions.jsx";
 import { recordNeuralRepeat, addNeuralFiber, NeuralPathButton } from "./NeuralPath.jsx";
 // مکالمات روزمره + مکالمات موضوعی، یکجا مرج‌شده — تا هرجا که قبلاً از
 // DAILY_CONVERSATIONS استفاده می‌شد (تبِ مکالمه، استخرِ جستجوی داستان‌ساز،
@@ -2001,6 +2002,7 @@ const UI_STRINGS = {
   tabSlang: { fa: "اسلنگ", en: "Slang" },
   tabReview: { fa: "مرور (جعبه لایتنر)", en: "Review (Leitner box)" },
   tabSpeaking: { fa: "تمرین مکالمه", en: "Speaking practice" },
+  tabYoutube: { fa: "یوتیوب", en: "YouTube" },
   // Login / signup screen
   loginTitle: { fa: "ورود به LingoLearn", en: "Sign in to LingoLearn" },
   signupTitle: { fa: "ساخت حساب کاربری", en: "Create an account" },
@@ -18204,6 +18206,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
       <nav className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ backgroundColor: colors.paperDark }}>
         <TabButton label={tr("tabGrammar", appPrefs.uiLang)} icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabSpeaking", appPrefs.uiLang)} icon={MessageCircle} active={tab === "speaking"} onClick={() => setTab("speaking")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        <TabButton label={tr("tabYoutube", appPrefs.uiLang)} icon={PlayCircle} active={tab === "youtube"} onClick={() => setTab("youtube")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabWords", appPrefs.uiLang)} icon={Layers} active={tab === "words"} onClick={() => setTab("words")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabVocabInUse", appPrefs.uiLang)} icon={BookOpen} active={tab === "vocabInUse"} onClick={() => setTab("vocabInUse")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
         <TabButton label={tr("tabFavorites", appPrefs.uiLang)} icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
@@ -18526,6 +18529,28 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
             saveGrammarNote={saveGrammarNote}
           />
         )}
+
+        {/* تبِ یوتیوب هم مثلِ گرامر/داستان‌ساز همیشه mount شده می‌مونه — تا
+            رفتن به تبِ دیگه و برگشتن، ویدیوی بارگذاری‌شده و زیرنویس/ترجمه‌ها
+            از بین نره (پلیرِ یوتیوب هم با هر بارِ mount شدنِ دوباره، iframeِ
+            تازه می‌سازه که کندتره). */}
+        <div style={{ display: tab === "youtube" ? "block" : "none" }}>
+          <YouTubeCaptionPanel
+            nativeLang={nativeLang}
+            nativeLabel={nativeLabel}
+            targetOrder={targetOrder}
+            aiSettings={aiSettings}
+            uiLang={appPrefs.uiLang || "fa"}
+            SpeakButton={SpeakButton}
+            ClickableSentence={ClickableSentence}
+            translateFree={translateFree}
+            translateViaAI={translateViaAI}
+            translateFreeNetwork={translateFreeNetwork}
+            setCachedTranslation={setCachedTranslation}
+            colors={colors}
+            fontFa={fontFa}
+          />
+        </div>
 
         {/* توجه: برخلاف بقیه‌ی تب‌ها، داستان‌ساز همیشه mount شده می‌مونه (فقط
             با display:none قایم می‌شه) نه این‌که با رفتن به تب دیگه کامل از
