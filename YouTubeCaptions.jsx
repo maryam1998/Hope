@@ -210,13 +210,24 @@ function CaptionLine({
   nativeLang,
   nativeLabel,
   aiSettings,
+  listContainerRef,
 }) {
   const ref = useRef(null);
+  // 🎥 قبلاً اینجا ref.current.scrollIntoView({block:"center"}) صدا زده
+  // می‌شد — که علاوه‌بر لیستِ زیرنویس، خودِ صفحه/پنلِ بیرونی رو هم اسکرول
+  // می‌کرد تا خط اومده وسطِ دیدِ کاربر بشینه، و همین باعث می‌شد ویدیو (که
+  // بالای لیست نشسته) با هر خطِ جدید از دیدِ کاربر بیرون بره. حالا به‌جاش
+  // فقط scrollTop خودِ کانتینرِ لیست رو دستی تنظیم می‌کنیم — یعنی اسکرول
+  // هیچ‌وقت از مرزِ همون لیست بیرون نمی‌ره و ویدیوی بالاش هیچ‌وقت تکون
+  // نمی‌خوره.
   useEffect(() => {
-    if (active && ref.current) {
-      ref.current.scrollIntoView({ block: "center", behavior: "smooth" });
-    }
-  }, [active]);
+    if (!active || !ref.current || !listContainerRef?.current) return;
+    const container = listContainerRef.current;
+    const el = ref.current;
+    const target =
+      el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
+    container.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+  }, [active, listContainerRef]);
 
   return (
     <div
@@ -347,6 +358,9 @@ export default function YouTubeCaptionPanel({
   const playerRef = useRef(null);
   const playerElRef = useRef(null);
   const pollRef = useRef(null);
+  // کانتینرِ اسکرول‌شوندهٔ لیستِ زیرنویس — برای اینکه اسکرولِ خودکارِ خطِ
+  // فعال (تو CaptionLine) فقط همینجا اتفاق بیفته، نه توی کلِ صفحه.
+  const captionListRef = useRef(null);
 
   const [cues, setCues] = useState([]);
   const [subtitleLang, setSubtitleLang] = useState((targetOrder && targetOrder[0]) || "en");
@@ -660,13 +674,19 @@ export default function YouTubeCaptionPanel({
       </div>
 
       {videoId && (
-        <div style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${colors.cardBorder}`, background: "#000", position: "relative", paddingTop: "56.25%" }}>
-          <div ref={playerElRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
-          {!playerReady && (
-            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" }}>
-              <Loader2 size={22} className="spin" />
-            </div>
-          )}
+        // 📌 پنلِ ویدیو رو sticky می‌کنیم (top: 8) تا هر جوری که لیستِ
+        // زیرنویس یا خودِ صفحه اسکرول بشه، ویدیو همیشه بالای دیدِ کاربر
+        // بمونه و همزمان با متن قابلِ دیدن باشه. background هم می‌ذاریم
+        // که وقتی sticky شد، محتوایِ پشتش رو نپوشونه با شفافیت.
+        <div style={{ position: "sticky", top: 8, zIndex: 5, background: colors.paper, paddingBottom: 8 }}>
+          <div style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${colors.cardBorder}`, background: "#000", position: "relative", paddingTop: "56.25%" }}>
+            <div ref={playerElRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
+            {!playerReady && (
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" }}>
+                <Loader2 size={22} className="spin" />
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -871,7 +891,7 @@ export default function YouTubeCaptionPanel({
             </button>
           </div>
 
-          <div style={{ maxHeight: 420, overflowY: "auto", padding: 4 }}>
+          <div ref={captionListRef} style={{ maxHeight: "min(420px, 50vh)", overflowY: "auto", padding: 4 }}>
             {cues.map((cue, i) => (
               <CaptionLine
                 key={`${cue.start}-${i}`}
@@ -890,6 +910,7 @@ export default function YouTubeCaptionPanel({
                 nativeLang={nativeLang}
                 nativeLabel={nativeLabelSafe}
                 aiSettings={aiSettings}
+                listContainerRef={captionListRef}
               />
             ))}
           </div>
