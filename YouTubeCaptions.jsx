@@ -213,84 +213,81 @@ function CaptionLine({
   listContainerRef,
 }) {
   const ref = useRef(null);
-  // 🎥 قبلاً اینجا ref.current.scrollIntoView({block:"center"}) صدا زده
-  // می‌شد — که علاوه‌بر لیستِ زیرنویس، خودِ صفحه/پنلِ بیرونی رو هم اسکرول
-  // می‌کرد تا خط اومده وسطِ دیدِ کاربر بشینه، و همین باعث می‌شد ویدیو (که
-  // بالای لیست نشسته) با هر خطِ جدید از دیدِ کاربر بیرون بره. حالا به‌جاش
-  // فقط scrollTop خودِ کانتینرِ لیست رو دستی تنظیم می‌کنیم — یعنی اسکرول
-  // هیچ‌وقت از مرزِ همون لیست بیرون نمی‌ره و ویدیوی بالاش هیچ‌وقت تکون
-  // نمی‌خوره.
+  // 🎥 قبلاً اینجا فقط scrollTop خودِ یه mini-باکسِ داخلی تنظیم می‌شد (نه
+  // اسکرولِ کلِ صفحه) — چون اون‌موقع position:sticky ویدیو درست کار
+  // نمی‌کرد و اسکرولِ کلِ صفحه باعث می‌شد ویدیو از دید بیرون بره. حالا که
+  // اون باگ رفع شده (ویدیو واقعاً sticky می‌مونه)، دیگه نیازی به اون
+  // mini-باکسِ جدا نیست — همون scrollIntoViewِ معمولی رو رویِ خودِ صفحه
+  // صدا می‌زنیم؛ ویدیو به‌خاطرِ sticky همونجا بالا می‌مونه.
   useEffect(() => {
-    if (!active || !ref.current || !listContainerRef?.current) return;
-    const container = listContainerRef.current;
-    const el = ref.current;
-    const target =
-      el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
-    container.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
-  }, [active, listContainerRef]);
+    if (!active || !ref.current) return;
+    ref.current.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [active]);
 
+  // 🎨 دیگه هیچ باکسِ دورِ خطِ فعال نیست (نه background، نه border) — فقط
+  // خودِ متن با یه هایلایتِ نرمِ inline (span، نه کلِ ردیف) مشخص می‌شه؛
+  // دقیقاً همون جلوه‌ای که تویِ صفحه‌ی خوانشِ داستان برای جمله‌ی فعال
+  // استفاده می‌شه — تا این لیست دیگه شبیهِ یه پنلِ جداگانه نباشه، بلکه
+  // ادامه‌ی همون صفحه‌ی سفیدِ خوانش به‌نظر برسه.
   return (
-    <div
-      ref={ref}
-      style={{
-        padding: "8px 10px",
-        borderRadius: 8,
-        marginBottom: 6,
-        background: active ? colors.goldSoft : "transparent",
-        border: `1px solid ${active ? colors.gold : "transparent"}`,
-        transition: "background 0.15s ease",
-      }}
-    >
-      <div className="flex items-center gap-2" style={{ direction: "ltr" }}>
-        <span
+    <div ref={ref} style={{ paddingInlineStart: 10, marginBottom: 14 }}>
+      <div className="flex items-start gap-2" dir="auto">
+        {SpeakButton && <SpeakButton text={cue.text} code={subtitleLang} color={colors.inkSoft} />}
+        <p
+          style={{
+            flex: 1,
+            minWidth: 0,
+            margin: 0,
+            fontSize: 15,
+            lineHeight: 1.8,
+            textAlign: "justify",
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
           onClick={() => onSeek(cue.start)}
-          style={{ fontSize: 10, color: colors.inkSoft, flexShrink: 0, cursor: "pointer", fontFamily: "monospace" }}
-          title={fontFa ? "برو به این لحظه" : undefined}
         >
-          {formatSeconds(cue.start)}
-        </span>
-        <div style={{ flex: 1, cursor: "pointer" }} onClick={() => onSeek(cue.start)}>
-          {ClickableSentence ? (
-            <ClickableSentence
-              text={cue.text}
-              langCode={subtitleLang}
-              nativeLang={nativeLang}
-              nativeLabel={nativeLabel}
-              aiSettings={aiSettings}
-              color={colors.ink}
-              fontWeight={700}
-              fontSize={13}
-            />
-          ) : (
-            <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: colors.ink }}>{cue.text}</p>
-          )}
-        </div>
-        {SpeakButton && <SpeakButton text={cue.text} code={subtitleLang} color={colors.teal} edge="end" />}
+          <span
+            onClick={(e) => { e.stopPropagation(); onSeek(cue.start); }}
+            style={{ fontSize: 10, color: colors.inkSoft, fontFamily: "monospace" }}
+          >
+            [{formatSeconds(cue.start)}]{" "}
+          </span>
+          <span
+            style={{
+              backgroundColor: active ? colors.goldSoft : "transparent",
+              borderRadius: 5,
+              padding: active ? "2px 4px" : "2px 0",
+              WebkitBoxDecorationBreak: "clone",
+              boxDecorationBreak: "clone",
+              transition: "background-color 0.12s ease",
+            }}
+          >
+            {ClickableSentence ? (
+              <ClickableSentence
+                text={cue.text}
+                langCode={subtitleLang}
+                nativeLang={nativeLang}
+                nativeLabel={nativeLabel}
+                aiSettings={aiSettings}
+                color={colors.ink}
+                fontWeight={700}
+                fontSize={15}
+              />
+            ) : (
+              cue.text
+            )}
+          </span>
+        </p>
       </div>
       {translationLangs.map((l) => {
         const key = `${cue.start}:${l.code}`;
         const val = translations[key];
         return (
-          <div key={l.code} className="flex items-center gap-2" style={{ marginTop: 4, direction: "ltr" }}>
-            <span
-              style={{
-                fontFamily: fontFa,
-                fontSize: 10,
-                fontWeight: 700,
-                color: colors.gold,
-                border: `1px solid ${colors.goldSoft}`,
-                borderRadius: 6,
-                padding: "1px 5px",
-                flexShrink: 0,
-              }}
-            >
-              {l.abbr || l.code.toUpperCase()}
-            </span>
-            <div style={{ flex: 1 }}>
+          <div key={l.code} className="flex items-start gap-2" style={{ marginTop: 3, direction: "ltr" }}>
+            <p style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 13.5, fontWeight: 700, color: colors.teal, textAlign: "justify", fontFamily: l.code === "fa" ? fontFa : "inherit" }}>
+              <span style={{ fontSize: 10, color: colors.gold }}>[{l.abbr || l.code}]</span>{" "}
               {!val || val === "loading" ? (
-                <p style={{ margin: 0, fontSize: 11, color: colors.inkSoft, opacity: 0.8 }}>
-                  {val === "loading" ? "در حال ترجمه..." : "—"}
-                </p>
+                <span style={{ color: colors.inkSoft, opacity: 0.7 }}>{val === "loading" ? "در حال ترجمه..." : "—"}</span>
               ) : ClickableSentence ? (
                 <ClickableSentence
                   text={val}
@@ -300,30 +297,31 @@ function CaptionLine({
                   aiSettings={aiSettings}
                   color={colors.teal}
                   fontWeight={700}
-                  fontSize={12}
+                  fontSize={13.5}
                   alignSourceText={cue.text}
                   alignSourceLang={subtitleLang}
                 />
-              ) : (
-                <p style={{ margin: 0, fontWeight: 700, fontSize: 12, color: colors.teal }}>{val}</p>
-              )}
+              ) : val}
+            </p>
+            <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+              {SpeakButton && val && val !== "loading" && <SpeakButton text={val} code={l.code} color={colors.teal} />}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRefreshTranslation(cue, l.code);
+                }}
+                disabled={refreshingKey === key}
+                title="اگه این ترجمه اشتباهه، دوباره امتحان کن"
+                style={{ background: "none", border: "none", padding: 3, cursor: refreshingKey === key ? "default" : "pointer", display: "flex", alignItems: "center" }}
+              >
+                {refreshingKey === key ? (
+                  <Loader2 size={11} className="spin" color={colors.teal} />
+                ) : (
+                  <RotateCcw size={11} color={colors.teal} style={{ opacity: 0.6 }} />
+                )}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRefreshTranslation(cue, l.code);
-              }}
-              disabled={refreshingKey === key}
-              title="اگه این ترجمه اشتباهه، دوباره امتحان کن"
-              style={{ background: "none", border: "none", padding: 3, flexShrink: 0, cursor: refreshingKey === key ? "default" : "pointer", display: "flex", alignItems: "center" }}
-            >
-              {refreshingKey === key ? (
-                <Loader2 size={11} className="spin" color={colors.teal} />
-              ) : (
-                <RotateCcw size={11} color={colors.teal} style={{ opacity: 0.6 }} />
-              )}
-            </button>
           </div>
         );
       })}
@@ -867,36 +865,20 @@ export default function YouTubeCaptionPanel({
 
       {!!cues.length && (
         <div>
-          <div className="flex items-center gap-2" style={{ marginBottom: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12, color: colors.inkSoft, fontFamily: fontFa }}>
-              {isFa ? `${cues.length} خط زیرنویس — زبانِ منبع:` : `${cues.length} caption lines — source language:`}
-            </span>
+          <div className="flex items-center gap-2" style={{ marginBottom: 10, flexWrap: "wrap", opacity: 0.85 }}>
             <input
               value={subtitleLang}
               onChange={(e) => setSubtitleLang(e.target.value.trim().toLowerCase())}
-              style={{ width: 60, padding: "2px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 12, direction: "ltr" }}
+              style={{ width: 50, padding: "2px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 11, direction: "ltr" }}
               title={isFa ? "کدِ زبانِ زیرنویس (مثلاً en, fa, es)" : "Subtitle language code (e.g. en, fa, es)"}
             />
             {onImportToStory && (
               <button
                 onClick={handleImportToStory}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "6px 12px",
-                  borderRadius: 8,
-                  border: "none",
-                  background: colors.teal,
-                  color: "#fff",
-                  fontWeight: 700,
-                  fontSize: 12,
-                  fontFamily: fontFa,
-                  cursor: "pointer",
-                }}
+                style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: colors.teal, background: "none", border: "none", cursor: "pointer", fontFamily: fontFa }}
               >
-                <Sparkles size={13} />
-                {isFa ? "افزودن این رونوشت به داستان‌ساز" : "Send this transcript to the story reader"}
+                <Sparkles size={12} />
+                {isFa ? "افزودن به داستان‌ساز" : "Send to story reader"}
               </button>
             )}
             <button
@@ -905,14 +887,14 @@ export default function YouTubeCaptionPanel({
                 setTranslations({});
                 setActiveIndex(-1);
               }}
-              style={{ marginInlineStart: onImportToStory ? 0 : "auto", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: colors.rose, background: "none", border: "none", cursor: "pointer" }}
+              style={{ marginInlineStart: "auto", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: colors.rose, background: "none", border: "none", cursor: "pointer" }}
             >
               <X size={12} />
               {isFa ? "پاک‌کردنِ زیرنویس" : "Clear captions"}
             </button>
           </div>
 
-          <div ref={captionListRef} style={{ maxHeight: "min(420px, 50vh)", overflowY: "auto", padding: 4 }}>
+          <div ref={captionListRef}>
             {cues.map((cue, i) => (
               <CaptionLine
                 key={`${cue.start}-${i}`}
@@ -931,7 +913,6 @@ export default function YouTubeCaptionPanel({
                 nativeLang={nativeLang}
                 nativeLabel={nativeLabelSafe}
                 aiSettings={aiSettings}
-                listContainerRef={captionListRef}
               />
             ))}
           </div>
