@@ -356,6 +356,16 @@ export default function YouTubeCaptionPanel({
   const [autoLoading, setAutoLoading] = useState(false);
   const [autoError, setAutoError] = useState("");
   const [fileError, setFileError] = useState("");
+  // 📋 پیست‌کردنِ مستقیمِ متنِ زیرنویس — دقیقاً کنارِ آپلودِ فایل، برای وقتی
+  // کاربر خودِ فایلِ srt/vtt رو نداره ولی متنش رو (مثلاً از یه سایتِ دیگه)
+  // کپی کرده. اگه متنِ پیست‌شده فرمتِ زمان‌بندی‌دارِ srt/vtt باشه، دقیقاً
+  // مثلِ آپلودِ فایل با تایم‌بندیِ واقعی پارس می‌شه؛ اگه فقط متنِ سادهٔ
+  // بدونِ زمان‌بندی باشه (کپی از یه صفحه‌ی معمولی)، هر جمله یه ردیفِ
+  // بدونِ‌تایمِ واقعی می‌شه — هنوز قابلِ خوندن/ترجمه‌ست، فقط سیک‌کردنِ ویدیو
+  // رویِ اون خطِ خاص دقیق نیست.
+  const [showPasteSubtitle, setShowPasteSubtitle] = useState(false);
+  const [pastedSubtitleText, setPastedSubtitleText] = useState("");
+  const [pasteError, setPasteError] = useState("");
 
   const [translations, setTranslations] = useState({}); // `${start}:${langCode}` -> text | "loading"
   const [refreshingKey, setRefreshingKey] = useState(null);
@@ -577,6 +587,35 @@ export default function YouTubeCaptionPanel({
     reader.readAsText(file);
   }
 
+  // متنِ پیست‌شده رو اول با همون پارسرِ srt/vtt امتحان می‌کنیم (اگه
+  // زمان‌بندیِ واقعی داشته باشه)؛ اگه چیزی پیدا نشد، یعنی متنِ سادهٔ
+  // بدونِ‌تایمه — هر خطِ غیرِخالی رو یه ردیف حساب می‌کنیم، با یه تایمِ
+  // فرضیِ ۴ثانیه‌ای پشتِ‌سرِهم (فقط برای این‌که لیست/ترتیب معنی‌دار بمونه،
+  // نه این‌که واقعاً روی همون لحظه‌ی ویدیو منطبق باشه).
+  function handlePasteSubtitleText() {
+    const raw = pastedSubtitleText.trim();
+    if (!raw) return;
+    setPasteError("");
+    let parsed = parseSubtitleFile(raw);
+    if (!parsed.length) {
+      const lines = raw
+        .split(/\r?\n+/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      parsed = lines.map((text, i) => ({ start: i * 4, end: i * 4 + 4, text }));
+    }
+    if (!parsed.length) {
+      setPasteError(isFa ? "متنی برای استخراج پیدا نشد." : "No usable text was found.");
+      return;
+    }
+    setCues(parsed);
+    setTranslations({});
+    setActiveIndex(-1);
+    setPastedSubtitleText("");
+    setShowPasteSubtitle(false);
+    if (onImportToStory) onImportToStory({ cues: parsed, subtitleLang, videoId });
+  }
+
   return (
     <div className="flex flex-col gap-4" style={{ padding: 16 }} dir={isFa ? "rtl" : "ltr"}>
       <div>
@@ -681,7 +720,75 @@ export default function YouTubeCaptionPanel({
               {isFa ? "آپلودِ فایلِ زیرنویس (srt/vtt)" : "Upload subtitle file (srt/vtt)"}
               <input type="file" accept=".srt,.vtt,text/vtt,text/plain" onChange={handleFileUpload} style={{ display: "none" }} />
             </label>
+
+            <button
+              onClick={() => setShowPasteSubtitle((v) => !v)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "7px 12px",
+                borderRadius: 8,
+                border: `1px solid ${colors.cardBorder}`,
+                background: "transparent",
+                color: colors.teal,
+                fontWeight: 700,
+                fontSize: 12,
+                fontFamily: fontFa,
+                cursor: "pointer",
+              }}
+            >
+              <span>📋</span>
+              {isFa
+                ? (showPasteSubtitle ? "بستنِ پیستِ متن" : "پیست‌کردنِ متنِ زیرنویس")
+                : (showPasteSubtitle ? "Close text paste" : "Paste subtitle text")}
+            </button>
           </div>
+
+          {showPasteSubtitle && (
+            <div>
+              <textarea
+                value={pastedSubtitleText}
+                onChange={(e) => setPastedSubtitleText(e.target.value)}
+                placeholder={
+                  isFa
+                    ? "متنِ srt/vtt رو با زمان‌بندی پیست کن، یا فقط متنِ سادهٔ زیرنویس رو خط‌به‌خط بچسبون…"
+                    : "Paste srt/vtt text with timestamps, or just plain subtitle text line by line…"
+                }
+                rows={6}
+                dir="auto"
+                style={{
+                  width: "100%",
+                  border: `1px solid ${colors.cardBorder}`,
+                  borderRadius: 8,
+                  padding: 8,
+                  fontSize: 12,
+                  fontFamily: "monospace",
+                  resize: "vertical",
+                }}
+              />
+              <button
+                onClick={handlePasteSubtitleText}
+                disabled={!pastedSubtitleText.trim()}
+                style={{
+                  marginTop: 6,
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: colors.teal,
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  fontFamily: fontFa,
+                  cursor: pastedSubtitleText.trim() ? "pointer" : "default",
+                  opacity: pastedSubtitleText.trim() ? 1 : 0.5,
+                }}
+              >
+                {isFa ? "استفاده از این متن" : "Use this text"}
+              </button>
+              {pasteError && <p style={{ color: colors.rose, fontSize: 12, marginTop: 4 }}>{pasteError}</p>}
+            </div>
+          )}
 
           {autoError && <p style={{ color: colors.rose, fontSize: 12, margin: 0 }}>{autoError}</p>}
 
