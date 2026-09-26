@@ -90,6 +90,22 @@ export default {
       }
     }
 
+    // زیرنویسِ واقعیِ یوتیوب (با تایم‌استمپِ واقعی) — سمتِ سرور می‌گیریمش
+    // چون از مرورگر مستقیم به‌خاطرِ CORS بلاک می‌شه. کلاینت این متن رو با
+    // player.getCurrentTime() سینک می‌کنه (نه اینکه Workerِ ما زمان‌بندی
+    // کنه — ما فقط متن+تایم‌استمپِ خام رو برمی‌گردونیم).
+    if (url.pathname === "/api/youtube-captions" && request.method === "GET") {
+      const videoId = (url.searchParams.get("videoId") || "").trim();
+      const lang = (url.searchParams.get("lang") || "en").trim();
+      if (!videoId) return json({ error: "videoId is required" }, 400);
+      try {
+        const result = await fetchYoutubeCaptions(videoId, lang);
+        return json(result);
+      } catch (e) {
+        return json({ error: e.message || "Could not fetch captions" }, 502);
+      }
+    }
+
     if (url.pathname === "/api/generate" && request.method === "POST") {
       let body;
       try {
@@ -125,6 +141,134 @@ function json(data, status = 200) {
     status,
     headers: { "Content-Type": "application/json", ...CORS_HEADERS },
   });
+}
+
+// --- زیرنویسِ واقعیِ یوتیوب -----------------------------------------------
+// دو تا روش رو امتحان می‌کنیم: اول innertube (APIِ داخلیِ خودِ یوتیوب —
+// پایدارتر، چون یه پاسخِ JSONِ تمیزه)، و اگه اون شکست خورد، fallback به
+// اسکرِیپ‌کردنِ خودِ صفحه‌ی watch (استخراجِ ytInitialPlayerResponse).
+async function fetchYoutubeCaptions(videoId, wantLang) {
+  let tracks = await fetchCaptionTracksViaInnertube(videoId).catch(() => null);
+  if (!tracks || !tracks.length) {
+    tracks = await fetchCaptionTracksViaWatchPage(videoId).catch(() => null);
+  }
+  if (!tracks || !tracks.length) {
+    throw new Error("این ویدیو زیرنویس نداره یا زیرنویسش قابلِ دریافت نیست");
+  }
+
+  const track = pickCaptionTrack(tracks, wantLang);
+  const sep = track.baseUrl.includes("?") ? "&" : "?";
+  const capRes = await fetch(`${track.baseUrl}${sep}fmt=json3`);
+  if (!capRes.ok) throw new Error("دریافتِ متنِ زیرنویس ناموفق بود");
+  const capJson = await capRes.json();
+
+  const cues = (capJson.events || [])
+    .filter((e) => e.segs && e.segs.length)
+    .map((e) => ({
+      start: Math.round(e.tStartMs || 0) / 1000,
+      end: Math.round((e.tStartMs || 0) + (e.dDurationMs || 0)) / 1000,
+      text: e.segs.map((s) => s.utf8 || "").join("").replace(/\n/g, " ").trim(),
+    }))
+    .filter((c) => c.text);
+
+  if (!cues.length) throw new Error("زیرنویسِ این ویدیو خالی برگشت");
+
+  return {
+    ok: true,
+    videoId,
+    lang: track.languageCode,
+    isAuto: track.kind === "asr",
+    availableLangs: tracks.map((t) => ({
+      code: t.languageCode,
+      name: (t.name && t.name.simpleText) || t.languageCode,
+      auto: t.kind === "asr",
+    })),
+    cues,
+  };
+}
+
+async function fetchCaptionTracksViaInnertube(videoId) {
+  // این کلید، کلیدِ عمومیِ کلاینتِ وبِ خودِ یوتیوبه (تو خودِ صفحه‌ی
+  // یوتیوب هم public افشا شده) — مخصوصِ اکانتِ خاصی نیست.
+  const INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
+  const res = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      videoId,
+      context: {
+        client: { clientName: "WEB", clientVersion: "2.20240401.01.00", hl: "en", gl: "US" },
+      },
+    }),
+  });
+  if (!res.ok) throw new Error(`innertube status ${res.status}`);
+  const data = await res.json();
+  return data?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
+}
+
+async function fetchCaptionTracksViaWatchPage(videoId) {
+  const res = await fetch(
+    `https://www.youtube.com/watch?v=${videoId}&hl=en&has_verified=1&bpctr=9999999999`,
+    {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    }
+  );
+  if (!res.ok) throw new Error(`watch page status ${res.status}`);
+  const html = await res.text();
+  const jsonStr = extractJsonAfter(html, "ytInitialPlayerResponse");
+  if (!jsonStr) throw new Error("player response not found");
+  const data = JSON.parse(jsonStr);
+  return data?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
+}
+
+// اولین `{` بعدِ marker رو پیدا می‌کنه و با شمردنِ دقیقِ عمقِ آکولادها
+// (با درنظرگرفتنِ رشته‌ها، که ممکنه خودشون `{`/`}`/`;` داشته باشن) دقیقاً
+// همون آبجکتِ JSON رو جدا می‌کنه — نسبت به یه regexِ ساده، به تغییراتِ
+// جزئیِ فرمتِ صفحه‌ی یوتیوب مقاوم‌تره.
+function extractJsonAfter(html, marker) {
+  const idx = html.indexOf(marker);
+  if (idx === -1) return null;
+  const start = html.indexOf("{", idx);
+  if (start === -1) return null;
+  let depth = 0;
+  let inStr = false;
+  let strCh = "";
+  let esc = false;
+  for (let i = start; i < html.length; i++) {
+    const ch = html[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === strCh) inStr = false;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inStr = true;
+      strCh = ch;
+      continue;
+    }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return html.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+function pickCaptionTrack(tracks, wantLang) {
+  const norm = (s) => (s || "").toLowerCase().split("-")[0];
+  const want = norm(wantLang);
+  return (
+    tracks.find((t) => norm(t.languageCode) === want && t.kind !== "asr") ||
+    tracks.find((t) => norm(t.languageCode) === want) ||
+    tracks.find((t) => t.kind !== "asr") ||
+    tracks[0]
+  );
 }
 
 // --- Hugging Face TTS (فارسی/عربی) -------------------------------------------
