@@ -2,24 +2,22 @@ import React, { useState, useRef, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 
 // -----------------------------------------------------------------------
-// تبِ «یوتیوب»: کاربر یه لینک ویدیوی یوتیوب می‌ده، خودِ ویدیو همین‌جا (نه
-// توی مرورگرِ جدا) پخش می‌شه.
+// تبِ «یوتیوب»: کاربر یه لینک ویدیوی یوتیوب می‌ده، خودِ ویدیو همین‌جا پخش
+// می‌شه، و زیرنویسِ *واقعیِ* یوتیوب (با تایم‌استمپِ واقعی) خودکار از
+// بک‌اندِ خودمون گرفته می‌شه و با پیشرفتِ واقعیِ پخش (player.getCurrentTime)
+// سینک می‌مونه — دقیقاً همون کاری که اپ‌هایی مثلِ Native با
+// MediaSessionِ سیستم‌عامل انجام می‌دن، با این فرق که چون خودمون پلیر رو
+// مستقیم embed کردیم، به هیچ مجوز/ترفندِ خاصی نیاز نداریم.
 //
-// 🩹 قبلاً این پنل خودش یه راهِ جداگانه برای «گرفتنِ زیرنویس» هم داشت
-// (دریافتِ خودکار از یوتیوب، آپلودِ فایلِ srt/vtt، یا پیستِ متنِ زیرنویس تو
-// یه باکسِ مخصوصِ همینجا) — یعنی برای واردکردنِ متن، کاربر دو جای متفاوت
-// داشت (این پنل، و باکسِ عمومیِ «پیستِ متن/داستان» که بیرون از این پنل،
-// پایین‌ترِ همین صفحه هست). طبقِ خواسته‌ی کاربر، اون راهِ دوم و جداگانه
-// کاملاً حذف شده — این پنل الان فقط ویدیو رو نشون می‌ده؛ برای واردکردنِ
-// متنِ داستان، کاربر رونوشتِ ویدیو رو (از هرجا که خودش داره) کپی می‌کنه و تو
-// همون باکسِ عمومیِ «پیستِ متن/داستان» می‌چسبونه — یعنی فقط یه جا برای
-// پیستِ متن وجود داره، نه دوتا.
+// 🩹 قبلاً این پنل یه راهِ جداگانه برای «گرفتنِ زیرنویس» هم داشت (دریافتِ
+// خودکارِ ناموفق، آپلودِ فایل، یا پیستِ دستی) — یعنی کاربر دو جای متفاوت
+// برای واردکردنِ متن داشت. حالا دیگه اون UI نیست: گرفتنِ زیرنویس کاملاً
+// خودکاره (بدونِ دکمه)؛ فقط اگه ویدیو زیرنویس نداشت یا گرفتنش شکست خورد،
+// یه پیامِ کوتاه می‌گه از همون باکسِ عمومیِ «پیستِ متن/داستان» استفاده کن.
 //
-// 📌 ویدیو با position:fixed (نه sticky) نگه داشته می‌شه: چون این پنل خودش
-// فقط شاملِ اینپوتِ لینک + خودِ ویدیوعه و محتوایی که بعدش میاد (باکس‌های
-// PDF/لینک/پیستِ متن) بیرون از همین کامپوننته، sticky فقط تا آخرِ کانتینرِ
-// خودِ این پنل (که خیلی کوتاهه) دووم می‌آورد. با fixed، ویدیو مستقلِ از
-// اسکرولِ صفحه، تا وقتی همین پنل بازه، همیشه رویِ صفحه می‌مونه.
+// 📌 ویدیو با position:fixed (نه sticky) نگه داشته می‌شه چون این پنل فقط
+// شاملِ اینپوتِ لینک + خودِ ویدیو + لیستِ زیرنویسه، و محتوایِ بعدی (باکس‌های
+// PDF/لینک/پیستِ متن) بیرون از همین کامپوننته.
 // -----------------------------------------------------------------------
 
 const FALLBACK_COLORS = {
@@ -33,6 +31,10 @@ const FALLBACK_COLORS = {
   teal: "#1f8a70",
   rose: "#c0473f",
 };
+
+// همون آدرسِ پیش‌فرضی که بقیه‌ی app.jsx هم استفاده می‌کنه (DEFAULT_BACKEND_URL) —
+// اینجا جدا نگه‌داشته شده چون این فایل مستقلاً import می‌شه.
+const FALLBACK_BACKEND_URL = "https://phrasebook-api.maryam-s-sharifiyan.workers.dev";
 
 // -----------------------------------------------------------------------
 // استخراجِ آی‌دیِ ویدیو از هر شکلِ لینکِ یوتیوب (watch؟v=، youtu.be/،
@@ -62,9 +64,7 @@ function extractYouTubeId(input) {
   return m2 ? m2[0] : null;
 }
 
-// بارگذاریِ یک‌باره‌ی اسکریپتِ رسمیِ YouTube IFrame API — اگه قبلاً یه‌جای
-// دیگه‌ی صفحه لود شده باشه (یا این کامپوننت دوباره mount بشه)، دوباره
-// اسکریپت اضافه نمی‌شه.
+// بارگذاریِ یک‌باره‌ی اسکریپتِ رسمیِ YouTube IFrame API.
 let ytApiPromise = null;
 function loadYouTubeIframeAPI() {
   if (window.YT && window.YT.Player) return Promise.resolve(window.YT);
@@ -88,21 +88,46 @@ function loadYouTubeIframeAPI() {
   return ytApiPromise;
 }
 
+// پیدا کردنِ ایندکسِ خطِ زیرنویسی که الان (در ثانیه‌ی t) باید نمایش داده
+// بشه. اسکنِ خطی کافیه چون این تابع فقط چندبار در ثانیه صدا زده می‌شه.
+function findActiveCueIndex(cues, t) {
+  if (!cues || !cues.length) return -1;
+  if (t < cues[0].start) return -1;
+  for (let i = cues.length - 1; i >= 0; i--) {
+    if (t >= cues[i].start) return i;
+  }
+  return -1;
+}
+
 export default function YouTubeCaptionPanel({
   uiLang,
   colors: colorsProp,
   fontFa: fontFaProp,
+  aiSettings,
+  onImportToStory,
 }) {
   const colors = colorsProp || FALLBACK_COLORS;
   const fontFa = fontFaProp || "inherit";
   const isFa = uiLang !== "en";
+  const backendUrl = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || FALLBACK_BACKEND_URL;
 
   const [urlInput, setUrlInput] = useState("");
   const [videoId, setVideoId] = useState(null);
   const [playerReady, setPlayerReady] = useState(false);
+  const [fileError, setFileError] = useState("");
+
+  const [cues, setCues] = useState([]);
+  const [captionsLoading, setCaptionsLoading] = useState(false);
+  const [captionsError, setCaptionsError] = useState("");
+  const [captionLang, setCaptionLang] = useState(null);
+  const [activeIndex, setActiveIndex] = useState(-1);
+
   const playerRef = useRef(null);
   const playerElRef = useRef(null);
-  const [fileError, setFileError] = useState("");
+  const pollRef = useRef(null);
+  const lineRefs = useRef({});
+  const cuesRef = useRef([]);
+  cuesRef.current = cues;
 
   function loadVideo() {
     const id = extractYouTubeId(urlInput);
@@ -111,6 +136,9 @@ export default function YouTubeCaptionPanel({
       return;
     }
     setFileError("");
+    setCues([]);
+    setCaptionsError("");
+    setActiveIndex(-1);
     setVideoId(id);
   }
 
@@ -135,11 +163,34 @@ export default function YouTubeCaptionPanel({
             if (cancelled) return;
             setPlayerReady(true);
           },
+          onStateChange: (e) => {
+            if (cancelled) return;
+            const YTState = window.YT?.PlayerState;
+            if (e.data === YTState?.PLAYING) {
+              if (pollRef.current) clearInterval(pollRef.current);
+              pollRef.current = setInterval(() => {
+                try {
+                  const t = playerRef.current?.getCurrentTime?.() ?? 0;
+                  setActiveIndex((prev) => {
+                    const next = findActiveCueIndex(cuesRef.current, t);
+                    return next === prev ? prev : next;
+                  });
+                } catch {}
+              }, 250);
+            } else if (pollRef.current) {
+              clearInterval(pollRef.current);
+              pollRef.current = null;
+            }
+          },
         },
       });
     });
     return () => {
       cancelled = true;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
       if (playerRef.current) {
         try {
           playerRef.current.destroy();
@@ -148,6 +199,55 @@ export default function YouTubeCaptionPanel({
       }
     };
   }, [videoId]);
+
+  // گرفتنِ خودکارِ زیرنویسِ واقعی از بک‌اند — بدونِ هیچ دکمه‌ای.
+  useEffect(() => {
+    if (!videoId) return;
+    let cancelled = false;
+    setCaptionsLoading(true);
+    setCaptionsError("");
+    setCues([]);
+    setActiveIndex(-1);
+    fetch(`${backendUrl}/api/youtube-captions?videoId=${encodeURIComponent(videoId)}&lang=en`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (!data?.ok || !Array.isArray(data.cues) || !data.cues.length) {
+          throw new Error(data?.error || (isFa ? "زیرنویسی پیدا نشد" : "No captions found"));
+        }
+        setCues(data.cues);
+        setCaptionLang(data.lang || null);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setCaptionsError(e.message || (isFa ? "گرفتنِ زیرنویس ناموفق بود" : "Couldn't fetch captions"));
+      })
+      .finally(() => {
+        if (!cancelled) setCaptionsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [videoId, backendUrl, isFa]);
+
+  // خطِ فعال رو همیشه تو دیدِ کاربر نگه می‌داره.
+  useEffect(() => {
+    if (activeIndex < 0) return;
+    const el = lineRefs.current[activeIndex];
+    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [activeIndex]);
+
+  function seekTo(seconds) {
+    try {
+      playerRef.current?.seekTo?.(seconds, true);
+    } catch {}
+  }
+
+  function handleAddToStory() {
+    if (typeof onImportToStory === "function" && cues.length) {
+      onImportToStory(cues);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-2" style={{ padding: 16 }} dir={isFa ? "rtl" : "ltr"}>
@@ -194,10 +294,9 @@ export default function YouTubeCaptionPanel({
 
       {videoId && (
         <>
-          {/* 📌 جاگیرِ خالی (spacer) — چون خودِ ویدیو fixed شده و از جریانِ
-              عادیِ صفحه بیرون رفته، این باکسِ خالی (با همون نسبتِ تصویرِ
-              16:9) جایِ لازم رو تو جریانِ صفحه نگه می‌داره تا محتوایِ بعدی
-              زیرِ ویدیو گم نشه. */}
+          {/* جاگیرِ خالی — چون خودِ ویدیو fixed شده و از جریانِ عادیِ صفحه
+              بیرون رفته، این باکسِ خالی (با نسبتِ تصویرِ ۱۶:۹) جایِ لازم رو
+              تو جریانِ صفحه نگه می‌داره. */}
           <div style={{ paddingTop: "56.25%" }} />
           <div
             style={{
@@ -223,11 +322,83 @@ export default function YouTubeCaptionPanel({
             </div>
           </div>
 
-          <p style={{ margin: 0, fontSize: 12, color: colors.inkSoft, fontFamily: fontFa }}>
-            {isFa
-              ? "برای واردکردنِ متنِ این ویدیو به داستان، رونوشتش رو کپی کن و پایین‌ترِ همین صفحه، توی باکسِ «یا یک متن/داستان رو اینجا پیست کن» بچسبونش."
-              : "To bring this video's text into the story, copy its transcript and paste it further down, in the “Or paste a text/story here” box."}
-          </p>
+          {captionsLoading && (
+            <p style={{ margin: 0, fontSize: 12, color: colors.inkSoft, fontFamily: fontFa, display: "flex", alignItems: "center", gap: 6 }}>
+              <Loader2 size={14} className="spin" />
+              {isFa ? "در حالِ گرفتنِ زیرنویس از یوتیوب…" : "Fetching captions from YouTube…"}
+            </p>
+          )}
+
+          {!captionsLoading && captionsError && (
+            <p style={{ margin: 0, fontSize: 12, color: colors.rose, fontFamily: fontFa }}>
+              {isFa
+                ? `${captionsError} — می‌تونی به‌جاش رونوشتِ ویدیو رو از هرجایی که داری کپی کنی و پایین‌ترِ همین صفحه، توی باکسِ «یا یک متن/داستان رو اینجا پیست کن» بچسبونی.`
+                : `${captionsError} — you can instead copy this video's transcript from wherever you have it and paste it further down, in the “Or paste a text/story here” box.`}
+            </p>
+          )}
+
+          {!captionsLoading && !captionsError && cues.length > 0 && (
+            <>
+              <div className="flex items-center justify-between" style={{ gap: 8 }}>
+                <span style={{ fontSize: 11, color: colors.inkSoft, fontFamily: fontFa }}>
+                  {isFa ? `زیرنویس: ${captionLang || "?"}` : `Captions: ${captionLang || "?"}`}
+                </span>
+                {typeof onImportToStory === "function" && (
+                  <button
+                    onClick={handleAddToStory}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: 8,
+                      border: `1px solid ${colors.teal}`,
+                      background: "transparent",
+                      color: colors.teal,
+                      fontWeight: 700,
+                      fontSize: 12,
+                      fontFamily: fontFa,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {isFa ? "افزودنِ کلِ متن به داستان" : "Add full text to story"}
+                  </button>
+                )}
+              </div>
+
+              <div
+                style={{
+                  maxHeight: 360,
+                  overflowY: "auto",
+                  border: `1px solid ${colors.cardBorder}`,
+                  borderRadius: 10,
+                  background: colors.paper,
+                }}
+              >
+                {cues.map((c, i) => {
+                  const active = i === activeIndex;
+                  return (
+                    <div
+                      key={i}
+                      ref={(el) => {
+                        lineRefs.current[i] = el;
+                      }}
+                      onClick={() => seekTo(c.start)}
+                      style={{
+                        padding: "8px 12px",
+                        borderBottom: i < cues.length - 1 ? `1px solid ${colors.cardBorder}` : "none",
+                        background: active ? colors.goldSoft : "transparent",
+                        cursor: "pointer",
+                        fontSize: 14,
+                        lineHeight: 1.6,
+                        color: colors.ink,
+                        transition: "background 120ms ease",
+                      }}
+                    >
+                      {c.text}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </>
       )}
     </div>
