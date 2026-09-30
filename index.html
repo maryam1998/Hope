@@ -85,24 +85,5 @@
       });
     }
   </script>
-
-  <!-- 🧪 تست تشخیصی Capacitor -->
-  <script>
-    window.addEventListener('load', () => {
-      setTimeout(() => {
-        const info = document.createElement('div');
-        info.id = 'capacitor-test';
-        info.style.cssText = 'position:fixed;top:10px;left:10px;background:black;color:lime;padding:10px;z-index:999999;font-family:monospace;font-size:12px;white-space:pre;max-width:90vw;';
-        const hasCap = typeof Capacitor !== 'undefined';
-        const isNative = hasCap && Capacitor.isNativePlatform ? Capacitor.isNativePlatform() : 'N/A';
-        const pluginList = hasCap && Capacitor.Plugins ? Object.keys(Capacitor.Plugins).join(',') : 'N/A';
-        info.textContent = 
-          'Capacitor: ' + (hasCap ? 'YES ✅' : 'NO ❌') + '\n' +
-          'isNative: ' + isNative + '\n' +
-          'Plugins: ' + pluginList;
-        document.body.appendChild(info);
-      }, 2000);
-    });
-  </script>
 </body>
 </html>
