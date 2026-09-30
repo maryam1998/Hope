@@ -3,6 +3,8 @@
 // مسیر این فایل باید دقیقاً src/index.js باشه (طبق wrangler.toml).
 // ---------------------------------------------------------------------------
 
+import { handleTranscribe } from "./transcribe.js";
+
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -32,15 +34,15 @@ export default {
       });
     }
 
+    // ⭐ NEW: تبدیل صدا به متن با Whisper (Cloudflare Workers AI)
+    if (url.pathname === "/api/transcribe" && request.method === "POST") {
+      return handleTranscribe(request, env);
+    }
+
     if (url.pathname === "/api/tts" && request.method === "GET") {
       const text = (url.searchParams.get("text") || "").trim();
       const voice = url.searchParams.get("voice") || "en-US-AriaNeural";
       if (!text) return json({ error: "text is required" }, 400);
-      // فارسی/عربی با Edge-TTS همیشه نتیجه‌ی خوب/درستی نمی‌ده (طبق تجربه‌ی
-      // کاربر) — برای این دو زبون اول سراغِ مسیرِ رایگانِ Hugging Face
-      // می‌ریم (fetchHuggingFaceTtsAudio پایین‌تر)، و فقط اگه اون هم شکست
-      // خورد (تنظیم‌نشده، یا خودِ سرویس در دسترس نبود) برمی‌گردیم به همون
-      // Edge-TTS قبلی — یعنی برای بقیه‌ی زبون‌ها هیچ تغییری نکرده.
       const langPrefix = voice.split("-")[0].toLowerCase();
       if (langPrefix === "fa" || langPrefix === "ar") {
         try {
@@ -69,13 +71,6 @@ export default {
       }
     }
 
-    // فارسی/عربی: مسیرِ جدید Gemini TTS (Google AI Studio). فرانت‌اند اول
-    // همین رو صدا می‌زنه؛ اگه شکست بخوره (مثلاً به‌خاطرِ همون بلاکِ
-    // جغرافیاییِ Google که پایین‌تر تو getProviderChain توضیح داده شده)
-    // خودش برمی‌گرده به /api/tts که از قبل HF-TTS→Edge-TTS رو داره —
-    // یعنی این یه لایه‌ی «تلاشِ اول» اضافه‌ست، نه جایگزینِ کاملِ زنجیره‌ی
-    // قبلی؛ اگه Gemini برای این حساب/ریجن بلاک باشه، فقط یه‌کمی تأخیر
-    // اضافه می‌کنه و بعد خودکار به مسیرِ قبلی می‌ره.
     if (url.pathname === "/api/tts-gemini" && request.method === "GET") {
       const text = (url.searchParams.get("text") || "").trim();
       const voice = url.searchParams.get("voice") || "Kore";
@@ -90,10 +85,6 @@ export default {
       }
     }
 
-    // زیرنویسِ واقعیِ یوتیوب (با تایم‌استمپِ واقعی) — سمتِ سرور می‌گیریمش
-    // چون از مرورگر مستقیم به‌خاطرِ CORS بلاک می‌شه. کلاینت این متن رو با
-    // player.getCurrentTime() سینک می‌کنه (نه اینکه Workerِ ما زمان‌بندی
-    // کنه — ما فقط متن+تایم‌استمپِ خام رو برمی‌گردونیم).
     if (url.pathname === "/api/youtube-captions" && request.method === "GET") {
       const videoId = (url.searchParams.get("videoId") || "").trim();
       const lang = (url.searchParams.get("lang") || "en").trim();
@@ -144,9 +135,6 @@ function json(data, status = 200) {
 }
 
 // --- زیرنویسِ واقعیِ یوتیوب -----------------------------------------------
-// دو تا روش رو امتحان می‌کنیم: اول innertube (APIِ داخلیِ خودِ یوتیوب —
-// پایدارتر، چون یه پاسخِ JSONِ تمیزه)، و اگه اون شکست خورد، fallback به
-// اسکرِیپ‌کردنِ خودِ صفحه‌ی watch (استخراجِ ytInitialPlayerResponse).
 async function fetchYoutubeCaptions(videoId, wantLang) {
   let tracks = await fetchCaptionTracksViaInnertube(videoId).catch(() => null);
   if (!tracks || !tracks.length) {
@@ -188,8 +176,6 @@ async function fetchYoutubeCaptions(videoId, wantLang) {
 }
 
 async function fetchCaptionTracksViaInnertube(videoId) {
-  // این کلید، کلیدِ عمومیِ کلاینتِ وبِ خودِ یوتیوبه (تو خودِ صفحه‌ی
-  // یوتیوب هم public افشا شده) — مخصوصِ اکانتِ خاصی نیست.
   const INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
   const res = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}`, {
     method: "POST",
@@ -225,10 +211,6 @@ async function fetchCaptionTracksViaWatchPage(videoId) {
   return data?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
 }
 
-// اولین `{` بعدِ marker رو پیدا می‌کنه و با شمردنِ دقیقِ عمقِ آکولادها
-// (با درنظرگرفتنِ رشته‌ها، که ممکنه خودشون `{`/`}`/`;` داشته باشن) دقیقاً
-// همون آبجکتِ JSON رو جدا می‌کنه — نسبت به یه regexِ ساده، به تغییراتِ
-// جزئیِ فرمتِ صفحه‌ی یوتیوب مقاوم‌تره.
 function extractJsonAfter(html, marker) {
   const idx = html.indexOf(marker);
   if (idx === -1) return null;
@@ -272,27 +254,6 @@ function pickCaptionTrack(tracks, wantLang) {
 }
 
 // --- Hugging Face TTS (فارسی/عربی) -------------------------------------------
-// Edge-TTS برای فارسی/عربی نتیجه‌ی قابل‌قبولی نمی‌ده، پس این دو زبون از یک
-// مسیرِ جداگونه رد می‌شن: یا یک «سرویسِ اجراکننده‌ی مدل» که خودت جایی
-// (یه Hugging Face Space، یه Inference Endpoint، یا هر سرور دیگه‌ای که
-// مدلی مثلِ Aava/SILMA رو اجرا می‌کنه) بالا آوردی و آدرسش رو این‌جا تنظیم
-// کردی، یا — اگه اون تنظیم نشده باشه — مسیرِ سرورلسِ رایگانِ خودِ
-// Hugging Face («hf-inference») برای مدلِ پیش‌فرض.
-//
-// نکته‌ی مهم: مدل‌هایی مثلِ xmanii/Ava-82M («Aava») و silma-ai/silma-tts
-// («SILMA») فقط وزنِ خام هستن و روی هیچ‌کدوم از Inference Providerهای
-// Hugging Face دیپلوی نشدن — یعنی نمی‌شه مستقیم با یه درخواستِ ساده صداشون
-// زد؛ برای اجراشون به یه رانتایمِ پایتون (و برای SILMA عملاً GPU) نیاز
-// هست. اون «سرویسِ اجراکننده‌ی مدل»ی که خودت تو نمودارت کشیدی همینه: یه
-// Space یا سرورِ کوچیک که این مدل‌ها رو بار می‌کنه و یه API معمولی
-// (POST متن → بایتِ صوت) جلوش می‌ذاره. وقتی اون رو ساختی/پیدا کردی، فقط
-// آدرسش رو تو HF_TTS_SPACE_FA_URL / HF_TTS_SPACE_AR_URL بذار.
-//
-// تا وقتی همچین سرویسی نداری، این تابع به‌صورتِ پیش‌فرض سراغِ مدل‌های
-// facebook/mms-tts-fas و facebook/mms-tts-ara می‌ره — این‌ها بر خلافِ
-// Aava/SILMA رسماً با کتابخونه‌ی transformers یکپارچه‌ن، ولی چون خیلی
-// پرمصرف نیستن معمولاً (نه همیشه) روی hf-inference در دسترسن؛ کیفیتِ
-// صداشون رباتیک‌تر از Aava/SILMA ولی به‌مراتب بهتر از سکوت/خطاست.
 function hfTtsModelFor(lang, env) {
   if (lang === "fa") return env.HF_TTS_MODEL_FA || "facebook/mms-tts-fas";
   if (lang === "ar") return env.HF_TTS_MODEL_AR || "facebook/mms-tts-ara";
@@ -305,8 +266,6 @@ function hfTtsSpaceUrlFor(lang, env) {
   return "";
 }
 
-// برای /health: می‌گه برای این زبون چه چیزی تنظیم شده، بدونِ اینکه واقعاً
-// یه درخواست بزنه.
 function hfTtsConfigStatus(env, lang) {
   const spaceUrl = hfTtsSpaceUrlFor(lang, env);
   if (spaceUrl) return { mode: "custom-space", url: spaceUrl };
@@ -314,14 +273,6 @@ function hfTtsConfigStatus(env, lang) {
   return { mode: "none (HF_API_KEY not set)" };
 }
 
-// یه متنِ فارسی/عربی رو می‌فرسته سمتِ سرویسِ TTS و بایت‌های صوتِ نتیجه رو
-// برمی‌گردونه. اول اگه یه «سرویسِ اجراکننده‌ی مدلِ» شخصی تنظیم شده باشه
-// (HF_TTS_SPACE_FA_URL/HF_TTS_SPACE_AR_URL) همون رو صدا می‌زنه — قراردادِ
-// موردِ انتظار از اون سرویس: POST با بدنه‌ی JSON ‏{ text }‏، و پاسخ =
-// بایت‌های خودِ فایلِ صوتی (audio/wav یا audio/mpeg) — یعنی همون چیزی که
-// یه Space یا سرورِ کوچیکِ دورِ Aava/SILMA به‌سادگی می‌تونه برگردونه.
-// اگه تنظیم نشده باشه، مستقیم سراغِ مسیرِ سرورلسِ رایگانِ خودِ Hugging
-// Face (hf-inference) برای مدلِ پیش‌فرض می‌ره.
 async function fetchHuggingFaceTtsAudio(text, lang, env) {
   const sanitized = String(text).slice(0, 600);
   const spaceUrl = hfTtsSpaceUrlFor(lang, env);
@@ -352,9 +303,6 @@ async function fetchHuggingFaceTtsAudio(text, lang, env) {
     body: JSON.stringify({ inputs: sanitized }),
   });
   if (!r.ok) {
-    // Hugging Face معمولاً وقتی مدل دیپلوی نشده یا سرد بوده، به‌جای صدا
-    // یه پیغامِ JSON برمی‌گردونه — همون رو به‌عنوانِ خطا نشون می‌دیم تا
-    // مشخص باشه مشکل از کجاست.
     const errBody = await safeJson(r).catch(() => null);
     const msg = errBody?.error || `HTTP ${r.status}`;
     throw new Error(`hugging-face (${model}): ${msg}`);
@@ -365,17 +313,6 @@ async function fetchHuggingFaceTtsAudio(text, lang, env) {
 }
 
 // --- Gemini TTS (Google AI Studio) — فقط فارسی/عربی --------------------------
-// از همون کلیدی استفاده می‌کنه که برای زنجیره‌ی چت (callGemini بالاتر توی
-// همین فایل) استفاده می‌شه — یعنی نیازی به یه GEMINI_API_KEY جدا نیست.
-//
-// ⚠️ همون‌طور که تو getProviderChain (پایین‌تر) نوشته شده: Google خودش
-// درخواست‌هایی که از edge locationهای نزدیک به ایرانِ Cloudflare میان رو
-// برای generativelanguage.googleapis.com بلاک می‌کنه («User location is
-// not supported»). این endpoint دقیقاً همون API رو صدا می‌زنه، پس ممکنه
-// به همون مشکل بخوره. اگه بعد از دیپلوی همیشه با خطای gemini-tts شکست
-// خورد (نه فقط گاهی)، یعنی این اکانت/ریجن بلاکه — تو اون حالت این مسیر
-// عملاً همیشه به فالبکِ HF-TTS/Edge-TTS تو /api/tts می‌ره، که مشکلی نیست
-// چون فرانت‌اند خودش این فالبک رو مدیریت می‌کنه.
 const GEMINI_TTS_MODEL_DEFAULT = "gemini-2.5-flash-preview-tts";
 
 async function fetchGeminiTtsAudio(text, voice, env) {
@@ -383,10 +320,6 @@ async function fetchGeminiTtsAudio(text, voice, env) {
   if (!key) throw new Error("GEMINI_API_KEY not set");
   const model = env.GEMINI_TTS_MODEL || GEMINI_TTS_MODEL_DEFAULT;
   const sanitized = String(text).slice(0, 2000);
-  // اگه متن با علامتِ سؤال تموم بشه (خیلی از جمله‌های فریزبوک این‌طورن)،
-  // مدل ممکنه فکر کنه داری ازش سؤال می‌پرسی و به‌جای خوندنش، بخواد جوابش
-  // رو بده — دقیقاً همون خطای «Model tried to generate text» که قبلاً
-  // برای عربی گرفتی. برای جلوگیری از این، صریح می‌گیم فقط بخونه، جواب نده.
   const ttsPrompt = `TTS the following text exactly as written, in its own language. Do not answer it, do not add anything, just read it aloud verbatim: ${sanitized}`;
 
   const controller = new AbortController();
@@ -417,9 +350,6 @@ async function fetchGeminiTtsAudio(text, voice, env) {
   const candidate = data?.candidates?.[0];
   const base64Pcm = candidate?.content?.parts?.[0]?.inlineData?.data;
   if (!base64Pcm) {
-    // برای فهمیدنِ دلیلِ واقعی (متن به‌جای صدا، فیلترِ ایمنی، بلاکِ
-    // ریجن که به‌صورتِ candidate خالی/finishReason خودشو نشون می‌ده، یا هر
-    // چیزِ دیگه) کل جزئیاتِ مربوط رو تو پیامِ خطا می‌ذاریم.
     const textPart = candidate?.content?.parts?.[0]?.text;
     const finishReason = candidate?.finishReason;
     const blockReason = data?.promptFeedback?.blockReason;
@@ -445,9 +375,6 @@ function base64ToUint8Array(base64) {
   return bytes;
 }
 
-// مرورگر نمی‌تونه PCM خام رو مستقیم با new Audio() پخش کنه — این تابع یه
-// هدرِ استانداردِ WAV دورش می‌پیچه (پارامترها ثابتن چون Gemini همیشه
-// ۲۴kHz / ۱۶بیت / مونو برمی‌گردونه).
 function pcmToWav(pcmBytes, { sampleRate, numChannels, bitsPerSample }) {
   const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
   const blockAlign = (numChannels * bitsPerSample) / 8;
@@ -479,11 +406,6 @@ function pcmToWav(pcmBytes, { sampleRate, numChannels, bitsPerSample }) {
 }
 
 // --- Edge/Azure Neural TTS proxy ---------------------------------------------
-// این وب‌سوکت قبلاً مستقیم از خودِ صفحه (مرورگرِ کاربر) به مایکروسافت وصل
-// می‌شد و همیشه "failed" می‌شد — چون سرورِ مایکروسافت درخواست‌هایی که
-// Originشون یه دامنه‌ی معمولیه (نه خودِ اپلیکیشنِ Edge) رو رد می‌کنه. اینجا
-// (سمتِ Worker، بدونِ Origin مرورگری) همون پروتکل رو صدا می‌زنیم و فقط
-// بایت‌های mp3ِ نهایی رو برمی‌گردونیم.
 const EDGE_TTS_TRUSTED_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 
 function edgeTtsUuid() {
@@ -513,9 +435,6 @@ async function edgeTtsSecMsGec() {
     .toUpperCase();
 }
 
-// یه متن رو با موتورِ Edge/Azure می‌خونه و بایت‌های mp3ِ نتیجه رو برمی‌گردونه.
-// حداکثرِ طول رو اینجا هم محدود می‌کنیم (همون splitForOnlineTts سمتِ کلاینت
-// تکه‌تکه‌ش می‌کنه، ولی برای احتیاط اینجا هم یه سقف می‌ذاریم).
 async function fetchEdgeTtsAudio(text, voice) {
   const sanitized = String(text).slice(0, 600);
   const gec = await edgeTtsSecMsGec();
@@ -527,10 +446,6 @@ async function fetchEdgeTtsAudio(text, voice) {
     `&Sec-MS-GEC-Version=1-131.0.2903.99` +
     `&ConnectionId=${connId}`;
 
-  // نکته‌ی مهم: سرورِ مایکروسافت فقط با هدرِ Upgrade درخواست رو آپگرید
-  // نمی‌کنه — باید Origin (همون افزونه‌ی داخلیِ Read Aloud خودِ Edge) و
-  // یه User-Agent شبیهِ مرورگرِ Edge هم بفرستیم، وگرنه هندشیکِ وب‌سوکت رو
-  // رد می‌کنه و resp.webSocket خالی می‌مونه.
   const resp = await fetch(wsUrl, {
     headers: {
       Upgrade: "websocket",
@@ -632,12 +547,6 @@ async function fetchEdgeTtsAudio(text, voice) {
   });
 }
 
-// Some providers return an HTML/plain-text error page (e.g. Cloudflare's own
-// "error code: 1016" page) instead of JSON when something's wrong upstream.
-// r.json() throws a cryptic "Unexpected token..." in that case, which used
-// to bubble straight up as the error message. Reading the raw text first and
-// parsing it ourselves means a broken provider always fails with a clear,
-// readable message and the chain moves on to the next provider cleanly.
 async function safeJson(r) {
   const raw = await r.text();
   try {
@@ -648,35 +557,11 @@ async function safeJson(r) {
   }
 }
 
-// Reads AI_PROVIDER (comma-separated, e.g. "huggingface,groq,gemini") and
-// falls back through them in order — same behavior as the old Express
-// server. Defaults to huggingface alone if not set.
-// 🆕 لیستِ https://github.com/mnfst/awesome-free-llm-apis — همه‌ی پرووایدرهای
-// اون لیست اینجا اضافه شدن. سه‌تاشون (kilocode, llm7, ovhcloud) اصلاً کلید
-// نمی‌خوان، بقیه هرکدوم یه کلیدِ جداگونه لازم دارن (اسمِ متغیرِ محیطیش کنارِ
-// خودِ تابعش کامنت شده). یادت باشه: چون خودِ حساب یه مقدارِ صریح برای
-// AI_PROVIDER توی داشبوردِ Cloudflare گذاشته، صرفاً اضافه‌کردنِ این توابع به
-// کد کافی نیست — باید همون env var رو توی داشبورد هم آپدیت کنی تا اسمِ
-// پرووایدرهای جدید رو شامل بشه (پایین‌تر توضیح دادم).
 const VALID_PROVIDERS = [
   "huggingface", "groq", "gemini", "deepseek", "openai", "avalai", "grok", "openrouter", "mistral", "cerebras",
   "aionlabs", "cohere", "zai", "cloudflareai", "kilocode", "llm7", "modelscope", "nvidianim", "ollamacloud", "ovhcloud", "siliconflow",
 ];
 function getProviderChain(env) {
-  // Gemini is geo-blocked by Google itself for requests from Iran-adjacent
-  // Cloudflare edge locations ("User location is not supported for the API
-  // use") — this happens on Cloudflare's own network, completely
-  // independent of any VPN on the phone/computer using the app (the phone's
-  // VPN only affects the connection TO the Worker, not the Worker's own
-  // outbound call FROM Cloudflare's servers TO Google). Hugging Face's
-  // router has also been consistently unreachable (Cloudflare error 1016 —
-  // likely blocked/broken for the same region-based reason).
-  // 🆕 ترتیبِ پیش‌فرضِ جدید: اول سه‌تایی که اصلاً کلید نمی‌خوان (kilocode،
-  // llm7، ovhcloud) — این‌ها همیشه یه شانسِ رایگان و بی‌نیاز از تنظیمات
-  // می‌دن. بعدش پرووایدرهایی که سقفِ رایگانِ سخاوتمندتری دارن (groq،
-  // nvidianim، ollamacloud، cloudflareai)، و آخرِ صف همونایی که یا کلید
-  // لازم دارن و تنظیم نشدن یا طبق تجربه‌ی قبلی مشکل‌دار بودن (gemini،
-  // huggingface). هر پرووایدری که کلیدش تنظیم نشده باشه خودکار رد می‌شه.
   const raw = (
     env.AI_PROVIDER ||
     "kilocode,llm7,ovhcloud,groq,nvidianim,ollamacloud,cloudflareai,mistral,cohere,zai,aionlabs,modelscope,siliconflow,openrouter,cerebras,grok,gemini,huggingface"
@@ -713,8 +598,6 @@ async function callProvider(provider, prompt, maxTokens, env) {
   throw new Error(`Unknown provider "${provider}"`);
 }
 
-// --- Aion Labs (OpenAI-compatible) ------------------------------------------
-// کلید: AIONLABS_API_KEY — از https://www.aionlabs.ai/app/api-keys/
 async function callAionLabs(prompt, maxTokens, env) {
   const key = env.AIONLABS_API_KEY;
   if (!key) throw new Error("AIONLABS_API_KEY not set");
@@ -734,11 +617,6 @@ async function callAionLabs(prompt, maxTokens, env) {
   return text;
 }
 
-// --- Cohere (v2 chat API — پاسخش با بقیه فرق داره) --------------------------
-// کلید: COHERE_API_KEY — از https://dashboard.cohere.com/api-keys
-// ⚠️ اسمِ دقیقِ مدل رو خودِ Cohere مدام آپدیت می‌کنه؛ اگه command-r7b-12-2024
-// جواب نداد، اسمِ فعلیِ درست رو از داشبورد/داکیومنتِ خودشون بگیر و بذار توی
-// COHERE_MODEL.
 async function callCohere(prompt, maxTokens, env) {
   const key = env.COHERE_API_KEY;
   if (!key) throw new Error("COHERE_API_KEY not set");
@@ -759,8 +637,6 @@ async function callCohere(prompt, maxTokens, env) {
   return text;
 }
 
-// --- Z AI / Zhipu (OpenAI-compatible, endpointِ بین‌المللی) -----------------
-// کلید: ZAI_API_KEY — از https://open.bigmodel.cn/usercenter/apikeys
 async function callZai(prompt, maxTokens, env) {
   const key = env.ZAI_API_KEY;
   if (!key) throw new Error("ZAI_API_KEY not set");
@@ -780,11 +656,6 @@ async function callZai(prompt, maxTokens, env) {
   return text;
 }
 
-// --- Cloudflare Workers AI (فرمتِ متفاوت — result.response) -----------------
-// کلید: CF_API_TOKEN + CF_ACCOUNT_ID — از داشبوردِ خودِ Cloudflare
-// (Profile → API Tokens برای توکن، و آدرس‌بارِ داشبورد یا Workers Overview
-// برای Account ID). چون این Workerِ خودمون هم روی Cloudflare ـه، این
-// پرووایدر رایگان‌ترین/نزدیک‌ترینه (۱۰٬۰۰۰ نورون در روز).
 async function callCloudflareAI(prompt, maxTokens, env) {
   const token = env.CF_API_TOKEN;
   const accountId = env.CF_ACCOUNT_ID;
@@ -811,9 +682,6 @@ async function callCloudflareAI(prompt, maxTokens, env) {
   return text;
 }
 
-// --- Kilo Code (بدونِ نیاز به کلید — گیت‌وی رایگانِ عمومی) -------------------
-// اگه بعداً کلید گرفتی، توی KILOCODE_API_KEY بذار تا هدرِ Authorization هم
-// اضافه بشه؛ وگرنه بدونِ هیچ کلیدی هم کار می‌کنه (طبقِ داکیومنتِ خودشون).
 async function callKiloCode(prompt, maxTokens, env) {
   const headers = { "Content-Type": "application/json" };
   if (env.KILOCODE_API_KEY) headers.Authorization = `Bearer ${env.KILOCODE_API_KEY}`;
@@ -833,9 +701,6 @@ async function callKiloCode(prompt, maxTokens, env) {
   return text;
 }
 
-// --- LLM7.io (بدونِ نیاز به کلید — سطحِ anonymous) ---------------------------
-// اگه از https://token.llm7.io یه توکنِ رایگان گرفتی، توی LLM7_API_KEY بذار
-// تا سقفِ نرخ بالاتر بره؛ وگرنه بدونِ کلید هم (با سقفِ کمتر) کار می‌کنه.
 async function callLLM7(prompt, maxTokens, env) {
   const headers = { "Content-Type": "application/json" };
   if (env.LLM7_API_KEY) headers.Authorization = `Bearer ${env.LLM7_API_KEY}`;
@@ -855,9 +720,6 @@ async function callLLM7(prompt, maxTokens, env) {
   return text;
 }
 
-// --- ModelScope (OpenAI-compatible) -----------------------------------------
-// کلید: MODELSCOPE_API_KEY — از https://modelscope.cn/my/myaccesstoken
-// (نیازمندِ اتصال به حسابِ Alibaba Cloud + احرازِ هویت).
 async function callModelScope(prompt, maxTokens, env) {
   const key = env.MODELSCOPE_API_KEY;
   if (!key) throw new Error("MODELSCOPE_API_KEY not set");
@@ -877,9 +739,6 @@ async function callModelScope(prompt, maxTokens, env) {
   return text;
 }
 
-// --- NVIDIA NIM (OpenAI-compatible) -----------------------------------------
-// کلید: NVIDIA_API_KEY — از https://build.nvidia.com/explore/discover
-// (نیازمندِ عضویتِ رایگانِ NVIDIA Developer Program).
 async function callNvidiaNim(prompt, maxTokens, env) {
   const key = env.NVIDIA_API_KEY;
   if (!key) throw new Error("NVIDIA_API_KEY not set");
@@ -899,8 +758,6 @@ async function callNvidiaNim(prompt, maxTokens, env) {
   return text;
 }
 
-// --- Ollama Cloud (OpenAI-compatible endpoint) ------------------------------
-// کلید: OLLAMA_API_KEY — از https://ollama.com/settings/keys
 async function callOllamaCloud(prompt, maxTokens, env) {
   const key = env.OLLAMA_API_KEY;
   if (!key) throw new Error("OLLAMA_API_KEY not set");
@@ -920,8 +777,6 @@ async function callOllamaCloud(prompt, maxTokens, env) {
   return text;
 }
 
-// --- OVHcloud AI Endpoints (سطحِ anonymous — بدونِ نیاز به کلید) ------------
-// اگه بعداً API key گرفتی (سقفِ بالاتر)، توی OVHCLOUD_API_KEY بذار.
 async function callOvhCloud(prompt, maxTokens, env) {
   const headers = { "Content-Type": "application/json" };
   if (env.OVHCLOUD_API_KEY) headers.Authorization = `Bearer ${env.OVHCLOUD_API_KEY}`;
@@ -941,9 +796,6 @@ async function callOvhCloud(prompt, maxTokens, env) {
   return text;
 }
 
-// --- SiliconFlow (OpenAI-compatible) ----------------------------------------
-// کلید: SILICONFLOW_API_KEY — از https://cloud.siliconflow.cn/account/ak
-// (نیازمندِ احرازِ هویت).
 async function callSiliconFlow(prompt, maxTokens, env) {
   const key = env.SILICONFLOW_API_KEY;
   if (!key) throw new Error("SILICONFLOW_API_KEY not set");
@@ -963,14 +815,6 @@ async function callSiliconFlow(prompt, maxTokens, env) {
   return text;
 }
 
-
-// --- Hugging Face ------------------------------------------------------------
-// api-inference.huggingface.co was retired — HF now routes every model
-// through router.huggingface.co with an OpenAI-compatible chat endpoint.
-// 🔧 google/gemma-2-2b-it (قبلی) دیگه توسطِ هیچ‌کدوم از inference-providerهای
-// فعالِ حساب پشتیبانی نمی‌شه (خطای "not supported by any provider you have
-// enabled") — openai/gpt-oss-120b همون مدلِ متن‌بازیه که Groq هم به‌عنوانِ
-// پیش‌فرض استفاده می‌کنه و روی روترِ HF هم در دسترسه.
 async function callHuggingFace(prompt, maxTokens, env) {
   const key = env.HF_API_KEY;
   if (!key) throw new Error("HF_API_KEY not set");
@@ -991,13 +835,6 @@ async function callHuggingFace(prompt, maxTokens, env) {
   return text.trim();
 }
 
-// --- Groq (OpenAI-compatible) ------------------------------------------------
-// llama-3.3-70b-versatile and llama-3.1-8b-instant were both deprecated by
-// Groq — openai/gpt-oss-120b is their current recommended general-purpose
-// replacement (openai/gpt-oss-20b if you want the smaller/faster one). If
-// GROQ_MODEL is set in the dashboard to an old name (e.g. the very old
-// mixtral-8x7b-32768 default), update it there — this fallback only kicks
-// in when GROQ_MODEL isn't set at all.
 async function callGroq(prompt, maxTokens, env) {
   const key = env.GROQ_API_KEY;
   if (!key) throw new Error("GROQ_API_KEY not set");
@@ -1017,12 +854,6 @@ async function callGroq(prompt, maxTokens, env) {
   return text;
 }
 
-// --- Gemini -------------------------------------------------------------------
-// 🔧 gemini-2.0-flash (قبلی) رو گوگل خاموش کرده (۱ ژوئن ۲۰۲۶) و خودِ خطاش
-// می‌گفت به‌جاش gemini-3.6-flash رو صدا بزنیم. توجه: طبقِ توضیحِ
-// getProviderChain پایین‌تر، Gemini از قبل به‌خاطرِ بلاکِ جغرافیاییِ گوگل
-// روی ادج‌لوکیشن‌های نزدیکِ ایران ممکنه مستقل از اسمِ مدل شکست بخوره —
-// این فقط باگِ «اسمِ مدلِ منسوخ» رو رفع می‌کنه، نه احتمالاً خودِ بلاکِ جغرافیایی.
 async function callGemini(prompt, maxTokens, env) {
   const key = env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY not set");
@@ -1045,7 +876,6 @@ async function callGemini(prompt, maxTokens, env) {
   return text;
 }
 
-// --- DeepSeek -------------------------------------------------------------------
 async function callDeepSeek(prompt, maxTokens, env) {
   const key = env.DEEPSEEK_API_KEY;
   if (!key) throw new Error("DEEPSEEK_API_KEY not set");
@@ -1066,7 +896,6 @@ async function callDeepSeek(prompt, maxTokens, env) {
   return text;
 }
 
-// --- OpenAI -------------------------------------------------------------------
 async function callOpenAI(prompt, maxTokens, env) {
   const key = env.OPENAI_API_KEY;
   if (!key) throw new Error("OPENAI_API_KEY not set");
@@ -1086,7 +915,6 @@ async function callOpenAI(prompt, maxTokens, env) {
   return text;
 }
 
-// --- Grok (xAI, OpenAI-compatible) ------------------------------------------
 async function callGrok(prompt, maxTokens, env) {
   const key = env.GROK_API_KEY || env.XAI_API_KEY;
   if (!key) throw new Error("GROK_API_KEY not set");
@@ -1106,7 +934,6 @@ async function callGrok(prompt, maxTokens, env) {
   return text;
 }
 
-// --- OpenRouter (OpenAI-compatible gateway to many models) ------------------
 async function callOpenRouter(prompt, maxTokens, env) {
   const key = env.OPENROUTER_API_KEY;
   if (!key) throw new Error("OPENROUTER_API_KEY not set");
@@ -1115,8 +942,6 @@ async function callOpenRouter(prompt, maxTokens, env) {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${key}`,
-      // OpenRouter uses these purely for their own analytics/rankings —
-      // optional, but recommended by their docs.
       "HTTP-Referer": env.OPENROUTER_SITE_URL || "https://maryam1998.github.io/Hope/",
       "X-Title": "LingoLearn",
     },
@@ -1133,7 +958,6 @@ async function callOpenRouter(prompt, maxTokens, env) {
   return text;
 }
 
-// --- Mistral (OpenAI-compatible) ---------------------------------------------
 async function callMistral(prompt, maxTokens, env) {
   const key = env.MISTRAL_API_KEY;
   if (!key) throw new Error("MISTRAL_API_KEY not set");
@@ -1153,7 +977,6 @@ async function callMistral(prompt, maxTokens, env) {
   return text;
 }
 
-// --- Cerebras (OpenAI-compatible) --------------------------------------------
 async function callCerebras(prompt, maxTokens, env) {
   const key = env.CEREBRAS_API_KEY;
   if (!key) throw new Error("CEREBRAS_API_KEY not set");
@@ -1173,7 +996,6 @@ async function callCerebras(prompt, maxTokens, env) {
   return text;
 }
 
-// --- AvalAI (OpenAI-compatible proxy, covers deepseek/openai behind one key) --
 async function callAvalAI(prompt, maxTokens, env) {
   const key = env.AVALAI_API_KEY;
   if (!key) throw new Error("AVALAI_API_KEY not set");
