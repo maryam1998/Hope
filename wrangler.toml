@@ -21,6 +21,11 @@ AI_PROVIDER = "kilocode,llm7,ovhcloud,groq,nvidianim,ollamacloud,cloudflareai,mi
 GEMINI_MODEL = "gemini-3.6-flash"
 HF_MODEL = "openai/gpt-oss-120b"
 
+# ⭐ NEW: Cloudflare Workers AI binding — برای تبدیلِ صدا به متن با Whisper
+# (@cf/openai/whisper-large-v3-turbo). رایگان: ۱۰٬۰۰۰ نورون در روز.
+[ai]
+binding = "AI"
+
 # API keys are NOT set here — set them as secrets instead (see README.md
 # and DEPLOY.md), so they never end up in git or the dashboard's
 # plain-text vars. Set each one you actually have with:
