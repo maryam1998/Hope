@@ -7215,6 +7215,41 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
               بشنوه که زبونش رو گوشی نصب نداره، خودِ دکمه‌ی 🔊 (SpeakButton)
               یه پیامِ کوچیکِ درجا نشون می‌ده (نه اینجا، توی تنظیمات). */}
 
+          {/* 🎙 ترجمه‌ی زنده‌ی صدا (فقط در اپ اندروید — حباب شناور) */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            🎙 {uiLang === "en" ? "Live audio translation" : "ترجمه‌ی زنده‌ی صدا"}
+          </p>
+          <button
+            onClick={async () => {
+              try {
+                const Cap = typeof window !== "undefined" ? window.Capacitor : undefined;
+                if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) {
+                  alert(uiLang === "en" ? "This feature only works in the Android app" : "این قابلیت فقط در نسخه‌ی اندروید کار می‌کنه");
+                  return;
+                }
+                const bubble = Cap.Plugins && Cap.Plugins.BubblePlugin;
+                if (!bubble) {
+                  alert(uiLang === "en" ? "Bubble plugin not found in this app build" : "پلاگین حباب در این نسخه‌ی اپ پیدا نشد");
+                  return;
+                }
+                const perm = await bubble.checkPermission();
+                if (!perm || !perm.granted) {
+                  await bubble.requestPermission();
+                  alert(uiLang === "en" ? "Please grant the permission, then tap again" : "لطفاً مجوز رو بدید، بعد دوباره بزنید");
+                  return;
+                }
+                await bubble.showBubble();
+              } catch (err) {
+                alert((uiLang === "en" ? "Error: " : "خطا: ") + ((err && err.message) || err));
+              }
+            }}
+            className="flex items-center gap-2"
+            style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.gold}`, backgroundColor: colors.goldSoft, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 8 }}
+          >
+            <span style={{ fontSize: 16 }}>🎙</span>
+            {uiLang === "en" ? "Start live audio translation" : "شروع ترجمه‌ی زنده‌ی صدا"}
+          </button>
+
           {/* Offline words download */}
           <button
             onClick={() => setOfflineModalOpen(true)}
