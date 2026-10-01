@@ -6597,6 +6597,101 @@ function LanguageVoiceSettings({ uiLang, colors }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 🎙 مدل تشخیص گفتار آفلاین (فقط اندروید — BubblePlugin) — دانلود/حذف مدلِ
+// زبانِ انتخاب‌شده برای «ترجمه‌ی زنده‌ی صدا». زبان از بیرون (liveSrcLang)
+// می‌آد تا یه انتخابگرِ زبانِ تکراری توی تنظیمات نداشته باشیم.
+// ---------------------------------------------------------------------------
+function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
+  const en = uiLang === "en";
+  const getPlugin = () =>
+    (typeof window !== "undefined" && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin) || null;
+  const isNative = () =>
+    typeof window !== "undefined" && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+
+  const [status, setStatus] = useState({ supported: false, downloaded: false, downloading: false });
+  const [progressMb, setProgressMb] = useState(0);
+
+  useEffect(() => {
+    const plugin = getPlugin();
+    if (!isNative() || !plugin) return;
+    let alive = true;
+
+    const refresh = async () => {
+      try {
+        const r = await plugin.checkModelStatus({ lang });
+        if (alive && r) setStatus(r);
+      } catch (e) {}
+    };
+    refresh();
+
+    const subs = [
+      plugin.addListener("modelDownloadProgress", (d) => {
+        setProgressMb(Math.round((d.bytes || 0) / (1024 * 1024)));
+      }),
+      plugin.addListener("modelDownloadDone", () => {
+        setProgressMb(0);
+        refresh();
+      }),
+      plugin.addListener("modelDownloadError", (d) => {
+        alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + (d && d.error));
+        setProgressMb(0);
+        refresh();
+      }),
+    ];
+
+    return () => {
+      alive = false;
+      subs.forEach((h) => Promise.resolve(h).then((x) => x && x.remove && x.remove()).catch(() => {}));
+    };
+  }, [lang]);
+
+  if (!isNative() || !getPlugin()) return null;
+
+  const refreshNow = async () => {
+    try { setStatus(await getPlugin().checkModelStatus({ lang })); } catch (e) {}
+  };
+  const download = async () => {
+    setStatus((s) => ({ ...s, downloading: true }));
+    try {
+      await getPlugin().downloadModel({ lang });
+    } catch (e) {
+      alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + ((e && e.message) || e));
+      setStatus((s) => ({ ...s, downloading: false }));
+    }
+  };
+  const remove = async () => {
+    if (!confirm(en ? "Delete the offline model?" : "مدل آفلاین حذف بشه؟")) return;
+    try { await getPlugin().deleteModel({ lang }); } catch (e) {}
+    refreshNow();
+  };
+
+  const btn = { fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 8 };
+  const note = { fontSize: 12, color: colors.inkSoft, marginBottom: 8 };
+
+  return (
+    <div>
+      {!status.supported && (
+        <p style={note}>⚠ {en ? "This language isn't supported offline yet." : "این زبان هنوز به‌صورت آفلاین پشتیبانی نمی‌شه."}</p>
+      )}
+      {status.supported && status.downloaded && (
+        <div>
+          <p style={note}>✅ {en ? "Model downloaded and ready" : "مدل دانلود شده و آماده‌ست"}</p>
+          <button onClick={remove} style={btn}>🗑 {en ? "Delete model" : "حذف مدل"}</button>
+        </div>
+      )}
+      {status.supported && !status.downloaded && !status.downloading && (
+        <button onClick={download} style={btn}>
+          📥 {en ? "Download offline model (~70 MB, one-time)" : "دانلود مدل آفلاین (~۷۰ مگابایت، فقط یک بار)"}
+        </button>
+      )}
+      {status.downloading && (
+        <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {progressMb} MB</p>
+      )}
+    </div>
+  );
+}
+
 function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCustomBgChange }) {
   const [offlineModalOpen, setOfflineModalOpen] = useState(false);
   // زبان صدای ورودی برای ترجمه‌ی زنده (روی گوشی ذخیره می‌شه). پیش‌فرض: انگلیسی
@@ -7243,6 +7338,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
               ))}
             </select>
           </label>
+          <OfflineSpeechModelSettings lang={liveSrcLang} uiLang={uiLang} colors={colors} />
           <button
             onClick={async () => {
               try {
