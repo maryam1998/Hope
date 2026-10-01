@@ -6599,6 +6599,10 @@ function LanguageVoiceSettings({ uiLang, colors }) {
 
 function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCustomBgChange }) {
   const [offlineModalOpen, setOfflineModalOpen] = useState(false);
+  // زبان صدای ورودی برای ترجمه‌ی زنده (روی گوشی ذخیره می‌شه). پیش‌فرض: انگلیسی
+  const [liveSrcLang, setLiveSrcLang] = useState(() => {
+    try { return localStorage.getItem("liveSrcLang") || "en"; } catch (e) { return "en"; }
+  });
   const [open, setOpen] = useState(false);
   const panelRef = useRef(null);
   // پس‌زمینه‌ی سفارشی — پیش‌نمایشِ خودِ همین پنل، مستقل از customBg بالای
@@ -7219,6 +7223,26 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
             🎙 {uiLang === "en" ? "Live audio translation" : "ترجمه‌ی زنده‌ی صدا"}
           </p>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
+            <span>{uiLang === "en" ? "Audio language" : "زبان صدا"}</span>
+            <select
+              value={liveSrcLang}
+              onChange={(e) => {
+                const v = e.target.value;
+                setLiveSrcLang(v);
+                try { localStorage.setItem("liveSrcLang", v); } catch (err) {}
+                try {
+                  const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin;
+                  if (B && B.setLanguages) B.setLanguages({ sourceLang: v, targetLang: uiLang === "en" ? "en" : "fa" });
+                } catch (err) {}
+              }}
+              style={{ flex: 1, fontSize: 12.5, padding: "6px 8px", borderRadius: 10, border: `1px solid ${colors.cardBorder}`, backgroundColor: "white", color: colors.ink }}
+            >
+              {[["en", "English"], ["de", "Deutsch"], ["fr", "Français"], ["es", "Español"], ["it", "Italiano"], ["tr", "Türkçe"], ["ar", "العربية"], ["ru", "Русский"], ["ja", "日本語"], ["ko", "한국어"], ["zh", "中文"], ["hi", "हिन्दी"], ["pt", "Português"], ["nl", "Nederlands"], ["ur", "اردو"], ["fa", "فارسی"]].map(([code, name]) => (
+                <option key={code} value={code}>{name}</option>
+              ))}
+            </select>
+          </label>
           <button
             onClick={async () => {
               try {
@@ -7238,7 +7262,12 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
                   alert(uiLang === "en" ? "Please grant the permission, then tap again" : "لطفاً مجوز رو بدید، بعد دوباره بزنید");
                   return;
                 }
-                await bubble.showBubble();
+                // targetLang = زبان رابط (fa یا en)، sourceLang = زبان صدایی که پخش می‌شه.
+                // با sourceLang مشخص، حباب از مسیر سریع (تشخیص گفتار + ترجمه‌ی روی خود گوشی) استفاده می‌کنه.
+                await bubble.showBubble({
+                  targetLang: uiLang === "en" ? "en" : "fa",
+                  sourceLang: liveSrcLang,
+                });
               } catch (err) {
                 alert((uiLang === "en" ? "Error: " : "خطا: ") + ((err && err.message) || err));
               }
