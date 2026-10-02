@@ -18,6 +18,7 @@ import YouTubeCaptionPanel from "./YouTubeCaptions.jsx";
 const ALL_DAILY_CONVERSATIONS = [...DAILY_CONVERSATIONS, ...(THEMATIC_CONVERSATIONS || [])];
 import RangeSliderFilter from "./RangeSliderFilter.jsx";
 import { LINGOVA_CHARACTERS, LINGOVA_CHARACTER_KEYS } from "./LINGOVA_CHARACTERS.js";
+import { isNativeTtsAvailable, isNativeTtsReady, refreshNativeTtsStatus, nativeSpeak, nativeStop } from "./nativeTts.js";
 
 // ---------------------------------------------------------------------------
 // جستجوی یکپارچه‌ی «یا از دیکشنری جستجو کن...» توی داستان‌ساز — به‌جای
@@ -2933,6 +2934,8 @@ const speechController = (() => {
   // شبیهِ «این زبون اصلاً پشتیبانی نمی‌شه» به‌نظر می‌رسه)، واقعاً یه خطا به
   // کاربر نشون بده.
   let ttsError = null;
+  // گرم‌کردنِ کشِ وضعیتِ مدلِ Piper برای فارسی/عربی، تا همون اولین تپ هم از موتورِ نیتیو بخونه
+  try { if (isNativeTtsAvailable()) ["fa", "ar"].forEach((l) => refreshNativeTtsStatus(l)); } catch (e) {}
   // --- تکرار سراسری ---------------------------------------------------
   let globalRepeatSetting = (() => {
     const saved = localStorage.getItem("phrasebook-tts-repeat");
@@ -2994,6 +2997,10 @@ const speechController = (() => {
   const RESUME_MS_PER_CHAR = 90; // همون نرخِ تخمینیِ نوارِ پیشرفتِ پلیر
   let chunkStartedAt = 0;
   let chunkTextOffset = 0;
+  // سرعتِ واقعیِ خوندنِ Piper (میلی‌ثانیه به‌ازای هر کاراکتر، در سرعتِ ۱×) —
+  // از روی جمله‌هایی که کامل پخش شدن یاد گرفته می‌شه؛ برای تخمینِ نقطه‌ی مکث
+  // دقیق‌تر از عددِ ثابتِ RESUME_MS_PER_CHAR (که برای Web Speech بود).
+  let nativeMsPerChar = RESUME_MS_PER_CHAR;
   // ---------------------------------------------------------------------
   // «نقطه‌ی ادامه»ی سراسری و خودکار برای هر متن — کلیدش همون کلیدِ
   // speechController (`${locale}::${text}`) است. هر بار که وضعیتِ فعلی
@@ -3049,11 +3056,22 @@ const speechController = (() => {
     }
   }
 
+  // شمارنده‌ی نسلِ پخشِ نیتیو — با هر cancelSpeech بالا می‌ره تا نتیجه‌ی
+  // پخشِ لغوشده (که دیر می‌رسه) روی پخشِ جدید اثر نذاره.
+  let nativeSpeakGen = 0;
+
   function cancelSpeech() {
-    expectingCancel = true;
+    nativeSpeakGen++;
     clearGapTimer();
+    const native = isNativeTtsAvailable();
+    if (native) nativeStop();
     try {
-      window.speechSynthesis.cancel();
+      // روی اندروید (Piper) فقط اگه Web Speech هم واقعاً چیزی می‌خونه (fallback) لغوش می‌کنیم؛
+      // وگرنه expectingCancel بی‌دلیل روشن می‌موند.
+      if (!native || window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+        expectingCancel = true;
+        window.speechSynthesis.cancel();
+      }
     } catch (e) {}
   }
 
@@ -3718,28 +3736,7 @@ const speechController = (() => {
     chunkTextOffset = resumeOffset > 0 && resumeOffset < fullChunkText.length ? resumeOffset : 0;
     const textToSpeak = chunkTextOffset > 0 ? fullChunkText.slice(chunkTextOffset) : fullChunkText;
 
-    const utter = new SpeechSynthesisUtterance(sanitizeForTTS(textToSpeak));
-    utter.lang = locale;
-    // اینتونیشنِ این جمله (سؤالی/تعجبی/خبری) رو از رویِ کلِ متنِ جمله تشخیص
-    // می‌دیم (نه فقط باقیِ بخشی که بعدِ یه ادامه‌ی مکث ممکنه خونده بشه) —
-    // چون علامتِ‌نگارشیِ پایان همیشه سرِ خودِ fullChunkText هست.
-    utter.rate = engineRate(rate);
-    // پیچ رو دیگه دست نمی‌زنیم — همون پیش‌فرضِ خودِ صدا (۱٫۰) می‌مونه، دقیقاً
-    // شبیهِ همون چیزی که موقعِ خواندنِ خودِ گوشی می‌شنیدی.
-    utter.volume = muted ? 0 : 1;
-    utter.onstart = () => {
-      chunkStartedAt = Date.now();
-    };
-    // بعضی مرورگرها/WebViewها گاهی onstart رو دیر یا اصلاً شلیک نمی‌کنن —
-    // یه نقطه‌ی شروعِ پیش‌فرض هم همین‌جا می‌ذاریم تا اگه onstart نیومد،
-    // تخمینِ نقطه‌ی مکثِ بعدی حداقل از لحظه‌ی صداکردنِ speak() حساب بشه
-    // (کمی محافظه‌کارانه‌تر، ولی به‌مراتب بهتر از نداشتنِ هیچ تخمینی).
-    chunkStartedAt = Date.now();
-
-    const bestVoice = getBestVoice(locale);
-    if (bestVoice) utter.voice = bestVoice;
-
-    utter.onend = () => {
+    const handleChunkEnd = () => {
       if (status !== "playing") return;
       // فقط سرِ پایانِ یه جمله‌ی واقعی مکثِ کاملِ بینِ‌جمله می‌ذاریم؛ تکه‌های
       // حاصل از شکستنِ اضطراریِ وسطِ متنِ خیلی‌بلند (boundary: "none") فقط
@@ -3799,16 +3796,93 @@ const speechController = (() => {
         speakChunk(nextIdx, false, false);
       }, gap);
     };
-    utter.onerror = (e) => {
-      if (expectingCancel) {
-        expectingCancel = false;
-        return;
-      }
-      status = "idle";
-      notify();
+
+    const startWebSpeech = () => {
+      const utter = new SpeechSynthesisUtterance(sanitizeForTTS(textToSpeak));
+      utter.lang = locale;
+      // اینتونیشنِ این جمله (سؤالی/تعجبی/خبری) رو از رویِ کلِ متنِ جمله تشخیص
+      // می‌دیم (نه فقط باقیِ بخشی که بعدِ یه ادامه‌ی مکث ممکنه خونده بشه) —
+      // چون علامتِ‌نگارشیِ پایان همیشه سرِ خودِ fullChunkText هست.
+      utter.rate = engineRate(rate);
+      // پیچ رو دیگه دست نمی‌زنیم — همون پیش‌فرضِ خودِ صدا (۱٫۰) می‌مونه، دقیقاً
+      // شبیهِ همون چیزی که موقعِ خواندنِ خودِ گوشی می‌شنیدی.
+      utter.volume = muted ? 0 : 1;
+      utter.onstart = () => {
+        chunkStartedAt = Date.now();
+      };
+      // بعضی مرورگرها/WebViewها گاهی onstart رو دیر یا اصلاً شلیک نمی‌کنن —
+      // یه نقطه‌ی شروعِ پیش‌فرض هم همین‌جا می‌ذاریم تا اگه onstart نیومد،
+      // تخمینِ نقطه‌ی مکثِ بعدی حداقل از لحظه‌ی صداکردنِ speak() حساب بشه
+      // (کمی محافظه‌کارانه‌تر، ولی به‌مراتب بهتر از نداشتنِ هیچ تخمینی).
+      chunkStartedAt = Date.now();
+
+      const bestVoice = getBestVoice(locale);
+      if (bestVoice) utter.voice = bestVoice;
+
+      utter.onend = handleChunkEnd;
+      utter.onerror = (e) => {
+        if (expectingCancel) {
+          expectingCancel = false;
+          return;
+        }
+        status = "idle";
+        notify();
+      };
+
+      window.speechSynthesis.speak(utter);
     };
 
-    window.speechSynthesis.speak(utter);
+    // ✅ اگه روی اپ اندرویدیم، از موتور Piper (BubblePlugin.speak) استفاده کن.
+    // توی مرورگر معمولی isNativeTtsAvailable() false می‌ده و همون Web Speech می‌ره.
+    if (isNativeTtsAvailable()) {
+      const cleanText = sanitizeForTTS(textToSpeak);
+      const nativeGen = nativeSpeakGen;
+      chunkStartedAt = Date.now();
+
+      if (!cleanText || !cleanText.trim()) {
+        // متن بعد از پاک‌سازی خالی شد — مستقیم برو سراغِ منطقِ پایانِ چانک
+        gapTimer = setTimeout(() => {
+          gapTimer = null;
+          if (nativeGen !== nativeSpeakGen) return;
+          handleChunkEnd();
+        }, 0);
+        return;
+      }
+
+      // کدِ دو حرفیِ زبان (fa, en, ...) — نه locale — چون SherpaModelManager با همین کار می‌کنه
+      const nativeLang = currentCode || locale.split("-")[0];
+      // حالتِ بی‌صدا: چیزی پخش نمی‌کنیم، فقط به‌اندازه‌ی مدتِ تقریبیِ خوندن صبر می‌کنیم
+      const played = muted
+        ? new Promise((resolve) => {
+            setTimeout(() => resolve(true), Math.max(400, (cleanText.length * 70) / Math.max(rate, 0.25)));
+          })
+        : nativeSpeak(cleanText, nativeLang, rate);
+      const nativeT0 = Date.now();
+
+      played.then((ok) => {
+        if (nativeGen !== nativeSpeakGen) return; // لغو/جایگزین شده
+        if (status !== "playing") return;
+        if (ok && !muted && cleanText.length >= 12) {
+          // سرعتِ واقعیِ این موتور رو (نرمال‌شده به ۱×) با میانگینِ متحرک یاد می‌گیریم
+          const sample = ((Date.now() - nativeT0) * Math.max(rate, 0.25)) / cleanText.length;
+          if (sample > 25 && sample < 300) nativeMsPerChar = nativeMsPerChar * 0.6 + sample * 0.4;
+        }
+        if (!ok) {
+          // مدلِ TTS دانلود نشده یا پخش شکست خورد → fallback به Web Speech
+          if ("speechSynthesis" in window) {
+            startWebSpeech();
+          } else {
+            status = "idle";
+            notify();
+          }
+          return;
+        }
+        handleChunkEnd();
+      });
+      return; // از مسیرِ Web Speech API بیرون بیا
+    }
+
+    startWebSpeech();
   }
 
   // این آبجکت به یه نامِ ثابت (controller) نگه داشته می‌شه، نه فقط return
@@ -3906,7 +3980,13 @@ const speechController = (() => {
         // نیاز به اینترنت) — حتی اگه گوشی صدایی براشون نصب نداشته باشه،
         // دیگه به‌صورتِ خودکار سراغِ سرویسِ آنلاین نمی‌ریم.
         const ONLINE_ONLY_LANGS = new Set(["fa", "ar"]);
-        const forceOnlineForLang = ONLINE_ONLY_LANGS.has(code);
+        // اگه مدلِ Piper همین زبون روی گوشی دانلود شده باشه، فارسی/عربی هم
+        // مثلِ بقیه‌ی زبون‌ها از موتورِ نیتیو (آفلاین) خونده می‌شن؛ فقط وقتی
+        // مدل نیست (یا اپ توی مرورگره) می‌رن سراغِ سرویسِ آنلاین.
+        // وضعیت از کشِ سنکرونِ nativeTts می‌آد؛ این صدا زدن کش رو برای دفعه‌ی بعد تازه می‌کنه.
+        if (isNativeTtsAvailable()) refreshNativeTtsStatus(code);
+        const useNativePiper = isNativeTtsAvailable() && isNativeTtsReady(code);
+        const forceOnlineForLang = ONLINE_ONLY_LANGS.has(code) && !useNativePiper;
 
         const newKey = `${newLocale}::${text}`;
 
@@ -3931,8 +4011,13 @@ const speechController = (() => {
             const spokenSoFarInThisUtterance = chunkText.length > chunkTextOffset ? chunkText.slice(chunkTextOffset) : "";
             if (spokenSoFarInThisUtterance && chunkStartedAt) {
               const elapsed = Date.now() - chunkStartedAt;
-              const msPerChar = RESUME_MS_PER_CHAR / Math.max(rate, 0.25);
-              let within = Math.min(spokenSoFarInThisUtterance.length, Math.max(0, Math.round(elapsed / msPerChar)));
+              const native = isNativeTtsAvailable() && !muted && mode !== "online" && isNativeTtsReady(currentCode || "");
+              const msPerChar = (native ? nativeMsPerChar : RESUME_MS_PER_CHAR) / Math.max(rate, 0.25);
+              // برای نیتیو کمی محافظه‌کارانه (۹۰٪) عقب‌تر می‌ریم تا کلمه‌ای نشنیده رد نشه
+              let within = Math.min(
+                spokenSoFarInThisUtterance.length,
+                Math.max(0, Math.round((elapsed / msPerChar) * (native ? 0.9 : 1)))
+              );
               // به نزدیک‌ترین مرزِ کلمه (فاصله‌ی قبلی) عقب می‌ریم — تا وسطِ
               // یه کلمه قطع نشه.
               while (within > 0 && within < spokenSoFarInThisUtterance.length && spokenSoFarInThisUtterance[within] !== " ") within--;
@@ -4041,7 +4126,7 @@ const speechController = (() => {
         const noTtsEngineAtAll =
           hasSynthesis && voices.length === 0 && !voicesEverLoaded && Date.now() - controllerInitTime > 4000;
 
-        if (!forceOnlineForLang && hasSynthesis && !noTtsEngineAtAll && (hasVoice || voices.length === 0)) {
+        if (useNativePiper || (!forceOnlineForLang && hasSynthesis && !noTtsEngineAtAll && (hasVoice || voices.length === 0))) {
           mode = "local";
           stopOnlineAudio();
           fullText = text;
