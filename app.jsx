@@ -7777,6 +7777,59 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
             {uiLang === "en" ? "Start live audio translation" : "شروع ترجمه‌ی زنده‌ی صدا"}
           </button>
 
+          {/* 📺 زیرنویس زنده‌ی یوتیوب (فقط اندروید): ویدیوی در حال پخش در اپ یوتیوب تشخیص داده می‌شه،
+              زیرنویسش یک‌جا گرفته می‌شه و جمله‌ی فعلی با زمان پخش، همراه ترجمه، توی همون حباب نشون داده می‌شه. */}
+          <button
+            onClick={async () => {
+              try {
+                const Cap = typeof window !== "undefined" ? window.Capacitor : undefined;
+                if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) {
+                  alert(uiLang === "en" ? "This feature only works in the Android app" : "این قابلیت فقط در نسخه‌ی اندروید کار می‌کنه");
+                  return;
+                }
+                const bubble = Cap.Plugins && Cap.Plugins.BubblePlugin;
+                if (!bubble || !bubble.ytSetEnabled) {
+                  alert(uiLang === "en" ? "This app build does not include YouTube subtitles yet — please update the app" : "این نسخه‌ی اپ هنوز زیرنویس یوتیوب رو نداره — لطفاً اپ رو به‌روزرسانی کنید");
+                  return;
+                }
+                const perm = await bubble.checkPermission();
+                if (!perm || !perm.granted) {
+                  await bubble.requestPermission();
+                  alert(uiLang === "en" ? "Please grant the permission, then tap again" : "لطفاً مجوز رو بدید، بعد دوباره بزنید");
+                  return;
+                }
+                // برای دیدنِ ویدیوی در حال پخشِ یوتیوب، اندروید «دسترسی به اعلان‌ها» رو لازم داره.
+                const acc = await bubble.ytCheckAccess();
+                if (!acc || !acc.granted) {
+                  await bubble.ytRequestAccess();
+                  alert(uiLang === "en"
+                    ? "Turn on “Notification access” for this app, then come back and tap again. (If it is greyed out: App info → ⋮ → Allow restricted settings.)"
+                    : "«دسترسی به اعلان‌ها» رو برای این اپ روشن کنید، بعد برگردید و دوباره بزنید. (اگه خاکستریه: اطلاعات اپ ← ⋮ ← Allow restricted settings)");
+                  return;
+                }
+                await bubble.showBubble({
+                  targetLang: uiLang === "en" ? "en" : "fa",
+                  targetLangs: liveTargets,
+                  sourceLang: liveSrcLang,
+                });
+                if (bubble.setDisplayMode) bubble.setDisplayMode({ mode: liveDisplayMode });
+                await bubble.ytSetEnabled({ enabled: true });
+              } catch (err) {
+                alert((uiLang === "en" ? "Error: " : "خطا: ") + ((err && err.message) || err));
+              }
+            }}
+            className="flex items-center gap-2"
+            style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.gold}`, backgroundColor: colors.goldSoft, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 4 }}
+          >
+            <span style={{ fontSize: 16 }}>▶️</span>
+            {uiLang === "en" ? "Start live YouTube subtitles" : "شروع زیرنویس زنده‌ی یوتیوب"}
+          </button>
+          <p style={{ fontSize: 11.5, color: colors.inkSoft, marginBottom: 8, lineHeight: 1.7 }}>
+            {uiLang === "en"
+              ? "Play a video in the YouTube app: its subtitles appear in the bubble, in sync with playback, with your selected translations. Language of the video = “Audio language” above. You can also toggle it with the ▶ button inside the bubble panel."
+              : "یک ویدیو را در اپ یوتیوب پخش کنید: زیرنویسش هم‌زمان با پخش، همراه ترجمه‌های انتخابی شما، توی حباب نشان داده می‌شود. زبان ویدیو همان «زبان صدا» بالاست. با دکمه‌ی ▶ داخل پنل حباب هم می‌توانید روشن/خاموشش کنید."}
+          </p>
+
           {/* Offline words download */}
           <button
             onClick={() => setOfflineModalOpen(true)}
