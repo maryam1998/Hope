@@ -7045,7 +7045,7 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
   );
 }
 
-function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCustomBgChange }) {
+function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCustomBgChange, targetOrder }) {
   const [offlineModalOpen, setOfflineModalOpen] = useState(false);
   // زبان صدای ورودی برای ترجمه‌ی زنده (روی گوشی ذخیره می‌شه). پیش‌فرض: انگلیسی
   const [liveSrcLang, setLiveSrcLang] = useState(() => {
@@ -7077,6 +7077,26 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
   const uiLang = appPrefs.uiLang || "fa";
   const panelDir = APP_LANGUAGES[uiLang]?.dir || "rtl";
   const panelFont = uiLang === "en" ? fontLatin : fontFa;
+
+  // 🎙 ترجمه‌ی زنده: ترجمه به *همه‌ی* زبان‌های مقصدی که کاربر بالای صفحه انتخاب کرده
+  // (هر تعداد). اگه هنوز هیچ زبانی انتخاب نشده، زبان رابط (فارسی/انگلیسی).
+  const liveTargets = (targetOrder && targetOrder.length) ? targetOrder : [uiLang === "en" ? "en" : "fa"];
+  const liveTargetsKey = liveTargets.join(",");
+  // حالت نمایش حباب: هر دو (متن + ترجمه) / فقط متن اصلی / فقط ترجمه
+  const [liveDisplayMode, setLiveDisplayMode] = useState(() => {
+    try { return localStorage.getItem("liveDisplayMode") || "both"; } catch (e) { return "both"; }
+  });
+  // هر بار زبان‌های مقصد، زبان صدا یا حالت نمایش عوض شد، به حبابِ در حال اجرا هم خبر بده
+  useEffect(() => {
+    try {
+      const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin;
+      if (!B) return;
+      let src = "en";
+      try { src = localStorage.getItem("liveSrcLang") || "en"; } catch (err) {}
+      if (B.setLanguages) B.setLanguages({ sourceLang: src, targetLang: uiLang === "en" ? "en" : "fa", targetLangs: liveTargetsKey.split(",") });
+      if (B.setDisplayMode) B.setDisplayMode({ mode: liveDisplayMode });
+    } catch (err) {}
+  }, [liveTargetsKey, liveDisplayMode, uiLang]);
   // اندازه/بولدِ متنِ زبان‌های مقصد (جدا از اندازه‌ی فونتِ کلیِ اپ بالا) —
   // در localStorage با کلیدِ خودش ذخیره می‌شه (نه appPrefs)، چون از یه
   // هوکِ سبکِ مشترک (useTargetTextPrefs) توسطِ خودِ ClickableSentence هم
@@ -7683,7 +7703,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
                 try { localStorage.setItem("liveSrcLang", v); } catch (err) {}
                 try {
                   const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin;
-                  if (B && B.setLanguages) B.setLanguages({ sourceLang: v, targetLang: uiLang === "en" ? "en" : "fa" });
+                  if (B && B.setLanguages) B.setLanguages({ sourceLang: v, targetLang: uiLang === "en" ? "en" : "fa", targetLangs: liveTargets });
                 } catch (err) {}
               }}
               style={{ flex: 1, fontSize: 12.5, padding: "6px 8px", borderRadius: 10, border: `1px solid ${colors.cardBorder}`, backgroundColor: "white", color: colors.ink }}
@@ -7694,6 +7714,27 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
             </select>
           </label>
           <OfflineSpeechModelSettings lang={liveSrcLang} uiLang={uiLang} colors={colors} />
+          <p style={{ fontSize: 11.5, color: colors.inkSoft, marginBottom: 6, lineHeight: 1.7 }}>
+            {uiLang === "en"
+              ? `Translates into: ${liveTargets.map((c) => c.toUpperCase()).join(" · ")} (your selected target languages). Earlier sentences stay in a scrollable history.`
+              : `ترجمه به: ${liveTargets.map((c) => c.toUpperCase()).join(" · ")} (همان زبان‌های مقصدِ انتخابی شما). جمله‌های قبلی در یک تاریخچه‌ی قابل‌اسکرول می‌مانند.`}
+          </p>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
+            <span>{uiLang === "en" ? "Show" : "نمایش"}</span>
+            <select
+              value={liveDisplayMode}
+              onChange={(e) => {
+                const v = e.target.value;
+                setLiveDisplayMode(v);
+                try { localStorage.setItem("liveDisplayMode", v); } catch (err) {}
+              }}
+              style={{ flex: 1, fontSize: 12.5, padding: "6px 8px", borderRadius: 10, border: `1px solid ${colors.cardBorder}`, backgroundColor: "white", color: colors.ink }}
+            >
+              <option value="both">{uiLang === "en" ? "Original + translations" : "متن اصلی + ترجمه‌ها"}</option>
+              <option value="translation">{uiLang === "en" ? "Translations only" : "فقط ترجمه‌ها"}</option>
+              <option value="original">{uiLang === "en" ? "Original only" : "فقط متن اصلی"}</option>
+            </select>
+          </label>
           <button
             onClick={async () => {
               try {
@@ -7717,8 +7758,10 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
                 // با sourceLang مشخص، حباب از مسیر سریع (تشخیص گفتار + ترجمه‌ی روی خود گوشی) استفاده می‌کنه.
                 await bubble.showBubble({
                   targetLang: uiLang === "en" ? "en" : "fa",
+                  targetLangs: liveTargets,
                   sourceLang: liveSrcLang,
                 });
+                if (bubble.setDisplayMode) bubble.setDisplayMode({ mode: liveDisplayMode });
               } catch (err) {
                 alert((uiLang === "en" ? "Error: " : "خطا: ") + ((err && err.message) || err));
               }
@@ -18901,7 +18944,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
                 {(user?.name || user?.email || "?").trim().charAt(0).toUpperCase()}
               </div>
             )}
-            <SettingsMenu appPrefs={appPrefs} setAppPrefs={setAppPrefs} user={user} onLogout={onLogout} aiSettings={aiSettings} onCustomBgChange={onCustomBgChange} />
+            <SettingsMenu appPrefs={appPrefs} setAppPrefs={setAppPrefs} user={user} onLogout={onLogout} aiSettings={aiSettings} onCustomBgChange={onCustomBgChange} targetOrder={targetOrder} />
           </div>
         </div>
         <p style={{ color: colors.headerText, opacity: 0.85, fontSize: 13.5, fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }}>
