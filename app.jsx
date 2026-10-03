@@ -19,7 +19,7 @@ const ALL_DAILY_CONVERSATIONS = [...DAILY_CONVERSATIONS, ...(THEMATIC_CONVERSATI
 import RangeSliderFilter from "./RangeSliderFilter.jsx";
 import { LINGOVA_CHARACTERS, LINGOVA_CHARACTER_KEYS } from "./LINGOVA_CHARACTERS.js";
 import { isNativeTtsAvailable, isNativeTtsReady, refreshNativeTtsStatus } from "./nativeTts.js";
-import { nativeSpeak, nativeStop, nativePrefetch, nativeWarm, nativeWarmAll } from "./nativeTtsFast.js";
+import { nativeSpeak, nativeStop, nativePrefetch, nativeWarm, nativeWarmAll, nativeSpeakSystem, isSystemTtsReady, refreshSystemTts } from "./nativeTtsFast.js";
 import { isNativeAuthAvailable, nativeGoogleSignIn, setupNativeAuthListener } from "./nativeAuth.js";
 
 // پیامِ فارسی/عربی وقتی اینترنت نیست یا پخشِ آنلاین شکست خورد: راهِ حل = مدلِ آفلاین
@@ -3888,13 +3888,22 @@ const speechController = (() => {
           if (sample > 25 && sample < 300) nativeMsPerChar = nativeMsPerChar * 0.6 + sample * 0.4;
         }
         if (!ok) {
-          // مدلِ TTS دانلود نشده یا پخش شکست خورد → fallback به Web Speech
-          if ("speechSynthesis" in window) {
-            startWebSpeech();
-          } else {
-            status = "idle";
-            notify();
-          }
+          // مدلِ Piper دانلود نشده یا پخش شکست خورد → اول TTS خودِ گوشی (نیتیو)،
+          // و اگه اون هم نشد، Web Speech
+          nativeSpeakSystem(cleanText, nativeLang, rate).then((sysOk) => {
+            if (nativeGen !== nativeSpeakGen) return;
+            if (status !== "playing") return;
+            if (sysOk) {
+              handleChunkEnd();
+              return;
+            }
+            if ("speechSynthesis" in window) {
+              startWebSpeech();
+            } else {
+              status = "idle";
+              notify();
+            }
+          });
           return;
         }
         handleChunkEnd();
@@ -4007,6 +4016,9 @@ const speechController = (() => {
         if (isNativeTtsAvailable()) refreshNativeTtsStatus(code);
         const useNativePiper = isNativeTtsAvailable() && isNativeTtsReady(code);
         const forceOnlineForLang = ONLINE_ONLY_LANGS.has(code) && !useNativePiper;
+        // TTS خودِ گوشی از طریقِ پلاگین اندروید (speechSynthesis داخل WebView صدا نداره)
+        if (isNativeTtsAvailable()) refreshSystemTts(code);
+        const useNativeSystem = isNativeTtsAvailable() && isSystemTtsReady(code);
 
         const newKey = `${newLocale}::${text}`;
 
@@ -4146,7 +4158,7 @@ const speechController = (() => {
         const noTtsEngineAtAll =
           hasSynthesis && voices.length === 0 && !voicesEverLoaded && Date.now() - controllerInitTime > 4000;
 
-        if (useNativePiper || (!forceOnlineForLang && hasSynthesis && !noTtsEngineAtAll && (hasVoice || voices.length === 0))) {
+        if (useNativePiper || (useNativeSystem && !forceOnlineForLang) || (!forceOnlineForLang && hasSynthesis && !noTtsEngineAtAll && (hasVoice || voices.length === 0))) {
           mode = "local";
           stopOnlineAudio();
           fullText = text;
@@ -6820,8 +6832,11 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
 
   // { fa: true/false (دانلود شده؟) } — فقط زبان‌هایی که مدلِ آفلاین دارن
   const [catalog, setCatalog] = useState({});
-  const [busyLang, setBusyLang] = useState(null);
-  const [progressMb, setProgressMb] = useState(0);
+  // چند زبان می‌تونن هم‌زمان دانلود بشن: { fa: true, en: true }
+  const [busyMap, setBusyMap] = useState({});
+  // پیشرفتِ هر زبان به مگابایت: { fa: 12, en: 40 }
+  const [progressMap, setProgressMap] = useState({});
+  const [errorText, setErrorText] = useState("");
 
   const refresh = async () => {
     const plugin = getPlugin();
@@ -6831,7 +6846,9 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
       const map = {};
       ((r && r.languages) || []).forEach((x) => { map[x.lang] = !!x.downloaded; });
       setCatalog(map);
-      setBusyLang(r && r.downloading && r.downloadingLang ? r.downloadingLang : null);
+      const busy = {};
+      ((r && r.downloadingLangs) || []).forEach((l) => { busy[l] = true; });
+      setBusyMap(busy);
     } catch (e) {}
   };
 
@@ -6841,24 +6858,41 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
     refresh();
     const subs = [
       plugin.addListener("ttsModelDownloadProgress", (d) => {
-        setProgressMb(Math.round(((d && d.bytes) || 0) / (1024 * 1024)));
+        if (!d || !d.lang) return;
+        const mb = Math.round((d.bytes || 0) / (1024 * 1024));
+        setProgressMap((p) => ({ ...p, [d.lang]: mb }));
       }),
       plugin.addListener("ttsModelDownloadDone", (d) => {
-        setProgressMb(0);
-        setBusyLang(null);
+        const l = d && d.lang;
+        if (l) {
+          setProgressMap((p) => { const n = { ...p }; delete n[l]; return n; });
+          setBusyMap((p) => { const n = { ...p }; delete n[l]; return n; });
+        }
         // کشِ وضعیتِ nativeTts رو همین الان تازه کن تا اولین تپ بعد از دانلود هم از مدلِ آفلاین بخونه
-        try { refreshNativeTtsStatus(d && d.lang); } catch (e) {}
-        try { nativeWarm(d && d.lang); } catch (e) {}
+        try { refreshNativeTtsStatus(l); } catch (e) {}
+        try { nativeWarm(l); } catch (e) {}
         refresh();
       }),
       plugin.addListener("ttsModelDownloadError", (d) => {
-        alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + (d && d.error));
-        setProgressMb(0);
-        setBusyLang(null);
+        const l = d && d.lang;
+        if (l) {
+          setProgressMap((p) => { const n = { ...p }; delete n[l]; return n; });
+          setBusyMap((p) => { const n = { ...p }; delete n[l]; return n; });
+        }
+        setErrorText((en ? "Download failed: " : "دانلود ناموفق بود: ") + (l ? l.toUpperCase() + " — " : "") + ((d && d.error) || ""));
         refresh();
       }),
     ];
+    // وقتی کاربر از بیرونِ اپ برمی‌گرده، وضعیتِ دانلودهایی که پس‌زمینه انجام شدن رو تازه کن
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        refresh();
+        try { LANGUAGES.forEach((l) => refreshNativeTtsStatus(l.code)); } catch (e) {}
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
+      document.removeEventListener("visibilitychange", onVisible);
       subs.forEach((h) => Promise.resolve(h).then((x) => x && x.remove && x.remove()).catch(() => {}));
     };
   }, []);
@@ -6866,15 +6900,22 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
   const plugin = getPlugin();
   if (!isNative() || !plugin || !plugin.getTtsCatalog) return null;
 
-  const download = async (lang) => {
-    setBusyLang(lang);
-    setProgressMb(0);
+  const startDownload = async (lang) => {
+    setBusyMap((p) => ({ ...p, [lang]: true }));
+    setProgressMap((p) => ({ ...p, [lang]: 0 }));
     try {
       await plugin.downloadTtsModel({ lang });
     } catch (e) {
-      alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + ((e && e.message) || e));
-      setBusyLang(null);
+      setErrorText((en ? "Download failed: " : "دانلود ناموفق بود: ") + lang.toUpperCase() + " — " + ((e && e.message) || e));
+      setBusyMap((p) => { const n = { ...p }; delete n[lang]; return n; });
     }
+  };
+  const download = (lang) => { setErrorText(""); startDownload(lang); };
+  // همه‌ی زبان‌هایی که هنوز دانلود نشدن، هم‌زمان شروع می‌شن
+  const pendingLangs = Object.keys(catalog).filter((l) => !catalog[l] && !busyMap[l]);
+  const downloadAll = () => {
+    setErrorText("");
+    pendingLangs.forEach((l) => { startDownload(l); });
   };
   const remove = async (lang) => {
     if (!confirm(en ? "Delete this voice model?" : "مدل صدای این زبان حذف بشه؟")) return;
@@ -6896,11 +6937,22 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
           ? "Until a language's voice is downloaded, the phone's voice is used (Persian/Arabic use the online service). Once downloaded, that language is read with the offline model — no internet needed. Each voice is roughly 60–110 MB; the first download also fetches a small shared data pack."
           : "تا وقتی صدای یه زبان دانلود نشده، همون صدای قبلی خونده می‌شه (TTS گوشی؛ برای فارسی و عربی سرویسِ آنلاین). بعد از دانلود، اون زبان بدونِ اینترنت و با مدلِ آفلاین خونده می‌شه. حجمِ هر صدا حدود ۶۰ تا ۱۱۰ مگابایته و دانلودِ اول یه بسته‌ی داده‌ی کوچیکِ مشترک هم می‌گیره."}
       </p>
+      {pendingLangs.length > 0 && (
+        <button
+          onClick={downloadAll}
+          style={{ ...rowBtn, width: "100%", marginBottom: 8, padding: "9px 10px", fontSize: 12.5 }}
+        >
+          📥 {en ? `Download all (${pendingLangs.length})` : `دانلودِ همه‌ی صداها (${pendingLangs.length})`}
+        </button>
+      )}
+      {errorText ? (
+        <p style={{ ...small, color: "#b00020", marginBottom: 8 }}>{errorText}</p>
+      ) : null}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {LANGUAGES.map((l) => {
           const has = Object.prototype.hasOwnProperty.call(catalog, l.code);
           const downloaded = has && catalog[l.code];
-          const busy = busyLang === l.code;
+          const busy = !!busyMap[l.code];
           const name = en ? (ENGLISH_LANG_NAME[l.code] || l.code) : l.label;
           return (
             <div
@@ -6911,14 +6963,14 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
               {!has ? (
                 <span style={{ ...small, opacity: 0.8 }}>{en ? "Phone voice only" : "فقط صدای گوشی"}</span>
               ) : busy ? (
-                <span style={small}>📥 {progressMb} MB</span>
+                <span style={small}>📥 {progressMap[l.code] || 0} MB</span>
               ) : downloaded ? (
                 <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={small}>✅ {en ? "Offline" : "آفلاین"}</span>
                   <button onClick={() => remove(l.code)} style={rowBtn}>🗑</button>
                 </span>
               ) : (
-                <button onClick={() => download(l.code)} disabled={!!busyLang} style={{ ...rowBtn, opacity: busyLang ? 0.5 : 1 }}>
+                <button onClick={() => download(l.code)} style={rowBtn}>
                   📥 {en ? "Download" : "دانلود"}
                 </button>
               )}
