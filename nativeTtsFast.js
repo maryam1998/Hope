@@ -91,3 +91,45 @@ export async function nativeWarmAll(onDownloadedLang) {
     nativeWarm();
   } catch (e) {}
 }
+
+
+// ---------------------------------------------------------------------------
+// TTS خودِ گوشی (android.speech.tts) — جایگزینِ speechSynthesis که داخل WebView
+// معمولاً هیچ صدایی نداره. نتیجه‌ی «این زبان رو گوشی می‌خونه؟» توی یه کشِ سنکرون
+// نگه داشته می‌شه؛ تا وقتی معلوم نشده، خوش‌بینانه true فرض می‌کنیم.
+// ---------------------------------------------------------------------------
+const sysState = {};
+const sysAsked = {};
+
+export function isSystemTtsReady(lang) {
+  if (!plugin()) return false;
+  return sysState[lang] !== false;
+}
+
+export function refreshSystemTts(lang) {
+  const B = plugin();
+  if (!B || !B.checkSystemTts || !lang || sysAsked[lang]) return;
+  sysAsked[lang] = true;
+  try {
+    Promise.resolve(B.checkSystemTts({ lang }))
+      .then((r) => { sysState[lang] = !!(r && r.available); })
+      .catch(() => { sysAsked[lang] = false; });
+  } catch (e) { sysAsked[lang] = false; }
+}
+
+/** با TTS خودِ گوشی می‌خونه. وقتی پخش تموم شد true؛ اگه زبان/موتور نبود false. */
+export function nativeSpeakSystem(text, lang, rate) {
+  const B = plugin();
+  if (!B || !B.speakSystem || !text) return Promise.resolve(false);
+  ensureListener(B);
+  const id = "y" + ++seq;
+  return new Promise((resolve) => {
+    pending.set(id, (ok) => {
+      if (!ok) sysState[lang] = false;
+      resolve(ok);
+    });
+    Promise.resolve(B.speakSystem({ text, lang, speed: rate || 1, id })).catch(() => {
+      if (pending.delete(id)) resolve(false);
+    });
+  });
+}
