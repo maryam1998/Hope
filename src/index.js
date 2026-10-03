@@ -93,7 +93,7 @@ export default {
         const result = await fetchYoutubeCaptions(videoId, lang);
         return json(result);
       } catch (e) {
-        return json({ error: e.message || "Could not fetch captions" }, 502);
+        return json({ ok: false, error: e.message || "Could not fetch captions", noCaptions: !!e.noCaptions }, 502);
       }
     }
 
@@ -163,31 +163,134 @@ function json(data, status = 200) {
 }
 
 // --- زیرنویسِ واقعیِ یوتیوب -----------------------------------------------
+// چند کلاینتِ innertube (ANDROID / ANDROID_VR / IOS / TV-embed) + صفحه‌ی watch هم‌زمان امتحان می‌شن؛
+// اولین کسی که زیرنویسِ واقعی بده برنده‌ست. اگه همه شکست بخورن، دلیلِ واقعیِ هر کدوم تو پیام میاد.
+const YT_CLIENTS = {
+  ANDROID: {
+    id: "3", version: "20.10.38",
+    ua: "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip",
+    client: { clientName: "ANDROID", clientVersion: "20.10.38", androidSdkVersion: 30, osName: "Android", osVersion: "11" },
+  },
+  ANDROID_VR: {
+    id: "28", version: "1.62.27",
+    ua: "com.google.android.apps.youtube.vr.oculus/1.62.27 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+    client: { clientName: "ANDROID_VR", clientVersion: "1.62.27", deviceMake: "Oculus", deviceModel: "Quest 3", androidSdkVersion: 32, osName: "Android", osVersion: "12L" },
+  },
+  IOS: {
+    id: "5", version: "20.10.4",
+    ua: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+    client: { clientName: "IOS", clientVersion: "20.10.4", deviceMake: "Apple", deviceModel: "iPhone16,2", osName: "iPhone", osVersion: "18.3.2.22D82" },
+  },
+  TV: {
+    id: "85", version: "2.0",
+    ua: "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+    client: { clientName: "TVHTML5_SIMPLY_EMBEDDED_PLAYER", clientVersion: "2.0" },
+  },
+};
+
+function ytErr(msg, noCaptions) {
+  const e = new Error(msg);
+  e.noCaptions = !!noCaptions;
+  return e;
+}
+
 async function fetchYoutubeCaptions(videoId, wantLang) {
-  let tracks = await fetchCaptionTracksViaInnertube(videoId).catch(() => null);
-  if (!tracks || !tracks.length) {
-    tracks = await fetchCaptionTracksViaWatchPage(videoId).catch(() => null);
+  const cache = typeof caches !== "undefined" ? caches.default : null;
+  const cacheKey = new Request(`https://cache.phrasebook.local/yt-captions/${encodeURIComponent(videoId)}/${encodeURIComponent(wantLang)}`);
+  if (cache) {
+    const hit = await cache.match(cacheKey).catch(() => null);
+    if (hit) return await hit.json();
   }
-  if (!tracks || !tracks.length) {
-    throw new Error("این ویدیو زیرنویس نداره یا زیرنویسش قابلِ دریافت نیست");
+
+  const attempts = [
+    captionsViaClient("ANDROID", videoId, wantLang, 0),
+    captionsViaClient("ANDROID_VR", videoId, wantLang, 0),
+    captionsViaClient("IOS", videoId, wantLang, 300),
+    captionsViaClient("TV", videoId, wantLang, 600),
+    captionsViaWatchPage(videoId, wantLang, 900),
+  ];
+  let result;
+  try {
+    result = await Promise.any(attempts);
+  } catch (agg) {
+    const errs = (agg && agg.errors) || [agg];
+    const noCaptions = errs.filter((e) => e && e.noCaptions).length >= 2;
+    const msg = errs.map((e) => (e && e.message) || String(e)).join(" · ").slice(0, 400);
+    throw ytErr(noCaptions ? "این ویدیو زیرنویس ندارد" : msg, noCaptions);
   }
+
+  if (cache) {
+    await cache
+      .put(cacheKey, new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=21600" } }))
+      .catch(() => {});
+  }
+  return result;
+}
+
+async function captionsViaClient(name, videoId, wantLang, delayMs) {
+  if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+  const c = YT_CLIENTS[name];
+  const label = name.toLowerCase();
+  const body = {
+    videoId,
+    contentCheckOk: true,
+    racyCheckOk: true,
+    context: { client: { hl: "en", gl: "US", ...c.client } },
+  };
+  if (name === "TV") body.context.thirdParty = { embedUrl: `https://www.youtube.com/watch?v=${videoId}` };
+  const res = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": c.ua,
+      "X-YouTube-Client-Name": c.id,
+      "X-YouTube-Client-Version": c.version,
+      Origin: "https://www.youtube.com",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw ytErr(`${label}: player HTTP ${res.status}`);
+  const data = await res.json();
+  return await captionsFromPlayerResponse(data, label, c.ua, wantLang, videoId);
+}
+
+async function captionsViaWatchPage(videoId, wantLang, delayMs) {
+  if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+  const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+  const res = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=en&has_verified=1&bpctr=9999999999`, {
+    headers: { "User-Agent": ua, "Accept-Language": "en-US,en;q=0.9", Cookie: "CONSENT=YES+1; SOCS=CAI" },
+  });
+  if (!res.ok) throw ytErr(`watch: HTTP ${res.status}`);
+  const html = await res.text();
+  const jsonStr = extractJsonAfter(html, "ytInitialPlayerResponse");
+  if (!jsonStr) throw ytErr("watch: player response not found");
+  return await captionsFromPlayerResponse(JSON.parse(jsonStr), "watch", ua, wantLang, videoId);
+}
+
+async function captionsFromPlayerResponse(data, label, ua, wantLang, videoId) {
+  const status = data?.playabilityStatus?.status || "";
+  if (status !== "OK") {
+    const reason = String(data?.playabilityStatus?.reason || "").slice(0, 70);
+    throw ytErr(`${label}: ${status || "no playability"}${reason ? ` (${reason})` : ""}`);
+  }
+  const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+  if (!tracks || !tracks.length) throw ytErr(`${label}: no caption tracks`, true);
 
   const track = pickCaptionTrack(tracks, wantLang);
-  const sep = track.baseUrl.includes("?") ? "&" : "?";
-  const capRes = await fetch(`${track.baseUrl}${sep}fmt=json3`);
-  if (!capRes.ok) throw new Error("دریافتِ متنِ زیرنویس ناموفق بود");
-  const capJson = await capRes.json();
-
-  const cues = (capJson.events || [])
-    .filter((e) => e.segs && e.segs.length)
-    .map((e) => ({
-      start: Math.round(e.tStartMs || 0) / 1000,
-      end: Math.round((e.tStartMs || 0) + (e.dDurationMs || 0)) / 1000,
-      text: e.segs.map((s) => s.utf8 || "").join("").replace(/\n/g, " ").trim(),
-    }))
-    .filter((c) => c.text);
-
-  if (!cues.length) throw new Error("زیرنویسِ این ویدیو خالی برگشت");
+  const clean = track.baseUrl.replace(/[&?]fmt=[^&]*/g, "");
+  let cues = [];
+  let why = "";
+  for (const url of [`${clean}&fmt=json3`, clean]) {
+    const capRes = await fetch(url, { headers: { "User-Agent": ua, "Accept-Language": "en-US,en;q=0.9" } });
+    if (!capRes.ok) { why = `timedtext HTTP ${capRes.status}`; continue; }
+    const text = await capRes.text();
+    if (!text.trim()) { why = "timedtext empty (needs PO token?)"; continue; }
+    cues = parseCaptionBody(text);
+    if (cues.length) break;
+    why = "timedtext unparsable";
+  }
+  if (!cues.length) throw ytErr(`${label}: ${why}`);
 
   return {
     ok: true,
@@ -203,40 +306,51 @@ async function fetchYoutubeCaptions(videoId, wantLang) {
   };
 }
 
-async function fetchCaptionTracksViaInnertube(videoId) {
-  const INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
-  const res = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      videoId,
-      context: {
-        client: { clientName: "WEB", clientVersion: "2.20240401.01.00", hl: "en", gl: "US" },
-      },
-    }),
-  });
-  if (!res.ok) throw new Error(`innertube status ${res.status}`);
-  const data = await res.json();
-  return data?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
+function decodeXmlEntities(s) {
+  let out = s;
+  for (let i = 0; i < 2 && out.includes("&"); i++) {
+    out = out
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+      .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+      .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&");
+  }
+  return out;
 }
 
-async function fetchCaptionTracksViaWatchPage(videoId) {
-  const res = await fetch(
-    `https://www.youtube.com/watch?v=${videoId}&hl=en&has_verified=1&bpctr=9999999999`,
-    {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
+// json3 یا XML (srv1: <text start dur>، srv3: <p t d>)
+function parseCaptionBody(text) {
+  const t = text.trim();
+  if (t.startsWith("{")) {
+    try {
+      const j = JSON.parse(t);
+      return (j.events || [])
+        .filter((e) => e.segs && e.segs.length)
+        .map((e) => ({
+          start: Math.round(e.tStartMs || 0) / 1000,
+          end: Math.round((e.tStartMs || 0) + (e.dDurationMs || 0)) / 1000,
+          text: e.segs.map((s) => s.utf8 || "").join("").replace(/\n/g, " ").trim(),
+        }))
+        .filter((c) => c.text);
+    } catch {
+      /* می‌افتیم رو XML */
     }
-  );
-  if (!res.ok) throw new Error(`watch page status ${res.status}`);
-  const html = await res.text();
-  const jsonStr = extractJsonAfter(html, "ytInitialPlayerResponse");
-  if (!jsonStr) throw new Error("player response not found");
-  const data = JSON.parse(jsonStr);
-  return data?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
+  }
+  const out = [];
+  const clean = (raw) => decodeXmlEntities(raw.replace(/<[^>]+>/g, "")).replace(/\n/g, " ").trim();
+  let m;
+  const v3 = /<p\s+t="(\d+)"(?:\s+d="(\d+)")?[^>]*>([\s\S]*?)<\/p>/g;
+  while ((m = v3.exec(t))) {
+    const st = parseInt(m[1], 10), du = m[2] ? parseInt(m[2], 10) : 0, tx = clean(m[3]);
+    if (tx) out.push({ start: st / 1000, end: (st + du) / 1000, text: tx });
+  }
+  if (out.length) return out;
+  const v1 = /<text\s+start="([\d.]+)"(?:\s+dur="([\d.]+)")?[^>]*>([\s\S]*?)<\/text>/g;
+  while ((m = v1.exec(t))) {
+    const st = parseFloat(m[1]), du = m[2] ? parseFloat(m[2]) : 0, tx = clean(m[3]);
+    if (tx) out.push({ start: st, end: st + du, text: tx });
+  }
+  return out;
 }
 
 function extractJsonAfter(html, marker) {
