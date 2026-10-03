@@ -20,6 +20,7 @@ import RangeSliderFilter from "./RangeSliderFilter.jsx";
 import { LINGOVA_CHARACTERS, LINGOVA_CHARACTER_KEYS } from "./LINGOVA_CHARACTERS.js";
 import { isNativeTtsAvailable, isNativeTtsReady, refreshNativeTtsStatus } from "./nativeTts.js";
 import { nativeSpeak, nativeStop, nativePrefetch, nativeWarm, nativeWarmAll } from "./nativeTtsFast.js";
+import { isNativeAuthAvailable, nativeGoogleSignIn, setupNativeAuthListener } from "./nativeAuth.js";
 
 // پیامِ فارسی/عربی وقتی اینترنت نیست یا پخشِ آنلاین شکست خورد: راهِ حل = مدلِ آفلاین
 const TTS_NEED_MODEL_MSG = "اینترنت در دسترس نیست — مدل صدا را از تنظیمات دانلود کن تا بدون اینترنت هم بخواند";
@@ -22530,6 +22531,18 @@ function LoginScreen({ onAuthenticated, uiLang = "fa" }) {
   async function handleGoogleSignIn() {
     setError("");
     setGoogleBusy(true);
+    // داخل اپ اندروید: ورود توی مرورگرِ سیستم انجام می‌شه و با deep link
+    // (com.linglearn.app://login-callback) به خودِ اپ برمی‌گرده.
+    if (isNativeAuthAvailable()) {
+      try {
+        await nativeGoogleSignIn(supabase);
+      } catch (e) {
+        setError(tr("googleSignInFailed", uiLang) + (e?.message || tr("tryAgain", uiLang)));
+      }
+      // اپ توی پس‌زمینه می‌ره؛ دکمه رو آزاد می‌کنیم تا اگه کاربر برگشت دوباره بتونه بزنه
+      setTimeout(() => setGoogleBusy(false), 2500);
+      return;
+    }
     try {
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -23709,9 +23722,11 @@ export default function App() {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     });
+    const cleanupNativeAuth = setupNativeAuthListener(supabase);
     return () => {
       active = false;
       sub?.subscription?.unsubscribe();
+      cleanupNativeAuth();
     };
   }, []);
 
