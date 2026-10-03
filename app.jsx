@@ -11065,14 +11065,14 @@ function fmtYtTime(sec) {
   return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-function YtSavedViewer({ entry, uiLang, onClose, onToStory }) {
+function YtSavedViewer({ entry, uiLang, onClose, onToStory, nativeLang, nativeLabel, aiSettings }) {
   const en = uiLang === "en";
   const lines = entry.ytLines || [];
   const hasUrl = !!entry.ytUrl;
   const linkAt = (t) => `${entry.ytUrl}${entry.ytUrl.includes("?") ? "&" : "?"}t=${Math.floor(t || 0)}`;
   const rtl = (code) => code === "fa" || code === "ar" || code === "ur" || code === "he";
   return createPortal(
-    <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(28,37,65,0.55)", display: "flex", alignItems: "flex-end" }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 9990, background: "rgba(28,37,65,0.55)", display: "flex", alignItems: "flex-end" }} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         style={{ background: "white", width: "100%", maxHeight: "92%", borderRadius: "18px 18px 0 0", display: "flex", flexDirection: "column", overflow: "hidden" }}
@@ -11116,9 +11116,24 @@ function YtSavedViewer({ entry, uiLang, onClose, onToStory }) {
                   {fmtYtTime(l.t)}
                 </button>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 13.5, margin: 0, direction: rtl(entry.storyLang) ? "rtl" : "ltr", textAlign: rtl(entry.storyLang) ? "right" : "left" }}>{l.s}</p>
+                  {/* هر لغت قابلِ تپ است (کادرِ معنی + ذخیره برای داستان بعدی / گرامر / جعبه‌ی لایتنر)؛ انتخابِ محدوده هم از طریقِ data-lang-code کار می‌کند */}
+                  <div className="flex items-start gap-1" style={{ direction: "ltr" }}>
+                    <SpeakButton text={l.s} code={entry.storyLang || "en"} color={colors.teal} neuralLabel="جمله" />
+                    <div style={{ fontSize: 13.5, margin: 0, flex: 1, minWidth: 0, direction: rtl(entry.storyLang) ? "rtl" : "ltr", textAlign: rtl(entry.storyLang) ? "right" : "left" }}>
+                      <ClickableSentence
+                        text={l.s}
+                        langCode={entry.storyLang || "en"}
+                        nativeLang={nativeLang || "fa"}
+                        nativeLabel={nativeLabel}
+                        aiSettings={aiSettings}
+                        color={colors.ink}
+                        fontSize={13.5}
+                        originExtra={{ via: "yt-saved" }}
+                      />
+                    </div>
+                  </div>
                   {Object.entries(l.tr || {}).map(([code, text]) => (
-                    <p key={code} style={{ fontSize: 12.5, color: colors.inkSoft, margin: "3px 0 0", direction: rtl(code) ? "rtl" : "ltr", textAlign: rtl(code) ? "right" : "left" }}>
+                    <p key={code} data-lang-code={code} style={{ fontSize: 12.5, color: colors.inkSoft, margin: "3px 0 0", direction: rtl(code) ? "rtl" : "ltr", textAlign: rtl(code) ? "right" : "left" }}>
                       <span style={{ fontSize: 9.5, fontWeight: 700, opacity: 0.7, marginInlineEnd: 6 }}>{code.toUpperCase()}</span>{text}
                     </p>
                   ))}
@@ -14503,6 +14518,9 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
         <YtSavedViewer
           entry={ytViewEntry}
           uiLang={uiLang}
+          nativeLang={nativeLang}
+          nativeLabel={nativeLabel}
+          aiSettings={aiSettings}
           onClose={() => setYtViewEntry(null)}
           onToStory={() => {
             handleImportYoutubeCuesToStory({
