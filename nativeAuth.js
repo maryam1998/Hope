@@ -106,6 +106,35 @@ export function setupNativeAuthListener(supabase, onError) {
 }
 
 
+
+// نوارِ عیب‌یابیِ کوچک: فقط اسمِ پارامترها رو نشون می‌ده (نه مقدارِ توکن‌ها).
+function showAuthDebugBanner() {
+  try {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    if (getPlugin()) return;
+    const loc = window.location;
+    const hashKeys = Object.keys(parseCallback("#" + (loc.hash || "").replace(/^#/, "")));
+    const queryKeys = Object.keys(parseCallback("?" + (loc.search || "").replace(/^\?/, "")));
+    const p = parseCallback(loc.href);
+    const interesting =
+      /[?&]from_app=1(&|$)/.test(loc.search || "") ||
+      p.access_token || p.code || p.error || p.error_description;
+    if (!interesting) return;
+    const b = document.createElement("div");
+    b.style.cssText =
+      "position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#111;color:#0f0;" +
+      "font:11px/1.5 monospace;padding:6px 8px;direction:ltr;text-align:left;word-break:break-all;";
+    b.textContent =
+      "[LL-auth v3] from_app=" + (/[?&]from_app=1(&|$)/.test(loc.search || "") ? "yes" : "no") +
+      " | hash keys: " + (hashKeys.join(",") || "-") +
+      " | query keys: " + (queryKeys.join(",") || "-") +
+      (p.error || p.error_description ? " | error: " + (p.error_description || p.error) : "");
+    b.onclick = () => { try { b.remove(); } catch (_) {} };
+    document.body.appendChild(b);
+    setTimeout(() => { try { b.remove(); } catch (_) {} }, 120000);
+  } catch (_) {}
+}
+
 // ------------------------------------------------------------
 // سمتِ مرورگر (نه داخل اپ): وقتی بعد از ورود با گوگل به
 // .../Hope/?from_app=1 برمی‌گردیم، یک صفحه‌ی تمام‌صفحه نشون می‌دیم که
@@ -116,6 +145,7 @@ export function setupNativeAuthListener(supabase, onError) {
   try {
     if (typeof window === "undefined" || typeof document === "undefined") return;
     if (getPlugin()) return; // داخل خودِ اپ نیازی نیست
+    showAuthDebugBanner();
     const loc = window.location;
     if (!/[?&]from_app=1(&|$)/.test(loc.search || "")) return;
 
