@@ -97,6 +97,34 @@ export default {
       }
     }
 
+    // 📺 ترجمه‌ی زیرنویس یوتیوب به‌صورت chunk (چند خط + جمله‌های همسایه به‌عنوان زمینه)
+    if (url.pathname === "/api/translate-subtitles" && request.method === "POST") {
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "Invalid JSON body" }, 400);
+      }
+      try {
+        return json(await translateSubtitleChunk(body, env));
+      } catch (e) {
+        return json({ error: e.message || "subtitle translation failed" }, 502);
+      }
+    }
+
+    // 📺 وقتی MediaSession آی‌دی ویدیو نمی‌ده، از روی عنوان (+مدت و کانال) آی‌دی رو پیدا می‌کنه
+    if (url.pathname === "/api/youtube-resolve" && request.method === "GET") {
+      const title = (url.searchParams.get("title") || "").trim();
+      const channel = (url.searchParams.get("channel") || "").trim();
+      const durationSec = Number(url.searchParams.get("durationSec") || 0) || 0;
+      if (!title) return json({ error: "title is required" }, 400);
+      try {
+        return json(await resolveYoutubeVideoId(title, channel, durationSec));
+      } catch (e) {
+        return json({ error: e.message || "could not resolve video" }, 502);
+      }
+    }
+
     if (url.pathname === "/api/generate" && request.method === "POST") {
       let body;
       try {
@@ -251,6 +279,145 @@ function pickCaptionTrack(tracks, wantLang) {
     tracks.find((t) => t.kind !== "asr") ||
     tracks[0]
   );
+}
+
+// --- ترجمه‌ی chunk به chunk‌ِ زیرنویس (برای حالت یوتیوبِ حباب) --------------
+// ورودی: { subtitles: [متنِ هر خط], context_before: [...], context_after: [...],
+//          content_title, source_language, target_language, translation_tone }
+// خروجی: { ok: true, translations: [...] } — دقیقاً به تعدادِ subtitles.
+// جمله‌های همسایه فقط برای فهمیدنِ معنی داده می‌شن و ترجمه نمی‌شن؛ همین باعث
+// می‌شه ترجمه‌ی خط‌های نیمه‌کاره (که یوتیوب وسطِ جمله می‌بره) دقیق‌تر بشه.
+async function translateSubtitleChunk(body, env) {
+  const subs = Array.isArray(body?.subtitles)
+    ? body.subtitles.map((s) => (typeof s === "string" ? s : String(s?.text ?? "")))
+    : [];
+  if (!subs.length) throw new Error("subtitles (array) is required");
+  if (subs.length > 20) throw new Error("too many subtitles in one chunk");
+
+  const cleanList = (a) =>
+    (Array.isArray(a) ? a : []).map((s) => String(s ?? "").slice(0, 300)).filter(Boolean).slice(0, 6);
+  const before = cleanList(body.context_before);
+  const after = cleanList(body.context_after);
+  const srcName = String(body.source_language || "the source language").slice(0, 40);
+  const tgtName = String(body.target_language || "").slice(0, 40);
+  if (!tgtName) throw new Error("target_language is required");
+  const title = String(body.content_title || "").slice(0, 160);
+  const tone = String(body.translation_tone || "neutral").toLowerCase();
+
+  let toneRule = "Use natural, neutral spoken language.";
+  if (tone === "formal") toneRule = "Use a formal, polite register.";
+  else if (tone === "casual") toneRule = "Use a casual, everyday spoken register.";
+
+  const prompt =
+    `You are a professional subtitle translator. Translate every subtitle line from ${srcName} to ${tgtName}.\n` +
+    `Rules:\n` +
+    `- Output ONLY a JSON array of exactly ${subs.length} strings, in the same order as the input. No markdown, no commentary.\n` +
+    `- Item N of the output is the translation of item N of the input. Never merge or split lines, even if a sentence continues on the next line.\n` +
+    `- ${toneRule}\n` +
+    `- The context lines are ONLY for understanding the meaning; do NOT translate or output them.\n` +
+    (title ? `\nVideo title: ${title}\n` : "\n") +
+    (before.length ? `Context before (do not translate): ${JSON.stringify(before)}\n` : "") +
+    `Subtitle lines to translate: ${JSON.stringify(subs)}\n` +
+    (after.length ? `Context after (do not translate): ${JSON.stringify(after)}\n` : "");
+
+  const maxTokens = Math.min(Math.max(600, subs.join("").length * 4 + 300), 4000);
+  const chain = getProviderChain(env);
+  const errors = [];
+  for (const provider of chain) {
+    try {
+      const raw = await callProvider(provider, prompt, maxTokens, env);
+      const arr = parseJsonStringArray(raw);
+      if (!arr || arr.length !== subs.length) {
+        throw new Error(`bad shape (${arr ? arr.length : "no array"} vs ${subs.length})`);
+      }
+      return { ok: true, provider, translations: arr };
+    } catch (e) {
+      errors.push(`${provider}: ${e.message}`);
+    }
+  }
+  throw new Error(errors.join(" | ") || "no provider available");
+}
+
+function parseJsonStringArray(raw) {
+  if (typeof raw !== "string") return null;
+  const a = raw.indexOf("[");
+  const b = raw.lastIndexOf("]");
+  if (a === -1 || b <= a) return null;
+  try {
+    const arr = JSON.parse(raw.slice(a, b + 1));
+    if (!Array.isArray(arr)) return null;
+    return arr.map((x) => (typeof x === "string" ? x.trim() : String(x ?? "").trim()));
+  } catch {
+    return null;
+  }
+}
+
+// --- پیدا کردنِ آی‌دیِ ویدیو از روی عنوان (جست‌وجوی innertube) -----------------
+async function resolveYoutubeVideoId(title, channel, durationSec) {
+  const INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
+  const res = await fetch(`https://www.youtube.com/youtubei/v1/search?key=${INNERTUBE_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      query: channel ? `${title} ${channel}` : title,
+      context: { client: { clientName: "WEB", clientVersion: "2.20240401.01.00", hl: "en", gl: "US" } },
+    }),
+  });
+  if (!res.ok) throw new Error(`search status ${res.status}`);
+  const data = await res.json();
+
+  const found = [];
+  const walk = (node, depth) => {
+    if (!node || depth > 14 || found.length > 40) return;
+    if (Array.isArray(node)) {
+      for (const n of node) walk(n, depth + 1);
+      return;
+    }
+    if (typeof node !== "object") return;
+    if (node.videoRenderer && node.videoRenderer.videoId) found.push(node.videoRenderer);
+    for (const k of Object.keys(node)) walk(node[k], depth + 1);
+  };
+  walk(data, 0);
+  if (!found.length) throw new Error("no search results");
+
+  const norm = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const wantTitle = norm(title);
+  const wantChannel = norm(channel);
+  const toSec = (t) => {
+    const parts = String(t || "").split(":").map((x) => parseInt(x, 10));
+    if (!parts.length || parts.some((n) => Number.isNaN(n))) return 0;
+    return parts.reduce((acc, n) => acc * 60 + n, 0);
+  };
+
+  let best = null;
+  let bestScore = -1;
+  for (const v of found) {
+    const vTitle = norm((v.title?.runs || []).map((r) => r.text).join("") || v.title?.simpleText);
+    const vChannel = norm((v.ownerText?.runs || []).map((r) => r.text).join(""));
+    const vSec = toSec(v.lengthText?.simpleText);
+    let score = 0;
+    if (vTitle === wantTitle) score += 6;
+    else if (vTitle && (vTitle.includes(wantTitle) || wantTitle.includes(vTitle))) score += 3;
+    if (wantChannel && vChannel && (vChannel === wantChannel || vChannel.includes(wantChannel) || wantChannel.includes(vChannel))) score += 2;
+    if (durationSec > 0 && vSec > 0) {
+      const diff = Math.abs(vSec - durationSec);
+      if (diff <= 2) score += 5;
+      else if (diff <= 6) score += 2;
+      else score -= 3;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = v;
+    }
+  }
+  // بدونِ هیچ نشانه‌ی قابل‌اعتمادی (عنوان یا مدت) حدس نمی‌زنیم؛ زیرنویسِ ویدیوی اشتباه بدتر از بی‌زیرنویسیه.
+  if (!best || bestScore < 3) throw new Error("could not confidently match the video");
+  return {
+    ok: true,
+    videoId: best.videoId,
+    title: (best.title?.runs || []).map((r) => r.text).join("") || best.title?.simpleText || "",
+    score: bestScore,
+  };
 }
 
 // --- Hugging Face TTS (فارسی/عربی) -------------------------------------------
