@@ -2289,6 +2289,9 @@ const SAVED_STORIES_SORT_OPTIONS = [
 ];
 
 function getStoryWordCount(entry) {
+  if (Array.isArray(entry?.ytLines)) {
+    return entry.ytLines.reduce((n, l) => n + ((l?.s || "").trim().split(/\s+/).filter(Boolean).length), 0);
+  }
   const paragraphs = entry?.paragraphs || [];
   let count = 0;
   for (const p of paragraphs) {
@@ -11045,12 +11048,101 @@ function PlayerBarStorySwitch({ ua }) {
   );
 }
 
+// 📺 نمایشگرِ «زیرنویسِ ذخیره‌شده‌ی یوتیوب» — خط‌های ذخیره‌شده از حباب (متنِ اصلی + ترجمه‌ها) و
+// لینکِ ویدیو. زمانِ هر خط لینکِ همون ثانیه از ویدیو رو باز می‌کنه.
+function openExternalLink(url) {
+  try {
+    const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin;
+    if (B && B.openExternal) { B.openExternal({ url }).catch(() => window.open(url, "_blank")); return; }
+  } catch (e) { /* ignore */ }
+  window.open(url, "_blank");
+}
+
+function fmtYtTime(sec) {
+  const t = Math.max(0, Math.floor(sec || 0));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), r = t % 60;
+  const mm = String(m).padStart(h ? 2 : 1, "0"), ss = String(r).padStart(2, "0");
+  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function YtSavedViewer({ entry, uiLang, onClose, onToStory }) {
+  const en = uiLang === "en";
+  const lines = entry.ytLines || [];
+  const hasUrl = !!entry.ytUrl;
+  const linkAt = (t) => `${entry.ytUrl}${entry.ytUrl.includes("?") ? "&" : "?"}t=${Math.floor(t || 0)}`;
+  const rtl = (code) => code === "fa" || code === "ar" || code === "ur" || code === "he";
+  return createPortal(
+    <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(28,37,65,0.55)", display: "flex", alignItems: "flex-end" }} onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: "white", width: "100%", maxHeight: "92%", borderRadius: "18px 18px 0 0", display: "flex", flexDirection: "column", overflow: "hidden" }}
+      >
+        <div style={{ padding: "12px 14px", borderBottom: `1px solid ${colors.cardBorder}` }}>
+          <div className="flex items-center justify-between" style={{ gap: 8 }}>
+            <p style={{ fontWeight: 700, fontSize: 14, margin: 0, flex: 1, minWidth: 0 }} dir="auto">{hasUrl ? "▶" : "🎙"} {entry.title || "YouTube"}</p>
+            <button onClick={onClose} aria-label={en ? "Close" : "بستن"}><X size={20} color={colors.inkSoft} /></button>
+          </div>
+          {entry.ytChannel && <p style={{ fontSize: 11.5, color: colors.inkSoft, margin: "2px 0 0" }} dir="auto">{entry.ytChannel}</p>}
+          <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+            {hasUrl && <button
+              onClick={() => openExternalLink(entry.ytUrl)}
+              style={{ fontSize: 12, fontWeight: 700, color: "white", background: colors.teal, borderRadius: 8, padding: "6px 12px" }}
+            >
+              {en ? "Open video" : "باز کردن ویدیو"}
+            </button>}
+            {hasUrl && <button
+              onClick={() => { try { navigator.clipboard && navigator.clipboard.writeText(entry.ytUrl); } catch (e) { /* ignore */ } }}
+              style={{ fontSize: 12, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 8, padding: "6px 12px", background: "white" }}
+            >
+              {en ? "Copy link" : "کپی لینک"}
+            </button>}
+            <button
+              onClick={onToStory}
+              style={{ fontSize: 12, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 8, padding: "6px 12px", background: "white" }}
+            >
+              {en ? "Read as story" : "خوانش به‌عنوان داستان"}
+            </button>
+          </div>
+          {hasUrl && <p style={{ fontSize: 11, color: colors.inkSoft, margin: "6px 0 0", direction: "ltr", textAlign: "left", wordBreak: "break-all" }}>{entry.ytUrl}</p>}
+        </div>
+        <div style={{ overflowY: "auto", padding: "8px 14px 18px" }}>
+          {lines.map((l, i) => (
+            <div key={i} style={{ padding: "8px 0", borderBottom: `1px solid ${colors.cardBorder}` }}>
+              <div className="flex items-start gap-2">
+                <button
+                  onClick={() => hasUrl && openExternalLink(linkAt(l.t))}
+                  style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: colors.teal, background: colors.goldSoft, borderRadius: 6, padding: "2px 6px", direction: "ltr" }}
+                >
+                  {fmtYtTime(l.t)}
+                </button>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 13.5, margin: 0, direction: rtl(entry.storyLang) ? "rtl" : "ltr", textAlign: rtl(entry.storyLang) ? "right" : "left" }}>{l.s}</p>
+                  {Object.entries(l.tr || {}).map(([code, text]) => (
+                    <p key={code} style={{ fontSize: 12.5, color: colors.inkSoft, margin: "3px 0 0", direction: rtl(code) ? "rtl" : "ltr", textAlign: rtl(code) ? "right" : "left" }}>
+                      <span style={{ fontSize: 9.5, fontWeight: 700, opacity: 0.7, marginInlineEnd: 6 }}>{code.toUpperCase()}</span>{text}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 // متنِ کاملِ یه داستانِ ذخیره‌شده رو از روی paragraphs می‌سازه — دقیقاً با
 // همون منطقِ fullStoryText/allSentences که داخلِ خودِ StoryBuilder برای
 // داستانِ فعلی استفاده می‌شه؛ اینجا برای این لازمه که بتونیم، بدونِ باز
 // کردنِ هر داستان، کلیدِ صوتِ آپلودیِ اون رو (که بر اساسِ متن ساخته می‌شه)
 // حساب کنیم و بفهمیم آیا صدایی براش ذخیره شده یا نه.
 function getStoryEntryFullText(entry) {
+  // 📺 زیرنویسِ ذخیره‌شده از حبابِ یوتیوب: متنِ منبعِ همه‌ی خط‌ها (+ترجمه‌ها برای جستجو)
+  if (entry && Array.isArray(entry.ytLines)) {
+    return entry.ytLines.map((l) => l?.s || "").join(" ");
+  }
   if (!entry || !Array.isArray(entry.paragraphs)) return "";
   return entry.paragraphs
     .flatMap((p) => (p?.sentences || []).map((s) => s?.text || ""))
@@ -11642,6 +11734,76 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
   // می‌شه) به کاربر می‌گه کدوم لغت چند بار واقعاً استفاده شده.
   const [repeatNotice, setRepeatNotice] = useState("");
   const [showSaved, setShowSaved] = useState(false);
+  // 📺 زیرنویس‌های ذخیره‌شده از حبابِ یوتیوب (فقط اندروید): حباب تو یه صفِ بومی می‌نویسه، اینجا وارد
+  // «داستان‌های ذخیره‌شده» می‌شه. ذخیره‌ی دوباره‌ی همون ویدیو، خط‌ها رو ادغام می‌کنه (نه کپیِ تکراری).
+  const [ytViewEntry, setYtViewEntry] = useState(null);
+  const ytImportBusyRef = useRef(false);
+  const importYtSaved = useCallback(async () => {
+    const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin;
+    if (!B || !B.ytSavedList || ytImportBusyRef.current) return;
+    ytImportBusyRef.current = true;
+    try {
+      const res = await B.ytSavedList();
+      const items = (res && res.items) || [];
+      if (!items.length) return;
+      setSavedStories((prev) => {
+        let next = [...prev];
+        for (const it of items) {
+          const lines = (it.lines || []).filter((l) => l && l.s);
+          if (!lines.length) continue;
+          const at = next.findIndex((x) => x.ytKey === it.key);
+          if (at >= 0) {
+            const old = next[at];
+            const byT = new Map();
+            for (const l of old.ytLines || []) byT.set(Math.round((l.t || 0) * 1000), l);
+            for (const l of lines) {
+              const k = Math.round((l.t || 0) * 1000);
+              const o = byT.get(k);
+              byT.set(k, { ...l, tr: { ...((o && o.tr) || {}), ...(l.tr || {}) } });
+            }
+            const merged = [...byT.values()].sort((a, b) => (a.t || 0) - (b.t || 0));
+            next[at] = { ...old, ytLines: merged, ytTargets: it.targets || old.ytTargets, savedAt: it.savedAt || old.savedAt };
+          } else {
+            let level = "B1";
+            try { level = detectTextCEFRLevel(lines.map((l) => l.s).join(" ")) || level; } catch (e) { /* ignore */ }
+            next = [{
+              id: Number(it.rev) || Date.now(),
+              ytSession: true,
+              ytKey: it.key,
+              ytLive: !!it.live,
+              ytVideoId: it.videoId || "",
+              ytUrl: it.url || "",
+              ytChannel: it.channel || "",
+              ytTargets: it.targets || [],
+              ytLines: lines,
+              title: it.title || (it.live ? "ترجمه‌ی زنده" : ""),
+              storyLang: it.lang || "en",
+              storyLevel: level,
+              contentType: "general",
+              storyLength: "medium",
+              selectedWords: [],
+              paragraphs: [],
+              questions: [],
+              savedAt: it.savedAt || new Date().toISOString(),
+            }, ...next];
+          }
+        }
+        return next;
+      });
+      try { await B.ytSavedAck({ items: items.map((it) => ({ key: it.key, rev: it.rev })) }); } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* بدونِ پلاگین/خطا: چیزی برای وارد کردن نیست */
+    } finally {
+      ytImportBusyRef.current = false;
+    }
+  }, [setSavedStories]);
+  useEffect(() => {
+    importYtSaved();
+    const onVis = () => { if (!document.hidden) importYtSaved(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [importYtSaved]);
+  useEffect(() => { if (showSaved) importYtSaved(); }, [showSaved, importYtSaved]);
   // فیلترِ سطح برای لیستِ «داستان‌های ذخیره‌شده» — دقیقاً همون الگوی
   // LevelFilterRow که بقیه‌ی تب‌ها (واژگان، عبارت‌ها و ...) دارن؛ هر داستان
   // از قبل با سطحِ خودش (storyLevel) ذخیره می‌شه، این فیلتر فقط برای پیداکردن
@@ -14255,6 +14417,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
   };
 
   const openSavedStory = (entry) => {
+    if (entry.ytSession) { setYtViewEntry(entry); return; }
     // 🆕 داستان‌های ذخیره‌شده‌ای که از «PDF رو با عکسِ اصلی + ترجمه همینجا
     // نشون بده» اومدن، فقط یه اشاره‌گر (pdfDocId) به سندِ واقعی‌شون تو
     // IndexedDBِ خودِ PDFها نگه می‌دارن (نه خودِ تصاویر/صفحات — که خیلی
@@ -14336,6 +14499,21 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
 
   return (
     <div className="flex flex-col gap-4">
+      {ytViewEntry && (
+        <YtSavedViewer
+          entry={ytViewEntry}
+          uiLang={uiLang}
+          onClose={() => setYtViewEntry(null)}
+          onToStory={() => {
+            handleImportYoutubeCuesToStory({
+              cues: (ytViewEntry.ytLines || []).map((l) => ({ text: l.s })),
+              subtitleLang: ytViewEntry.storyLang,
+            });
+            setYtViewEntry(null);
+            setShowSaved(false);
+          }}
+        />
+      )}
       <div className="flex items-center justify-between">
         <p style={{ fontWeight: 700, fontSize: 16, fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{tr("tabStory", uiLang)}</p>
         <div className="flex gap-2">
@@ -14618,8 +14796,13 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                             {s.pdfDocId && (
                               <span title={uiLang === "en" ? "PDF file" : "فایلِ PDF"} style={{ marginLeft: 6 }}>📄</span>
                             )}
+                            {s.ytSession && (
+                              <span title={s.ytLive ? "Live" : "YouTube"} style={{ marginLeft: 6 }}>{s.ytLive ? "🎙" : "▶"}</span>
+                            )}
                             {s.pdfDocId ? (
                               <>PDF{s.pageCount ? ` · ${s.pageCount} ${uiLang === "en" ? "pages" : "صفحه"}` : ""}</>
+                            ) : s.ytSession ? (
+                              <>{s.ytLive ? (uiLang === "en" ? "Live translation" : "ترجمه‌ی زنده") : "YouTube"} · {LANGUAGES.find((l) => l.code === s.storyLang)?.label} · {(s.ytLines || []).length} {uiLang === "en" ? "lines" : "خط"}</>
                             ) : (
                               <>
                                 {LANGUAGES.find((l) => l.code === s.storyLang)?.label} · {s.storyLevel} ·{" "}
