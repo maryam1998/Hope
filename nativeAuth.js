@@ -34,7 +34,7 @@ export async function nativeGoogleSignIn(supabase) {
   if (!plugin) throw new Error("native plugin not available");
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo: WEB_HANDOFF_URL, skipBrowserRedirect: true },
+    options: { redirectTo: NATIVE_AUTH_REDIRECT, skipBrowserRedirect: true },
   });
   if (error) throw error;
   if (!data || !data.url) throw new Error("no OAuth url");
