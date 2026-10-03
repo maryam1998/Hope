@@ -18,7 +18,16 @@ import YouTubeCaptionPanel from "./YouTubeCaptions.jsx";
 const ALL_DAILY_CONVERSATIONS = [...DAILY_CONVERSATIONS, ...(THEMATIC_CONVERSATIONS || [])];
 import RangeSliderFilter from "./RangeSliderFilter.jsx";
 import { LINGOVA_CHARACTERS, LINGOVA_CHARACTER_KEYS } from "./LINGOVA_CHARACTERS.js";
-import { isNativeTtsAvailable, isNativeTtsReady, refreshNativeTtsStatus, nativeSpeak, nativeStop } from "./nativeTts.js";
+import { isNativeTtsAvailable, isNativeTtsReady, refreshNativeTtsStatus } from "./nativeTts.js";
+import { nativeSpeak, nativeStop, nativePrefetch, nativeWarm, nativeWarmAll } from "./nativeTtsFast.js";
+
+// پیامِ فارسی/عربی وقتی اینترنت نیست یا پخشِ آنلاین شکست خورد: راهِ حل = مدلِ آفلاین
+const TTS_NEED_MODEL_MSG = "اینترنت در دسترس نیست — مدل صدا را از تنظیمات دانلود کن تا بدون اینترنت هم بخواند";
+function ttsFailMsg(code) {
+  return code === "fa" || code === "ar"
+    ? TTS_NEED_MODEL_MSG
+    : "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن";
+}
 
 // ---------------------------------------------------------------------------
 // جستجوی یکپارچه‌ی «یا از دیکشنری جستجو کن...» توی داستان‌ساز — به‌جای
@@ -2936,6 +2945,8 @@ const speechController = (() => {
   let ttsError = null;
   // گرم‌کردنِ کشِ وضعیتِ مدلِ Piper برای فارسی/عربی، تا همون اولین تپ هم از موتورِ نیتیو بخونه
   try { if (isNativeTtsAvailable()) ["fa", "ar"].forEach((l) => refreshNativeTtsStatus(l)); } catch (e) {}
+  // همه‌ی زبان‌های دانلودشده توی کشِ سنکرون بشینن (تپِ اول هم از Piper بخونه) + موتورِ آخرین زبان گرم بشه
+  try { if (isNativeTtsAvailable()) nativeWarmAll(refreshNativeTtsStatus); } catch (e) {}
   // --- تکرار سراسری ---------------------------------------------------
   let globalRepeatSetting = (() => {
     const saved = localStorage.getItem("phrasebook-tts-repeat");
@@ -3858,6 +3869,14 @@ const speechController = (() => {
           })
         : nativeSpeak(cleanText, nativeLang, rate);
       const nativeT0 = Date.now();
+      // صدای جمله‌ی بعدی رو همین الان (موقعِ پخشِ این جمله) پیش‌پیش بساز تا بینِ جمله‌ها تأخیر نباشه
+      if (!muted) {
+        const nx = chunks[idx + 1];
+        if (nx && nx.text) {
+          const nxClean = sanitizeForTTS(nx.text);
+          if (nxClean && nxClean.trim()) nativePrefetch(nxClean, nativeLang, rate);
+        }
+      }
 
       played.then((ok) => {
         if (nativeGen !== nativeSpeakGen) return; // لغو/جایگزین شده
@@ -4151,6 +4170,14 @@ const speechController = (() => {
           status = "idle";
           notify();
           return noTtsEngineAtAll ? "no-tts-engine" : "no-local-voice";
+        }
+
+        // فارسی/عربی بدونِ مدلِ آفلاین و بدونِ اینترنت: به‌جای معطل‌شدن روی درخواستِ آنلاین،
+        // همون لحظه پیامِ «مدل رو از تنظیمات دانلود کن» نشون داده می‌شه.
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+          status = "idle";
+          notify();
+          return "offline-need-model";
         }
 
         // مسیر آنلاینِ رایگان — فقط برای فارسی/عربی
@@ -6777,6 +6804,131 @@ function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 🔊 مدل‌های صدای آفلاینِ باکیفیت (Piper) — فقط اندروید (BubblePlugin).
+// تا وقتی مدلِ یه زبان دانلود نشده، همون صدای قبلی خونده می‌شه (TTS خودِ گوشی؛
+// برای فارسی/عربی سرویسِ آنلاین). بعد از دانلود، همون زبان خودکار از مدلِ آفلاین
+// می‌خونه — منطقش توی speakChunk/toggle (isNativeTtsReady) از قبل هست.
+// ---------------------------------------------------------------------------
+function OfflineTtsModelSettings({ uiLang, colors }) {
+  const en = uiLang === "en";
+  const getPlugin = () =>
+    (typeof window !== "undefined" && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin) || null;
+  const isNative = () =>
+    typeof window !== "undefined" && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+
+  // { fa: true/false (دانلود شده؟) } — فقط زبان‌هایی که مدلِ آفلاین دارن
+  const [catalog, setCatalog] = useState({});
+  const [busyLang, setBusyLang] = useState(null);
+  const [progressMb, setProgressMb] = useState(0);
+
+  const refresh = async () => {
+    const plugin = getPlugin();
+    if (!plugin || !plugin.getTtsCatalog) return;
+    try {
+      const r = await plugin.getTtsCatalog();
+      const map = {};
+      ((r && r.languages) || []).forEach((x) => { map[x.lang] = !!x.downloaded; });
+      setCatalog(map);
+      setBusyLang(r && r.downloading && r.downloadingLang ? r.downloadingLang : null);
+    } catch (e) {}
+  };
+
+  useEffect(() => {
+    const plugin = getPlugin();
+    if (!isNative() || !plugin || !plugin.getTtsCatalog) return;
+    refresh();
+    const subs = [
+      plugin.addListener("ttsModelDownloadProgress", (d) => {
+        setProgressMb(Math.round(((d && d.bytes) || 0) / (1024 * 1024)));
+      }),
+      plugin.addListener("ttsModelDownloadDone", (d) => {
+        setProgressMb(0);
+        setBusyLang(null);
+        // کشِ وضعیتِ nativeTts رو همین الان تازه کن تا اولین تپ بعد از دانلود هم از مدلِ آفلاین بخونه
+        try { refreshNativeTtsStatus(d && d.lang); } catch (e) {}
+        try { nativeWarm(d && d.lang); } catch (e) {}
+        refresh();
+      }),
+      plugin.addListener("ttsModelDownloadError", (d) => {
+        alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + (d && d.error));
+        setProgressMb(0);
+        setBusyLang(null);
+        refresh();
+      }),
+    ];
+    return () => {
+      subs.forEach((h) => Promise.resolve(h).then((x) => x && x.remove && x.remove()).catch(() => {}));
+    };
+  }, []);
+
+  const plugin = getPlugin();
+  if (!isNative() || !plugin || !plugin.getTtsCatalog) return null;
+
+  const download = async (lang) => {
+    setBusyLang(lang);
+    setProgressMb(0);
+    try {
+      await plugin.downloadTtsModel({ lang });
+    } catch (e) {
+      alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + ((e && e.message) || e));
+      setBusyLang(null);
+    }
+  };
+  const remove = async (lang) => {
+    if (!confirm(en ? "Delete this voice model?" : "مدل صدای این زبان حذف بشه؟")) return;
+    try { await plugin.deleteTtsModel({ lang }); } catch (e) {}
+    try { refreshNativeTtsStatus(lang); } catch (e) {}
+    refresh();
+  };
+
+  const small = { fontSize: 11, color: colors.inkSoft, lineHeight: 1.6 };
+  const rowBtn = { fontSize: 11.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 10, padding: "5px 10px", flexShrink: 0 };
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 6, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
+        🔊 {en ? "High-quality offline voices" : "صدای آفلاینِ باکیفیت"}
+      </p>
+      <p style={{ ...small, marginBottom: 8 }}>
+        {en
+          ? "Until a language's voice is downloaded, the phone's voice is used (Persian/Arabic use the online service). Once downloaded, that language is read with the offline model — no internet needed. Each voice is roughly 60–110 MB; the first download also fetches a small shared data pack."
+          : "تا وقتی صدای یه زبان دانلود نشده، همون صدای قبلی خونده می‌شه (TTS گوشی؛ برای فارسی و عربی سرویسِ آنلاین). بعد از دانلود، اون زبان بدونِ اینترنت و با مدلِ آفلاین خونده می‌شه. حجمِ هر صدا حدود ۶۰ تا ۱۱۰ مگابایته و دانلودِ اول یه بسته‌ی داده‌ی کوچیکِ مشترک هم می‌گیره."}
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {LANGUAGES.map((l) => {
+          const has = Object.prototype.hasOwnProperty.call(catalog, l.code);
+          const downloaded = has && catalog[l.code];
+          const busy = busyLang === l.code;
+          const name = en ? (ENGLISH_LANG_NAME[l.code] || l.code) : l.label;
+          return (
+            <div
+              key={l.code}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, border: `1px solid ${colors.cardBorder}`, borderRadius: 10, padding: "7px 10px" }}
+            >
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: colors.ink }}>{name}</span>
+              {!has ? (
+                <span style={{ ...small, opacity: 0.8 }}>{en ? "Phone voice only" : "فقط صدای گوشی"}</span>
+              ) : busy ? (
+                <span style={small}>📥 {progressMb} MB</span>
+              ) : downloaded ? (
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={small}>✅ {en ? "Offline" : "آفلاین"}</span>
+                  <button onClick={() => remove(l.code)} style={rowBtn}>🗑</button>
+                </span>
+              ) : (
+                <button onClick={() => download(l.code)} disabled={!!busyLang} style={{ ...rowBtn, opacity: busyLang ? 0.5 : 1 }}>
+                  📥 {en ? "Download" : "دانلود"}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCustomBgChange }) {
   const [offlineModalOpen, setOfflineModalOpen] = useState(false);
   // زبان صدای ورودی برای ترجمه‌ی زنده (روی گوشی ذخیره می‌شه). پیش‌فرض: انگلیسی
@@ -7399,6 +7551,8 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
               بشنوه که زبونش رو گوشی نصب نداره، خودِ دکمه‌ی 🔊 (SpeakButton)
               یه پیامِ کوچیکِ درجا نشون می‌ده (نه اینجا، توی تنظیمات). */}
 
+          <OfflineTtsModelSettings uiLang={uiLang} colors={colors} />
+
           {/* 🎙 ترجمه‌ی زنده‌ی صدا (فقط در اپ اندروید — حباب شناور) */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
             🎙 {uiLang === "en" ? "Live audio translation" : "ترجمه‌ی زنده‌ی صدا"}
@@ -7642,7 +7796,7 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
   // دستی می‌کرد)، پایین‌تر همین‌جا، درست زیرِ همین دکمه/جمله، یه پیغامِ
   // کوچیکِ درجا نشون داده می‌شه (پایین‌تر، errorMsg).
   const errorMsg =
-    localMsg || (state.ttsError && state.ttsError === myKey ? "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن" : null);
+    localMsg || (state.ttsError && state.ttsError === myKey ? ttsFailMsg(code) : null);
 
   const isActive = state.key === myKey && state.status !== "idle";
   const isPlaying = isActive && state.status === "playing";
@@ -7729,7 +7883,9 @@ function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolv
     if (result === "unsupported") {
       setLocalMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
     } else if (result === "error") {
-      setLocalMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
+      setLocalMsg(ttsFailMsg(code));
+    } else if (result === "offline-need-model") {
+      setLocalMsg(TTS_NEED_MODEL_MSG);
     } else if (result === "online-fallback") {
       const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
       setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — فعلاً از اینترنت پخش می‌شه`);
@@ -8307,7 +8463,7 @@ function MainPlayButton({ startText, startCode, resolveStartOffset, sentenceBoun
 
   const myKey = startText ? `${TTS_LOCALE[startCode] || "en-US"}::${startText}` : null;
   const errorMsg =
-    localMsg || (state.ttsError && myKey && state.ttsError === myKey ? "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن" : null);
+    localMsg || (state.ttsError && myKey && state.ttsError === myKey ? ttsFailMsg(startCode) : null);
 
   const handleClick = () => {
     if (isActive) {
@@ -8325,7 +8481,9 @@ function MainPlayButton({ startText, startCode, resolveStartOffset, sentenceBoun
     if (result === "unsupported") {
       setLocalMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
     } else if (result === "error") {
-      setLocalMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
+      setLocalMsg(ttsFailMsg(startCode));
+    } else if (result === "offline-need-model") {
+      setLocalMsg(TTS_NEED_MODEL_MSG);
     } else if (result === "no-local-voice") {
       const langLabel = LANGUAGES.find((l) => l.code === startCode)?.label || startCode;
       setLocalMsg(`صدای ${langLabel} روی گوشیت نصب نیست — از تنظیماتِ گوشی نصبش کن`);
@@ -20366,7 +20524,9 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
             if (result === "unsupported") {
               setPopupSpeakMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
             } else if (result === "error") {
-              setPopupSpeakMsg("پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن");
+              setPopupSpeakMsg(ttsFailMsg(popup.langCode));
+            } else if (result === "offline-need-model") {
+              setPopupSpeakMsg(TTS_NEED_MODEL_MSG);
             } else if (result === "no-local-voice") {
               setPopupSpeakMsg("صدای این زبان روی گوشیت نصب نیست");
             } else if (result === "no-tts-engine") {
@@ -20422,7 +20582,7 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       {(popupSpeakMsg ||
         (speakState.ttsError && speakState.ttsError === `${TTS_LOCALE[popup.langCode] || "en-US"}::${popup.text}`)) && (
         <div style={{ fontSize: 11, color: "#ff9a9a" }}>
-          {popupSpeakMsg || "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن"}
+          {popupSpeakMsg || ttsFailMsg(popup.langCode)}
         </div>
       )}
       </div>
