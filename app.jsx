@@ -6834,9 +6834,15 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
   const [catalog, setCatalog] = useState({});
   // چند زبان می‌تونن هم‌زمان دانلود بشن: { fa: true, en: true }
   const [busyMap, setBusyMap] = useState({});
-  // پیشرفتِ هر زبان به مگابایت: { fa: 12, en: 40 }
+  // پیشرفتِ هر زبان: { fa: { b: بایت, t: کل (یا -1) } }
   const [progressMap, setProgressMap] = useState({});
+  // بخشِ ناتمامِ دانلودشده (بایت) برای دکمه‌ی «ادامه»: { fa: 12345 }
+  const [partialMap, setPartialMap] = useState({});
+  // زبان‌هایی که «توقف» خوردن و منتظرِ بسته‌شدنِ دانلودن
+  const [stoppingMap, setStoppingMap] = useState({});
   const [errorText, setErrorText] = useState("");
+
+  const dropKey = (setter, l) => setter((p) => { const n = { ...p }; delete n[l]; return n; });
 
   const refresh = async () => {
     const plugin = getPlugin();
@@ -6844,11 +6850,21 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
     try {
       const r = await plugin.getTtsCatalog();
       const map = {};
-      ((r && r.languages) || []).forEach((x) => { map[x.lang] = !!x.downloaded; });
+      const partial = {};
+      ((r && r.languages) || []).forEach((x) => {
+        map[x.lang] = !!x.downloaded;
+        if (x.partialBytes > 0) partial[x.lang] = x.partialBytes;
+      });
       setCatalog(map);
+      setPartialMap(partial);
       const busy = {};
       ((r && r.downloadingLangs) || []).forEach((l) => { busy[l] = true; });
       setBusyMap(busy);
+      setStoppingMap((p) => {
+        const n = {};
+        Object.keys(p).forEach((l) => { if (busy[l]) n[l] = true; });
+        return n;
+      });
     } catch (e) {}
   };
 
@@ -6859,25 +6875,34 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
     const subs = [
       plugin.addListener("ttsModelDownloadProgress", (d) => {
         if (!d || !d.lang) return;
-        const mb = Math.round((d.bytes || 0) / (1024 * 1024));
-        setProgressMap((p) => ({ ...p, [d.lang]: mb }));
+        setProgressMap((p) => ({ ...p, [d.lang]: { b: d.bytes || 0, t: d.total || -1 } }));
       }),
       plugin.addListener("ttsModelDownloadDone", (d) => {
         const l = d && d.lang;
         if (l) {
-          setProgressMap((p) => { const n = { ...p }; delete n[l]; return n; });
-          setBusyMap((p) => { const n = { ...p }; delete n[l]; return n; });
+          dropKey(setProgressMap, l);
+          dropKey(setBusyMap, l);
+          dropKey(setStoppingMap, l);
         }
         // کشِ وضعیتِ nativeTts رو همین الان تازه کن تا اولین تپ بعد از دانلود هم از مدلِ آفلاین بخونه
         try { refreshNativeTtsStatus(l); } catch (e) {}
         try { nativeWarm(l); } catch (e) {}
         refresh();
       }),
+      plugin.addListener("ttsModelDownloadCancelled", (d) => {
+        const l = d && d.lang;
+        if (l) {
+          dropKey(setBusyMap, l);
+          dropKey(setStoppingMap, l);
+        }
+        refresh();
+      }),
       plugin.addListener("ttsModelDownloadError", (d) => {
         const l = d && d.lang;
         if (l) {
-          setProgressMap((p) => { const n = { ...p }; delete n[l]; return n; });
-          setBusyMap((p) => { const n = { ...p }; delete n[l]; return n; });
+          dropKey(setProgressMap, l);
+          dropKey(setBusyMap, l);
+          dropKey(setStoppingMap, l);
         }
         setErrorText((en ? "Download failed: " : "دانلود ناموفق بود: ") + (l ? l.toUpperCase() + " — " : "") + ((d && d.error) || ""));
         refresh();
@@ -6902,26 +6927,47 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
 
   const startDownload = async (lang) => {
     setBusyMap((p) => ({ ...p, [lang]: true }));
-    setProgressMap((p) => ({ ...p, [lang]: 0 }));
+    dropKey(setStoppingMap, lang);
     try {
       await plugin.downloadTtsModel({ lang });
     } catch (e) {
       setErrorText((en ? "Download failed: " : "دانلود ناموفق بود: ") + lang.toUpperCase() + " — " + ((e && e.message) || e));
-      setBusyMap((p) => { const n = { ...p }; delete n[lang]; return n; });
+      dropKey(setBusyMap, lang);
     }
   };
   const download = (lang) => { setErrorText(""); startDownload(lang); };
-  // همه‌ی زبان‌هایی که هنوز دانلود نشدن، هم‌زمان شروع می‌شن
+  // همه‌ی زبان‌هایی که هنوز دانلود نشدن (یا نصفه‌ان)، هم‌زمان شروع/ادامه پیدا می‌کنن
   const pendingLangs = Object.keys(catalog).filter((l) => !catalog[l] && !busyMap[l]);
+  const busyLangs = Object.keys(busyMap).filter((l) => busyMap[l]);
   const downloadAll = () => {
     setErrorText("");
     pendingLangs.forEach((l) => { startDownload(l); });
+  };
+  // توقفِ یه دانلود (مثلِ دانلود منیجر): بخشِ دانلودشده می‌مونه و بعداً با «ادامه» از همون‌جا می‌ره
+  const stopOne = async (lang) => {
+    setStoppingMap((p) => ({ ...p, [lang]: true }));
+    try { await plugin.cancelTtsDownload({ lang }); } catch (e) {}
+    setTimeout(refresh, 800);
+  };
+  const stopAll = async () => {
+    const m = {};
+    busyLangs.forEach((l) => { m[l] = true; });
+    setStoppingMap((p) => ({ ...p, ...m }));
+    try { await plugin.cancelAllTtsDownloads(); } catch (e) {}
+    setTimeout(refresh, 800);
   };
   const remove = async (lang) => {
     if (!confirm(en ? "Delete this voice model?" : "مدل صدای این زبان حذف بشه؟")) return;
     try { await plugin.deleteTtsModel({ lang }); } catch (e) {}
     try { refreshNativeTtsStatus(lang); } catch (e) {}
     refresh();
+  };
+  const mbOf = (b) => Math.round((b || 0) / (1024 * 1024));
+  const progressLabel = (lang) => {
+    const pr = progressMap[lang];
+    if (!pr) return "0 MB";
+    if (pr.t > 0) return `${mbOf(pr.b)} / ${mbOf(pr.t)} MB`;
+    return `${mbOf(pr.b)} MB`;
   };
 
   const small = { fontSize: 11, color: colors.inkSoft, lineHeight: 1.6 };
@@ -6945,6 +6991,14 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
           📥 {en ? `Download all (${pendingLangs.length})` : `دانلودِ همه‌ی صداها (${pendingLangs.length})`}
         </button>
       )}
+      {busyLangs.length > 0 && (
+        <button
+          onClick={stopAll}
+          style={{ ...rowBtn, width: "100%", marginBottom: 8, padding: "9px 10px", fontSize: 12.5 }}
+        >
+          ⏹ {en ? `Stop all (${busyLangs.length})` : `توقفِ همه (${busyLangs.length})`}
+        </button>
+      )}
       {errorText ? (
         <p style={{ ...small, color: "#b00020", marginBottom: 8 }}>{errorText}</p>
       ) : null}
@@ -6963,7 +7017,14 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
               {!has ? (
                 <span style={{ ...small, opacity: 0.8 }}>{en ? "Phone voice only" : "فقط صدای گوشی"}</span>
               ) : busy ? (
-                <span style={small}>📥 {progressMap[l.code] || 0} MB</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={small}>
+                    {stoppingMap[l.code] ? (en ? "⏳ Stopping…" : "⏳ در حال توقف…") : `📥 ${progressLabel(l.code)}`}
+                  </span>
+                  {!stoppingMap[l.code] && (
+                    <button onClick={() => stopOne(l.code)} style={rowBtn} aria-label={en ? "Stop" : "توقف"}>⏹</button>
+                  )}
+                </span>
               ) : downloaded ? (
                 <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={small}>✅ {en ? "Offline" : "آفلاین"}</span>
@@ -6971,7 +7032,9 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
                 </span>
               ) : (
                 <button onClick={() => download(l.code)} style={rowBtn}>
-                  📥 {en ? "Download" : "دانلود"}
+                  {partialMap[l.code] > 0
+                    ? `▶ ${en ? "Resume" : "ادامه"} (${mbOf(partialMap[l.code])} MB)`
+                    : `📥 ${en ? "Download" : "دانلود"}`}
                 </button>
               )}
             </div>
