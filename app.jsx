@@ -18736,6 +18736,88 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
     };
   }, [nativeLang]);
 
+  // 🔖 لغت/عبارت‌هایی که کاربر از پنلِ شناورِ «ترجمه‌ی زنده / زیرنویس یوتیوب» (فقط اندروید) زده:
+  // پنل تو یه صفِ بومی می‌نویسه (حتی وقتی اپ بسته است)؛ اینجا موقعِ باز شدن، برگشتن به اپ، یا
+  // رویدادِ wordQueued (اپ زنده است) وارد «ذخیره برای داستان بعدی» / «یادگیری گرامر» / «جعبه‌ی لایتنر» می‌شه
+  // — دقیقاً با همون توابعِ دکمه‌های پاپ‌آپِ ClickableSentence.
+  useEffect(() => {
+    const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin;
+    if (!B || !B.wordQueueList || !B.wordQueueAck) return undefined;
+    let busy = false;
+    let handle = null;
+    let disposed = false;
+    const run = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const res = await B.wordQueueList();
+        const items = (res && res.items) || [];
+        if (!items.length) return;
+        let leitnerChanged = false;
+        for (const it of items) {
+          const word = String((it && it.word) || "").trim();
+          const lang = (it && it.lang) || "en";
+          if (!word) continue;
+          const mLang = (it && it.meaningLang) || nativeLang;
+          const meaning = String((it && it.meaning) || "").trim();
+          const sentence = String((it && it.sentence) || word);
+          try {
+            if (it.action === "story") {
+              if (!isWordSaved(word, lang)) {
+                toggleSavedStoryWord(word, lang, { meaning, nativeLang: mLang, originExtra: { via: "bubble" } });
+                try {
+                  window.dispatchEvent(new CustomEvent(STORY_WORD_PICKED_EVENT, { detail: { word, langCode: lang } }));
+                } catch {}
+              } else if (meaning) {
+                updateSavedWordTranslation(word, lang, mLang, meaning);
+              }
+            } else if (it.action === "grammar") {
+              const w = normalizeWord(word);
+              const dup = loadGrammarNotes().some(
+                (n) => n.langCode === lang && normalizeWord(n.word) === w && n.sentence === sentence
+              );
+              if (!dup) {
+                const md =
+                  `## 🧩 ${word}\n\n` +
+                  (meaning ? `**🔹 معنی:** ${meaning}\n\n` : "") +
+                  `**جمله:** ${sentence}`;
+                const entry = saveGrammarNote({ langCode: lang, word, sentence, markdown: md });
+                if (entry) {
+                  const label = LANGUAGES.find((l) => l.code === mLang)?.label || "Persian";
+                  lookupWordGrammarDetail({ word, sentence, langCode: lang, nativeLang: mLang, nativeLabel: label, aiSettings })
+                    .then((full) => { if (full) updateGrammarNoteMarkdown(entry.id, full); })
+                    .catch(() => { /* بک‌اند در دسترس نیست — یادداشتِ پایه همچنان ذخیره است */ });
+                }
+              }
+            } else if (it.action === "leitner") {
+              addLeitnerCustomWord(word, lang, { meaning, nativeLang: mLang });
+              leitnerChanged = true;
+            }
+          } catch (e) { /* یک ردیفِ خراب نباید بقیه را متوقف کند */ }
+        }
+        if (leitnerChanged) setLeitnerWordsVersion((v) => v + 1);
+        try { await B.wordQueueAck({ items: items.map((it) => ({ key: it.key, rev: it.rev })) }); } catch (e) { /* ignore */ }
+      } catch (e) {
+        /* بدونِ پلاگین/خطا: چیزی برای وارد کردن نیست */
+      } finally {
+        busy = false;
+      }
+    };
+    const onVis = () => { if (!document.hidden) run(); };
+    document.addEventListener("visibilitychange", onVis);
+    try {
+      Promise.resolve(B.addListener("wordQueued", run)).then((h) => {
+        if (disposed) { try { h.remove(); } catch (e) {} } else handle = h;
+      }).catch(() => {});
+    } catch (e) { /* ignore */ }
+    run();
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", onVis);
+      if (handle) { try { handle.remove(); } catch (e) {} }
+    };
+  }, [nativeLang, aiSettings]);
+
   // بوکمارک‌های «ذخیره برای داستان بعدی» توی localStorage نگه داشته می‌شن
   // (نه توی یه useState اینجا)، برای همین بدون این ورژن‌شمار، افکت ذخیره‌ی
   // ابری پایین هیچ‌وقت با تغییر لغات ذخیره‌شده اجرا نمی‌شد — یعنی لغت‌های
