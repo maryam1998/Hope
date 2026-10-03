@@ -6807,7 +6807,11 @@ function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
       )}
       {status.supported && !status.downloaded && !status.downloading && (
         <button onClick={download} style={btn}>
-          📥 {en ? "Download offline model (~70 MB, one-time)" : "دانلود مدل آفلاین (~۷۰ مگابایت، فقط یک بار)"}
+          📥 {(() => {
+            // حجمِ تقریبیِ مدلِ هر زبان (مگابایت) — با SPECS ی SherpaModelManager.java هم‌خوان
+            const mb = { en: 70, zh: 70, ko: 140, ru: 95, fr: 150, de: 150, es: 150 }[lang] || 100;
+            return en ? `Download offline model (~${mb} MB, one-time)` : `دانلود مدل آفلاین (~${mb} مگابایت، فقط یک بار)`;
+          })()}
         </button>
       )}
       {status.downloading && (
