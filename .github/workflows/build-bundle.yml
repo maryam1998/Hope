@@ -16,6 +16,9 @@ on:
     paths:
       - "app.jsx"
       - "SpeakingPractice.jsx"
+      - "nativeAuth.js"
+      - "nativeTts.js"
+      - "nativeTtsFast.js"
       - "RangeSliderFilter.jsx"
       - "DailyConversationsTab.jsx"
       - "NeuralPath.jsx"
