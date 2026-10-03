@@ -11,6 +11,10 @@
 
 export const NATIVE_AUTH_REDIRECT = "com.linglearn.app://login-callback";
 
+// آدرسی که سوپابیس بعد از ورود بهش برمی‌گرده (توی لیست Redirect URLs هست: Hope/*).
+// این صفحه توی مرورگر باز می‌شه و توکن‌ها رو با یک دکمه به اپ تحویل می‌ده.
+export const WEB_HANDOFF_URL = "https://maryam1998.github.io/Hope/?from_app=1";
+
 const getPlugin = () => {
   if (typeof window === "undefined") return null;
   const Cap = window.Capacitor;
@@ -30,7 +34,7 @@ export async function nativeGoogleSignIn(supabase) {
   if (!plugin) throw new Error("native plugin not available");
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo: NATIVE_AUTH_REDIRECT, skipBrowserRedirect: true },
+    options: { redirectTo: WEB_HANDOFF_URL, skipBrowserRedirect: true },
   });
   if (error) throw error;
   if (!data || !data.url) throw new Error("no OAuth url");
@@ -100,3 +104,67 @@ export function setupNativeAuthListener(supabase, onError) {
     try { handle && handle.remove && handle.remove(); } catch (_) {}
   };
 }
+
+
+// ------------------------------------------------------------
+// سمتِ مرورگر (نه داخل اپ): وقتی بعد از ورود با گوگل به
+// .../Hope/?from_app=1 برمی‌گردیم، یک صفحه‌ی تمام‌صفحه نشون می‌دیم که
+// توکن‌ها رو با deep link به اپ تحویل می‌ده. این کد قبل از ساخته شدنِ
+// کلاینتِ سوپابیس اجرا می‌شه، پس هش (#access_token=...) هنوز دست‌نخورده‌ست.
+// ------------------------------------------------------------
+(function showAppHandoffIfNeeded() {
+  try {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    if (getPlugin()) return; // داخل خودِ اپ نیازی نیست
+    const loc = window.location;
+    if (!/[?&]from_app=1(&|$)/.test(loc.search || "")) return;
+
+    const hash = loc.hash || "";
+    let payload = "";
+    if (hash.length > 1) {
+      payload = hash;
+    } else {
+      const q = (loc.search || "")
+        .replace(/^\?/, "")
+        .split("&")
+        .filter((x) => x && x.indexOf("from_app=") !== 0)
+        .join("&");
+      if (q) payload = "?" + q;
+    }
+
+    const params = parseCallback(loc.href);
+    const hasTokens = !!(params.access_token || params.code);
+    const errText = params.error_description || params.error || "";
+
+    const box = document.createElement("div");
+    box.setAttribute("dir", "rtl");
+    box.style.cssText =
+      "position:fixed;inset:0;z-index:2147483647;background:#f4e8d6;color:#3b2a1e;" +
+      "display:flex;flex-direction:column;align-items:center;justify-content:center;" +
+      "gap:18px;padding:24px;text-align:center;font-family:Vazirmatn,system-ui,sans-serif;";
+
+    const msg = document.createElement("div");
+    msg.style.cssText = "font-size:18px;font-weight:700;line-height:1.8;";
+
+    if (hasTokens) {
+      const target = NATIVE_AUTH_REDIRECT + payload;
+      msg.textContent = "ورود با گوگل انجام شد. برای برگشتن به اپ دکمه‌ی زیر را بزنید.";
+      const a = document.createElement("a");
+      a.href = target;
+      a.textContent = "بازگشت به اپ LingoLearn";
+      a.style.cssText =
+        "display:inline-block;padding:16px 28px;border-radius:999px;background:#4a7c6f;" +
+        "color:#fff;font-size:18px;font-weight:700;text-decoration:none;";
+      box.appendChild(msg);
+      box.appendChild(a);
+      document.body.appendChild(box);
+      setTimeout(() => { try { window.location.href = target; } catch (_) {} }, 400);
+    } else {
+      msg.textContent = errText
+        ? "ورود انجام نشد: " + errText
+        : "اطلاعات ورود پیدا نشد. دوباره از داخل اپ امتحان کنید.";
+      box.appendChild(msg);
+      document.body.appendChild(box);
+    }
+  } catch (_) {}
+})();
