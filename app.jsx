@@ -6965,8 +6965,8 @@ function SongSttSettings({ uiLang, colors }) {
       )}
       <p style={note}>
         {en
-          ? "Text appears every few seconds. Set the audio language above for best results; the accurate model needs a recent phone."
-          : "متن هر چند ثانیه یک‌جا نمایش داده می‌شه. برای دقت بهتر «زبان صدا» رو بالا درست انتخاب کن؛ مدل «دقیق‌تر» گوشی نسبتاً جدید می‌خواد."}
+          ? "Text streams live while the song plays and is refined every few seconds. Set the audio language above for best results; the accurate model needs a recent phone."
+          : "متن همزمان با پخش آهنگ زنده نمایش داده می‌شه و هر چند ثانیه دقیق‌تر می‌شه. برای دقت بهتر «زبان صدا» رو بالا درست انتخاب کن؛ مدل «دقیق‌تر» گوشی نسبتاً جدید می‌خواد."}
       </p>
     </div>
   );
