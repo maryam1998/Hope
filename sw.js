@@ -6,6 +6,7 @@
 // با نسخه‌ی قبلی یکی باشه، اصلاً آپدیت رو تشخیص نمی‌ده).
 const CACHE_VERSION = "v377";
 const CACHE_NAME = `phrasebook-cache-${CACHE_VERSION}`;
+const LIB_CACHE = "fb-sync-lib"; // دائمی: در activate پاک نمی‌شه
 
 const APP_SHELL = ["./", "./index.html", "./app.bundle.min.js", "./manifest.json"];
 
@@ -19,7 +20,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      Promise.all(keys.filter((k) => k !== CACHE_NAME && k.startsWith("phrasebook-cache-")).map((k) => caches.delete(k)))
     )
   );
   self.clients.claim();
@@ -33,6 +34,30 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
   const isSameOrigin = url.origin === self.location.origin;
+
+  // فایل‌های مدلِ همگام‌سازی حجیم‌ان و کشِ خودشون رو دارن؛ از دستِ کشِ برنامه دورشون نگه می‌داریم.
+  if (!isSameOrigin) {
+    const h = url.hostname;
+    const skip = [atob("aHVnZ2luZ2ZhY2UuY28="), atob("aGYuY28=")];
+    if (skip.some((x) => h === x || h.endsWith("." + x))) return;
+    // کتابخونه‌ی همگام‌سازی (اسکریپت + wasm) در یک کشِ دائمی که با آپدیتِ نسخه پاک نمی‌شه،
+    // تا بعد از یک‌بار دانلود، بدونِ اینترنت هم کار کنه.
+    if (h === "cdn.jsdelivr.net") {
+      event.respondWith(
+        caches.open(LIB_CACHE).then((c) =>
+          c.match(req).then(
+            (hit) =>
+              hit ||
+              fetch(req).then((res) => {
+                if (res && res.ok) c.put(req, res.clone()).catch(() => {});
+                return res;
+              })
+          )
+        )
+      );
+      return;
+    }
+  }
 
   if (isSameOrigin) {
     event.respondWith(

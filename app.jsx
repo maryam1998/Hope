@@ -12,6 +12,7 @@ import DailyConversationsTab from "./DailyConversationsTab.jsx";
 import SpeakingPracticePanel from "./SpeakingPractice.jsx";
 import { recordNeuralRepeat, addNeuralFiber, NeuralPathButton } from "./NeuralPath.jsx";
 import YouTubeCaptionPanel from "./YouTubeCaptions.jsx";
+import { SYNC_MODEL_OPTIONS, getSyncModelState, subscribeSyncModel, setSyncModelSize, downloadSyncModel, removeSyncModel, cancelSync, transcribeForSync, alignSentences, sentenceIndexAt, loadSyncTimes, saveSyncTimes, clearSyncTimes } from "./audioSync.js";
 // مکالمات روزمره + مکالمات موضوعی، یکجا مرج‌شده — تا هرجا که قبلاً از
 // DAILY_CONVERSATIONS استفاده می‌شد (تبِ مکالمه، استخرِ جستجوی داستان‌ساز،
 // نگاشتِ سطح‌بندیِ لغات)، مکالمات موضوعی هم به‌صورت خودکار دیده بشن.
@@ -830,6 +831,47 @@ function useStoryUserAudio(storyKey, allSentences) {
   // حالا هایلایت/جابه‌جایی توی صوتِ آپلودی *فقط* با اقدامِ صریحِ کاربر عوض
   // می‌شه: دکمه‌ی جمله‌ی بعد/قبل، تپ‌کردنِ مستقیم روی یه جمله، یا ری‌استارت.
   const lastAutoIdxRef = useRef(0);
+
+  // --- همگام‌سازیِ اختیاریِ متن با صدا (audioSync.js) ---------------------
+  // فقط وقتی کاربر خودش «همگام‌سازی» رو بزنه و زمانِ جمله‌ها ساخته بشه فعال
+  // می‌شه. بدونِ اون، رفتارِ بالا (هایلایتِ دستی) دقیقاً مثلِ قبله.
+  const [syncTimes, setSyncTimesState] = useState(null);
+  const [syncOn, setSyncOnState] = useState(() => {
+    try { return window.localStorage?.getItem("fb-sync-follow") !== "0"; } catch { return true; }
+  });
+  const [syncProgress, setSyncProgress] = useState(null); // { phase, frac }
+  const [syncError, setSyncError] = useState("");
+  const syncTimesRef = useRef(null);
+  const syncOnRef = useRef(syncOn);
+  useEffect(() => { syncTimesRef.current = syncTimes; }, [syncTimes]);
+  useEffect(() => {
+    syncOnRef.current = syncOn;
+    try { window.localStorage?.setItem("fb-sync-follow", syncOn ? "1" : "0"); } catch {}
+  }, [syncOn]);
+  useEffect(() => {
+    const t = loadSyncTimes(storyKey, allSentences?.length || 0);
+    syncTimesRef.current = t;
+    setSyncTimesState(t);
+    setSyncError("");
+  }, [storyKey, allSentences?.length]);
+  // اشاره‌گرِ خط رو از روی زمانِ فعلیِ صدا تنظیم می‌کنه (فقط وقتی همگام‌سازی فعاله)
+  function applySyncAt(t) {
+    const ts = syncTimesRef.current;
+    if (!syncOnRef.current || !ts) return;
+    const idx = sentenceIndexAt(ts, t);
+    if (idx !== manualIndexRef.current) {
+      manualIndexRef.current = idx;
+      lastAutoIdxRef.current = idx;
+      setManualIndex(idx);
+    }
+  }
+  // با جمله‌ی قبل/بعد یا تپ روی جمله، صدا هم به شروعِ همون جمله می‌پره —
+  // وگرنه همگام‌سازی فوراً اشاره‌گر رو به جمله‌ی در حالِ پخش برمی‌گردوند.
+  function syncSeek(idx) {
+    const ts = syncTimesRef.current;
+    if (!syncOnRef.current || !ts || ts[idx] == null || !audioElRef.current) return;
+    audioElRef.current.currentTime = ts[idx];
+  }
   // سرعتِ پخشِ صوتِ آپلودیِ کاربر — مستقل از سرعتِ TTS (که سراسری و
   // مخصوصِ speechController است). یه پیش‌فرضِ سراسری (نه مخصوصِ هر داستان)
   // در localStorage نگه داشته می‌شه — دقیقاً همون الگویِ phrasebook-tts-rate.
@@ -984,6 +1026,7 @@ function useStoryUserAudio(storyKey, allSentences) {
       // سینک‌شده) که حذف شد — هایلایت/manualIndex فقط با اقدامِ صریحِ
       // کاربر (دکمه‌ی جمله‌ی بعد/قبل، تپ‌کردنِ روی یه جمله، ری‌استارت) عوض
       // می‌شه، نه خودکار حینِ پخش.
+      applySyncAt(t);
       if (Math.abs(t - lastReportedTimeRef.current) >= 1) {
         lastReportedTimeRef.current = t;
         setCurrentTime(t);
@@ -996,6 +1039,7 @@ function useStoryUserAudio(storyKey, allSentences) {
       const t = el.currentTime || 0;
       lastReportedTimeRef.current = t;
       setCurrentTime(t);
+      applySyncAt(t);
     };
     const onDur = () => { setDuration(el.duration || 0); el.playbackRate = rateRef.current; };
     const onPlay = () => setIsPlaying(true);
@@ -1049,6 +1093,10 @@ function useStoryUserAudio(storyKey, allSentences) {
     lastAutoIdxRef.current = 0;
     setHasAudio(true);
     clearAB();
+    // فایلِ صوتیِ تازه = زمان‌بندیِ قبلی دیگه معتبر نیست
+    clearSyncTimes(storyKey);
+    syncTimesRef.current = null;
+    setSyncTimesState(null);
     // نوشتنِ خودِ فایل روی IndexedDB (که برایِ فایل‌های صوتیِ حجیم ممکنه
     // چندصدمیلی‌ثانیه طول بکشه) رو به‌عنوانِ «در حالِ ذخیره» علامت می‌زنیم
     // تا دکمه‌ی آپلود در همون لحظه غیرفعال/چرخان بشه — کاربر می‌فهمه داره
@@ -1105,12 +1153,14 @@ function useStoryUserAudio(storyKey, allSentences) {
     manualIndexRef.current = next;
     lastAutoIdxRef.current = next;
     setManualIndex(next);
+    syncSeek(next);
   }
   function prevLine() {
     const prevIdx = Math.max(manualIndexRef.current - 1, 0);
     manualIndexRef.current = prevIdx;
     lastAutoIdxRef.current = prevIdx;
     setManualIndex(prevIdx);
+    syncSeek(prevIdx);
   }
   // دکمه‌ی «رفرش/شروع مجدد» برایِ صوتِ آپلودی — دقیقاً هم‌معنیِ نسخه‌ی TTS
   // (RestartButton بالاتر): فقط برمی‌گردونه به ابتدایِ فایل و هایلایتِ خطِ
@@ -1141,6 +1191,50 @@ function useStoryUserAudio(storyKey, allSentences) {
     manualIndexRef.current = idx;
     lastAutoIdxRef.current = idx;
     setManualIndex(idx);
+    syncSeek(idx);
+  }
+
+  // ساختِ زمانِ شروعِ جمله‌ها از روی خودِ فایلِ صوتی (روی همین گوشی، یک‌بار)
+  async function buildSync(langCode) {
+    if (!storyKey || !allSentences || !allSentences.length) return;
+    setSyncError("");
+    setSyncProgress({ phase: "decode", frac: 0 });
+    try {
+      const rec = await getStoryAudioRecord(storyKey);
+      if (!rec || !rec.blob) throw new Error("NO_AUDIO");
+      const { words, seconds } = await transcribeForSync(rec.blob, langCode, (p) => setSyncProgress(p));
+      const res = alignSentences(allSentences.map((x) => (x && x.text) || ""), words, seconds);
+      if (!res.ok) {
+        setSyncError("متنِ داستان با صدا نخوند (فقط " + Math.round(res.coverage * 100) + "٪ تطبیق پیدا شد). مطمئن شو متن و صدا یکی هستن و زبانِ داستان درست انتخاب شده.");
+      } else {
+        saveSyncTimes(storyKey, res.times);
+        syncTimesRef.current = res.times;
+        setSyncTimesState(res.times);
+        setSyncOnState(true);
+        syncOnRef.current = true;
+        applySyncAt(audioElRef.current?.currentTime || 0);
+      }
+    } catch (e) {
+      const m = String((e && e.message) || e);
+      if (m === "CANCELLED") { /* کاربر خودش لغو کرد */ }
+      else if (m === "NO_MODEL") setSyncError("اول مدل همگام‌سازی رو دانلود کن.");
+      else {
+        try { console.warn("sync failed:", m); } catch {}
+        setSyncError("همگام‌سازی ناموفق بود. دوباره امتحان کن؛ اگه تکرار شد، یه فایلِ کوتاه‌تر یا مدلِ «سریع» رو امتحان کن.");
+      }
+    } finally {
+      setSyncProgress(null);
+    }
+  }
+  function setSyncOn(v) {
+    syncOnRef.current = !!v;
+    setSyncOnState(!!v);
+    if (v) applySyncAt(audioElRef.current?.currentTime || 0);
+  }
+  function clearSync() {
+    clearSyncTimes(storyKey);
+    syncTimesRef.current = null;
+    setSyncTimesState(null);
   }
 
   async function removeAudio() {
@@ -1152,6 +1246,9 @@ function useStoryUserAudio(storyKey, allSentences) {
     setManualIndex(0);
     lastAutoIdxRef.current = 0;
     setAudioSaveError("");
+    clearSyncTimes(storyKey);
+    syncTimesRef.current = null;
+    setSyncTimesState(null);
     if (storyKey) await deleteStoryAudioRecord(storyKey);
   }
 
@@ -1198,6 +1295,14 @@ function useStoryUserAudio(storyKey, allSentences) {
     markAB,
     clearAB,
     getAudioElement,
+    syncTimes,
+    syncOn,
+    setSyncOn,
+    syncProgress,
+    syncError,
+    buildSync,
+    cancelSyncBuild: cancelSync,
+    clearSync,
   };
 }
 
@@ -6973,6 +7078,140 @@ function SongSttSettings({ uiLang, colors }) {
 }
 
 // ---------------------------------------------------------------------------
+// 🎧 همگام‌سازیِ متن و صوت — مدلِ کوچکِ روی‌دستگاه که کاربر یک‌بار از تنظیمات
+// دانلود می‌کنه. بعدش فایلِ صوتیِ هر داستان یک‌بار روی خودِ گوشی پردازش می‌شه و
+// جمله‌ی در حالِ پخش خودکار هایلایت می‌شه. (موتور: audioSync.js)
+// ---------------------------------------------------------------------------
+function useSyncModelState() {
+  const [st, setSt] = useState(getSyncModelState());
+  useEffect(() => {
+    const f = () => setSt(getSyncModelState());
+    f();
+    return subscribeSyncModel(f);
+  }, []);
+  return st;
+}
+
+function AudioSyncSettings({ uiLang, colors }) {
+  const en = uiLang === "en";
+  const m = useSyncModelState();
+  const cur = SYNC_MODEL_OPTIONS.find((o) => o.id === m.size) || SYNC_MODEL_OPTIONS[1];
+  const names = {
+    fast: en ? "Fast (lower accuracy)" : "سریع (دقت کمتر)",
+    balanced: en ? "Balanced (recommended)" : "متعادل (پیشنهادی)",
+  };
+  const btn = { fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 8 };
+  const note = { fontSize: 12, color: colors.inkSoft, marginBottom: 8, lineHeight: 1.7 };
+  return (
+    <div style={{ marginTop: 6, marginBottom: 12 }}>
+      <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>
+        🎧 {en ? "Text ↔ audio sync" : "همگام‌سازی متن و صوت"}
+      </p>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
+        <span>{en ? "Model" : "مدل"}</span>
+        <select
+          value={m.size}
+          disabled={m.busy}
+          onChange={(e) => setSyncModelSize(e.target.value)}
+          style={{ flex: 1, fontSize: 12.5, padding: "6px 8px", borderRadius: 10, border: `1px solid ${colors.cardBorder}`, backgroundColor: "white", color: colors.ink }}
+        >
+          {SYNC_MODEL_OPTIONS.map((o) => (
+            <option key={o.id} value={o.id}>{names[o.id]} ~{o.approxMb}MB</option>
+          ))}
+        </select>
+      </label>
+      {!m.downloaded && !m.busy && (
+        <button onClick={() => downloadSyncModel()} style={btn}>
+          📥 {en ? `Download sync model (~${cur.approxMb} MB, one-time)` : `دانلود مدل همگام‌سازی (~${cur.approxMb} مگابایت، فقط یک بار)`}
+        </button>
+      )}
+      {m.busy && (
+        <div>
+          <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {m.mb} MB</p>
+          <button onClick={() => cancelSync()} style={btn}>⏹ {en ? "Stop" : "توقف"}</button>
+        </div>
+      )}
+      {m.downloaded && !m.busy && (
+        <div>
+          <p style={note}>✅ {en ? "Model downloaded and ready" : "مدل دانلود شده و آماده‌ست"}</p>
+          <button
+            onClick={() => { if (confirm(en ? "Delete the sync model?" : "مدل همگام‌سازی حذف بشه؟")) removeSyncModel(); }}
+            style={btn}
+          >
+            🗑 {en ? "Delete model" : "حذف مدل"}
+          </button>
+        </div>
+      )}
+      {m.error && (
+        <p style={{ ...note, color: colors.rose }}>
+          {en ? "Download failed — check your connection / VPN and try again." : "دانلود ناموفق بود — اینترنت یا فیلترشکن رو چک کن و دوباره بزن."}
+        </p>
+      )}
+      <p style={note}>
+        {en
+          ? "Download once. After that, syncing a story's audio runs on your phone, offline. Then use the Sync button on the “My audio” bar of a story."
+          : "فقط یک بار دانلود می‌شه (اگه شروع نشد فیلترشکن رو روشن کن). بعدش همگام‌سازیِ صوتِ هر داستان روی خودِ گوشی و بدونِ اینترنت انجام می‌شه. بعد از دانلود، از نوارِ «صوتِ من» توی هر داستان دکمه‌ی همگام‌سازی رو بزن."}
+      </p>
+    </div>
+  );
+}
+
+// کنترل‌های همگام‌سازی داخلِ نوارِ «صوتِ من» (StoryUserAudioBar)
+function StorySyncControls({ userAudio, storyLang }) {
+  const m = useSyncModelState();
+  const { syncTimes, syncOn, setSyncOn, syncProgress, syncError, buildSync, cancelSyncBuild, clearSync } = userAudio;
+  const small = { fontSize: 12, color: colors.inkSoft, lineHeight: 1.7 };
+  const btn = { padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.cardBorder}`, background: "white", fontSize: 12.5 };
+  const pct = syncProgress ? Math.round((syncProgress.frac || 0) * 100) : 0;
+  const phase = syncProgress
+    ? syncProgress.phase === "decode" ? "در حال خواندن صوت..."
+      : syncProgress.phase === "load" ? "آماده‌سازی..."
+      : `در حال همگام‌سازی... ${pct}٪`
+    : "";
+  const cur = SYNC_MODEL_OPTIONS.find((o) => o.id === m.size) || SYNC_MODEL_OPTIONS[1];
+  return (
+    <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${colors.cardBorder}` }}>
+      {syncProgress ? (
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <span style={small}>⏳ {phase}</span>
+          <button onClick={() => cancelSyncBuild()} style={btn}>توقف</button>
+        </div>
+      ) : syncTimes ? (
+        <div>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 700, color: colors.ink, marginBottom: 8 }}>
+            <input type="checkbox" checked={!!syncOn} onChange={(e) => setSyncOn(e.target.checked)} />
+            <span>خطِ فعال خودکار با صدا جلو بره</span>
+          </label>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={() => buildSync(storyLang)} style={btn}>همگام‌سازی دوباره</button>
+            <button onClick={clearSync} style={{ ...btn, border: "none", background: "none", color: colors.rose }}>حذف همگام‌سازی</button>
+          </div>
+        </div>
+      ) : m.busy ? (
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <span style={small}>📥 در حال دانلود مدل... {m.mb} MB</span>
+          <button onClick={() => cancelSync()} style={btn}>توقف</button>
+        </div>
+      ) : !m.downloaded ? (
+        <div>
+          <button onClick={() => downloadSyncModel()} style={btn}>
+            📥 دانلود مدل همگام‌سازی (~{cur.approxMb} مگابایت، فقط یک بار)
+          </button>
+          <p style={{ ...small, marginTop: 6 }}>برای اینکه جمله‌ی در حالِ پخش خودکار هایلایت بشه. اگه دانلود شروع نشد فیلترشکن رو روشن کن.</p>
+          {m.error && <p style={{ ...small, color: colors.rose }}>دانلود ناموفق بود — اینترنت یا فیلترشکن رو چک کن و دوباره بزن.</p>}
+        </div>
+      ) : (
+        <div>
+          <button onClick={() => buildSync(storyLang)} style={btn}>🎧 همگام‌سازی متن با صوت</button>
+          <p style={{ ...small, marginTop: 6 }}>یک بار انجام می‌شه و روی خودِ گوشی اجرا می‌شه؛ برای فایل‌های طولانی ممکنه چند دقیقه طول بکشه.</p>
+        </div>
+      )}
+      {syncError && <p style={{ ...small, color: colors.rose, marginTop: 6 }}>{syncError}</p>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 🔊 مدل‌های صدای آفلاینِ باکیفیت (Piper) — فقط اندروید (BubblePlugin).
 // تا وقتی مدلِ یه زبان دانلود نشده، همون صدای قبلی خونده می‌شه (TTS خودِ گوشی؛
 // برای فارسی/عربی سرویسِ آنلاین). بعد از دانلود، همون زبان خودکار از مدلِ آفلاین
@@ -7892,6 +8131,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
 
           <VoiceEngineSettings uiLang={uiLang} colors={colors} />
           <OfflineTtsModelSettings uiLang={uiLang} colors={colors} />
+          <AudioSyncSettings uiLang={uiLang} colors={colors} />
 
           {/* 🎙 ترجمه‌ی زنده‌ی صدا (فقط در اپ اندروید — حباب شناور) */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
@@ -7921,8 +8161,8 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
           <SongSttSettings uiLang={uiLang} colors={colors} />
           <p style={{ fontSize: 11.5, color: colors.inkSoft, marginBottom: 6, lineHeight: 1.7 }}>
             {uiLang === "en"
-              ? `Translates into: ${liveTargets.map((c) => c.toUpperCase()).join(" · ")} (your selected target languages). Earlier sentences stay in a scrollable history.`
-              : `ترجمه به: ${liveTargets.map((c) => c.toUpperCase()).join(" · ")} (همان زبان‌های مقصدِ انتخابی شما). جمله‌های قبلی در یک تاریخچه‌ی قابل‌اسکرول می‌مانند.`}
+              ? "Translates into your target languages. Earlier sentences stay in a scrollable history."
+              : "ترجمه به زبان مقصد شما. جمله‌های قبلی در یک تاریخچه‌ی قابل‌اسکرول می‌مانند."}
           </p>
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
             <span>{uiLang === "en" ? "Show" : "نمایش"}</span>
@@ -11035,6 +11275,7 @@ function StoryUserAudioBar({ userAudio, storyLang }) {
       {audioSaveError && (
         <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{audioSaveError}</p>
       )}
+      {hasAudio && !audioSaving && <StorySyncControls userAudio={userAudio} storyLang={storyLang} />}
     </div>
   );
 }
