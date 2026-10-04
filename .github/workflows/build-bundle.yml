@@ -19,6 +19,7 @@ on:
       - "nativeAuth.js"
       - "nativeTts.js"
       - "nativeTtsFast.js"
+      - "audioSync.js"
       - "RangeSliderFilter.jsx"
       - "DailyConversationsTab.jsx"
       - "NeuralPath.jsx"
