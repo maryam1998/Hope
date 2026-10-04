@@ -4001,22 +4001,36 @@ const speechController = (() => {
       const nativeLang = currentCode || locale.split("-")[0];
       const usePhoneVoice = getVoiceEngine() === "phone";
       // حالتِ بی‌صدا: چیزی پخش نمی‌کنیم، فقط به‌اندازه‌ی مدتِ تقریبیِ خوندن صبر می‌کنیم
+      // ⚡ روی صداهای دانلودی (Piper) ساختنِ صدا CPUِ سنگینی می‌گیره. هایلایت و
+      // اسکرولِ همین جمله (notify بالا) باید اول رندر بشن؛ برای همین شروعِ
+      // واقعیِ خوانش رو یک لحظه‌ی خیلی کوتاه (~۶۰ms) عقب می‌اندازیم تا فریمِ
+      // هایلایت/اسکرول قبل از شروعِ کارِ سنگین کشیده بشه. اگه تو این فاصله
+      // لغو/مکث شد، چیزی پخش نمی‌شه.
+      let nativeT0 = Date.now();
       const played = muted
         ? new Promise((resolve) => {
             setTimeout(() => resolve(true), Math.max(400, (cleanText.length * 70) / Math.max(rate, 0.25)));
           })
-        : usePhoneVoice
-          ? nativeSpeakSystem(cleanText, nativeLang, rate)
-          : nativeSpeak(cleanText, nativeLang, rate);
-      const nativeT0 = Date.now();
-      // صدای جمله‌ی بعدی رو همین الان (موقعِ پخشِ این جمله) پیش‌پیش بساز تا بینِ جمله‌ها تأخیر نباشه
-      if (!muted) {
-        const nx = chunks[idx + 1];
-        if (nx && nx.text) {
-          const nxClean = sanitizeForTTS(nx.text);
-          if (nxClean && nxClean.trim() && !usePhoneVoice) nativePrefetch(nxClean, nativeLang, rate);
-        }
-      }
+        : new Promise((resolve) => {
+            setTimeout(() => {
+              if (nativeGen !== nativeSpeakGen || status !== "playing") {
+                resolve(true);
+                return;
+              }
+              nativeT0 = Date.now();
+              (usePhoneVoice
+                ? nativeSpeakSystem(cleanText, nativeLang, rate)
+                : nativeSpeak(cleanText, nativeLang, rate)
+              ).then(resolve);
+              // صدای جمله‌ی بعدی رو همین الان (موقعِ پخشِ این جمله) پیش‌پیش بساز تا بینِ جمله‌ها تأخیر نباشه
+              // (حتماً «بعد» از خودِ speak فرستاده می‌شه تا prefetch جلوی جمله‌ی جاری نیفته)
+              const nx = chunks[idx + 1];
+              if (nx && nx.text) {
+                const nxClean = sanitizeForTTS(nx.text);
+                if (nxClean && nxClean.trim() && !usePhoneVoice) nativePrefetch(nxClean, nativeLang, rate);
+              }
+            }, 60);
+          });
 
       played.then((ok) => {
         if (nativeGen !== nativeSpeakGen) return; // لغو/جایگزین شده
