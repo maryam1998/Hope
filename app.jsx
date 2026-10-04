@@ -6826,9 +6826,9 @@ function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
 }
 
 // ---------------------------------------------------------------------------
-// 🎵 حالت آهنگ — تشخیص گفتارِ آفلاین با Whisper (MIT) به‌جای Sherpa جریانی.
-// مدل با دکمه‌ی کاربر از HuggingFace دانلود می‌شه و روی خودِ گوشی اجرا می‌شه (بدون سرور).
-// Whisper جریانی نیست: متن هر ~۱۰ تا ۱۶ ثانیه یک‌جا می‌آد.
+// 🎵 حالت آهنگ — تشخیص گفتارِ آفلاین مخصوصِ آهنگ.
+// مدل با دکمه‌ی کاربر دانلود می‌شه و روی خودِ گوشی اجرا می‌شه (بدون سرور).
+// جریانی نیست: متن هر چند ثانیه یک‌جا می‌آد.
 // ---------------------------------------------------------------------------
 function SongSttSettings({ uiLang, colors }) {
   const en = uiLang === "en";
@@ -6890,12 +6890,12 @@ function SongSttSettings({ uiLang, colors }) {
 
   const btn = { fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 8 };
   const note = { fontSize: 12, color: colors.inkSoft, marginBottom: 8, lineHeight: 1.7 };
-  const names = { tiny: en ? "Tiny (fast, rough)" : "Tiny (سریع، دقت کم)", base: en ? "Base (balanced)" : "Base (متعادل)", small: en ? "Small (best, slower)" : "Small (دقیق‌تر، کندتر)" };
+  const names = { tiny: en ? "Fast (lower accuracy)" : "سریع (دقت کم)", base: en ? "Balanced" : "متعادل", small: en ? "Accurate (slower)" : "دقیق‌تر (کندتر)" };
 
   return (
     <div style={{ marginTop: 6 }}>
       <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>
-        🎵 {en ? "Song mode (Whisper, offline)" : "حالت آهنگ (Whisper، آفلاین)"}
+        🎵 {en ? "Song mode (offline)" : "حالت آهنگ (آفلاین)"}
       </p>
       <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
         <span>{en ? "Model" : "مدل"}</span>
@@ -6933,8 +6933,8 @@ function SongSttSettings({ uiLang, colors }) {
       )}
       <p style={note}>
         {en
-          ? "Text appears every ~10–16 s (Whisper isn't streaming). Set the audio language above for best results; small needs a recent phone."
-          : "متن هر ~۱۰ تا ۱۶ ثانیه یک‌جا می‌آد (Whisper جریانی نیست). برای دقت بهتر «زبان صدا» رو بالا درست انتخاب کن؛ مدل small گوشی نسبتاً جدید می‌خواد."}
+          ? "Text appears every few seconds. Set the audio language above for best results; the accurate model needs a recent phone."
+          : "متن هر چند ثانیه یک‌جا نمایش داده می‌شه. برای دقت بهتر «زبان صدا» رو بالا درست انتخاب کن؛ مدل «دقیق‌تر» گوشی نسبتاً جدید می‌خواد."}
       </p>
     </div>
   );
