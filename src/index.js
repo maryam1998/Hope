@@ -12,7 +12,7 @@ const CORS_HEADERS = {
 };
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") {
@@ -106,7 +106,7 @@ export default {
         return json({ error: "Invalid JSON body" }, 400);
       }
       try {
-        return json(await translateSubtitleChunk(body, env));
+        return json(await translateSubtitleChunk(body, env, ctx));
       } catch (e) {
         return json({ error: e.message || "subtitle translation failed" }, 502);
       }
@@ -401,12 +401,12 @@ function pickCaptionTrack(tracks, wantLang) {
 // خروجی: { ok: true, translations: [...] } — دقیقاً به تعدادِ subtitles.
 // جمله‌های همسایه فقط برای فهمیدنِ معنی داده می‌شن و ترجمه نمی‌شن؛ همین باعث
 // می‌شه ترجمه‌ی خط‌های نیمه‌کاره (که یوتیوب وسطِ جمله می‌بره) دقیق‌تر بشه.
-async function translateSubtitleChunk(body, env) {
+async function translateSubtitleChunk(body, env, ctx) {
   const subs = Array.isArray(body?.subtitles)
     ? body.subtitles.map((s) => (typeof s === "string" ? s : String(s?.text ?? "")))
     : [];
   if (!subs.length) throw new Error("subtitles (array) is required");
-  if (subs.length > 20) throw new Error("too many subtitles in one chunk");
+  if (subs.length > 30) throw new Error("too many subtitles in one chunk");
 
   const cleanList = (a) =>
     (Array.isArray(a) ? a : []).map((s) => String(s ?? "").slice(0, 300)).filter(Boolean).slice(0, 6);
@@ -435,21 +435,107 @@ async function translateSubtitleChunk(body, env) {
     (after.length ? `Context after (do not translate): ${JSON.stringify(after)}\n` : "");
 
   const maxTokens = Math.min(Math.max(600, subs.join("").length * 4 + 300), 4000);
-  const chain = getProviderChain(env);
-  const errors = [];
-  for (const provider of chain) {
+
+  // ⚡ کشِ سمتِ سرور: همین جمله‌ها + همین زبان‌ها + همین لحن = همان ترجمه (بین همه‌ی کاربرها مشترک).
+  // زمینه (جمله‌های قبل/بعد) عمداً در کلید نیست تا شانسِ hit بیشتر شود.
+  const cache = typeof caches !== "undefined" ? caches.default : null;
+  let cacheReq = null;
+  if (cache) {
     try {
-      const raw = await callProvider(provider, prompt, maxTokens, env);
-      const arr = parseJsonStringArray(raw);
-      if (!arr || arr.length !== subs.length) {
-        throw new Error(`bad shape (${arr ? arr.length : "no array"} vs ${subs.length})`);
+      const keyStr = JSON.stringify([srcName, tgtName, tone, subs]);
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(keyStr));
+      const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      cacheReq = new Request(`https://cache.phrasebook.local/sub-tr/${hex}`);
+      const hit = await cache.match(cacheReq).catch(() => null);
+      if (hit) {
+        const j = await hit.json();
+        if (Array.isArray(j.translations) && j.translations.length === subs.length) {
+          return { ok: true, provider: "cache", cached: true, translations: j.translations };
+        }
       }
-      return { ok: true, provider, translations: arr };
-    } catch (e) {
-      errors.push(`${provider}: ${e.message}`);
+    } catch {
+      cacheReq = null;
     }
   }
-  throw new Error(errors.join(" | ") || "no provider available");
+
+  // ⚡ به‌جای امتحانِ ترتیبیِ ~۲۰ پرووایدر (هر خرابی = چند ثانیه تأخیر)، «hedged»: اولی شروع می‌شود؛
+  // اگر خطا داد، فوراً بعدی؛ اگر تا hedgeMs جواب نداد، بعدی هم‌زمان (حداکثر ۳ تا هم‌زمان). اولین جوابِ معتبر برنده است.
+  const chain = getProviderChain(env);
+  const { provider, value: arr } = await hedgedProviders(chain, prompt, maxTokens, env, (raw) => {
+    const a = parseJsonStringArray(raw);
+    if (!a || a.length !== subs.length) throw new Error(`bad shape (${a ? a.length : "no array"} vs ${subs.length})`);
+    return a;
+  });
+
+  if (cache && cacheReq) {
+    const put = cache
+      .put(
+        cacheReq,
+        new Response(JSON.stringify({ translations: arr }), {
+          headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=2592000" },
+        })
+      )
+      .catch(() => {});
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(put);
+  }
+  return { ok: true, provider, translations: arr };
+}
+
+// اولین پرووایدرِ موفق برنده است؛ بقیه‌ی درخواست‌های در حالِ اجرا نادیده گرفته می‌شوند.
+function hedgedProviders(chain, prompt, maxTokens, env, validate, hedgeMs = 2500, maxInflight = 3) {
+  return new Promise((resolve, reject) => {
+    const errors = [];
+    let next = 0;
+    let inflight = 0;
+    let settled = false;
+    let timer = null;
+
+    const finishFail = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(new Error(errors.join(" | ") || "no provider available"));
+    };
+
+    const arm = () => {
+      clearTimeout(timer);
+      if (settled || next >= chain.length) return;
+      timer = setTimeout(() => {
+        if (!settled && inflight < maxInflight && next < chain.length) launch();
+      }, hedgeMs);
+    };
+
+    const launch = () => {
+      if (settled) return;
+      if (next >= chain.length) {
+        if (inflight === 0) finishFail();
+        return;
+      }
+      const provider = chain[next++];
+      inflight++;
+      Promise.resolve()
+        .then(() => callProvider(provider, prompt, maxTokens, env))
+        .then((raw) => validate(raw))
+        .then((value) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve({ provider, value });
+        })
+        .catch((e) => {
+          errors.push(`${provider}: ${(e && e.message) || e}`);
+        })
+        .finally(() => {
+          inflight--;
+          if (settled) return;
+          if (next < chain.length) launch();
+          else if (inflight === 0) finishFail();
+        });
+      arm();
+    };
+
+    launch();
+  });
 }
 
 function parseJsonStringArray(raw) {
