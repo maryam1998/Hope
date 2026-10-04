@@ -106,6 +106,12 @@ export function isSystemTtsReady(lang) {
   return sysState[lang] !== false;
 }
 
+/** فقط وقتی «حتماً» TTS گوشی این زبون رو داره true (نه حالتِ «هنوز نمی‌دونیم»). */
+export function isSystemTtsConfirmed(lang) {
+  if (!plugin()) return false;
+  return sysState[lang] === true;
+}
+
 export function refreshSystemTts(lang) {
   const B = plugin();
   if (!B || !B.checkSystemTts || !lang || sysAsked[lang]) return;

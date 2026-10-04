@@ -19,7 +19,7 @@ const ALL_DAILY_CONVERSATIONS = [...DAILY_CONVERSATIONS, ...(THEMATIC_CONVERSATI
 import RangeSliderFilter from "./RangeSliderFilter.jsx";
 import { LINGOVA_CHARACTERS, LINGOVA_CHARACTER_KEYS } from "./LINGOVA_CHARACTERS.js";
 import { isNativeTtsAvailable, isNativeTtsReady, refreshNativeTtsStatus } from "./nativeTts.js";
-import { nativeSpeak, nativeStop, nativePrefetch, nativeWarm, nativeWarmAll, nativeSpeakSystem, isSystemTtsReady, refreshSystemTts } from "./nativeTtsFast.js";
+import { nativeSpeak, nativeStop, nativePrefetch, nativeWarm, nativeWarmAll, nativeSpeakSystem, isSystemTtsReady, isSystemTtsConfirmed, refreshSystemTts } from "./nativeTtsFast.js";
 import { isNativeAuthAvailable, nativeGoogleSignIn, setupNativeAuthListener } from "./nativeAuth.js";
 
 // پیامِ فارسی/عربی وقتی اینترنت نیست یا پخشِ آنلاین شکست خورد: راهِ حل = مدلِ آفلاین
@@ -1594,6 +1594,33 @@ function raceProviderResults(providers, text, targetLang, sourceLang) {
   });
 }
 
+// 🔊 انتخابِ صدای خوانش (فقط اپ اندروید): "model" = صدای اصلیِ اپ (پیش‌فرض)،
+// "phone" = TTS خودِ گوشی. توی localStorage نگه‌داشته می‌شه و با رویداد به UI خبر می‌دیم.
+const VOICE_ENGINE_KEY = "voiceEnginePref";
+const VOICE_ENGINE_EVENT = "voice-engine-pref-changed";
+function getVoiceEngine() {
+  try { return localStorage.getItem(VOICE_ENGINE_KEY) === "phone" ? "phone" : "model"; } catch (e) { return "model"; }
+}
+function setVoiceEngine(v) {
+  try { localStorage.setItem(VOICE_ENGINE_KEY, v === "phone" ? "phone" : "model"); } catch (e) {}
+  try { window.dispatchEvent(new Event(VOICE_ENGINE_EVENT)); } catch (e) {}
+}
+
+// 🔄 ترجمه‌ی دوباره‌ی یک خطِ مکالمه‌ی روزمره (دکمه‌ی رفرش): اول AI، اگه نبود شبکه‌ی
+// سرویس‌های رایگان — هیچ‌وقت از کش نمی‌خونه (چون ترجمه‌ی غلط همون‌جا نشسته)؛
+// نتیجه‌ی جدید جایگزین کش می‌شه.
+async function retranslateDailyLine(text, code, aiSettings) {
+  let translated;
+  try {
+    translated = await translateViaAI(text || "", code, "en", aiSettings);
+  } catch {
+    translated = await translateFreeNetwork(text || "", code, "en", aiSettings, true);
+  }
+  if (translated && String(translated).trim()) {
+    try { setCachedTranslation(text || "", code, "en", translated); } catch (e) {}
+  }
+  return translated;
+}
 async function translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify) {
   const providers = [translateViaGoogle, translateViaMyMemory, translateViaLingva, translateViaLibre].filter(
     (p) => !isProviderTemporarilyBlocked(p)
@@ -3867,19 +3894,22 @@ const speechController = (() => {
 
       // کدِ دو حرفیِ زبان (fa, en, ...) — نه locale — چون SherpaModelManager با همین کار می‌کنه
       const nativeLang = currentCode || locale.split("-")[0];
+      const usePhoneVoice = getVoiceEngine() === "phone";
       // حالتِ بی‌صدا: چیزی پخش نمی‌کنیم، فقط به‌اندازه‌ی مدتِ تقریبیِ خوندن صبر می‌کنیم
       const played = muted
         ? new Promise((resolve) => {
             setTimeout(() => resolve(true), Math.max(400, (cleanText.length * 70) / Math.max(rate, 0.25)));
           })
-        : nativeSpeak(cleanText, nativeLang, rate);
+        : usePhoneVoice
+          ? nativeSpeakSystem(cleanText, nativeLang, rate)
+          : nativeSpeak(cleanText, nativeLang, rate);
       const nativeT0 = Date.now();
       // صدای جمله‌ی بعدی رو همین الان (موقعِ پخشِ این جمله) پیش‌پیش بساز تا بینِ جمله‌ها تأخیر نباشه
       if (!muted) {
         const nx = chunks[idx + 1];
         if (nx && nx.text) {
           const nxClean = sanitizeForTTS(nx.text);
-          if (nxClean && nxClean.trim()) nativePrefetch(nxClean, nativeLang, rate);
+          if (nxClean && nxClean.trim() && !usePhoneVoice) nativePrefetch(nxClean, nativeLang, rate);
         }
       }
 
@@ -3894,7 +3924,7 @@ const speechController = (() => {
         if (!ok) {
           // مدلِ Piper دانلود نشده یا پخش شکست خورد → اول TTS خودِ گوشی (نیتیو)،
           // و اگه اون هم نشد، Web Speech
-          nativeSpeakSystem(cleanText, nativeLang, rate).then((sysOk) => {
+          (usePhoneVoice ? Promise.resolve(false) : nativeSpeakSystem(cleanText, nativeLang, rate)).then((sysOk) => {
             if (nativeGen !== nativeSpeakGen) return;
             if (status !== "playing") return;
             if (sysOk) {
@@ -4018,10 +4048,12 @@ const speechController = (() => {
         // مدل نیست (یا اپ توی مرورگره) می‌رن سراغِ سرویسِ آنلاین.
         // وضعیت از کشِ سنکرونِ nativeTts می‌آد؛ این صدا زدن کش رو برای دفعه‌ی بعد تازه می‌کنه.
         if (isNativeTtsAvailable()) refreshNativeTtsStatus(code);
-        const useNativePiper = isNativeTtsAvailable() && isNativeTtsReady(code);
-        const forceOnlineForLang = ONLINE_ONLY_LANGS.has(code) && !useNativePiper;
+        const phoneVoicePref = isNativeTtsAvailable() && getVoiceEngine() === "phone";
+        const useNativePiper = !phoneVoicePref && isNativeTtsAvailable() && isNativeTtsReady(code);
         // TTS خودِ گوشی از طریقِ پلاگین اندروید (speechSynthesis داخل WebView صدا نداره)
         if (isNativeTtsAvailable()) refreshSystemTts(code);
+        // اگه کاربر «صدای گوشی» رو انتخاب کرده و گوشی این زبون رو (حتماً) داره، فارسی/عربی هم آنلاین نمی‌شن
+        const forceOnlineForLang = ONLINE_ONLY_LANGS.has(code) && !useNativePiper && !(phoneVoicePref && isSystemTtsConfirmed(code));
         const useNativeSystem = isNativeTtsAvailable() && isSystemTtsReady(code);
 
         const newKey = `${newLocale}::${text}`;
@@ -6946,6 +6978,54 @@ function SongSttSettings({ uiLang, colors }) {
 // برای فارسی/عربی سرویسِ آنلاین). بعد از دانلود، همون زبان خودکار از مدلِ آفلاین
 // می‌خونه — منطقش توی speakChunk/toggle (isNativeTtsReady) از قبل هست.
 // ---------------------------------------------------------------------------
+function VoiceEngineSettings({ uiLang, colors }) {
+  const en = uiLang === "en";
+  const isNative = typeof window !== "undefined" && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+  const [pref, setPref] = useState(getVoiceEngine());
+  useEffect(() => {
+    const h = () => setPref(getVoiceEngine());
+    window.addEventListener(VOICE_ENGINE_EVENT, h);
+    return () => window.removeEventListener(VOICE_ENGINE_EVENT, h);
+  }, []);
+  if (!isNative) return null;
+  const opts = [
+    { id: "model", label: en ? "App voice (better quality)" : "صدای اپ (باکیفیت‌تر)" },
+    { id: "phone", label: en ? "Phone's voice" : "صدای گوشی" },
+  ];
+  return (
+    <div style={{ marginTop: 8, marginBottom: 12 }}>
+      <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>
+        🔈 {en ? "Reading voice" : "صدای خوانش"}
+      </p>
+      <div style={{ display: "flex", gap: 8 }}>
+        {opts.map((o) => (
+          <button
+            key={o.id}
+            onClick={() => { setVoiceEngine(o.id); setPref(o.id); }}
+            style={{
+              flex: 1,
+              fontSize: 12.5,
+              fontWeight: 700,
+              padding: "9px 8px",
+              borderRadius: 12,
+              border: `1px solid ${colors.cardBorder}`,
+              backgroundColor: pref === o.id ? colors.gold : "transparent",
+              color: colors.ink,
+            }}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <p style={{ fontSize: 11, color: colors.inkSoft, lineHeight: 1.6, marginTop: 6 }}>
+        {en
+          ? "Choose whether texts are read with the app's own voice or the voice installed on your phone."
+          : "انتخاب کن متن‌ها با صدای خودِ اپ خونده بشن یا با صدای نصب‌شده روی گوشی‌ت."}
+      </p>
+    </div>
+  );
+}
+
 function OfflineTtsModelSettings({ uiLang, colors }) {
   const en = uiLang === "en";
   const getPlugin = () =>
@@ -7810,6 +7890,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
               بشنوه که زبونش رو گوشی نصب نداره، خودِ دکمه‌ی 🔊 (SpeakButton)
               یه پیامِ کوچیکِ درجا نشون می‌ده (نه اینجا، توی تنظیمات). */}
 
+          <VoiceEngineSettings uiLang={uiLang} colors={colors} />
           <OfflineTtsModelSettings uiLang={uiLang} colors={colors} />
 
           {/* 🎙 ترجمه‌ی زنده‌ی صدا (فقط در اپ اندروید — حباب شناور) */}
@@ -19550,6 +19631,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
     SpeakButton={SpeakButton}
     targetLangs={targetLangList}
     translateFree={translateFree}
+    retranslateLine={(text, code) => retranslateDailyLine(text, code, aiSettings)}
     getCachedTranslationMap={getCachedTranslationMap}
     levelFilter={levelFilter}
     speechController={speechController}

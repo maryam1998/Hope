@@ -1,5 +1,16 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { ChevronDown, Check } from "lucide-react";
+import React, { useState, useMemo, useEffect, useRef, useCallback, useContext, createContext } from "react";
+import { ChevronDown, Check, RotateCcw, Loader2 } from "lucide-react";
+
+// تابعِ «ترجمه‌ی دوباره‌ی یک خط» که از app.jsx می‌آد (retranslateLine(text, langCode) → Promise<string>).
+// با Context پاس می‌دیمش تا مجبور نباشیم از چند لایه کامپوننت prop رد کنیم.
+const RetranslateContext = createContext(null);
+const FA_OVERRIDE_PREFIX = "dcRetr:fa:";
+function readFaOverride(text) {
+  try { return localStorage.getItem(FA_OVERRIDE_PREFIX + text) || ""; } catch (e) { return ""; }
+}
+function writeFaOverride(text, value) {
+  try { localStorage.setItem(FA_OVERRIDE_PREFIX + text, value); } catch (e) { /* ignore */ }
+}
 import {
   Hand, UserPlus, Users, Home, MessageCircleQuestion, Mail, MailCheck, DoorOpen, Phone,
   Bus, Fuel, CloudSun, UtensilsCrossed, ShoppingBag, BedDouble, Stethoscope,
@@ -263,12 +274,32 @@ function TopicCard({ meta, index, hasData, onClick, uiLang, isRead, onToggleRead
 // translateFree که به کل اپ وصله می‌گیره — و چون translateFree خودش کش
 // IndexedDB داره، دفعه‌ی بعد همون ترجمه بدون اینترنت هم در دسترسه.
 function LineTranslation({ text, langCode, variant, i, knownFa, aiSettings, translateFree, SpeakButton, ClickableSentence, nativeLang, nativeLabel, autoScrollActive, highlightColor, fullText, lineOffsets, isActiveLine, onResolved }) {
-  const [value, setValue] = useState(langCode === "fa" ? knownFa || "" : "");
+  const [value, setValue] = useState(langCode === "fa" ? readFaOverride(text) || knownFa || "" : "");
   const [loading, setLoading] = useState(langCode !== "fa" && !knownFa);
+  const retranslateLine = useContext(RetranslateContext);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // دکمه‌ی رفرش: اگه ترجمه‌ی این خط غلطه، مستقیم از AI/شبکه دوباره می‌گیره (نه از کش)
+  const onRefresh = async (e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (!retranslateLine || refreshing) return;
+    setRefreshing(true);
+    try {
+      const res = await retranslateLine(text, langCode);
+      if (res && String(res).trim()) {
+        setValue(res);
+        if (langCode === "fa") writeFaOverride(text, res);
+      }
+    } catch (err) {
+      // شکست خورد؛ ترجمه‌ی قبلی می‌مونه
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     if (langCode === "fa") {
-      setValue(knownFa || "");
+      setValue(readFaOverride(text) || knownFa || "");
       setLoading(false);
       return;
     }
@@ -378,6 +409,21 @@ function LineTranslation({ text, langCode, variant, i, knownFa, aiSettings, tran
         </span>
       ) : (
         <span style={{ fontSize: 13, color: translationColor, fontWeight: 900, fontFamily: fontFa, flex: 1, ...highlightStyle }}>{value}</span>
+      )}
+      {!loading && value && retranslateLine && (
+        <button
+          onClick={onRefresh}
+          disabled={refreshing}
+          title="اگه این ترجمه اشتباهه، دوباره امتحان کن"
+          aria-label="ترجمه‌ی دوباره"
+          style={{ background: "none", border: "none", padding: 4, flexShrink: 0, cursor: refreshing ? "default" : "pointer", display: "flex", alignItems: "center" }}
+        >
+          {refreshing ? (
+            <Loader2 size={12} className="spin" color={translationColor} />
+          ) : (
+            <RotateCcw size={12} color={translationColor} style={{ opacity: 0.6 }} />
+          )}
+        </button>
       )}
     </div>
   );
@@ -621,6 +667,7 @@ export default function DailyConversationsTab({
   SpeakButton,
   targetLangs,
   translateFree,
+  retranslateLine,
   getCachedTranslationMap,
   levelFilter,
   speechController,
@@ -1025,6 +1072,7 @@ export default function DailyConversationsTab({
   }
 
   return (
+    <RetranslateContext.Provider value={retranslateLine || null}>
     <div>
       {/* شبکه‌ی کارت‌های موضوعی */}
       {!activeTopic && (() => {
@@ -1233,5 +1281,6 @@ export default function DailyConversationsTab({
         </div>
       )}
     </div>
+    </RetranslateContext.Provider>
   );
 }
