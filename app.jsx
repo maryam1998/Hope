@@ -6826,6 +6826,121 @@ function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
 }
 
 // ---------------------------------------------------------------------------
+// 🎵 حالت آهنگ — تشخیص گفتارِ آفلاین با Whisper (MIT) به‌جای Sherpa جریانی.
+// مدل با دکمه‌ی کاربر از HuggingFace دانلود می‌شه و روی خودِ گوشی اجرا می‌شه (بدون سرور).
+// Whisper جریانی نیست: متن هر ~۱۰ تا ۱۶ ثانیه یک‌جا می‌آد.
+// ---------------------------------------------------------------------------
+function SongSttSettings({ uiLang, colors }) {
+  const en = uiLang === "en";
+  const getPlugin = () =>
+    (typeof window !== "undefined" && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin) || null;
+  const isNative = () =>
+    typeof window !== "undefined" && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+
+  const [st, setSt] = useState({ engine: "sherpa", model: "base", models: [], downloading: false, activeModel: "" });
+  const [progressMb, setProgressMb] = useState(0);
+
+  const refresh = async () => {
+    const p = getPlugin();
+    if (!p || !p.getWhisperStatus) return;
+    try { setSt(await p.getWhisperStatus()); } catch (e) {}
+  };
+
+  useEffect(() => {
+    const p = getPlugin();
+    if (!isNative() || !p || !p.getWhisperStatus) return;
+    let alive = true;
+    refresh();
+    const subs = [
+      p.addListener("whisperDownloadProgress", (d) => { if (alive) setProgressMb(Math.round(((d && d.bytes) || 0) / (1024 * 1024))); }),
+      p.addListener("whisperDownloadDone", () => { setProgressMb(0); refresh(); }),
+      p.addListener("whisperDownloadError", (d) => {
+        setProgressMb(0);
+        if (!(d && d.cancelled)) alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + (d && d.error));
+        refresh();
+      }),
+    ];
+    return () => {
+      alive = false;
+      subs.forEach((h) => Promise.resolve(h).then((x) => x && x.remove && x.remove()).catch(() => {}));
+    };
+  }, []);
+
+  if (!isNative() || !getPlugin() || !getPlugin().getWhisperStatus) return null;
+
+  const cur = (st.models || []).find((m) => m.id === st.model) || { downloaded: false, approxMb: 0 };
+  const on = st.engine === "whisper";
+  const busy = st.downloading;
+
+  const setEngine = async (engine, model) => {
+    try { await getPlugin().setSttEngine({ engine, model }); } catch (e) {}
+    refresh();
+  };
+  const download = async () => {
+    setSt((s) => ({ ...s, downloading: true, activeModel: s.model }));
+    try { await getPlugin().downloadWhisperModel({ model: st.model }); }
+    catch (e) { alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + ((e && e.message) || e)); refresh(); }
+  };
+  const cancel = async () => { try { await getPlugin().cancelWhisperDownload(); } catch (e) {} };
+  const remove = async () => {
+    if (!confirm(en ? "Delete the song model?" : "مدل آهنگ حذف بشه؟")) return;
+    try { await getPlugin().deleteWhisperModel({ model: st.model }); } catch (e) {}
+    if (on) await setEngine("sherpa", st.model); else refresh();
+  };
+
+  const btn = { fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 8 };
+  const note = { fontSize: 12, color: colors.inkSoft, marginBottom: 8, lineHeight: 1.7 };
+  const names = { tiny: en ? "Tiny (fast, rough)" : "Tiny (سریع، دقت کم)", base: en ? "Base (balanced)" : "Base (متعادل)", small: en ? "Small (best, slower)" : "Small (دقیق‌تر، کندتر)" };
+
+  return (
+    <div style={{ marginTop: 6 }}>
+      <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>
+        🎵 {en ? "Song mode (Whisper, offline)" : "حالت آهنگ (Whisper، آفلاین)"}
+      </p>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
+        <span>{en ? "Model" : "مدل"}</span>
+        <select
+          value={st.model}
+          disabled={busy}
+          onChange={(e) => setEngine(on ? "whisper" : "sherpa", e.target.value)}
+          style={{ flex: 1, fontSize: 12.5, padding: "6px 8px", borderRadius: 10, border: `1px solid ${colors.cardBorder}`, backgroundColor: "white", color: colors.ink }}
+        >
+          {(st.models || []).map((m) => (
+            <option key={m.id} value={m.id}>{names[m.id] || m.id} {m.downloaded ? "✅" : `~${m.approxMb}MB`}</option>
+          ))}
+        </select>
+      </label>
+
+      {!cur.downloaded && !busy && (
+        <button onClick={download} style={btn}>
+          📥 {en ? `Download song model (~${cur.approxMb} MB, one-time)` : `دانلود مدل آهنگ (~${cur.approxMb} مگابایت، فقط یک بار)`}
+        </button>
+      )}
+      {busy && (
+        <div>
+          <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {progressMb} MB</p>
+          <button onClick={cancel} style={btn}>⏹ {en ? "Stop (resume later)" : "توقف (بعداً ادامه می‌دم)"}</button>
+        </div>
+      )}
+      {cur.downloaded && (
+        <div>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 700, color: colors.ink, marginBottom: 8 }}>
+            <input type="checkbox" checked={on} onChange={(e) => setEngine(e.target.checked ? "whisper" : "sherpa", st.model)} />
+            <span>{en ? "Use for songs / music" : "برای آهنگ و موسیقی استفاده کن"}</span>
+          </label>
+          <button onClick={remove} style={btn}>🗑 {en ? "Delete song model" : "حذف مدل آهنگ"}</button>
+        </div>
+      )}
+      <p style={note}>
+        {en
+          ? "Text appears every ~10–16 s (Whisper isn't streaming). Set the audio language above for best results; small needs a recent phone."
+          : "متن هر ~۱۰ تا ۱۶ ثانیه یک‌جا می‌آد (Whisper جریانی نیست). برای دقت بهتر «زبان صدا» رو بالا درست انتخاب کن؛ مدل small گوشی نسبتاً جدید می‌خواد."}
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 🔊 مدل‌های صدای آفلاینِ باکیفیت (Piper) — فقط اندروید (BubblePlugin).
 // تا وقتی مدلِ یه زبان دانلود نشده، همون صدای قبلی خونده می‌شه (TTS خودِ گوشی؛
 // برای فارسی/عربی سرویسِ آنلاین). بعد از دانلود، همون زبان خودکار از مدلِ آفلاین
@@ -7722,6 +7837,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
             </select>
           </label>
           <OfflineSpeechModelSettings lang={liveSrcLang} uiLang={uiLang} colors={colors} />
+          <SongSttSettings uiLang={uiLang} colors={colors} />
           <p style={{ fontSize: 11.5, color: colors.inkSoft, marginBottom: 6, lineHeight: 1.7 }}>
             {uiLang === "en"
               ? `Translates into: ${liveTargets.map((c) => c.toUpperCase()).join(" · ")} (your selected target languages). Earlier sentences stay in a scrollable history.`
