@@ -1989,6 +1989,7 @@ const UI_STRINGS = {
   storyContentTypeLabel: { fa: "نوع محتوا", en: "Content type" },
   storyLengthLabel: { fa: "طول داستان", en: "Story length" },
   storyRepeatCountLabel: { fa: "تعداد تکرار هر لغت", en: "Repeat count per word" },
+  storyRepeatHint: { fa: "کمتر = داستان طبیعی‌تر و روان‌تر (پیشنهاد: ۲ تا ۴)", en: "Fewer = a more natural, flowing story (suggested: 2–4)" },
   srtToolTitle: { fa: "ترجمه‌ی زیرنویس (SRT)", en: "Subtitle translation (SRT)" },
   srtToolDesc: { fa: "یه فایلِ srt وارد کن، زبانِ مقصد رو انتخاب کن، ترجمه کن و فایلِ srtِ ترجمه‌شده رو دانلود کن — برای استفاده تو هر پلیرِ ویدیو/صوتِ دیگه.", en: "Upload an srt file, pick a target language, translate it, and download the translated srt file — for use in any video/audio player." },
   srtToolChooseFile: { fa: "انتخابِ فایل srt", en: "Choose srt file" },
@@ -11311,7 +11312,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
   const [storyLevel, setStoryLevel] = useState("A2");
   const [contentType, setContentType] = useState("general");
   const [storyLength, setStoryLength] = useState("medium");
-  const [repeatCount, setRepeatCount] = useState(8);
+  const [repeatCount, setRepeatCount] = useState(3);
   const [selectedWords, setSelectedWords] = useState([]);
   const [customWord, setCustomWord] = useState("");
   const [wordTranslating, setWordTranslating] = useState(false);
@@ -13127,10 +13128,12 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
 - It must clearly belong to that genre from the first sentence.
 - EXACTLY ${targetParagraphs} paragraphs, each with ${lengthCfg.sentencesHint}.
 - ONE coherent story with a real arc (not disconnected example sentences): each sentence follows from the previous one, later paragraphs refer back to earlier ones, and the plot is genuinely about the target words rather than a generic story with words inserted.
+- Each target word should appear about ${repeatCount} time(s) in the whole story. That is a SOFT guide, never a quota: natural, well-written prose always beats hitting the number exactly, and being off by 1 or 2 is perfectly fine.
+- Never use a target word in back-to-back sentences or build several sentences on the same pattern around it; each new use must come in a different situation, collocation or inflection, so the repetition is barely noticeable to a reader.
 - Use every word with its natural meaning and collocations; if a target word doesn't fit somewhere, rewrite or move it instead of forcing it.
-- Target-word usage per paragraph (all inflected forms count together, off by 1 is fine; a phrase/sentence with ×1 just means work it in once, naturally):
+- Suggested spread per paragraph (all inflected forms count together; a phrase/sentence with ×1 just means work it in once, naturally; "(none)" means don't force any):
 ${budgetTable}${correction ? "\n" + correction : ""}
-Don't lengthen paragraphs just to fit repetitions.
+Don't lengthen paragraphs or bend the plot just to fit repetitions.
 Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of paragraph 1", "full text of paragraph 2"]}`;
 
       // زبان‌هایی با خطِ غیرلاتین (فارسی/عربی/هندی/روسی/چینی/کره‌ای/ژاپنی) برای همون
@@ -13261,7 +13264,7 @@ Paragraph to rewrite: ${current}
 
 Next paragraph (context only — do NOT rewrite this): ${next}
 
-Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the previous/next paragraphs and keeps roughly the same length and tone, but adjusts these word counts (counting all grammatical forms/inflections together): ${needsList}. Weave the words naturally into the sentences — don't just repeat them mechanically or list them. Respond ONLY with strict JSON, no markdown, no extra text: {"paragraph": "..."}`;
+Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the previous/next paragraphs and keeps roughly the same length and tone, but adjusts these word counts (counting all grammatical forms/inflections together): ${needsList}. Weave the words naturally into the sentences — never force, list, or mechanically repeat them; if a count can only be met by sounding unnatural, prefer the natural version. Respond ONLY with strict JSON, no markdown, no extra text: {"paragraph": "..."}`;
           };
 
           const patchResults = await Promise.allSettled(
@@ -15001,13 +15004,14 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
           <input
             type="range"
             min={1}
-            max={15}
+            max={10}
             value={repeatCount}
             onChange={(e) => setRepeatCount(Number(e.target.value))}
             style={{ flex: 1 }}
           />
           <span style={{ fontSize: 13, fontWeight: 700 }}>{repeatCount}</span>
         </div>
+        <p style={{ fontSize: 11, color: colors.inkSoft, margin: "4px 0 0", fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{tr("storyRepeatHint", uiLang)}</p>
 
       </div>
 
@@ -18863,8 +18867,10 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
   // (تک‌لغتِ انگلیسی + معنی) باهاش جور درنمی‌آد.
   const wordsWithSaved = useMemo(() => {
     const existing = new Set(WORDS_AZ.map((w) => normalizeWord(w.en)));
+    // عبارت/محدوده‌ی چندکلمه‌ای که کاربر انتخاب و ذخیره کرده هم همین‌جا (با مثالِ هوش مصنوعی)
+    // می‌آید — قبلاً فقط تک‌لغت‌ها فیلتر می‌شدند و عبارت‌ها هیچ‌وقت در تبِ «لغات» دیده نمی‌شدند.
     const extras = loadSavedStoryWords()
-      .filter((e) => e.langCode === "en" && !/\s/.test(normalizeWord(e.word)))
+      .filter((e) => e.langCode === "en" && normalizeWord(e.word))
       .filter((e) => !existing.has(normalizeWord(e.word)))
       .map((e) => ({
         id: `saved:${normalizeWord(e.word)}`,
