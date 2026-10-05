@@ -1444,9 +1444,18 @@ async function translateViaAI(text, targetLang, sourceLang, aiSettings) {
     `Translate the following text into ${targetLabel}. ` +
     `Respond with ONLY the translation itself — no quotes, no explanation, no original text, nothing else.\n\n` +
     `Text: ${text}`;
-  const result = await callAI({ prompt, maxTokens: 200, retries: 1, aiSettings });
-  const cleaned = String(result || "").replace(/^["'«»]+|["'«».\s]+$/g, "").trim();
+  const clean = (r) => stripAIReasoning(r).replace(/^["'«»]+|["'«».\s]+$/g, "").trim();
+  let cleaned = clean(await callAI({ prompt, maxTokens: 200, retries: 1, aiSettings }));
+  // مدل به‌جای ترجمه «فکر کردنش» رو نوشته → یک‌بار با دستورِ سخت‌گیرانه‌تر دوباره
+  if (!cleaned || looksLikeAIReasoning(cleaned)) {
+    const strict =
+      `Output ONLY the ${targetLabel} translation of the text below, as a single line. ` +
+      `Do not think aloud, do not analyze, do not explain, do not use lists or markdown.\n\n` +
+      `Text: ${text}\n\n${targetLabel} translation:`;
+    cleaned = clean(await callAI({ prompt: strict, maxTokens: 200, retries: 1, aiSettings }));
+  }
   if (!cleaned) throw new Error("translate-ai-empty-response");
+  if (looksLikeAIReasoning(cleaned)) throw new Error("translate-ai-reasoning-leak");
   return cleaned;
 }
 
@@ -1481,10 +1490,30 @@ function scriptRangeFor(langCode) {
   }
 }
 
+// 🧠 بعضی مدل‌های AI به‌جای «فقط ترجمه»، فرایندِ فکر کردنشون رو برمی‌گردونن
+// («Here's a thinking process: 1. **Analyze the Request:** …»). این متن حاوی حروفِ
+// زبانِ مقصد هم هست پس از تست‌های رسم‌الخط رد می‌شد و به‌عنوانِ ترجمه نمایش/کش می‌شد.
+const AI_REASONING_RE = /(thinking process|here'?s a thinking|analy[sz]e the (request|text|input)|\*\*\s*analy[sz]e|\bconstraint\s*:|the user wants me to|let me (read|think|analy[sz]e|re-?read)|<\/?think(ing)?>|^\s*okay,? (so|let'?s|the user))/im;
+function looksLikeAIReasoning(text) {
+  const t = String(text || "");
+  if (!t) return false;
+  if (AI_REASONING_RE.test(t)) return true;
+  // فهرستِ شماره‌دارِ مارک‌داون با چند «**» پشتِ هم = توضیحِ مدل، نه ترجمه
+  return (t.match(/\*\*/g) || []).length >= 4 && /(^|\n|\s)\d\.\s/.test(t);
+}
+// <think>…</think> و مانندش را برمی‌دارد و فقط پاسخِ واقعی را نگه می‌دارد
+function stripAIReasoning(text) {
+  return String(text || "")
+    .replace(/<think(ing)?>[\s\S]*?<\/think(ing)?>/gi, "")
+    .replace(/<think(ing)?>[\s\S]*$/gi, "")
+    .trim();
+}
+
 function looksLikelyMistranslated(sourceText, draft, targetLang, sourceLang) {
   const src = (sourceText || "").trim();
   const out = (draft || "").trim();
   if (!out) return true;
+  if (looksLikeAIReasoning(out)) return true;
   // زبان مبدا و مقصد فرق دارن ولی خروجی عیناً همون متن مبدأست — یعنی ترجمه نشده
   if (sourceLang && sourceLang !== "auto" && sourceLang !== targetLang && out.toLowerCase() === src.toLowerCase())
     return true;
@@ -1511,8 +1540,8 @@ async function verifyTranslationWithAI(sourceText, targetLang, draft, aiSettings
       `Is the draft an accurate, complete translation? If yes, reply with EXACTLY: OK\n` +
       `If no, reply with ONLY the corrected translation — no quotes, no explanation, nothing else.`;
     const result = await callAI({ prompt, maxTokens: 80, retries: 0, aiSettings });
-    const cleaned = String(result || "").trim();
-    if (!cleaned || /^OK\.?$/i.test(cleaned)) return draft;
+    const cleaned = stripAIReasoning(result);
+    if (!cleaned || /^OK\.?$/i.test(cleaned) || looksLikeAIReasoning(cleaned)) return draft;
     return cleaned.replace(/^["'«»]+|["'«».\s]+$/g, "").trim() || draft;
   } catch (e) {
     // بررسی با AI شکست خورد (مثلاً بک‌اند در دسترس نبود) — همون ترجمه‌ی
@@ -11522,7 +11551,21 @@ function YtSavedViewer({ entry, uiLang, onClose, onToStory, nativeLang, nativeLa
   const en = uiLang === "en";
   const lines = entry.ytLines || [];
   const hasUrl = !!entry.ytUrl;
-  const linkAt = (t) => `${entry.ytUrl}${entry.ytUrl.includes("?") ? "&" : "?"}t=${Math.floor(t || 0)}`;
+  // 🎙 منبعِ صدا برای ذخیره‌های «ترجمه‌ی زنده» (برنامه‌ی پخش‌کننده / فایل / لینک)
+  const src = entry.ytSource || null;
+  const srcAppName = src ? (src.inApp ? (en ? "this app" : "همین اپ") : (src.app || src.pkg || "")) : "";
+  const canOpenSrcApp = !!(src && src.pkg && !src.inApp && !hasUrl);
+  const openSrcApp = () => {
+    try {
+      const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin;
+      if (B && B.openApp) B.openApp({ pkg: src.pkg }).catch(() => {});
+    } catch (e) { /* ignore */ }
+  };
+  const [copiedLink, setCopiedLink] = useState(false);
+  // فقط لینکِ یوتیوب پارامترِ زمان می‌گیرد؛ لینکِ منبعِ دیگر همان‌طور که هست باز می‌شود
+  const linkAt = (t) => (/youtu/i.test(entry.ytUrl)
+    ? `${entry.ytUrl}${entry.ytUrl.includes("?") ? "&" : "?"}t=${Math.floor(t || 0)}`
+    : entry.ytUrl);
   const rtl = (code) => code === "fa" || code === "ar" || code === "ur" || code === "he";
   return createPortal(
     <div style={{ position: "fixed", inset: 0, zIndex: 9990, background: "rgba(28,37,65,0.55)", display: "flex", alignItems: "flex-end" }} onClick={onClose}>
@@ -11532,22 +11575,37 @@ function YtSavedViewer({ entry, uiLang, onClose, onToStory, nativeLang, nativeLa
       >
         <div style={{ padding: "12px 14px", borderBottom: `1px solid ${colors.cardBorder}` }}>
           <div className="flex items-center justify-between" style={{ gap: 8 }}>
-            <p style={{ fontWeight: 700, fontSize: 14, margin: 0, flex: 1, minWidth: 0 }} dir="auto">{hasUrl ? "▶" : "🎙"} {entry.title || "YouTube"}</p>
+            <p style={{ fontWeight: 700, fontSize: 14, margin: 0, flex: 1, minWidth: 0 }} dir="auto">{hasUrl && !entry.ytLive ? "▶" : "🎙"} {entry.title || "YouTube"}</p>
             <button onClick={onClose} aria-label={en ? "Close" : "بستن"}><X size={20} color={colors.inkSoft} /></button>
           </div>
           {entry.ytChannel && <p style={{ fontSize: 11.5, color: colors.inkSoft, margin: "2px 0 0" }} dir="auto">{entry.ytChannel}</p>}
+          {src && srcAppName && (
+            <p style={{ fontSize: 11, color: colors.inkSoft, margin: "2px 0 0" }} dir="auto">
+              {en ? "Source: " : "منبع: "}{srcAppName}{entry.ytLive ? (en ? " · live translation" : " · ترجمه‌ی زنده") : ""}
+            </p>
+          )}
           <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
             {hasUrl && <button
               onClick={() => openExternalLink(entry.ytUrl)}
               style={{ fontSize: 12, fontWeight: 700, color: "white", background: colors.teal, borderRadius: 8, padding: "6px 12px" }}
             >
-              {en ? "Open video" : "باز کردن ویدیو"}
+              {(src && !(src.url || "").includes("youtu")) ? (en ? "Open link" : "باز کردن لینک") : (en ? "Open video" : "باز کردن ویدیو")}
+            </button>}
+            {canOpenSrcApp && <button
+              onClick={openSrcApp}
+              style={{ fontSize: 12, fontWeight: 700, color: "white", background: colors.teal, borderRadius: 8, padding: "6px 12px" }}
+            >
+              {en ? `Open ${srcAppName}` : `باز کردن ${srcAppName}`}
             </button>}
             {hasUrl && <button
-              onClick={() => { try { navigator.clipboard && navigator.clipboard.writeText(entry.ytUrl); } catch (e) { /* ignore */ } }}
+              onClick={() => {
+                try { navigator.clipboard && navigator.clipboard.writeText(entry.ytUrl); } catch (e) { /* ignore */ }
+                setCopiedLink(true);
+                setTimeout(() => setCopiedLink(false), 1500);
+              }}
               style={{ fontSize: 12, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 8, padding: "6px 12px", background: "white" }}
             >
-              {en ? "Copy link" : "کپی لینک"}
+              {copiedLink ? (en ? "Copied ✓" : "کپی شد ✓") : (en ? "Copy link" : "کپی لینک")}
             </button>}
             <button
               onClick={onToStory}
@@ -12230,7 +12288,16 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
               byT.set(k, { ...l, tr: { ...((o && o.tr) || {}), ...(l.tr || {}) } });
             }
             const merged = [...byT.values()].sort((a, b) => (a.t || 0) - (b.t || 0));
-            next[at] = { ...old, ytLines: merged, ytTargets: it.targets || old.ytTargets, savedAt: it.savedAt || old.savedAt };
+            next[at] = {
+              ...old,
+              ytLines: merged,
+              ytTargets: it.targets || old.ytTargets,
+              savedAt: it.savedAt || old.savedAt,
+              ytSource: it.source || old.ytSource || null,
+              ytUrl: it.url || old.ytUrl || "",
+              ytChannel: it.channel || old.ytChannel || "",
+              title: (it.live && it.source && it.title) ? it.title : old.title,
+            };
           } else {
             let level = "B1";
             try { level = detectTextCEFRLevel(lines.map((l) => l.s).join(" ")) || level; } catch (e) { /* ignore */ }
@@ -12242,6 +12309,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
               ytVideoId: it.videoId || "",
               ytUrl: it.url || "",
               ytChannel: it.channel || "",
+              ytSource: it.source || null,
               ytTargets: it.targets || [],
               ytLines: lines,
               title: it.title || (it.live ? "ترجمه‌ی زنده" : ""),
