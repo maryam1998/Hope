@@ -1991,6 +1991,38 @@ const PRACTICE_PANEL_BORDER = colors.goldSoft;
 // نشون می‌دن (StoryBuilder، PhraseList، لیستِ لغات و ...) به‌جای نوشتنِ
 // دستیِ `isActive ? (highlightColor || READ_MARKER_COLOR) : inactive` از
 // همین تابع استفاده می‌کنن.
+// اسکرولِ نرم و آهسته‌ی خطِ فعال به وسطِ صفحه (به‌جای پرشِ سریعِ مرورگر).
+// اگه خط تقریباً وسطه، اصلاً تکون نمی‌خوره؛ انیمیشنِ قبلی هم لغو می‌شه.
+let __smoothScrollRaf = 0;
+function smoothScrollToCenter(node, duration = 900) {
+  if (!node || typeof window === "undefined") return;
+  let sc = node.parentElement;
+  while (sc && sc !== document.body && sc !== document.documentElement) {
+    const oy = getComputedStyle(sc).overflowY;
+    if ((oy === "auto" || oy === "scroll") && sc.scrollHeight > sc.clientHeight + 2) break;
+    sc = sc.parentElement;
+  }
+  const root = document.scrollingElement || document.documentElement;
+  const useWin = !sc || sc === document.body || sc === document.documentElement;
+  const box = useWin ? { top: 0, height: window.innerHeight } : sc.getBoundingClientRect();
+  const r = node.getBoundingClientRect();
+  const delta = r.top + r.height / 2 - (box.top + box.height / 2);
+  if (Math.abs(delta) < 24) return;
+  const startPos = useWin ? root.scrollTop : sc.scrollTop;
+  const dist = Math.min(Math.abs(delta), box.height * 1.5) * Math.sign(delta);
+  const dur = Math.min(1400, Math.max(500, duration + Math.abs(dist) * 0.3));
+  const t0 = performance.now();
+  cancelAnimationFrame(__smoothScrollRaf);
+  const ease = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / dur);
+    const y = startPos + dist * ease(k);
+    if (useWin) root.scrollTop = y; else sc.scrollTop = y;
+    if (k < 1) __smoothScrollRaf = requestAnimationFrame(step);
+  };
+  __smoothScrollRaf = requestAnimationFrame(step);
+}
+
 function highlightBg(highlightColor, isActive, inactiveValue) {
   const fallback = inactiveValue === undefined ? "transparent" : inactiveValue;
   if (!isActive || highlightColor === "none") return fallback;
@@ -12886,9 +12918,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
       granularity === "sentence"
         ? sentenceElsRef.current[`${sentenceForScroll.pi}-${sentenceForScroll.si}`]
         : paragraphElsRef.current[sentenceForScroll.pi];
-    if (node && node.scrollIntoView) {
-      node.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
+    if (node) smoothScrollToCenter(node);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoScrollActive, activeStorySentence?.pi, activeStorySentence?.si, userAudio.activeSentence?.pi, userAudio.activeSentence?.si, playbackMode, granularity]);
 
@@ -16580,10 +16610,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                 style={{
                                   backgroundColor: highlightBg(highlightColor, isSentenceActive),
                                   borderRadius: 5,
-                                  padding: isSentenceActive ? "2px 4px" : "2px 0",
+                                  padding: "2px 4px",
+                                  margin: "0 -4px",
                                   WebkitBoxDecorationBreak: "clone",
                                   boxDecorationBreak: "clone",
-                                  transition: "background-color 0.12s ease",
+                                  transition: "background-color 0.55s ease-in-out",
                                 }}
                               >
                                 <ClickableSentence
@@ -16655,7 +16686,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                           padding: isTranslationSentenceActive ? "2px 4px" : "2px 0",
                                           WebkitBoxDecorationBreak: "clone",
                                           boxDecorationBreak: "clone",
-                                          transition: "background-color 0.12s ease",
+                                          transition: "background-color 0.55s ease-in-out",
                                         }}
                                       >
                                         <ClickableSentence
@@ -16776,10 +16807,11 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                 style={{
                                   backgroundColor: highlightBg(highlightColor, isParaActive),
                                   borderRadius: 5,
-                                  padding: isParaActive ? "2px 4px" : "2px 0",
+                                  padding: "2px 4px",
+                                  margin: "0 -4px",
                                   WebkitBoxDecorationBreak: "clone",
                                   boxDecorationBreak: "clone",
-                                  transition: "background-color 0.12s ease",
+                                  transition: "background-color 0.55s ease-in-out",
                                 }}
                               >
                                 <ClickableSentence
@@ -16842,7 +16874,7 @@ Rewrite ONLY the "paragraph to rewrite" so it stays fully coherent with the prev
                                       padding: isTranslationParaActive ? "2px 4px" : "2px 0",
                                       WebkitBoxDecorationBreak: "clone",
                                       boxDecorationBreak: "clone",
-                                      transition: "background-color 0.12s ease",
+                                      transition: "background-color 0.55s ease-in-out",
                                     }}
                                   >
                                     <ClickableSentence
@@ -20705,7 +20737,7 @@ const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, t
                 style={{
                   backgroundColor: highlightBg(highlightColor, activePhraseId === p.id, "white"),
                   border: `1px solid ${colors.cardBorder}`,
-                  transition: "background-color 0.12s ease",
+                  transition: "background-color 0.55s ease-in-out",
                 }}
               >
                 <div className="flex-1">
@@ -20720,7 +20752,7 @@ const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, t
                         backgroundColor: highlightBg(highlightColor, activeTranslation && activeTranslation.code === nativeLang && activeTranslation.id === p.id),
                         borderRadius: 5,
                         padding: activeTranslation && activeTranslation.code === nativeLang && activeTranslation.id === p.id ? "2px 4px" : "2px 0",
-                        transition: "background-color 0.12s ease",
+                        transition: "background-color 0.55s ease-in-out",
                       }}
                     >
                       {getNativeText(p)}
@@ -20774,7 +20806,7 @@ const PhraseList = React.memo(function PhraseList({ conversation , nativeLang, t
                             backgroundColor: highlightBg(highlightColor, isTransActive),
                             borderRadius: 5,
                             padding: isTransActive ? "2px 4px" : "2px 0",
-                            transition: "background-color 0.12s ease",
+                            transition: "background-color 0.55s ease-in-out",
                           }}
                         >
                           {p.t[l.code] ? (
@@ -22361,7 +22393,7 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
                     padding: activeWordId === w.id ? "2px 4px" : "2px 0",
                     WebkitBoxDecorationBreak: "clone",
                     boxDecorationBreak: "clone",
-                    transition: "background-color 0.12s ease",
+                    transition: "background-color 0.55s ease-in-out",
                   }}
                 >
                   <ClickableSentence
@@ -22609,7 +22641,7 @@ function WordTargetTranslation({ word, wordId, pos, level, langCode, abbr, known
     padding: isActiveLine ? "2px 4px" : "2px 0",
     WebkitBoxDecorationBreak: "clone",
     boxDecorationBreak: "clone",
-    transition: "background-color 0.12s ease",
+    transition: "background-color 0.55s ease-in-out",
   };
 
   return (
@@ -22817,7 +22849,7 @@ function VocabBookExampleTranslation({ text, targetLang, abbr, aiSettings, highl
             padding: isActive ? "2px 4px" : "2px 0",
             WebkitBoxDecorationBreak: "clone",
             boxDecorationBreak: "clone",
-            transition: "background-color 0.12s ease",
+            transition: "background-color 0.55s ease-in-out",
           }}
         >
           {translation}
@@ -22882,7 +22914,7 @@ function VocabBookExample({ collocation, example, targetLangs, aiSettings, nativ
                 padding: collocationActive ? "2px 4px" : "2px 0",
                 WebkitBoxDecorationBreak: "clone",
                 boxDecorationBreak: "clone",
-                transition: "background-color 0.12s ease",
+                transition: "background-color 0.55s ease-in-out",
               }}
             >
               <ClickableSentence
@@ -22909,7 +22941,7 @@ function VocabBookExample({ collocation, example, targetLangs, aiSettings, nativ
                 padding: exampleActive ? "2px 4px" : "2px 0",
                 WebkitBoxDecorationBreak: "clone",
                 boxDecorationBreak: "clone",
-                transition: "background-color 0.12s ease",
+                transition: "background-color 0.55s ease-in-out",
               }}
             >
               <ClickableSentence
