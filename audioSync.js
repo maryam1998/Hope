@@ -100,14 +100,18 @@ async function transcribe(audio, language) {
     }
     const lo = k === 0 ? 0 : off + MARGIN;
     const hi = k === total - 1 ? Infinity : off + WIN - MARGIN;
+    const fresh = [];
     for (const c of chunks) {
       const ts = c.timestamp || [];
       if (ts[0] == null) continue;
       const s = off + ts[0];
       if (s < lo || s >= hi) continue;
       const e = ts[1] == null ? s + 0.4 : off + ts[1];
-      words.push({ t: String(c.text || ""), s, e });
+      const w = { t: String(c.text || ""), s, e };
+      words.push(w);
+      fresh.push(w);
     }
+    post({ type: "part", words: fresh, seg: mode !== "word" });
     post({ type: "p", frac: (k + 1) / total });
   }
   post({ type: "done", words, seg: mode !== "word" });
@@ -209,7 +213,7 @@ const LANG_NAMES = {
 };
 
 // خروجی: { words:[{w,s,e}], seconds }
-export async function transcribeForSync(blob, langCode, onProgress) {
+export async function transcribeForSync(blob, langCode, onProgress, onPartial) {
   const st = getSyncModelState();
   if (!st.downloaded) throw new Error("NO_MODEL");
   cancelFlag = false;
@@ -222,10 +226,18 @@ export async function transcribeForSync(blob, langCode, onProgress) {
     onProgress && onProgress({ phase: "load", frac: 0 });
     await initWorker(w, st.size);
     if (cancelFlag) throw new Error("CANCELLED");
+    const partialRaw = [];
     const res = await new Promise((resolve, reject) => {
       w.onmessage = (ev) => {
         const m = ev.data;
-        if (m.type === "p") onProgress && onProgress({ phase: "run", frac: m.frac });
+        if (m.type === "part") {
+          // هر پنجره که تموم شد، کلماتِ نهاییِ همون بخش رو فوراً بیرون می‌دیم (بدونِ صبر تا آخرِ فایل)
+          if (onPartial && m.words && m.words.length) {
+            for (const x of m.words) partialRaw.push(x);
+            try { onPartial({ words: expandWords(partialRaw, m.seg), seconds }); } catch (e) {}
+          }
+        }
+        else if (m.type === "p") onProgress && onProgress({ phase: "run", frac: m.frac });
         else if (m.type === "done") resolve(m);
         else if (m.type === "error") reject(new Error(m.message));
       };
@@ -406,7 +418,16 @@ export function alignSentences(sentences, words, duration) {
     times[si] = Math.round(run * 100) / 100;
   }
   times[0] = 0;
-  return { ok: coverage >= 0.3, coverage, times };
+  return { ok: coverage >= 0.3, coverage, times, anchored: a, matched };
+}
+
+// همگام‌سازیِ نیمه‌کاره: فقط جمله‌هایی که تا الان واقعاً با صدا جور شدن زمان دارن؛
+// بقیه Infinity می‌گیرن (هیچ‌وقت «فعال» نمی‌شن). خروجیِ null یعنی هنوز مطمئن نیستیم.
+export function alignPartial(sentences, words, duration) {
+  const res = alignSentences(sentences, words, duration);
+  if (!res || !res.times || !res.times.length || res.matched < 4 || res.anchored < 0) return null;
+  const times = res.times.map((t, i) => (i <= res.anchored ? t : Infinity));
+  return { times, upto: res.anchored };
 }
 
 // جمله‌ی فعال در لحظه‌ی t (جستجوی دودویی روی زمان‌های شروع)

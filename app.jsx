@@ -12,7 +12,7 @@ import DailyConversationsTab from "./DailyConversationsTab.jsx";
 import SpeakingPracticePanel from "./SpeakingPractice.jsx";
 import { recordNeuralRepeat, addNeuralFiber, NeuralPathButton } from "./NeuralPath.jsx";
 import YouTubeCaptionPanel from "./YouTubeCaptions.jsx";
-import { SYNC_MODEL_OPTIONS, getSyncModelState, subscribeSyncModel, setSyncModelSize, downloadSyncModel, removeSyncModel, cancelSync, transcribeForSync, alignSentences, sentenceIndexAt, loadSyncTimes, saveSyncTimes, clearSyncTimes } from "./audioSync.js";
+import { SYNC_MODEL_OPTIONS, getSyncModelState, subscribeSyncModel, setSyncModelSize, downloadSyncModel, removeSyncModel, cancelSync, transcribeForSync, alignSentences, alignPartial, sentenceIndexAt, loadSyncTimes, saveSyncTimes, clearSyncTimes } from "./audioSync.js";
 // مکالمات روزمره + مکالمات موضوعی، یکجا مرج‌شده — تا هرجا که قبلاً از
 // DAILY_CONVERSATIONS استفاده می‌شد (تبِ مکالمه، استخرِ جستجوی داستان‌ساز،
 // نگاشتِ سطح‌بندیِ لغات)، مکالمات موضوعی هم به‌صورت خودکار دیده بشن.
@@ -869,7 +869,8 @@ function useStoryUserAudio(storyKey, allSentences) {
   // وگرنه همگام‌سازی فوراً اشاره‌گر رو به جمله‌ی در حالِ پخش برمی‌گردوند.
   function syncSeek(idx) {
     const ts = syncTimesRef.current;
-    if (!syncOnRef.current || !ts || ts[idx] == null || !audioElRef.current) return;
+    // جمله‌هایی که هنوز همگام نشدن (Infinity) نادیده گرفته می‌شن
+    if (!syncOnRef.current || !ts || ts[idx] == null || !isFinite(ts[idx]) || !audioElRef.current) return;
     audioElRef.current.currentTime = ts[idx];
   }
   // سرعتِ پخشِ صوتِ آپلودیِ کاربر — مستقل از سرعتِ TTS (که سراسری و
@@ -1199,11 +1200,26 @@ function useStoryUserAudio(storyKey, allSentences) {
     if (!storyKey || !allSentences || !allSentences.length) return;
     setSyncError("");
     setSyncProgress({ phase: "decode", frac: 0 });
+    const prevTimes = syncTimesRef.current;
+    let live = false;       // آیا بخشی از همگام‌سازی همین الان قابل‌استفاده‌ست؟
+    let finished = false;
     try {
       const rec = await getStoryAudioRecord(storyKey);
       if (!rec || !rec.blob) throw new Error("NO_AUDIO");
-      const { words, seconds } = await transcribeForSync(rec.blob, langCode, (p) => setSyncProgress(p));
-      const res = alignSentences(allSentences.map((x) => (x && x.text) || ""), words, seconds);
+      const texts = allSentences.map((x) => (x && x.text) || "");
+      // هر بخشی که همگام شد، همون لحظه توی اپ اجرا می‌شه (بدونِ صبر تا آخرِ فایل)
+      const onPartial = ({ words, seconds }) => {
+        const part = alignPartial(texts, words, seconds);
+        if (!part) return;
+        live = true;
+        syncTimesRef.current = part.times;
+        setSyncTimesState(part.times);
+        syncOnRef.current = true;
+        setSyncOnState(true);
+        applySyncAt(audioElRef.current?.currentTime || 0);
+      };
+      const { words, seconds } = await transcribeForSync(rec.blob, langCode, (p) => setSyncProgress({ ...p, live }), onPartial);
+      const res = alignSentences(texts, words, seconds);
       if (!res.ok) {
         setSyncError("متنِ داستان با صدا نخوند (فقط " + Math.round(res.coverage * 100) + "٪ تطبیق پیدا شد). مطمئن شو متن و صدا یکی هستن و زبانِ داستان درست انتخاب شده.");
       } else {
@@ -1213,6 +1229,7 @@ function useStoryUserAudio(storyKey, allSentences) {
         setSyncOnState(true);
         syncOnRef.current = true;
         applySyncAt(audioElRef.current?.currentTime || 0);
+        finished = true;
       }
     } catch (e) {
       const m = String((e && e.message) || e);
@@ -1223,6 +1240,11 @@ function useStoryUserAudio(storyKey, allSentences) {
         setSyncError("همگام‌سازی ناموفق بود. دوباره امتحان کن؛ اگه تکرار شد، یه فایلِ کوتاه‌تر یا مدلِ «سریع» رو امتحان کن.");
       }
     } finally {
+      // اگه کار کامل نشد (خطا/لغو/تطبیقِ ناکافی)، زمان‌های نیمه‌کاره رو کنار می‌ذاریم
+      if (!finished) {
+        syncTimesRef.current = prevTimes;
+        setSyncTimesState(prevTimes);
+      }
       setSyncProgress(null);
     }
   }
@@ -7209,6 +7231,7 @@ function StorySyncControls({ userAudio, storyLang }) {
   const phase = syncProgress
     ? syncProgress.phase === "decode" ? "در حال خواندن صوت..."
       : syncProgress.phase === "load" ? "آماده‌سازی..."
+      : syncProgress.live ? `در حال همگام‌سازی... ${pct}٪ — تا همین‌جا همگام شده و قابل‌پخشه`
       : `در حال همگام‌سازی... ${pct}٪`
     : "";
   const cur = SYNC_MODEL_OPTIONS.find((o) => o.id === m.size) || SYNC_MODEL_OPTIONS[1];
