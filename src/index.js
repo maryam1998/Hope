@@ -387,6 +387,16 @@ function extractJsonAfter(html, marker) {
 function pickCaptionTrack(tracks, wantLang) {
   const norm = (s) => (s || "").toLowerCase().split("-")[0];
   const want = norm(wantLang);
+  // 🌍 "auto": زبانِ اصلیِ ویدیو. ترکِ خودکار (asr) همیشه به زبانِ گفتارِ ویدیو ساخته می‌شه؛
+  // اگه ترکِ دستی هم به همون زبان بود اون، وگرنه خودِ asr؛ اگه asr نبود، اولین ترکِ دستی.
+  if (want === "auto") {
+    const asr = tracks.find((t) => t.kind === "asr");
+    if (asr) {
+      const spoken = norm(asr.languageCode);
+      return tracks.find((t) => t.kind !== "asr" && norm(t.languageCode) === spoken) || asr;
+    }
+    return tracks.find((t) => t.kind !== "asr") || tracks[0];
+  }
   return (
     tracks.find((t) => norm(t.languageCode) === want && t.kind !== "asr") ||
     tracks.find((t) => norm(t.languageCode) === want) ||
