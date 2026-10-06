@@ -11594,117 +11594,15 @@ function openExternalLink(url) {
   window.open(url, "_blank");
 }
 
-function fmtYtTime(sec) {
-  const t = Math.max(0, Math.floor(sec || 0));
-  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), r = t % 60;
-  const mm = String(m).padStart(h ? 2 : 1, "0"), ss = String(r).padStart(2, "0");
-  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
-}
-
-function YtSavedViewer({ entry, uiLang, onClose, onToStory, nativeLang, nativeLabel, aiSettings }) {
-  const en = uiLang === "en";
-  const lines = []; // زیرنویس‌ها دیگر ذخیره/نمایش داده نمی‌شوند
-  const hasUrl = !!entry.ytUrl;
-  // 🎙 منبعِ صدا برای ذخیره‌های «ترجمه‌ی زنده» (برنامه‌ی پخش‌کننده / فایل / لینک)
-  const src = entry.ytSource || null;
-  const srcAppName = src ? (src.inApp ? (en ? "this app" : "همین اپ") : (src.app || src.pkg || "")) : "";
-  const canOpenSrcApp = !!(src && src.pkg && !src.inApp && !hasUrl);
-  const openSrcApp = () => {
-    try {
-      const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin;
-      if (B && B.openApp) B.openApp({ pkg: src.pkg }).catch(() => {});
-    } catch (e) { /* ignore */ }
-  };
-  const [copiedLink, setCopiedLink] = useState(false);
-  // فقط لینکِ یوتیوب پارامترِ زمان می‌گیرد؛ لینکِ منبعِ دیگر همان‌طور که هست باز می‌شود
-  const linkAt = (t) => (/youtu/i.test(entry.ytUrl)
-    ? `${entry.ytUrl}${entry.ytUrl.includes("?") ? "&" : "?"}t=${Math.floor(t || 0)}`
-    : entry.ytUrl);
-  const rtl = (code) => code === "fa" || code === "ar" || code === "ur" || code === "he";
-  return createPortal(
-    <div style={{ position: "fixed", inset: 0, zIndex: 9990, background: "rgba(28,37,65,0.55)", display: "flex", alignItems: "flex-end" }} onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ background: "white", width: "100%", maxHeight: "92%", borderRadius: "18px 18px 0 0", display: "flex", flexDirection: "column", overflow: "hidden" }}
-      >
-        <div style={{ padding: "12px 14px", borderBottom: `1px solid ${colors.cardBorder}` }}>
-          <div className="flex items-center justify-between" style={{ gap: 8 }}>
-            <p style={{ fontWeight: 700, fontSize: 14, margin: 0, flex: 1, minWidth: 0 }} dir="auto">{hasUrl && !entry.ytLive ? "▶" : "🎙"} {entry.title || "YouTube"}</p>
-            <button onClick={onClose} aria-label={en ? "Close" : "بستن"}><X size={20} color={colors.inkSoft} /></button>
-          </div>
-          {entry.ytChannel && <p style={{ fontSize: 11.5, color: colors.inkSoft, margin: "2px 0 0" }} dir="auto">{entry.ytChannel}</p>}
-          {src && srcAppName && (
-            <p style={{ fontSize: 11, color: colors.inkSoft, margin: "2px 0 0" }} dir="auto">
-              {en ? "Source: " : "منبع: "}{srcAppName}{entry.ytLive ? (en ? " · live translation" : " · ترجمه‌ی زنده") : ""}
-            </p>
-          )}
-          <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
-            {hasUrl && <button
-              onClick={() => openExternalLink(entry.ytUrl)}
-              style={{ fontSize: 12, fontWeight: 700, color: "white", background: colors.teal, borderRadius: 8, padding: "6px 12px" }}
-            >
-              {(src && !(src.url || "").includes("youtu")) ? (en ? "Open link" : "باز کردن لینک") : (en ? "Open video" : "باز کردن ویدیو")}
-            </button>}
-            {canOpenSrcApp && <button
-              onClick={openSrcApp}
-              style={{ fontSize: 12, fontWeight: 700, color: "white", background: colors.teal, borderRadius: 8, padding: "6px 12px" }}
-            >
-              {en ? `Open ${srcAppName}` : `باز کردن ${srcAppName}`}
-            </button>}
-            {hasUrl && <button
-              onClick={() => {
-                try { navigator.clipboard && navigator.clipboard.writeText(entry.ytUrl); } catch (e) { /* ignore */ }
-                setCopiedLink(true);
-                setTimeout(() => setCopiedLink(false), 1500);
-              }}
-              style={{ fontSize: 12, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 8, padding: "6px 12px", background: "white" }}
-            >
-              {copiedLink ? (en ? "Copied ✓" : "کپی شد ✓") : (en ? "Copy link" : "کپی لینک")}
-            </button>}
-          </div>
-          {hasUrl && <p style={{ fontSize: 11, color: colors.inkSoft, margin: "6px 0 0", direction: "ltr", textAlign: "left", wordBreak: "break-all" }}>{entry.ytUrl}</p>}
-        </div>
-        <div style={{ overflowY: "auto", padding: "8px 14px 18px" }}>
-          {lines.map((l, i) => (
-            <div key={i} style={{ padding: "8px 0", borderBottom: `1px solid ${colors.cardBorder}` }}>
-              <div className="flex items-start gap-2">
-                <button
-                  onClick={() => hasUrl && openExternalLink(linkAt(l.t))}
-                  style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: colors.teal, background: colors.goldSoft, borderRadius: 6, padding: "2px 6px", direction: "ltr" }}
-                >
-                  {fmtYtTime(l.t)}
-                </button>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  {/* هر لغت قابلِ تپ است (کادرِ معنی + ذخیره برای داستان بعدی / گرامر / جعبه‌ی لایتنر)؛ انتخابِ محدوده هم از طریقِ data-lang-code کار می‌کند */}
-                  <div className="flex items-start gap-1" style={{ direction: "ltr" }}>
-                    <SpeakButton text={l.s} code={entry.storyLang || "en"} color={colors.teal} neuralLabel="جمله" />
-                    <div style={{ fontSize: 13.5, margin: 0, flex: 1, minWidth: 0, direction: rtl(entry.storyLang) ? "rtl" : "ltr", textAlign: rtl(entry.storyLang) ? "right" : "left" }}>
-                      <ClickableSentence
-                        text={l.s}
-                        langCode={entry.storyLang || "en"}
-                        nativeLang={nativeLang || "fa"}
-                        nativeLabel={nativeLabel}
-                        aiSettings={aiSettings}
-                        color={colors.ink}
-                        fontSize={13.5}
-                        originExtra={{ via: "yt-saved" }}
-                      />
-                    </div>
-                  </div>
-                  {Object.entries(l.tr || {}).map(([code, text]) => (
-                    <p key={code} data-lang-code={code} style={{ fontSize: 12.5, color: colors.inkSoft, margin: "3px 0 0", direction: rtl(code) ? "rtl" : "ltr", textAlign: rtl(code) ? "right" : "left" }}>
-                      <span style={{ fontSize: 9.5, fontWeight: 700, opacity: 0.7, marginInlineEnd: 6 }}>{code.toUpperCase()}</span>{text}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
+// 📺 ذخیره‌های لینک/منبع (یوتیوب، اینستاگرام، تیک‌تاک، تلگرام…): با زدن روی کارت، مستقیم همان لینک یا
+// همان برنامه‌ی مبدأ باز می‌شود.
+function openYtSource(entry) {
+  try {
+    if (entry && entry.ytUrl) { openExternalLink(entry.ytUrl); return; }
+    const src = entry && entry.ytSource;
+    const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin;
+    if (src && src.pkg && !src.inApp && B && B.openApp) B.openApp({ pkg: src.pkg }).catch(() => {});
+  } catch (e) { /* ignore */ }
 }
 
 // متنِ کاملِ یه داستانِ ذخیره‌شده رو از روی paragraphs می‌سازه — دقیقاً با
@@ -12293,7 +12191,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
   const [showSaved, setShowSaved] = useState(false);
   // 📺 زیرنویس‌های ذخیره‌شده از حبابِ یوتیوب (فقط اندروید): حباب تو یه صفِ بومی می‌نویسه، اینجا وارد
   // «داستان‌های ذخیره‌شده» می‌شه. ذخیره‌ی دوباره‌ی همون ویدیو، خط‌ها رو ادغام می‌کنه (نه کپیِ تکراری).
-  const [ytViewEntry, setYtViewEntry] = useState(null);
   const ytImportBusyRef = useRef(false);
   const importYtSaved = useCallback(async () => {
     const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin;
@@ -14726,7 +14623,7 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
   };
 
   const openSavedStory = (entry) => {
-    if (entry.ytSession) { setYtViewEntry(entry); return; }
+    if (entry.ytSession) { openYtSource(entry); return; }
     // 🆕 داستان‌های ذخیره‌شده‌ای که از «PDF رو با عکسِ اصلی + ترجمه همینجا
     // نشون بده» اومدن، فقط یه اشاره‌گر (pdfDocId) به سندِ واقعی‌شون تو
     // IndexedDBِ خودِ PDFها نگه می‌دارن (نه خودِ تصاویر/صفحات — که خیلی
@@ -14808,16 +14705,6 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
 
   return (
     <div className="flex flex-col gap-4">
-      {ytViewEntry && (
-        <YtSavedViewer
-          entry={ytViewEntry}
-          uiLang={uiLang}
-          nativeLang={nativeLang}
-          nativeLabel={nativeLabel}
-          aiSettings={aiSettings}
-          onClose={() => setYtViewEntry(null)}
-        />
-      )}
       <div className="flex items-center justify-between">
         <p style={{ fontWeight: 700, fontSize: 16, fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{tr("tabStory", uiLang)}</p>
         <div className="flex gap-2">
@@ -15036,7 +14923,9 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
                 {list.map((s) => (
                   <div
                     key={s.id}
+                    onClick={() => openSavedStory(s)}
                     style={{
+                      cursor: "pointer",
                       position: "relative",
                       background: savedStoryReadIds.has(s.id) ? READ_DONE_GRADIENT : "white",
                       border: `1px solid ${savedStoryReadIds.has(s.id) ? READ_DONE_BORDER : colors.cardBorder}`,
@@ -15076,7 +14965,7 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
                           بود و سمتِ چپ در میومد). */}
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => toggleSavedStoryRead(s.id)}
+                          onClick={(e) => { e.stopPropagation(); toggleSavedStoryRead(s.id); }}
                           aria-label={uiLang === "en" ? "Toggle read" : "علامت‌زدن به‌عنوان خوانده‌شده"}
                           style={{
                             flexShrink: 0,
@@ -15116,7 +15005,7 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
                             )}
                           </p>
                           {renamingStoryId === s.id ? (
-                            <div className="flex items-center gap-1" style={{ marginTop: 2 }}>
+                            <div className="flex items-center gap-1" style={{ marginTop: 2 }} onClick={(e) => e.stopPropagation()}>
                               <input
                                 autoFocus
                                 value={renameDraft}
@@ -15152,26 +15041,20 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
                       </div>
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => toggleSavedStoryFavorite(s.id)}
+                          onClick={(e) => { e.stopPropagation(); toggleSavedStoryFavorite(s.id); }}
                           aria-label={tr("addToFavoritesAria", uiLang)}
                         >
                           <Star size={16} color={STAR_FAVORITE_COLOR} fill={s.favorite ? STAR_FAVORITE_COLOR : "none"} />
                         </button>
                         {renamingStoryId !== s.id && (
                           <button
-                            onClick={() => startRenamingStory(s)}
+                            onClick={(e) => { e.stopPropagation(); startRenamingStory(s); }}
                             aria-label={uiLang === "en" ? "Rename" : "تغییرِ نام"}
                           >
                             <Pencil size={14} color={colors.inkSoft} />
                           </button>
                         )}
-                        <button
-                          onClick={() => openSavedStory(s)}
-                          style={{ fontSize: 12, color: colors.teal, textDecoration: "underline" }}
-                        >
-                          {uiLang === "en" ? "Open" : "باز کردن"}
-                        </button>
-                        <button onClick={() => deleteSavedStory(s.id)} aria-label={uiLang === "en" ? "Delete" : "حذف"}>
+                        <button onClick={(e) => { e.stopPropagation(); deleteSavedStory(s.id); }} aria-label={uiLang === "en" ? "Delete" : "حذف"}>
                           <X size={16} color={colors.rose} />
                         </button>
                       </div>
