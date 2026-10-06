@@ -21099,7 +21099,6 @@ function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang, native
       setSaved(isWordSaved(selectedText, langCode));
       setGrammarSaved(false);
       setLeitnerAdded(false);
-      setCopiedText(false);
       setMeasuredHeight(null);
       // دیگه پاپ‌آپ همین‌جا باز نمی‌شه — محدوده فقط «آماده» می‌مونه (با
       // هایلایتِ طلاییِ بالا) تا کاربر جدا روش یه لمسِ طولانی انجام بده
