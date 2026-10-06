@@ -11,7 +11,6 @@ import { DAILY_CONVERSATIONS,THEMATIC_CONVERSATIONS } from "./DAILY_CONVERSATION
 import DailyConversationsTab from "./DailyConversationsTab.jsx";
 import SpeakingPracticePanel from "./SpeakingPractice.jsx";
 import { recordNeuralRepeat, addNeuralFiber, NeuralPathButton } from "./NeuralPath.jsx";
-import YouTubeCaptionPanel from "./YouTubeCaptions.jsx";
 import { SYNC_MODEL_OPTIONS, getSyncModelState, subscribeSyncModel, setSyncModelSize, downloadSyncModel, removeSyncModel, cancelSync, transcribeForSync, alignSentences, alignPartial, sentenceIndexAt, loadSyncTimes, saveSyncTimes, clearSyncTimes } from "./audioSync.js";
 // مکالمات روزمره + مکالمات موضوعی، یکجا مرج‌شده — تا هرجا که قبلاً از
 // DAILY_CONVERSATIONS استفاده می‌شد (تبِ مکالمه، استخرِ جستجوی داستان‌ساز،
@@ -11715,9 +11714,7 @@ function YtSavedViewer({ entry, uiLang, onClose, onToStory, nativeLang, nativeLa
 // حساب کنیم و بفهمیم آیا صدایی براش ذخیره شده یا نه.
 function getStoryEntryFullText(entry) {
   // 📺 زیرنویسِ ذخیره‌شده از حبابِ یوتیوب: متنِ منبعِ همه‌ی خط‌ها (+ترجمه‌ها برای جستجو)
-  if (entry && Array.isArray(entry.ytLines)) {
-    return entry.ytLines.map((l) => l?.s || "").join(" ");
-  }
+  if (entry && entry.ytSession) return ""; // متنِ ویدیو/صوت ذخیره/استفاده نمی‌شود؛ فقط لینک و منبع
   if (!entry || !Array.isArray(entry.paragraphs)) return "";
   return entry.paragraphs
     .flatMap((p) => (p?.sentences || []).map((s) => s?.text || ""))
@@ -11892,20 +11889,6 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
   const [pdfReadProgress, setPdfReadProgress] = useState("");
   const [pdfReadError, setPdfReadError] = useState("");
   const pdfReadInputRef = useRef(null);
-  // 🎬 «وارد کردن از یوتیوب» — اولین گزینه‌ی منبعِ داستان (قبل از PDF):
-  // برخلافِ «لینک یه صفحه رو وارد کن» پایین‌تر (که فقط زیرنویس رو به‌عنوانِ
-  // متنِ ساده می‌گیره)، این‌یکی خودِ پلیرِ واقعیِ یوتیوب رو همین‌جا نشون
-  // می‌ده (IFrame API — قابلِ پخش/توقف/سیک)، با دریافتِ زیرنویس هم به‌صورتِ
-  // خودکار (endpoint نیمه‌رسمیِ timedtext) و هم دستی (آپلودِ srt/vtt).
-  // کاربر می‌تونه از همون پنل، رونوشت رو با دکمه‌ی «افزودن به داستان‌ساز»
-  // به سیستمِ خوانش/ترجمه/سوالِ اپ منتقل کنه — بدونِ اینکه ویدیو از پخش
-  // بیفته یا پنل بسته بشه.
-  const [showYoutubeImport, setShowYoutubeImport] = useState(false);
-  // 🎬 دقیقاً همون پنلِ بالا، ولی این سوییچِ جدا مالِ خودِ صفحه‌ی خوانشه —
-  // کنارِ نوارِ «آپلودِ صوت» (StoryUserAudioBar). کاربر می‌تونه بدونِ اینکه
-  // از صفحه‌ی خوانش بیرون بره، یه ویدیوی یوتیوبِ دیگه رو همینجا باز کنه،
-  // ببینه، و رونوشتش رو با ترجمه‌ی هم‌زمان بخونه.
-  const [showReaderYoutubeImport, setShowReaderYoutubeImport] = useState(false);
   // «وارد کردنِ عکس برای خوندن/ترجمه» — دقیقاً همون الگوی «وارد کردنِ PDF
   // برای خوانش» بالا، فقط منبعش عکسه: با Tesseract.js (OCR)، متنِ رویِ
   // هر عکس تو خودِ مرورگر استخراج می‌شه (هیچ عکسی به هیچ سروری فرستاده
@@ -12388,6 +12371,13 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [importYtSaved]);
   useEffect(() => { if (showSaved) importYtSaved(); }, [showSaved, importYtSaved]);
+  // 🧹 ذخیره‌های قدیمیِ یوتیوب/ترجمه‌ی زنده ممکنه متنِ زیرنویس داشته باشن؛ فقط لینک/منبع می‌مونه.
+  useEffect(() => {
+    if (!showSaved) return;
+    setSavedStories((prev) => (prev.some((x) => x && x.ytSession && x.ytLines && x.ytLines.length)
+      ? prev.map((x) => (x && x.ytSession && x.ytLines && x.ytLines.length ? { ...x, ytLines: [] } : x))
+      : prev));
+  }, [showSaved, setSavedStories]);
   // فیلترِ سطح برای لیستِ «داستان‌های ذخیره‌شده» — دقیقاً همون الگوی
   // LevelFilterRow که بقیه‌ی تب‌ها (واژگان، عبارت‌ها و ...) دارن؛ هر داستان
   // از قبل با سطحِ خودش (storyLevel) ذخیره می‌شه، این فیلتر فقط برای پیداکردن
@@ -14615,49 +14605,6 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
     return null;
   };
 
-  // متنِ خامِ زیرنویسِ یه ویدیوی یوتیوب رو می‌گیره (نه خودِ ویدیو رو — این
-  // مسیر فقط برای داستان‌ساز به همون متنِ ساده نیاز داره، دقیقاً مثلِ متنِ
-  // یه صفحه‌ی وب یا PDF)، بعد همون خط‌به‌خطِ vtt رو به یه پاراگرافِ ساده
-  // تبدیل می‌کنه تا از همون مسیرِ عادیِ splitTextIntoSentenceStrings پایین
-  // عبور کنه. لیستِ زیرنویس‌ها از endpoint نیمه‌رسمیِ timedtext یوتیوبه —
-  // نه رسمی/مستندِ گوگله و نه CORSش تضمین‌شده، پس ممکنه گاهی (بدونِ
-  // زیرنویس، محدودیتِ شبکه، تغییرِ endpoint) شکست بخوره؛ توی همچین حالتی
-  // یه خطای روشن پرتاب می‌شه که پیامِ مناسب نشونِ کاربر داده بشه.
-  const fetchYouTubeTranscriptText = async (videoId) => {
-    const listRes = await fetch(`https://video.google.com/timedtext?type=list&v=${encodeURIComponent(videoId)}`);
-    if (!listRes.ok) throw new Error("yt-list-failed");
-    const listXml = await listRes.text();
-    const listDoc = new DOMParser().parseFromString(listXml, "text/xml");
-    const tracks = Array.from(listDoc.getElementsByTagName("track")).map((n) => ({
-      code: n.getAttribute("lang_code") || "",
-      kind: n.getAttribute("kind") || "",
-    }));
-    if (!tracks.length) throw new Error("yt-no-captions");
-    // ترجیح: زبانِ فعلیِ داستان‌ساز (storyLang) → انگلیسی → هرچی که هست؛
-    // بینِ چندتا برایِ همون زبان، زیرنویسِ انسانی به خودکار (asr) ارجحیت داره.
-    const pick = (code) => tracks.find((t) => t.code === code && t.kind !== "asr") || tracks.find((t) => t.code === code);
-    const track = pick(storyLang) || pick("en") || tracks[0];
-    const params = new URLSearchParams({ v: videoId, lang: track.code, fmt: "vtt" });
-    if (track.kind) params.set("kind", track.kind);
-    const trackRes = await fetch(`https://video.google.com/timedtext?${params.toString()}`);
-    if (!trackRes.ok) throw new Error("yt-track-failed");
-    const vtt = await trackRes.text();
-    if (!vtt || !vtt.trim()) throw new Error("yt-track-empty");
-    const lines = vtt.split(/\r?\n/);
-    const textLines = [];
-    for (const line of lines) {
-      const t = line.trim();
-      if (!t || /^WEBVTT/i.test(t) || /-->/.test(t) || /^\d+$/.test(t)) continue;
-      textLines.push(t.replace(/<[^>]+>/g, ""));
-    }
-    // زیرنویسِ خودکارِ یوتیوب معمولاً هر خط رو با یه هم‌پوشانیِ کوتاه دوباره
-    // تکرار می‌کنه — خط‌های عیناً تکراریِ پشتِ‌سرِهم رو یکی می‌کنیم.
-    const deduped = [];
-    for (const l of textLines) {
-      if (deduped[deduped.length - 1] !== l) deduped.push(l);
-    }
-    return { text: deduped.join(" ").replace(/\s+/g, " ").trim(), langCode: track.code || "" };
-  };
   // «وارد کردنِ یه لینک برای خوانش» — دقیقاً همون مقصدِ نهایی‌ای که PDF/پیست
   // دارن (paragraphs همون سیستمِ خوانش)، فقط منبعِ متن یه صفحه‌ی وبه. چون
   // فچِ مستقیمِ یه دامنه‌ی دلخواه از خودِ مرورگر معمولاً با CORS بلاک می‌شه،
@@ -14666,12 +14613,7 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
   // (/api/fetch-url) — این مسیر باید جداگانه تو Worker اضافه بشه، وگرنه
   // پیامِ خطای روشن نشون داده می‌شه به‌جای هنگ‌کردنِ بی‌دلیل.
   //
-  // 🎬 اگه همین لینک یه ویدیوی یوتیوب باشه، دیگه سراغِ HTMLِ صفحه نمی‌ریم
-  // (که فقط پوسته‌ی پخش‌کننده رو می‌ده، نه متنِ گفته‌شده) — به‌جاش زیرنویسِ
-  // خودِ ویدیو (fetchYouTubeTranscriptText) گرفته می‌شه و دقیقاً از همون‌جا
-  // به بعد (splitTextIntoSentenceStrings، تشخیصِ سطح، ساختِ پاراگراف‌ها)
-  // با بقیه‌ی لینک‌ها یکی می‌شه — یعنی داستان‌ساز، جمله‌به‌جمله/پاراگراف‌به‌
-  // پاراگراف، دقیقاً مثلِ هر داستانِ دیگه‌ای قابلِ خوندن/شنیدن/ترجمه‌ست.
+  // 🎬 لینکِ یوتیوب پذیرفته نمی‌شه — متن/زیرنویسِ ویدیوها استخراج نمی‌شه (کپی‌رایت).
   const handleLinkImportForReading = async () => {
     setLinkReadError("");
     let raw = linkReadUrl.trim();
@@ -14684,50 +14626,40 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
       setLinkReadError(uiLang === "en" ? "This link isn't valid — please enter the full page address" : "این لینک معتبر نیست — لطفاً آدرسِ کامل صفحه رو وارد کن");
       return;
     }
-    const youtubeVideoId = extractYouTubeVideoId(normalizedUrl);
+    if (extractYouTubeVideoId(normalizedUrl)) {
+      setLinkReadError(uiLang === "en"
+        ? "YouTube links aren't supported — captions are not extracted. Open the video in YouTube instead."
+        : "لینکِ یوتیوب پشتیبانی نمی‌شه — متنِ ویدیوها استخراج نمی‌شه. ویدیو رو مستقیم تو یوتیوب ببین.");
+      return;
+    }
     setLinkReadBusy(true);
     try {
       let bodyText = "";
-      let youtubeLangCode = "";
-      if (youtubeVideoId) {
-        const transcript = await fetchYouTubeTranscriptText(youtubeVideoId);
-        bodyText = transcript.text;
-        youtubeLangCode = transcript.langCode;
-        if (!bodyText) {
-          setLinkReadError(
-            uiLang === "en"
-              ? "This YouTube video has no usable captions."
-              : "این ویدیوی یوتیوب زیرنویسِ قابلِ استفاده نداشت."
+      let html = "";
+      try {
+        const directRes = await fetch(normalizedUrl);
+        if (directRes.ok) html = await directRes.text();
+      } catch {
+        // مستقیم شکست خورد (احتمالاً CORS) — می‌ریم سراغِ پراکسیِ بک‌اند
+      }
+      if (!html) {
+        const base = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || DEFAULT_BACKEND_URL;
+        const proxyRes = await fetch(`${base}/api/fetch-url?url=${encodeURIComponent(normalizedUrl)}`);
+        if (!proxyRes.ok) {
+          throw new Error(
+            proxyRes.status === 404
+              ? "fetch-url-not-configured"
+              : `HTTP ${proxyRes.status}`
           );
-          return;
         }
-      } else {
-        let html = "";
-        try {
-          const directRes = await fetch(normalizedUrl);
-          if (directRes.ok) html = await directRes.text();
-        } catch {
-          // مستقیم شکست خورد (احتمالاً CORS) — می‌ریم سراغِ پراکسیِ بک‌اند
-        }
-        if (!html) {
-          const base = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || DEFAULT_BACKEND_URL;
-          const proxyRes = await fetch(`${base}/api/fetch-url?url=${encodeURIComponent(normalizedUrl)}`);
-          if (!proxyRes.ok) {
-            throw new Error(
-              proxyRes.status === 404
-                ? "fetch-url-not-configured"
-                : `HTTP ${proxyRes.status}`
-            );
-          }
-          html = await proxyRes.text();
-        }
-        bodyText = extractMainBodyText(html).replace(/\s+/g, " ").trim();
-        if (!bodyText) {
-          setLinkReadError(uiLang === "en"
-            ? "No text was extracted from this page — the site's content might be built with JavaScript"
-            : "متنی از این صفحه استخراج نشد — شاید محتوای این سایت با جاوااسکریپت ساخته می‌شه");
-          return;
-        }
+        html = await proxyRes.text();
+      }
+      bodyText = extractMainBodyText(html).replace(/\s+/g, " ").trim();
+      if (!bodyText) {
+        setLinkReadError(uiLang === "en"
+          ? "No text was extracted from this page — the site's content might be built with JavaScript"
+          : "متنی از این صفحه استخراج نشد — شاید محتوای این سایت با جاوااسکریپت ساخته می‌شه");
+        return;
       }
       let allSentences = splitTextIntoSentenceStrings(bodyText);
       if (!allSentences.length) {
@@ -14739,10 +14671,7 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
         allSentences = allSentences.slice(0, PDF_READ_MAX_SENTENCES);
         truncated = true;
       }
-      // برای ویدیوهای یوتیوب، زبانِ خودِ زیرنویس (که یوتیوب مشخص کرده)
-      // دقیق‌تر از heuristicِ detectPastedTextLanguage روی متنِ ترانویسی‌شده‌ست؛
-      // فقط اگه یوتیوب زبان رو گزارش نکرده بود، همون heuristicِ همیشگی.
-      const detectedLang = youtubeVideoId ? youtubeLangCode || detectPastedTextLanguage(bodyText) : detectPastedTextLanguage(bodyText);
+      const detectedLang = detectPastedTextLanguage(bodyText);
       if (detectedLang) setStoryLang(detectedLang);
       // همون تشخیصِ خودکارِ سطح، برای مسیرِ واردکردنِ لینک.
       setStoryLevel(detectTextCEFRLevel(bodyText));
@@ -14765,64 +14694,14 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
         setLinkReadError(uiLang === "en" ? "Note: the page text was long, so only part of it was made ready to read" : "توجه: چون متنِ صفحه زیاد بود، فقط بخشی از اون آماده‌ی خوانش شد");
       }
     } catch (err) {
-      if (youtubeVideoId) {
-        setLinkReadError(
-          uiLang === "en"
-            ? "Couldn't fetch this YouTube video's captions — it may lack captions, or YouTube blocked direct access."
-            : "زیرنویسِ این ویدیوی یوتیوب گرفته نشد — یا ویدیو زیرنویس نداره، یا یوتیوب اجازه‌ی دسترسیِ مستقیم نداده."
-        );
-      } else {
-        setLinkReadError(
-          err?.message === "fetch-url-not-configured"
-            ? (uiLang === "en" ? "Reading this link needs an extra server setting — use copy/paste for now" : "خوندنِ این لینک نیاز به یه تنظیمِ اضافه تو سرور داره — فعلاً از کپی/پیستِ متن استفاده کن")
-            : (uiLang === "en" ? "This link couldn't be read — either the site doesn't allow direct access, or the address is wrong" : "این لینک قابلِ خوندن نبود — یا سایت اجازه‌ی دسترسیِ مستقیم نمی‌ده، یا آدرس اشتباهه")
-        );
-      }
+      setLinkReadError(
+        err?.message === "fetch-url-not-configured"
+          ? (uiLang === "en" ? "Reading this link needs an extra server setting — use copy/paste for now" : "خوندنِ این لینک نیاز به یه تنظیمِ اضافه تو سرور داره — فعلاً از کپی/پیستِ متن استفاده کن")
+          : (uiLang === "en" ? "This link couldn't be read — either the site doesn't allow direct access, or the address is wrong" : "این لینک قابلِ خوندن نبود — یا سایت اجازه‌ی دسترسیِ مستقیم نمی‌ده، یا آدرس اشتباهه")
+      );
     } finally {
       setLinkReadBusy(false);
     }
-  };
-
-  // 📥 وقتی کاربر از پنلِ «وارد کردن از یوتیوب» رونوشتِ یه ویدیو رو به
-  // داستان‌ساز می‌فرسته: دقیقاً همون مسیرِ نهاییِ handleLinkImportForReading
-  // (تقسیم به جمله → پاراگراف → paragraphs) طی می‌شه، فقط منبعِ متن به‌جای
-  // fetch مستقیم، خطوطِ زیرنویسی‌ایه که خودِ پنل (خودکار یا با آپلودِ
-  // دستیِ srt/vtt) از قبل گرفته. پلیرِ یوتیوب و پنلِ رونوشت همچنان باز و
-  // قابلِ‌پخش می‌مونن — این فقط یه کپیِ متنی از رونوشت رو وارد سیستمِ
-  // خوانش/ترجمه/سوالِ داستان‌ساز می‌کنه.
-  const handleImportYoutubeCuesToStory = (payload) => {
-    const ytCues = payload?.cues || [];
-    const ytLangCode = payload?.subtitleLang || "";
-    if (!ytCues.length) return;
-    const bodyText = ytCues.map((c) => c.text).join(" ").replace(/\s+/g, " ").trim();
-    let allSentences = splitTextIntoSentenceStrings(bodyText);
-    if (!allSentences.length) return;
-    let truncated = false;
-    if (allSentences.length > PDF_READ_MAX_SENTENCES) {
-      allSentences = allSentences.slice(0, PDF_READ_MAX_SENTENCES);
-      truncated = true;
-    }
-    if (ytLangCode) setStoryLang(ytLangCode);
-    setStoryLevel(detectTextCEFRLevel(bodyText));
-    const storyParagraphs = [];
-    for (let i = 0; i < allSentences.length; i += PDF_READ_SENTENCES_PER_PARAGRAPH) {
-      const chunk = allSentences.slice(i, i + PDF_READ_SENTENCES_PER_PARAGRAPH);
-      storyParagraphs.push({ sentences: chunk.map((text) => ({ text })) });
-    }
-    setParagraphs(storyParagraphs);
-    setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
-    setCurrentStoryId(null);
-    setQuestions([]);
-    setAnswers({});
-    setSubmitted(false);
-    setError("");
-    setRepeatNotice(
-      truncated
-        ? (uiLang === "en"
-            ? "Imported from YouTube — the transcript was long, so only part of it was made ready to read."
-            : "از یوتیوب وارد شد — چون رونوشت زیاد بود، فقط بخشی از اون آماده‌ی خوانش شد.")
-        : ""
-    );
   };
 
   const saveCurrentStory = () => {
@@ -14937,14 +14816,6 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
           nativeLabel={nativeLabel}
           aiSettings={aiSettings}
           onClose={() => setYtViewEntry(null)}
-          onToStory={() => {
-            handleImportYoutubeCuesToStory({
-              cues: (ytViewEntry.ytLines || []).map((l) => ({ text: l.s })),
-              subtitleLang: ytViewEntry.storyLang,
-            });
-            setYtViewEntry(null);
-            setShowSaved(false);
-          }}
         />
       )}
       <div className="flex items-center justify-between">
@@ -15650,47 +15521,6 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
         {uiLang === "en" ? (generating ? "Generating story..." : "Generate story") : (generating ? "در حال ساخت داستان..." : "بساز داستان")}
       </button>
 
-      <div style={{ textAlign: "start", marginTop: 8 }}>
-        <button
-          onClick={() => setShowYoutubeImport((v) => !v)}
-          className="flex items-center justify-center gap-2"
-          style={{
-            width: "100%",
-            border: `1px dashed ${colors.cardBorder}`,
-            borderRadius: 14,
-            padding: "10px 16px",
-            fontWeight: 700,
-            fontSize: 13,
-            color: colors.teal,
-          }}
-        >
-          <span>🎬</span>
-          {uiLang === "en"
-            ? (showYoutubeImport ? "Close YouTube import" : "Import from a YouTube video")
-            : (showYoutubeImport ? "بستنِ وارد کردن از یوتیوب" : "وارد کردن از یک ویدیوی یوتیوب")}
-        </button>
-        {showYoutubeImport && (
-          <div style={{ marginTop: 4 }}>
-            <YouTubeCaptionPanel
-              nativeLang={nativeLang}
-              nativeLabel={nativeLabel}
-              targetOrder={targetOrder}
-              aiSettings={aiSettings}
-              uiLang={uiLang}
-              SpeakButton={SpeakButton}
-              ClickableSentence={ClickableSentence}
-              translateFree={translateFree}
-              translateViaAI={translateViaAI}
-              translateFreeNetwork={translateFreeNetwork}
-              setCachedTranslation={setCachedTranslation}
-              colors={colors}
-              fontFa={fontFa}
-              onImportToStory={handleImportYoutubeCuesToStory}
-            />
-          </div>
-        )}
-      </div>
-
       <div style={{ textAlign: "center" }}>
         <input
           ref={pdfReadInputRef}
@@ -16009,8 +15839,8 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
               />
               <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
                 {uiLang === "en"
-                  ? "Only the page's main text (body content) is extracted — menus, headers, footers, and ads are ignored. YouTube video links are also accepted — the video's captions become the story text."
-                  : "فقط متنِ اصلیِ صفحه (بدنه‌ی نوشته) استخراج می‌شه — منو، هدر، فوتر و تبلیغ‌ها نادیده گرفته می‌شن. لینکِ ویدیوی یوتیوب هم قبول می‌شه — زیرنویسِ همون ویدیو به‌عنوانِ متنِ داستان استفاده می‌شه."}
+                  ? "Only the page's main text (body content) is extracted — menus, headers, footers, and ads are ignored."
+                  : "فقط متنِ اصلیِ صفحه (بدنه‌ی نوشته) استخراج می‌شه — منو، هدر، فوتر و تبلیغ‌ها نادیده گرفته می‌شن."}
               </p>
               <button
                 onClick={handleLinkImportForReading}
@@ -16322,52 +16152,6 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
           {fullStoryText && (
             <StoryUserAudioBar userAudio={userAudio} storyLang={storyLang} />
           )}
-
-          {/* 🎬 دقیقاً همون قابلیتِ «وارد کردن از یوتیوب»ی که بالای دکمه‌ی
-              «بساز داستان» هست، اینجا هم کنارِ نوارِ آپلودِ صوت تکرار شده —
-              تا کاربر بدونِ خروج از صفحه‌ی خوانش، بتونه یه ویدیوی یوتیوبِ
-              دیگه رو ببینه/بخونه، درست مثلِ خودِ تبِ یوتیوب (ویدیوی sticky +
-              زیرنویسِ هم‌زمان‌ترجمه‌شده). */}
-          <div style={{ textAlign: "start", marginBottom: 14 }}>
-            <button
-              onClick={() => setShowReaderYoutubeImport((v) => !v)}
-              className="flex items-center justify-center gap-2"
-              style={{
-                width: "100%",
-                border: `1px dashed ${colors.cardBorder}`,
-                borderRadius: 14,
-                padding: "10px 16px",
-                fontWeight: 700,
-                fontSize: 13,
-                color: colors.teal,
-              }}
-            >
-              <span>🎬</span>
-              {uiLang === "en"
-                ? (showReaderYoutubeImport ? "Close YouTube video" : "Watch a YouTube video here")
-                : (showReaderYoutubeImport ? "بستنِ ویدیوی یوتیوب" : "دیدنِ یک ویدیوی یوتیوب اینجا")}
-            </button>
-            {showReaderYoutubeImport && (
-              <div style={{ marginTop: 4 }}>
-                <YouTubeCaptionPanel
-                  nativeLang={nativeLang}
-                  nativeLabel={nativeLabel}
-                  targetOrder={targetOrder}
-                  aiSettings={aiSettings}
-                  uiLang={uiLang}
-                  SpeakButton={SpeakButton}
-                  ClickableSentence={ClickableSentence}
-                  translateFree={translateFree}
-                  translateViaAI={translateViaAI}
-                  translateFreeNetwork={translateFreeNetwork}
-                  setCachedTranslation={setCachedTranslation}
-                  colors={colors}
-                  fontFa={fontFa}
-                  onImportToStory={handleImportYoutubeCuesToStory}
-                />
-              </div>
-            )}
-          </div>
 
           <div className="flex flex-col gap-5">
             {paragraphs.slice(0, visibleParagraphCount).map((p, pi) => {
