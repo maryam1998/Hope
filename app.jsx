@@ -11604,7 +11604,7 @@ function fmtYtTime(sec) {
 
 function YtSavedViewer({ entry, uiLang, onClose, onToStory, nativeLang, nativeLabel, aiSettings }) {
   const en = uiLang === "en";
-  const lines = entry.ytLines || [];
+  const lines = []; // زیرنویس‌ها دیگر ذخیره/نمایش داده نمی‌شوند
   const hasUrl = !!entry.ytUrl;
   // 🎙 منبعِ صدا برای ذخیره‌های «ترجمه‌ی زنده» (برنامه‌ی پخش‌کننده / فایل / لینک)
   const src = entry.ytSource || null;
@@ -11662,12 +11662,6 @@ function YtSavedViewer({ entry, uiLang, onClose, onToStory, nativeLang, nativeLa
             >
               {copiedLink ? (en ? "Copied ✓" : "کپی شد ✓") : (en ? "Copy link" : "کپی لینک")}
             </button>}
-            <button
-              onClick={onToStory}
-              style={{ fontSize: 12, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 8, padding: "6px 12px", background: "white" }}
-            >
-              {en ? "Read as story" : "خوانش به‌عنوان داستان"}
-            </button>
           </div>
           {hasUrl && <p style={{ fontSize: 11, color: colors.inkSoft, margin: "6px 0 0", direction: "ltr", textAlign: "left", wordBreak: "break-all" }}>{entry.ytUrl}</p>}
         </div>
@@ -12329,8 +12323,8 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
       setSavedStories((prev) => {
         let next = [...prev];
         for (const it of items) {
-          const lines = (it.lines || []).filter((l) => l && l.s);
-          if (!lines.length) continue;
+          if (!it || !it.key) continue;
+          const lines = []; // زیرنویس‌ها ذخیره نمی‌شوند؛ فقط عنوان/لینک/منبع
           const at = next.findIndex((x) => x.ytKey === it.key);
           if (at >= 0) {
             const old = next[at];
@@ -12344,7 +12338,7 @@ function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, s
             const merged = [...byT.values()].sort((a, b) => (a.t || 0) - (b.t || 0));
             next[at] = {
               ...old,
-              ytLines: merged,
+              ytLines: [],
               ytTargets: it.targets || old.ytTargets,
               savedAt: it.savedAt || old.savedAt,
               ytSource: it.source || old.ytSource || null,
@@ -15241,7 +15235,7 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
                             {s.pdfDocId ? (
                               <>PDF{s.pageCount ? ` · ${s.pageCount} ${uiLang === "en" ? "pages" : "صفحه"}` : ""}</>
                             ) : s.ytSession ? (
-                              <>{s.ytLive ? (uiLang === "en" ? "Live translation" : "ترجمه‌ی زنده") : "YouTube"} · {LANGUAGES.find((l) => l.code === s.storyLang)?.label} · {(s.ytLines || []).length} {uiLang === "en" ? "lines" : "خط"}</>
+                              <>{s.ytLive ? (uiLang === "en" ? "Live translation" : "ترجمه‌ی زنده") : "YouTube"} · {LANGUAGES.find((l) => l.code === s.storyLang)?.label}</>
                             ) : (
                               <>
                                 {LANGUAGES.find((l) => l.code === s.storyLang)?.label} · {s.storyLevel} ·{" "}
