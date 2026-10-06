@@ -208,7 +208,7 @@ export default function YouTubeCaptionPanel({
     setCaptionsError("");
     setCues([]);
     setActiveIndex(-1);
-    fetch(`${backendUrl}/api/youtube-captions?videoId=${encodeURIComponent(videoId)}&lang=en`)
+    fetch(`${backendUrl}/api/youtube-captions?videoId=${encodeURIComponent(videoId)}&lang=auto`)
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
