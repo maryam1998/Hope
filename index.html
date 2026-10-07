@@ -18,7 +18,10 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+<!-- فونت‌ها غیرمسدودکننده‌اند: بدون اینترنت یا با اینترنتِ کند، اپ منتظرشان نمی‌ماند و با فونتِ سیستم بالا می‌آید. -->
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+<!-- استایل‌های Tailwind که اپ استفاده می‌کند، به‌صورتِ فایلِ محلی (قبلاً از cdn.tailwindcss.com می‌آمد و بدونِ اینترنت اپ بالا نمی‌آمد). -->
+<link rel="stylesheet" href="tailwind.css" />
 
 <style>
   html, body, #root { height: 100%; margin: 0; padding: 0; }
@@ -30,23 +33,7 @@
   }
 </style>
 
-<!-- Import map: only the CDN packages the bundle imports as bare specifiers. -->
-<script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@18.3.1",
-    "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
-    "react-dom": "https://esm.sh/react-dom@18.3.1",
-    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
-    "lucide-react": "https://esm.sh/lucide-react@0.383.0?deps=react@18.3.1",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.0",
-    "pdfjs-dist": "https://esm.sh/pdfjs-dist@4.0.379"
-  }
-}
-</script>
-
-<!-- Tailwind utility classes used throughout the bundled app. -->
-<script src="https://cdn.tailwindcss.com"></script>
+<!-- کتابخانه‌ها (React، lucide، supabase) داخلِ خودِ app.bundle.min.js هستند؛ دیگر importmap و CDN لازم نیست، پس اپ آفلاین هم بالا می‌آید. -->
 </head>
 <body>
   <div id="root"><div id="splash">در حال بارگذاری…</div></div>

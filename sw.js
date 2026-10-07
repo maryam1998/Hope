@@ -4,11 +4,11 @@
 // همچنین چون خودِ محتوای این فایل عوض می‌شه، مرورگر متوجهِ نسخه‌ی جدید
 // می‌شه و چرخه‌ی install/activate رو اجرا می‌کنه (وگرنه اگه byte-به-byte
 // با نسخه‌ی قبلی یکی باشه، اصلاً آپدیت رو تشخیص نمی‌ده).
-const CACHE_VERSION = "v391";
+const CACHE_VERSION = "v389";
 const CACHE_NAME = `phrasebook-cache-${CACHE_VERSION}`;
 const LIB_CACHE = "fb-sync-lib"; // دائمی: در activate پاک نمی‌شه
 
-const APP_SHELL = ["./", "./index.html", "./app.bundle.min.js", "./manifest.json"];
+const APP_SHELL = ["./", "./index.html", "./app.bundle.min.js", "./tailwind.css", "./manifest.json"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
