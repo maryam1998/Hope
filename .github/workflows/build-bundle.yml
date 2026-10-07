@@ -15,6 +15,8 @@ on:
     branches: [main]
     paths:
       - "app.jsx"
+      - "package.json"
+      - ".github/workflows/build-bundle.yml"
       - "SpeakingPractice.jsx"
       - "nativeAuth.js"
       - "nativeTts.js"
@@ -44,7 +46,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build with esbuild (no network deps other than npm)
+      - name: Install libraries (react, lucide, supabase)
+        run: npm install --no-audit --no-fund
+
+      - name: Build with esbuild (libraries bundled inside)
         run: |
           npx --yes esbuild@0.27.7 app.jsx \
             --bundle \
@@ -52,11 +57,7 @@ jobs:
             --format=esm \
             --target=es2020 \
             --loader:.js=jsx \
-            --external:react \
-            --external:react-dom \
-            --external:react-dom/client \
-            --external:lucide-react \
-            --external:@supabase/supabase-js \
+            --define:process.env.NODE_ENV=\"production\" \
             --external:firebase/app \
             --external:firebase/auth \
             --external:firebase/firestore \
