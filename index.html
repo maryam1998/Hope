@@ -33,18 +33,16 @@
   }
 </style>
 
-<!-- app.bundle.min.js کتابخانه‌ها را داخل خودش ندارد (import خام از "react" و ...).
-     مرورگر/WebView بدونِ importmap نمی‌داند "react" یعنی چه، پس این نقشه لازم است.
-     بعد از اولین بار، Service Worker این فایل‌ها را کش می‌کند. -->
+<!-- React و lucide و supabase داخلِ خودِ app.bundle.min.js هستند (ورک‌فلو آن‌ها را bundle می‌کند).
+     importmapِ زیر فقط برای کتابخانه‌های سنگینی است که در لحظه‌ی نیاز با import() لود می‌شوند. -->
   <script type="importmap">
   {
     "imports": {
-      "react": "https://esm.sh/react@18.3.1",
-      "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
-      "react-dom": "https://esm.sh/react-dom@18.3.1?external=react",
-      "react-dom/client": "https://esm.sh/react-dom@18.3.1/client?external=react",
-      "lucide-react": "https://esm.sh/lucide-react@0.469.0?external=react",
-      "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.4"
+      "pdfjs-dist": "https://esm.sh/pdfjs-dist@4.0.379",
+      "pdf-lib": "https://esm.sh/pdf-lib@1.17.1",
+      "firebase/app": "https://esm.sh/firebase@10.12.2/app",
+      "firebase/auth": "https://esm.sh/firebase@10.12.2/auth",
+      "firebase/firestore": "https://esm.sh/firebase@10.12.2/firestore"
     }
   }
   </script>
