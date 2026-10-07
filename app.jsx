@@ -2354,6 +2354,13 @@ const STORAGE_KEY = "phrasebook-state-v1";
 // to any one user, and should already apply on the login screen before
 // anyone's signed in.
 const APP_PREFS_KEY = "phrasebook-app-prefs";
+// ── پرچم‌هایِ نمایشِ بخش‌هایِ تنظیمات ──
+// false = آن بخش در تنظیمات دیده نمی‌شود و اثرش هم اعمال نمی‌شود (آدمکِ کلاسیک با
+// لباسِ پیش‌فرض و بدونِ عکسِ پس‌زمینه). برایِ برگرداندنِ هر بخش فقط همان پرچم را
+// true کن؛ انتخاب‌هایِ قبلیِ کاربر پاک نمی‌شوند و دوباره کار می‌کنند.
+const SHOW_MASCOT_CHARACTER_OPTIONS = false;  // انتخابِ کاراکترِ آدمک (به‌جز کلاسیک)
+const SHOW_MASCOT_OUTFIT_OPTIONS = false;     // لباسِ آدمک
+const SHOW_CUSTOM_BG_OPTIONS = false;         // پس‌زمینه‌یِ سفارشی
 const CALENDAR_SYSTEMS = ["jalali", "gregorian", "both"];
 function loadAppPrefs() {
   try {
@@ -7798,6 +7805,8 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
             ))}
           </div>
 
+          {SHOW_CUSTOM_BG_OPTIONS && (
+          <>
           {/* Custom background */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
             <span>🖼️</span> {uiLang === "en" ? "Custom background" : "پس‌زمینه‌ی سفارشی"}
@@ -7893,6 +7902,8 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
               {uiLang === "en" ? "JPG, PNG, and GIF are supported." : "فرمت‌هایِ JPG، PNG و GIF پشتیبانی می‌شن."}
             </p>
           </div>
+          </>
+          )}
 
           {/* Font family */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
@@ -8083,6 +8094,8 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
             ))}
           </div>
 
+          {SHOW_MASCOT_CHARACTER_OPTIONS && (
+          <>
           {/* کاراکترِ آدمک — «کلاسیک» همون آدمکِ اصلیِ کدنویسی‌شده‌ست (لباسش
               پایین‌تر قابلِ‌تغییره و راه‌رفتنش پا-به-پاست). بقیه‌ی گزینه‌ها
               تصویرِ آماده‌ن (یک‌تیکه، نه لایه‌لایه)، برایِ همین راه‌رفتنشون
@@ -8136,13 +8149,15 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
               );
             })}
           </div>
+          </>
+          )}
 
           {/* لباسِ آدمکِ Lingova — سه دست‌لباسِ آماده؛ هر دکمه با دو نقطه‌رنگ
               (پیراهن/شلوار) پیش‌نمایش داده می‌شه. گزینه‌ی «کلاسیک» از رنگِ
               تمِ فعلیِ اپ پیروی می‌کنه، دو تای دیگه رنگِ ثابت دارن. این بخش
               فقط وقتی معنی داره که کاراکترِ کلاسیک انتخاب باشه (بقیه‌ی
               کاراکترها تصویرِ آماده‌ان و لباسِ جداگانه ندارن). */}
-          {(appPrefs.mascotCharacter || "classic") === "classic" && (
+          {SHOW_MASCOT_OUTFIT_OPTIONS && (appPrefs.mascotCharacter || "classic") === "classic" && (
           <>
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
             {uiLang === "en" ? "Mascot outfit" : "لباسِ آدمک"}
@@ -19335,7 +19350,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
         }}
         className="px-4 pt-6 pb-5"
       >
-        <LingovaMascot uiLang={appPrefs.uiLang} fontZoom={APP_FONT_SIZES[appPrefs.fontSize]?.zoom || 1} outfitKey={appPrefs.mascotOutfit} enabled={appPrefs.mascotEnabled !== false} characterKey={appPrefs.mascotCharacter} />
+        <LingovaMascot uiLang={appPrefs.uiLang} fontZoom={APP_FONT_SIZES[appPrefs.fontSize]?.zoom || 1} outfitKey={SHOW_MASCOT_OUTFIT_OPTIONS ? appPrefs.mascotOutfit : "classic"} enabled={appPrefs.mascotEnabled !== false} characterKey={SHOW_MASCOT_CHARACTER_OPTIONS ? appPrefs.mascotCharacter : "classic"} />
         <div className="flex items-center justify-end mb-1">
           <div className="flex items-center gap-2.5">
             {user?.picture ? (
@@ -24299,7 +24314,7 @@ export default function App() {
     // پس‌زمینه‌ی سفارشی: عکسِ کاربر + یه لایه‌ی رنگِ همون تمِ فعال روش، با
     // شفافیتی که از تنظیمات انتخاب کرده (customBgOpacity = میزانِ نمایانیِ
     // خودِ عکس؛ هرچی کمتر، لایه‌ی رنگِ زیرش برای خواناترشدنِ متن‌ها پررنگ‌تر).
-    ...(appPrefs.customBgEnabled && customBg?.url
+    ...(SHOW_CUSTOM_BG_OPTIONS && appPrefs.customBgEnabled && customBg?.url
       ? {
           backgroundImage: `linear-gradient(${hexToRgba(theme.paper, 1 - (appPrefs.customBgOpacity ?? 55) / 100)}, ${hexToRgba(theme.paper, 1 - (appPrefs.customBgOpacity ?? 55) / 100)}), url(${customBg.url})`,
           backgroundSize: "cover",
