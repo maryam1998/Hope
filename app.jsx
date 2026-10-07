@@ -24446,6 +24446,15 @@ export default function App() {
     el.setProperty("--font-latin", font.latin);
   }, [theme, font]);
 
+  // فونتِ کادرِ ترجمه‌ی شناور (حباب) همان «نوع فونت» تنظیمات است؛ داخلِ کادر دیگر فونت انتخاب نمی‌شود.
+  useEffect(() => {
+    try {
+      const cap = window.Capacitor;
+      const B = cap && cap.Plugins && cap.Plugins.BubblePlugin;
+      if (B && B.setPanelFont && cap.isNativePlatform && cap.isNativePlatform()) B.setPanelFont({ font: appPrefs.font });
+    } catch (e) {}
+  }, [appPrefs.font]);
+
   // Sets the CSS custom properties every `colors.xxx` / fontFa / fontLatin
   // reference resolves to, plus a `zoom` for the font-size preference — one
   // wrapper, whole app re-themed, login screen included.
