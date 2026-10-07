@@ -33,7 +33,21 @@
   }
 </style>
 
-<!-- کتابخانه‌ها (React، lucide، supabase) داخلِ خودِ app.bundle.min.js هستند؛ دیگر importmap و CDN لازم نیست، پس اپ آفلاین هم بالا می‌آید. -->
+<!-- app.bundle.min.js کتابخانه‌ها را داخل خودش ندارد (import خام از "react" و ...).
+     مرورگر/WebView بدونِ importmap نمی‌داند "react" یعنی چه، پس این نقشه لازم است.
+     بعد از اولین بار، Service Worker این فایل‌ها را کش می‌کند. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@18.3.1",
+      "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+      "react-dom": "https://esm.sh/react-dom@18.3.1?external=react",
+      "react-dom/client": "https://esm.sh/react-dom@18.3.1/client?external=react",
+      "lucide-react": "https://esm.sh/lucide-react@0.469.0?external=react",
+      "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.4"
+    }
+  }
+  </script>
 </head>
 <body>
   <div id="root"><div id="splash">در حال بارگذاری…</div></div>
