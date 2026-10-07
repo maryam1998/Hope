@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Trash2, Globe, Pencil, Check, X } from "lucide-react";
+import { Send, Loader2, Trash2, Globe, Pencil, Check, X, RefreshCw } from "lucide-react";
 
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
@@ -30,6 +30,50 @@ const LANGUAGES = [
   { code: "ru", label: "روسی", abbr: "RU" },
   { code: "ja", label: "ژاپنی", abbr: "JA" },
 ];
+
+// ── «هوش مصنوعی گیر کرد» ──
+// پیامِ یکدست + کمک‌تابع‌هایی که جوابِ خراب (فرایندِ فکرِ مدل، ترجمه‌ی نشده) را
+// تشخیص می‌دهند تا به‌جایِ نمایشِ آن، «اینترنتت رو چک کن» + دکمه‌ی تلاشِ مجدد بیاید.
+const AI_NET_MSG = "هوش مصنوعی جواب نداد. اینترنتت رو چک کن و دوباره امتحان کن.";
+const AI_REASONING_LEAK_RE = /(thinking process|here'?s a thinking|analy[sz]e the (user'?s |learner'?s )?(request|text|input)|\*\*\s*analy[sz]e|\bconstraint\s*:|the user wants me to|let me (read|think|analy[sz]e|re-?read)|<\/?think(ing)?>|^\s*okay,? (so|let'?s|the user))/im;
+function looksLikeReasoningLeak(text) {
+  const t = String(text || "");
+  if (!t) return false;
+  if (AI_REASONING_LEAK_RE.test(t)) return true;
+  return (t.match(/\*\*/g) || []).length >= 4 && /(^|\n|\s)\d\.\s/.test(t);
+}
+function stripThinkTags(text) {
+  return String(text || "")
+    .replace(/<think(ing)?>[\s\S]*?<\/think(ing)?>/gi, "")
+    .replace(/<think(ing)?>[\s\S]*$/gi, "")
+    .trim();
+}
+function scriptRegexFor(lang) {
+  switch (lang) {
+    case "fa": case "ar": return /[\u0600-\u06FF]/;
+    case "ru": return /[\u0400-\u04FF]/;
+    case "hi": return /[\u0900-\u097F]/;
+    case "ja": return /[\u3040-\u30FF\u4E00-\u9FFF]/;
+    case "zh": return /[\u4E00-\u9FFF]/;
+    case "ko": return /[\uAC00-\uD7AF]/;
+    default: return null;
+  }
+}
+// ترجمه‌ای که خالی/عینِ متنِ اصلی/بدونِ حروفِ زبانِ مقصد/فرایندِ فکرِ مدل باشد، ترجمه حساب نمی‌شود
+function isBadTranslation(src, out, targetLang) {
+  const o = String(out || "").trim();
+  const s0 = String(src || "").trim();
+  if (!o) return true;
+  if (looksLikeReasoningLeak(o)) return true;
+  if (o.toLowerCase() === s0.toLowerCase()) return true;
+  const re = scriptRegexFor(targetLang);
+  if (re && s0.length > 1 && !re.test(o)) return true;
+  return false;
+}
+function friendlyAiError(e) {
+  const m = String(e?.message || "").replace(/^ai-backend-error:\s*/, "").trim();
+  return m || AI_NET_MSG;
+}
 
 function detectPastedTextLanguage(text) {
   const sample = (text || "").slice(0, 4000);
@@ -174,6 +218,8 @@ function SpeakingPracticePanel({
   const [correctionsSaved, setCorrectionsSaved] = useState(false);
   const [translations, setTranslations] = useState({});
   const [openTranslation, setOpenTranslation] = useState({});
+  const [translationErrors, setTranslationErrors] = useState({});   // index -> langCode که ترجمه‌اش شکست خورد
+  const lastFailedRef = useRef(null);   // { text, history } آخرین درخواستِ شکست‌خورده برایِ «تلاش مجدد»
 
   // ویرایشِ پیام‌هایی که خودِ کاربر توی این چت فرستاده — دقیقاً همون
   // مکانیزمِ تبِ «گرامر» (askGrammarTeacher): با تپ‌کردن رویِ پیام، اول یه
@@ -319,7 +365,9 @@ ${historyText}
 Now respond to: "${userSentence}"
 `;
 
-    const result = await callAI({ prompt, maxTokens: 550, retries: 1, aiSettings });
+    const result = stripThinkTags(await callAI({ prompt, maxTokens: 550, retries: 1, aiSettings }));
+    // مدل به‌جایِ جواب، «فرایندِ فکر» برگرداند → جوابِ خراب است؛ نمایش نده
+    if (!result || looksLikeReasoningLeak(result)) throw new Error(`ai-backend-error: ${AI_NET_MSG}`);
     return result.trim();
   };
 
@@ -345,7 +393,8 @@ Recent conversation:
 ${historyText}
 `;
 
-    const result = await callAI({ prompt, maxTokens: 180, retries: 1, aiSettings });
+    const result = stripThinkTags(await callAI({ prompt, maxTokens: 180, retries: 1, aiSettings }));
+    if (!result || looksLikeReasoningLeak(result)) throw new Error(`ai-backend-error: ${AI_NET_MSG}`);
     return normalizeAiText(result.trim());
   };
 
@@ -426,8 +475,10 @@ ${historyText}
         setCorrections(finalCorrections);
       }
       setMessages([...newMessages, { role: "ai", text: finalText, corrections: finalCorrections }]);
+      lastFailedRef.current = null;
     } catch (e) {
-      setError(e?.message?.replace(/^ai-backend-error:\s*/, "") || "خطا در دریافت پاسخ.");
+      lastFailedRef.current = { text, history: messages };
+      setError(friendlyAiError(e));
     } finally {
       setLoading(false);
     }
@@ -470,8 +521,28 @@ ${historyText}
         setCorrections(finalCorrections);
       }
       setMessages((m) => [...m, { role: "ai", text: finalText, corrections: finalCorrections }]);
+      lastFailedRef.current = null;
     } catch (e) {
-      setError(e?.message?.replace(/^ai-backend-error:\s*/, "") || "خطا در دریافت پاسخ.");
+      lastFailedRef.current = { text, history: historyBeforeEdit };
+      setError(friendlyAiError(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // 🔄 تلاشِ مجدد برایِ آخرین پیامی که جوابش نیامد (پیامِ کاربر همان‌جا مانده؛ فقط جوابِ Jimmy دوباره گرفته می‌شود)
+  async function retryLastReply() {
+    const f = lastFailedRef.current;
+    if (!f || loading) return;
+    setError("");
+    setLoading(true);
+    try {
+      const { finalText, finalCorrections } = await generateCoachReply(f.text, f.history);
+      if (finalCorrections.length > 0) setCorrections(finalCorrections);
+      setMessages((m) => [...m, { role: "ai", text: finalText, corrections: finalCorrections }]);
+      lastFailedRef.current = null;
+    } catch (e) {
+      setError(friendlyAiError(e));
     } finally {
       setLoading(false);
     }
@@ -480,10 +551,12 @@ ${historyText}
   const clearChat = () => {
     setMessages([]);
     setError("");
+    lastFailedRef.current = null;
     setCorrections([]);
     setCorrectionsSaved(false);
     setTranslations({});
     setOpenTranslation({});
+    setTranslationErrors({});
     const langLabel = LANGUAGES.find(l => l.code === chatLang)?.label || chatLang;
     const welcome = `Hey there! I'm Jimmy, your conversation coach. Let's practice ${langLabel} together. 😊
 
@@ -503,29 +576,34 @@ By the way, what's your name? Or tell me something about yourself.`;
     }
   };
 
-  const toggleTranslation = async (index, langCode) => {
+  const toggleTranslation = async (index, langCode, force = false) => {
     const msg = messages[index];
     if (!msg || msg.role !== "ai") return;
 
-    if (openTranslation[index] === langCode) {
+    if (!force && openTranslation[index] === langCode) {
       setOpenTranslation(prev => ({ ...prev, [index]: null }));
       return;
     }
 
-    if (translations[index] && translations[index][langCode]) {
+    if (!force && translations[index] && translations[index][langCode]) {
+      setTranslationErrors(prev => ({ ...prev, [index]: null }));
       setOpenTranslation(prev => ({ ...prev, [index]: langCode }));
       return;
     }
 
+    setTranslationErrors(prev => ({ ...prev, [index]: null }));
     setOpenTranslation(prev => ({ ...prev, [index]: langCode }));
     try {
       const translated = await translateMessage(msg.text, langCode, chatLang);
+      // ترجمه‌ی خراب (خالی / همان متنِ انگلیسی / فرایندِ فکرِ مدل) نه نمایش داده می‌شود نه ذخیره
+      if (isBadTranslation(msg.text, translated, langCode)) throw new Error("bad-translation");
       setTranslations(prev => ({
         ...prev,
         [index]: { ...(prev[index] || {}), [langCode]: translated }
       }));
     } catch (e) {
       setOpenTranslation(prev => ({ ...prev, [index]: null }));
+      setTranslationErrors(prev => ({ ...prev, [index]: langCode }));
     }
   };
 
@@ -861,6 +939,19 @@ By the way, what's your name? Or tell me something about yourself.`;
                 </div>
               )}
 
+              {!isUser && translationErrors[idx] && (
+                <div style={{ marginTop: 4, alignSelf: "flex-end", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: colors.rose }}>
+                  <span>ترجمه انجام نشد. اینترنتت رو چک کن.</span>
+                  <button
+                    onClick={() => toggleTranslation(idx, translationErrors[idx], true)}
+                    className="flex items-center gap-1"
+                    style={{ fontSize: 12, fontWeight: 700, color: "white", backgroundColor: colors.rose, borderRadius: 999, padding: "4px 10px" }}
+                  >
+                    <RefreshCw size={12} /> تلاش مجدد
+                  </button>
+                </div>
+              )}
+
               {!isUser && openTranslation[idx] && translations[idx] && translations[idx][openTranslation[idx]] && (
                 <div
                   dir="auto"
@@ -896,8 +987,18 @@ By the way, what's your name? Or tell me something about yourself.`;
           </div>
         )}
         {error && (
-          <div style={{ alignSelf: "flex-end", color: colors.rose, fontSize: 12 }}>
-            ❌ {error}
+          <div style={{ alignSelf: "flex-end", color: colors.rose, fontSize: 12, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+            <span>❌ {error}</span>
+            {lastFailedRef.current && (
+              <button
+                onClick={retryLastReply}
+                disabled={loading}
+                className="flex items-center gap-1"
+                style={{ fontSize: 12, fontWeight: 700, color: "white", backgroundColor: colors.rose, borderRadius: 999, padding: "5px 12px", opacity: loading ? 0.6 : 1 }}
+              >
+                <RefreshCw size={13} /> تلاش مجدد
+              </button>
+            )}
           </div>
         )}
         <div ref={chatEndRef} />

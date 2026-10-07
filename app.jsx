@@ -4678,6 +4678,16 @@ function useAutoplayOnScroll(enabled, items) {
 // ---------------------------------------------------------------------------
 const DEFAULT_BACKEND_URL = "https://phrasebook-api.maryam-s-sharifiyan.workers.dev";
 
+// پیامِ یکدستِ «هوش مصنوعی گیر کرد» — برایِ همه‌جا (timeout / قطعیِ اینترنت / خطایِ سرور /
+// پاسخِ خالی). جزئیاتِ فنیِ خطا فقط تویِ console می‌ماند.
+function aiNetMsg() {
+  let en = false;
+  try { en = loadAppPrefs().uiLang === "en"; } catch (e) {}
+  return en
+    ? "The AI isn't responding. Check your internet connection and try again."
+    : "هوش مصنوعی جواب نداد. اینترنتت رو چک کن و دوباره امتحان کن.";
+}
+
 async function callAI({ prompt, maxTokens, retries = 2, aiSettings, timeoutMs = 10000 }) {
   const base = (aiSettings?.backendUrl || "").trim().replace(/\/+$/, "") || DEFAULT_BACKEND_URL;
   const body = JSON.stringify({
@@ -4738,7 +4748,8 @@ async function callAI({ prompt, maxTokens, retries = 2, aiSettings, timeoutMs = 
           await new Promise((r) => setTimeout(r, waitMs));
           continue;
         }
-        throw new Error(`ai-backend-error: ${detail}`);
+        console.warn("[callAI] server error:", detail);
+        throw new Error(`ai-backend-error: ${(res.status >= 500 || isRateLimited) ? aiNetMsg() : detail}`);
       }
       const data = await res.json();
       const text = data.text || "";
@@ -4747,7 +4758,7 @@ async function callAI({ prompt, maxTokens, retries = 2, aiSettings, timeoutMs = 
           await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
           continue;
         }
-        throw new Error("ai-backend-error: پاسخ خالی از سرور دریافت شد، دوباره تلاش کن.");
+        throw new Error(`ai-backend-error: ${aiNetMsg()}`);
       }
       return text;
     } catch (e) {
@@ -4760,12 +4771,11 @@ async function callAI({ prompt, maxTokens, retries = 2, aiSettings, timeoutMs = 
         continue;
       }
       if (isKnownServerError) throw e;
+      console.warn("[callAI] failed:", e);
       throw new Error(
-        isTimeout
-          ? `ai-backend-error: سرور تا ${Math.round(timeoutMs / 1000)} ثانیه جواب نداد (timeout) — دوباره امتحان کن.`
-          : isNetworkFailure
-          ? `ai-backend-error: به سرور (${base}) وصل نشد. یعنی خودِ Cloudflare Worker جواب نداد — چک کن: ۱) آخرین دیپلوی توی داشبورد Cloudflare بدون خطا انجام شده باشه، ۲) این آدرس رو مستقیم توی مرورگر باز کن (${base}/health) و ببین یه JSON برمی‌گردونه یا خطا می‌ده، ۳) آدرس بک‌اند توی تنظیمات اپ (اگه دستی ست کردی) درست باشه.`
-          : `ai-backend-error: ${msg || "خطای ناشناخته در اتصال"}`
+        (isTimeout || isNetworkFailure)
+          ? `ai-backend-error: ${aiNetMsg()}`
+          : `ai-backend-error: ${msg || aiNetMsg()}`
       );
     }
   }
@@ -5495,7 +5505,9 @@ async function lookupWordGrammarDetail({ word, sentence, langCode, nativeLang, n
     `5. Provide a simple trick to help remember this rule.\n\n` +
     `Keep the response short and useful (maximum 4–5 short paragraphs). Do not use technical terminology unless necessary.`;
 
-  const text = await callAI({ prompt, maxTokens: 900, aiSettings });
+  const text = stripAIReasoning(await callAI({ prompt, maxTokens: 900, aiSettings }));
+  // مدل به‌جای توضیح، «فرایندِ فکرش» را برگردانده → جوابِ خراب؛ نشان نده (دکمه‌ی تلاش دوباره می‌آید)
+  if (!text || AI_REASONING_RE.test(text)) throw new Error(`ai-backend-error: ${aiNetMsg()}`);
   return text.trim();
 }
 
@@ -5581,7 +5593,8 @@ async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLab
     `- CRITICAL: this learner is practicing ${langLabel}, NOT English. Every example sentence in your reply MUST be in ${langLabel} (unless ${langLabel} literally is English, or the learner explicitly asked about English/another language). Never default to English examples just out of habit — that is a mistake.\n` +
     `- Write in ${label}. Keep sentences in both languages clean and well-ordered, never jumbled. Keep the reply clear, well-organized, and not too long.`;
 
-  const text = await callAI({ prompt, maxTokens: 1200, aiSettings });
+  const text = stripAIReasoning(await callAI({ prompt, maxTokens: 1200, aiSettings }));
+  if (!text || AI_REASONING_RE.test(text)) throw new Error(`ai-backend-error: ${aiNetMsg()}`);
   return text.trim();
 }
 
@@ -17467,6 +17480,7 @@ const GrammarPanel = React.memo(function GrammarPanel({
   const [noteAskInput, setNoteAskInput] = useState({});
   const [noteAskLoading, setNoteAskLoading] = useState({});
   const [noteAskError, setNoteAskError] = useState({});
+  const [noteAskFailedQ, setNoteAskFailedQ] = useState({});   // note.id -> آخرین پرسشی که جوابش نیامد (برای «تلاش دوباره»)
   const noteElsRef = useRef({}); // id -> DOM node, for auto-read scroll
   const noteAskTextareaRefs = useRef({}); // id -> textarea DOM node, for auto-grow
   const [savedWordsTick, setSavedWordsTick] = useState(0); // bumps when a word gets saved/removed, to refresh bookmark icons
@@ -17528,10 +17542,10 @@ const GrammarPanel = React.memo(function GrammarPanel({
     setChatError("");
   }
 
-  async function askAboutNote(note) {
-    const question = (noteAskInput[note.id] || "").trim();
+  async function askAboutNote(note, retryQuestion) {
+    const question = (retryQuestion || noteAskInput[note.id] || "").trim();
     if (!question || noteAskLoading[note.id]) return;
-    setNoteAskInput((s) => ({ ...s, [note.id]: "" }));
+    if (!retryQuestion) setNoteAskInput((s) => ({ ...s, [note.id]: "" }));
     setNoteAskError((s) => ({ ...s, [note.id]: "" }));
     setNoteAskLoading((s) => ({ ...s, [note.id]: true }));
     const ta = noteAskTextareaRefs.current[note.id];
@@ -17555,14 +17569,34 @@ const GrammarPanel = React.memo(function GrammarPanel({
         targetOrder,
       });
       appendGrammarNoteThread(note.id, { question, answer });
+      setNoteAskFailedQ((s) => ({ ...s, [note.id]: "" }));
     } catch (e) {
+      setNoteAskFailedQ((s) => ({ ...s, [note.id]: question }));
       setNoteAskError((s) => ({
         ...s,
-        [note.id]: e?.message?.replace(/^ai-backend-error:\s*/, "") || (isFa ? "خطا در دریافت پاسخ" : "Couldn't get a reply"),
+        [note.id]: e?.message?.replace(/^ai-backend-error:\s*/, "") || aiNetMsg(),
       }));
     } finally {
       setNoteAskLoading((s) => ({ ...s, [note.id]: false }));
     }
+  }
+
+  // 🔄 تلاشِ دوباره برایِ «توضیحِ کاملِ لغت» (کادرِ pending) وقتی هوش مصنوعی جواب نداد
+  function retryPending() {
+    const p = pending;
+    if (!p || p.markdown === "loading") return;
+    setPending({ ...p, markdown: "loading" });
+    lookupWordGrammarDetail({
+      word: p.word,
+      sentence: p.sentence,
+      langCode: p.langCode,
+      nativeLang,
+      nativeLabel,
+      aiSettings,
+      targetOrder,
+    })
+      .then((md) => setPending((cur) => (cur && cur.word === p.word ? { ...cur, markdown: md } : cur)))
+      .catch(() => setPending((cur) => (cur && cur.word === p.word ? { ...cur, markdown: "error" } : cur)));
   }
 
   async function sendChat() {
@@ -17585,7 +17619,7 @@ const GrammarPanel = React.memo(function GrammarPanel({
       });
       setChatMessages((m) => [...m, { role: "ai", text: reply, forSentence: sentence }]);
     } catch (e) {
-      setChatError(e?.message?.replace(/^ai-backend-error:\s*/, "") || (isFa ? "خطا در دریافت پاسخ" : "Couldn't get a reply"));
+      setChatError(e?.message?.replace(/^ai-backend-error:\s*/, "") || aiNetMsg());
     } finally {
       setChatLoading(false);
     }
@@ -17611,7 +17645,7 @@ const GrammarPanel = React.memo(function GrammarPanel({
       });
       setChatMessages((m) => [...m, { role: "ai", text: reply, forSentence: last.text }]);
     } catch (e) {
-      setChatError(e?.message?.replace(/^ai-backend-error:\s*/, "") || (isFa ? "خطا در دریافت پاسخ" : "Couldn't get a reply"));
+      setChatError(e?.message?.replace(/^ai-backend-error:\s*/, "") || aiNetMsg());
     } finally {
       setChatLoading(false);
     }
@@ -17658,7 +17692,7 @@ const GrammarPanel = React.memo(function GrammarPanel({
       });
       setChatMessages((m) => [...m, { role: "ai", text: reply, forSentence: text }]);
     } catch (e) {
-      setChatError(e?.message?.replace(/^ai-backend-error:\s*/, "") || (isFa ? "خطا در دریافت پاسخ" : "Couldn't get a reply"));
+      setChatError(e?.message?.replace(/^ai-backend-error:\s*/, "") || aiNetMsg());
     } finally {
       setChatLoading(false);
     }
@@ -17739,7 +17773,17 @@ const GrammarPanel = React.memo(function GrammarPanel({
             </div>
           )}
           {pending.markdown === "error" && (
-            <p style={{ color: colors.rose, fontSize: 13 }}>خطا در دریافت توضیح. دوباره امتحان کن.</p>
+            <div className="flex items-center justify-between gap-2">
+              <p style={{ color: colors.rose, fontSize: 13, margin: 0 }}>{aiNetMsg()}</p>
+              <button
+                onClick={retryPending}
+                className="flex items-center gap-1"
+                style={{ fontSize: 11, color: "white", fontWeight: 700, backgroundColor: colors.teal, borderRadius: 8, padding: "4px 10px", flexShrink: 0 }}
+              >
+                <RotateCcw size={12} />
+                تلاش دوباره
+              </button>
+            </div>
           )}
           {pending.markdown && pending.markdown !== "loading" && pending.markdown !== "error" && (
             <>
@@ -18046,7 +18090,20 @@ const GrammarPanel = React.memo(function GrammarPanel({
                     </button>
                   </div>
                   {noteAskError[n.id] && (
-                    <p style={{ fontSize: 11, color: colors.rose, marginTop: 4 }}>{noteAskError[n.id]}</p>
+                    <div className="flex items-center justify-between gap-2" style={{ marginTop: 4 }}>
+                      <p style={{ fontSize: 11, color: colors.rose, margin: 0 }}>{noteAskError[n.id]}</p>
+                      {noteAskFailedQ[n.id] && (
+                        <button
+                          onClick={() => askAboutNote(n, noteAskFailedQ[n.id])}
+                          disabled={noteAskLoading[n.id]}
+                          className="flex items-center gap-1"
+                          style={{ fontSize: 11, color: "white", fontWeight: 700, backgroundColor: colors.teal, borderRadius: 8, padding: "4px 10px", flexShrink: 0, opacity: noteAskLoading[n.id] ? 0.6 : 1 }}
+                        >
+                          <RotateCcw size={12} />
+                          تلاش دوباره
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
