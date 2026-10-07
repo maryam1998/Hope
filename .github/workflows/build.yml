@@ -81,7 +81,7 @@ jobs:
 
       # ۵) Sync Capacitor
       - name: Sync Capacitor
-        run: npx cap sync android
+        run: npx --yes @capacitor/cli@latest sync android
 
       # ۶) بررسی فایل‌های داخل Android project
       - name: Verify web assets inside Android project
