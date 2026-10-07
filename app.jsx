@@ -7143,51 +7143,149 @@ function SongSttSettings({ uiLang, colors }) {
 
   const btn = { fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 8 };
   const note = { fontSize: 12, color: colors.inkSoft, marginBottom: 8, lineHeight: 1.7 };
-  const names = { tiny: en ? "Fast (lower accuracy)" : "سریع (دقت کم)", base: en ? "Balanced" : "متعادل", small: en ? "Accurate (slower)" : "دقیق‌تر (کندتر)" };
+  const names = { tiny: en ? "Fast" : "سریع", base: en ? "Balanced" : "متعادل", small: en ? "Accurate" : "دقیق‌تر" };
+  const modelHints = {
+    tiny: en ? "Fastest, lowest accuracy — older phones" : "سریع‌ترین و کم‌دقت‌تر؛ برای گوشی‌های ضعیف",
+    base: en ? "Recommended — good speed and accuracy" : "پیشنهادی؛ تعادلِ خوبِ سرعت و دقت",
+    small: en ? "Most accurate but slower — recent phones" : "دقیق‌ترین ولی کندتر؛ برای گوشی‌های جدید",
+  };
+
+  const active = on && !!cur.downloaded;
+  const approx = cur.approxMb || 0;
+  const pct = approx > 0 ? Math.min(99, Math.round((progressMb / approx) * 100)) : 0;
+  const card = { border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12, marginBottom: 10 };
+  const badgeText = active ? (en ? "On" : "روشن") : cur.downloaded ? (en ? "Off" : "خاموش") : (en ? "Not installed" : "نصب نشده");
 
   return (
-    <div style={{ marginTop: 6 }}>
-      <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>
-        🎵 {en ? "Song mode (offline)" : "حالت آهنگ (آفلاین)"}
-      </p>
-      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
-        <span>{en ? "Model" : "مدل"}</span>
-        <select
-          value={st.model}
-          disabled={busy}
-          onChange={(e) => setEngine(on ? "whisper" : "sherpa", e.target.value)}
-          style={{ flex: 1, fontSize: 12.5, padding: "6px 8px", borderRadius: 10, border: `1px solid ${colors.cardBorder}`, backgroundColor: "white", color: colors.ink }}
-        >
-          {(st.models || []).map((m) => (
-            <option key={m.id} value={m.id}>{names[m.id] || m.id} {m.downloaded ? "✅" : `~${m.approxMb}MB`}</option>
-          ))}
-        </select>
-      </label>
+    <div style={{ marginTop: 6, marginBottom: 6 }}>
+      {/* عنوان + وضعیت */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <p style={{ fontSize: 13, fontWeight: 800, color: colors.ink, margin: 0 }}>
+          🎵 {en ? "Song mode (offline)" : "حالت آهنگ (آفلاین)"}
+        </p>
+        <span style={{
+          fontSize: 11, fontWeight: 800, padding: "3px 10px", borderRadius: 999, whiteSpace: "nowrap",
+          color: active ? "#fff" : colors.inkSoft,
+          backgroundColor: active ? colors.teal : "transparent",
+          border: active ? `1px solid ${colors.teal}` : `1px solid ${colors.cardBorder}`,
+        }}>{badgeText}</span>
+      </div>
 
+      {/* راهنما: چیست و کی روشنش کنم؟ */}
+      <div style={{ ...card, backgroundColor: colors.paperDark }}>
+        <p style={{ ...note, marginBottom: 8, color: colors.ink }}>
+          {en
+            ? "A special speech model for songs and for speech over background music. While it is on, ALL live translation uses it."
+            : "یک مدلِ مخصوصِ تشخیصِ آهنگ و صدایی که زیرِ موسیقی است. تا وقتی روشن باشد، «همه‌ی» ترجمه‌ی زنده با همین مدل انجام می‌شود."}
+        </p>
+        <p style={{ fontSize: 12, fontWeight: 800, color: colors.teal, margin: "0 0 2px" }}>
+          ✅ {en ? "Turn it ON for" : "روشن کن وقتی"}
+        </p>
+        <p style={{ ...note, marginBottom: 8 }}>
+          {en
+            ? "listening to songs • voices over music • you don't know the audio language (Auto)"
+            : "داری آهنگ گوش می‌دهی • صدا زیرِ موسیقی است • زبانِ صدا را نمی‌دانی (Auto)"}
+        </p>
+        <p style={{ fontSize: 12, fontWeight: 800, color: colors.rose, margin: "0 0 2px" }}>
+          ⛔ {en ? "Leave it OFF for" : "خاموش بگذار برای"}
+        </p>
+        <p style={{ ...note, marginBottom: 6 }}>
+          {en
+            ? "talking, videos, reels, podcasts, classes — with it off the text appears word by word and faster."
+            : "حرف زدن، فیلم، ریل، پادکست، کلاس — وقتی خاموش است متن کلمه‌به‌کلمه و سریع‌تر می‌آید."}
+        </p>
+        <p style={{ ...note, marginBottom: 0 }}>
+          {en
+            ? "On: text arrives in chunks every few seconds and gets refined; it uses more battery. Switch it off after the song."
+            : "حالت روشن: متن هر چند ثانیه یک تکه می‌آید و دقیق‌تر می‌شود، باتریِ بیشتری مصرف می‌کند. بعد از آهنگ خاموشش کن."}
+        </p>
+      </div>
+
+      {/* انتخابِ مدل */}
+      <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, margin: "0 0 6px" }}>{en ? "Model" : "مدل"}</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+        {(st.models || []).map((m) => {
+          const sel = m.id === st.model;
+          return (
+            <button
+              key={m.id}
+              disabled={busy}
+              onClick={() => setEngine(on ? "whisper" : "sherpa", m.id)}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, width: "100%",
+                textAlign: "start", padding: "9px 12px", borderRadius: 12, opacity: busy ? 0.6 : 1,
+                border: sel ? `2px solid ${colors.gold}` : `1px solid ${colors.cardBorder}`,
+                backgroundColor: "transparent", color: colors.ink,
+              }}
+            >
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 13, fontWeight: 800 }}>
+                  {names[m.id] || m.id}{m.id === "base" ? (en ? "  ★ recommended" : "  ★ پیشنهادی") : ""}
+                </span>
+                <span style={{ display: "block", fontSize: 11.5, color: colors.inkSoft, marginTop: 2, lineHeight: 1.6 }}>
+                  {modelHints[m.id] || ""}
+                </span>
+              </span>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: colors.inkSoft, whiteSpace: "nowrap" }}>
+                {m.downloaded ? "✅" : `~${m.approxMb} MB`}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* دانلود */}
       {!cur.downloaded && !busy && (
-        <button onClick={download} style={btn}>
-          📥 {en ? `Download song model (~${cur.approxMb} MB, one-time)` : `دانلود مدل آهنگ (~${cur.approxMb} مگابایت، فقط یک بار)`}
+        <button onClick={download} style={{ ...btn, color: "#fff", backgroundColor: colors.teal, border: `1px solid ${colors.teal}` }}>
+          📥 {en ? `Download "${names[st.model] || st.model}" (~${approx} MB, one-time)` : `دانلودِ مدلِ «${names[st.model] || st.model}» (~${approx} مگابایت، فقط یک بار)`}
         </button>
       )}
       {busy && (
-        <div>
-          <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {progressMb} MB</p>
-          <button onClick={cancel} style={btn}>⏹ {en ? "Stop (resume later)" : "توقف (بعداً ادامه می‌دم)"}</button>
+        <div style={{ marginBottom: 8 }}>
+          <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {progressMb} MB{approx > 0 ? ` (~${pct}%)` : ""}</p>
+          {approx > 0 && (
+            <div style={{ height: 6, borderRadius: 3, backgroundColor: colors.cardBorder, overflow: "hidden", marginBottom: 8 }}>
+              <div style={{ width: `${pct}%`, height: "100%", backgroundColor: colors.teal, transition: "width .3s" }} />
+            </div>
+          )}
+          <button onClick={cancel} style={btn}>⏹ {en ? "Stop (resume later)" : "توقف (بعداً ادامه می‌دهم)"}</button>
         </div>
       )}
+
+      {/* کلیدِ روشن/خاموش + حذف */}
       {cur.downloaded && (
         <div>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 700, color: colors.ink, marginBottom: 8 }}>
-            <input type="checkbox" checked={on} onChange={(e) => setEngine(e.target.checked ? "whisper" : "sherpa", st.model)} />
-            <span>{en ? "Use for songs / music" : "برای آهنگ و موسیقی استفاده کن"}</span>
-          </label>
-          <button onClick={remove} style={btn}>🗑 {en ? "Delete song model" : "حذف مدل آهنگ"}</button>
+          <button
+            role="switch"
+            aria-checked={active}
+            onClick={() => setEngine(active ? "sherpa" : "whisper", st.model)}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, width: "100%",
+              textAlign: "start", padding: "10px 12px", borderRadius: 12, marginBottom: 8,
+              border: active ? `2px solid ${colors.teal}` : `1px solid ${colors.cardBorder}`, backgroundColor: "transparent",
+            }}
+          >
+            <span style={{ minWidth: 0 }}>
+              <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: colors.ink }}>
+                {en ? "Use for songs / music" : "برای آهنگ و موسیقی استفاده کن"}
+              </span>
+              <span style={{ display: "block", fontSize: 11.5, color: active ? colors.rose : colors.inkSoft, marginTop: 2, lineHeight: 1.6 }}>
+                {active
+                  ? (en ? "Now ON — for talk or videos switch it off." : "الان روشن است — برای حرف زدن و فیلم خاموشش کن.")
+                  : (en ? "Off — normal word-by-word live translation." : "خاموش — ترجمه‌ی زنده‌ی معمولیِ کلمه‌به‌کلمه.")}
+              </span>
+            </span>
+            <span aria-hidden="true" style={{ position: "relative", width: 44, height: 26, borderRadius: 13, flexShrink: 0, backgroundColor: active ? colors.teal : colors.cardBorder, transition: "background-color .15s" }}>
+              <span style={{ position: "absolute", top: 3, insetInlineStart: active ? 21 : 3, width: 20, height: 20, borderRadius: 10, backgroundColor: "#fff", transition: "inset-inline-start .15s" }} />
+            </span>
+          </button>
+          <button onClick={remove} style={{ ...btn, fontWeight: 600, color: colors.inkSoft }}>🗑 {en ? "Delete song model" : "حذف مدل آهنگ"}</button>
         </div>
       )}
-      <p style={note}>
+      <p style={{ ...note, marginBottom: 0 }}>
         {en
-          ? "Text streams live while the song plays and is refined every few seconds. Set the audio language above for best results; the accurate model needs a recent phone."
-          : "متن همزمان با پخش آهنگ زنده نمایش داده می‌شه و هر چند ثانیه دقیق‌تر می‌شه. برای دقت بهتر «زبان صدا» رو بالا درست انتخاب کن؛ مدل «دقیق‌تر» گوشی نسبتاً جدید می‌خواد."}
+          ? "Tip: set the audio language above — it makes song recognition much more accurate. The accurate model needs a recent phone."
+          : "نکته: «زبان صدا» را بالا درست انتخاب کن؛ دقتِ تشخیصِ آهنگ خیلی بهتر می‌شود. مدلِ «دقیق‌تر» گوشیِ نسبتاً جدید می‌خواهد."}
       </p>
     </div>
   );
