@@ -19,7 +19,7 @@ export async function speakText(text, lang = 'fa', speed = 1.0) {
       return false;
     }
     if (!status.downloaded) {
-      console.warn('[TTS] مدل دانلود نشده:', lang);
+      console.warn('[TTS] بسته دانلود نشده:', lang);
       return false;
     }
     await BubblePlugin.speak({ text, lang, speed });
@@ -37,7 +37,7 @@ export async function stopSpeaking() {
   try { await BubblePlugin.stopSpeaking(); } catch (e) {}
 }
 
-/** بررسی وضعیت مدل TTS */
+/** بررسی وضعیت بسته‌ی TTS */
 export async function checkTtsStatus(lang) {
   if (!BubblePlugin) return { supported: false, downloaded: false };
   try {
@@ -47,7 +47,7 @@ export async function checkTtsStatus(lang) {
   }
 }
 
-/** دانلود مدل TTS */
+/** دانلود بسته‌ی TTS */
 export async function downloadTtsModel(lang, onProgress) {
   if (!BubblePlugin) return;
   const p = await BubblePlugin.addListener('ttsModelDownloadProgress', (d) => {
