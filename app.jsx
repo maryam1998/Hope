@@ -6702,6 +6702,12 @@ function OfflineWordsModal({ open, onClose, aiSettings }) {
         if (cancelRef.current) return;
         const job = jobs[cursor++];
         setCurrentWord(job.word);
+        // لغات از قبل انگلیسی‌ان؛ برای زبانِ انگلیسی چیزی برای دانلود/ترجمه نیست — فوراً «انجام‌شده» حساب می‌شه
+        if (job.lang === "en") {
+          doneCount++;
+          setProgress({ done: doneCount, total: jobs.length, bytes: byteCount, failed: failedCount });
+          continue;
+        }
         try {
           const result = await translateFree(job.word, job.lang, "en", aiSettings);
           // اگه نتیجه هنوز مشکوک/ترجمه‌نشده‌ست (یعنی همه‌ی سرویس‌ها شکست
@@ -6758,7 +6764,7 @@ function OfflineWordsModal({ open, onClose, aiSettings }) {
         {!running && !finished && (
           <>
             <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
-              {LANGUAGES.filter((l) => l.code !== "en").map((l) => (
+              {LANGUAGES.map((l) => (
                 <button
                   key={l.code}
                   onClick={() => toggleLang(l.code)}
@@ -6980,6 +6986,35 @@ function LanguageVoiceSettings({ uiLang, colors }) {
 }
 
 // ---------------------------------------------------------------------------
+// ⬇️ قبل از «ترجمه‌ی زنده‌ی صدا» / «زیرنویس یوتیوب»: اگه مدلِ آفلاینِ زبانِ صدا دانلود نشده،
+// به‌جای رفتن سراغِ تشخیصِ گفتارِ گوگل (که صفحه رو قفل می‌کنه)، دانلودِ مدل خودکار شروع می‌شه
+// و یه پیام به کاربر نشون داده می‌شه. true = می‌شه ادامه داد، false = باید اول مدل دانلود بشه.
+// ---------------------------------------------------------------------------
+async function ensureOfflineSpeechModel(bubble, lang, uiLang) {
+  const en = uiLang === "en";
+  try {
+    if (!bubble || !bubble.checkModelStatus || !bubble.downloadModel || !lang || lang === "auto") return true;
+    const st = await bubble.checkModelStatus({ lang });
+    // زبانی که مدلِ آفلاین نداره، یا مدلش آماده‌ست → مشکلی نیست
+    if (!st || !st.supported || st.downloaded) return true;
+    const label = (LANGUAGES.find((l) => l.code === lang) || {}).label || lang.toUpperCase();
+    if (st.downloading) {
+      alert(en
+        ? "Another speech model is being downloaded right now. When it finishes, tap again."
+        : "دانلودِ یک مدلِ دیگه در جریانه. بعد از تموم‌شدنش دوباره بزن.");
+      return false;
+    }
+    await bubble.downloadModel({ lang });
+    alert(en
+      ? `The offline speech model for ${label} must be downloaded first (Settings → Offline speech model). The download has started automatically — tap again when it finishes.`
+      : `برای «${label}» اول باید مدلِ آفلاینِ تشخیص گفتارِ این زبان دانلود بشه (تنظیمات ← مدل آفلاین). دانلود همین الان خودکار شروع شد؛ بعد از تموم‌شدنش دوباره بزن.`);
+    return false;
+  } catch (e) {
+    return true;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 🎙 مدل تشخیص گفتار آفلاین (فقط اندروید — BubblePlugin) — دانلود/حذف مدلِ
 // زبانِ انتخاب‌شده برای «ترجمه‌ی زنده‌ی صدا». زبان از بیرون (liveSrcLang)
 // می‌آد تا یه انتخابگرِ زبانِ تکراری توی تنظیمات نداشته باشیم.
@@ -6993,6 +7028,7 @@ function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
 
   const [status, setStatus] = useState({ supported: false, downloaded: false, downloading: false });
   const [progressMb, setProgressMb] = useState(0);
+  const [stopping, setStopping] = useState(false);
 
   useEffect(() => {
     const plugin = getPlugin();
@@ -7002,10 +7038,12 @@ function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
     const refresh = async () => {
       try {
         const r = await plugin.checkModelStatus({ lang });
-        if (alive && r) setStatus(r);
+        if (alive && r) setStatus((p) => (JSON.stringify(p) === JSON.stringify(r) ? p : r));
       } catch (e) {}
     };
     refresh();
+    // وضعیتِ واقعیِ دانلود (مثلاً بعد از «توقف» یا دانلودِ خودکار) همیشه با نیتیو هماهنگ بمونه
+    const pollId = setInterval(refresh, 3000);
 
     const subs = [
       plugin.addListener("modelDownloadProgress", (d) => {
@@ -7013,17 +7051,20 @@ function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
       }),
       plugin.addListener("modelDownloadDone", () => {
         setProgressMb(0);
+        setStopping(false);
         refresh();
       }),
       plugin.addListener("modelDownloadError", (d) => {
-        alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + (d && d.error));
+        if (!(d && d.cancelled)) alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + (d && d.error));
         setProgressMb(0);
+        setStopping(false);
         refresh();
       }),
     ];
 
     return () => {
       alive = false;
+      clearInterval(pollId);
       subs.forEach((h) => Promise.resolve(h).then((x) => x && x.remove && x.remove()).catch(() => {}));
     };
   }, [lang]);
@@ -7041,6 +7082,12 @@ function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
       alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + ((e && e.message) || e));
       setStatus((s) => ({ ...s, downloading: false }));
     }
+  };
+  const cancel = async () => {
+    setStopping(true);
+    try { await getPlugin().cancelModelDownload(); } catch (e) {}
+    setTimeout(refreshNow, 800);
+    setTimeout(() => { refreshNow(); setStopping(false); }, 3000);
   };
   const remove = async () => {
     if (!confirm(en ? "Delete the offline model?" : "مدل آفلاین حذف بشه؟")) return;
@@ -7067,12 +7114,24 @@ function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
           📥 {(() => {
             // حجمِ تقریبیِ مدلِ هر زبان (مگابایت) — با SPECS ی SherpaModelManager.java هم‌خوان
             const mb = { en: 70, zh: 70, ko: 140, ru: 95, fr: 150, de: 150, es: 150 }[lang] || 100;
+            const have = Math.round((status.partialBytes || 0) / (1024 * 1024));
+            if (have > 0) {
+              return en ? `Resume download (${have} of ~${mb} MB done)` : `ادامه دانلود (${have} از ~${mb} مگابایت دانلود شده)`;
+            }
             return en ? `Download offline model (~${mb} MB, one-time)` : `دانلود مدل آفلاین (~${mb} مگابایت، فقط یک بار)`;
           })()}
         </button>
       )}
-      {status.downloading && (
-        <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {progressMb} MB</p>
+      {status.downloading && (!status.activeLang || status.activeLang === lang) && (
+        <div>
+          <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {progressMb} MB</p>
+          <button onClick={cancel} disabled={stopping} style={{ ...btn, opacity: stopping ? 0.6 : 1 }}>
+            ⏹ {stopping ? (en ? "Stopping..." : "در حال توقف...") : (en ? "Stop (resume later)" : "توقف (بعداً ادامه می‌دهم)")}
+          </button>
+        </div>
+      )}
+      {status.downloading && status.activeLang && status.activeLang !== lang && (
+        <p style={note}>📥 {en ? "Another language's model is downloading..." : "دانلودِ مدلِ یک زبانِ دیگه در جریانه..."}</p>
       )}
     </div>
   );
@@ -7092,6 +7151,7 @@ function SongSttSettings({ uiLang, colors }) {
 
   const [st, setSt] = useState({ engine: "sherpa", model: "base", models: [], downloading: false, activeModel: "" });
   const [progressMb, setProgressMb] = useState(0);
+  const [stopping, setStopping] = useState(false);
 
   const refresh = async () => {
     const p = getPlugin();
@@ -7106,9 +7166,10 @@ function SongSttSettings({ uiLang, colors }) {
     refresh();
     const subs = [
       p.addListener("whisperDownloadProgress", (d) => { if (alive) setProgressMb(Math.round(((d && d.bytes) || 0) / (1024 * 1024))); }),
-      p.addListener("whisperDownloadDone", () => { setProgressMb(0); refresh(); }),
+      p.addListener("whisperDownloadDone", () => { setProgressMb(0); setStopping(false); refresh(); }),
       p.addListener("whisperDownloadError", (d) => {
         setProgressMb(0);
+        setStopping(false);
         if (!(d && d.cancelled)) alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + (d && d.error));
         refresh();
       }),
@@ -7118,6 +7179,13 @@ function SongSttSettings({ uiLang, colors }) {
       subs.forEach((h) => Promise.resolve(h).then((x) => x && x.remove && x.remove()).catch(() => {}));
     };
   }, []);
+
+  // تا وقتی دانلود در جریانه، وضعیتِ واقعی رو هر چند ثانیه از نیتیو بگیر (تا بعد از «توقف» دکمه‌ها گیر نکنن)
+  useEffect(() => {
+    if (!st.downloading) return;
+    const t = setInterval(refresh, 2500);
+    return () => clearInterval(t);
+  }, [st.downloading]);
 
   if (!isNative() || !getPlugin() || !getPlugin().getWhisperStatus) return null;
 
@@ -7134,7 +7202,12 @@ function SongSttSettings({ uiLang, colors }) {
     try { await getPlugin().downloadWhisperModel({ model: st.model }); }
     catch (e) { alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + ((e && e.message) || e)); refresh(); }
   };
-  const cancel = async () => { try { await getPlugin().cancelWhisperDownload(); } catch (e) {} };
+  const cancel = async () => {
+    setStopping(true);
+    try { await getPlugin().cancelWhisperDownload(); } catch (e) {}
+    setTimeout(refresh, 800);
+    setTimeout(() => { refresh(); setStopping(false); }, 3000);
+  };
   const remove = async () => {
     if (!confirm(en ? "Delete the song model?" : "مدل آهنگ حذف بشه؟")) return;
     try { await getPlugin().deleteWhisperModel({ model: st.model }); } catch (e) {}
@@ -7237,7 +7310,15 @@ function SongSttSettings({ uiLang, colors }) {
       {/* دانلود */}
       {!cur.downloaded && !busy && (
         <button onClick={download} style={{ ...btn, color: "#fff", backgroundColor: colors.teal, border: `1px solid ${colors.teal}` }}>
-          📥 {en ? `Download "${names[st.model] || st.model}" (~${approx} MB, one-time)` : `دانلودِ مدلِ «${names[st.model] || st.model}» (~${approx} مگابایت، فقط یک بار)`}
+          📥 {(() => {
+            const have = Math.round((cur.partialBytes || 0) / (1024 * 1024));
+            if (have > 0) {
+              return en
+                ? `Resume "${names[st.model] || st.model}" (${have} of ~${approx} MB done)`
+                : `ادامه‌ی دانلودِ مدلِ «${names[st.model] || st.model}» (${have} از ~${approx} مگابایت دانلود شده)`;
+            }
+            return en ? `Download "${names[st.model] || st.model}" (~${approx} MB, one-time)` : `دانلودِ مدلِ «${names[st.model] || st.model}» (~${approx} مگابایت، فقط یک بار)`;
+          })()}
         </button>
       )}
       {busy && (
@@ -7248,7 +7329,9 @@ function SongSttSettings({ uiLang, colors }) {
               <div style={{ width: `${pct}%`, height: "100%", backgroundColor: colors.teal, transition: "width .3s" }} />
             </div>
           )}
-          <button onClick={cancel} style={btn}>⏹ {en ? "Stop (resume later)" : "توقف (بعداً ادامه می‌دهم)"}</button>
+          <button onClick={cancel} disabled={stopping} style={{ ...btn, opacity: stopping ? 0.6 : 1 }}>
+            ⏹ {stopping ? (en ? "Stopping..." : "در حال توقف...") : (en ? "Stop (resume later)" : "توقف (بعداً ادامه می‌دهم)")}
+          </button>
         </div>
       )}
 
@@ -7336,13 +7419,15 @@ function AudioSyncSettings({ uiLang, colors }) {
       </label>
       {!m.downloaded && !m.busy && (
         <button onClick={() => downloadSyncModel()} style={btn}>
-          📥 {en ? `Download sync model (~${cur.approxMb} MB, one-time)` : `دانلود مدل همگام‌سازی (~${cur.approxMb} مگابایت، فقط یک بار)`}
+          📥 {m.paused
+            ? (en ? "Resume download (finished files are kept)" : "ادامه‌ی دانلود (فایل‌های کامل‌شده نگه داشته شده‌اند)")
+            : (en ? `Download sync model (~${cur.approxMb} MB, one-time)` : `دانلود مدل همگام‌سازی (~${cur.approxMb} مگابایت، فقط یک بار)`)}
         </button>
       )}
       {m.busy && (
         <div>
           <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {m.mb} MB</p>
-          <button onClick={() => cancelSync()} style={btn}>⏹ {en ? "Stop" : "توقف"}</button>
+          <button onClick={() => cancelSync()} style={btn}>⏹ {en ? "Stop (resume later)" : "توقف (بعداً ادامه می‌دهم)"}</button>
         </div>
       )}
       {m.downloaded && !m.busy && (
@@ -8422,6 +8507,8 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
                   alert(uiLang === "en" ? "Please grant the permission, then tap again" : "لطفاً مجوز رو بدید، بعد دوباره بزنید");
                   return;
                 }
+                // مدلِ آفلاینِ زبانِ صدا دانلود نشده؟ → دانلودِ خودکار + پیام (به‌جای تشخیصِ گفتارِ گوگل که صفحه رو قفل می‌کنه)
+                if (!(await ensureOfflineSpeechModel(bubble, liveSrcLang, uiLang))) return;
                 // targetLang = زبان رابط (fa یا en)، sourceLang = زبان صدایی که پخش می‌شه.
                 // با sourceLang مشخص، حباب از مسیر سریع (تشخیص گفتار + ترجمه‌ی روی خود گوشی) استفاده می‌کنه.
                 await bubble.showBubble({
@@ -8471,6 +8558,8 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
                     : "«دسترسی به اعلان‌ها» رو برای این اپ روشن کنید، بعد برگردید و دوباره بزنید. (اگه خاکستریه: اطلاعات اپ ← ⋮ ← Allow restricted settings)");
                   return;
                 }
+                // زیرنویسِ یوتیوب خودش مدل نمی‌خواد؛ ولی اگه مدلِ آفلاینِ زبان دانلود نشده، دانلودش خودکار شروع می‌شه و پیام می‌ده
+                await ensureOfflineSpeechModel(bubble, liveSrcLang, uiLang);
                 await bubble.showBubble({
                   targetLang: uiLang === "en" ? "en" : "fa",
                   targetLangs: liveTargets,

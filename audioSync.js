@@ -23,7 +23,7 @@ const TIMES_PREFIX = "fb-sync:";
 
 // ---------- وضعیتِ مدل (مشترک بینِ تنظیمات و نوارِ صوت) ----------
 const listeners = new Set();
-let modelState = { busy: false, mb: 0, error: "" };
+let modelState = { busy: false, mb: 0, error: "", paused: false };
 function readPref() {
   try { return JSON.parse(localStorage.getItem(PREF_KEY) || "null") || {}; } catch { return {}; }
 }
@@ -36,9 +36,9 @@ let snapshot = null;
 export function getSyncModelState() {
   const p = readPref();
   const size = p.size === "fast" ? "fast" : "balanced";
-  const key = `${p.downloaded ? 1 : 0}|${size}|${modelState.busy ? 1 : 0}|${modelState.mb}|${modelState.error}`;
+  const key = `${p.downloaded ? 1 : 0}|${size}|${modelState.busy ? 1 : 0}|${modelState.mb}|${modelState.error}|${modelState.paused ? 1 : 0}`;
   if (!snapshot || snapshot.key !== key) {
-    snapshot = { key, downloaded: !!p.downloaded, size, busy: modelState.busy, mb: modelState.mb, error: modelState.error };
+    snapshot = { key, downloaded: !!p.downloaded, size, busy: modelState.busy, mb: modelState.mb, error: modelState.error, paused: !!modelState.paused };
   }
   return snapshot;
 }
@@ -47,6 +47,7 @@ export function setSyncModelSize(size) {
   if (p.size === size) return;
   // با عوضکردنِ اندازه، مدلِ دانلودشده‌ی قبلی دیگه معتبر نیست
   writePref({ size, downloaded: p.downloaded && p.size === size });
+  if (modelState.paused) modelState = { ...modelState, paused: false };
   emit();
 }
 
@@ -138,13 +139,24 @@ function killWorker(w) {
 
 let activeWorker = null;
 let cancelFlag = false;
+// Promise ی در حالِ انتظارِ initWorker — وقتی ورکر رو terminate می‌کنیم دیگه هیچ پیامی نمی‌آد،
+// پس باید خودمون reject ش کنیم؛ وگرنه downloadSyncModel برای همیشه busy می‌مونه.
+let pendingInitReject = null;
 export function cancelSync() {
   cancelFlag = true;
   if (activeWorker) { killWorker(activeWorker); activeWorker = null; }
+  if (pendingInitReject) {
+    const r = pendingInitReject;
+    pendingInitReject = null;
+    try { r(new Error("CANCELLED")); } catch {}
+  }
 }
 
 function initWorker(w, size, onBytes) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolveRaw, rejectRaw) => {
+    const resolve = () => { if (pendingInitReject === reject) pendingInitReject = null; resolveRaw(); };
+    const reject = (e) => { if (pendingInitReject === reject) pendingInitReject = null; rejectRaw(e); };
+    pendingInitReject = reject;
     w.onmessage = (ev) => {
       const m = ev.data;
       if (m.type === "dl") onBytes && onBytes(m.bytes);
@@ -161,7 +173,7 @@ export async function downloadSyncModel() {
   if (modelState.busy) return;
   const size = getSyncModelState().size;
   cancelFlag = false;
-  modelState = { busy: true, mb: 0, error: "" };
+  modelState = { busy: true, mb: 0, error: "", paused: false };
   emit();
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
   const w = makeWorker();
@@ -172,9 +184,10 @@ export async function downloadSyncModel() {
       emit();
     });
     writePref({ size, downloaded: true, at: Date.now() });
-    modelState = { busy: false, mb: 0, error: "" };
+    modelState = { busy: false, mb: 0, error: "", paused: false };
   } catch (e) {
-    modelState = { busy: false, mb: 0, error: cancelFlag ? "" : String((e && e.message) || e) };
+    // «توقف» → paused: فایل‌هایی که کامل دانلود شدن توی کشِ مرورگر می‌مونن و با «ادامه» دوباره دانلود نمی‌شن
+    modelState = { busy: false, mb: 0, error: cancelFlag ? "" : String((e && e.message) || e), paused: !!cancelFlag };
   } finally {
     killWorker(w);
     if (activeWorker === w) activeWorker = null;
@@ -185,6 +198,7 @@ export async function removeSyncModel() {
   try { await caches.delete(CACHE_NAME); } catch {}
   const p = readPref();
   writePref({ size: p.size, downloaded: false });
+  if (modelState.paused) modelState = { ...modelState, paused: false };
   emit();
 }
 
