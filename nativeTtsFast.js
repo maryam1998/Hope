@@ -34,7 +34,7 @@ function ensureListener(B) {
   }
 }
 
-/** متن رو با Piper می‌خونه. وقتی پخش واقعاً تموم شد true؛ اگه مدل نیست/شکست خورد false. */
+/** متن رو با Piper می‌خونه. وقتی پخش واقعاً تموم شد true؛ اگه بسته نیست/شکست خورد false. */
 export function nativeSpeak(text, lang, rate) {
   const B = plugin();
   if (!B || !text) return Promise.resolve(false);

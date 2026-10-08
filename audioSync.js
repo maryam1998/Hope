@@ -3,7 +3,7 @@
 //
 // فایلِ صوتی یک‌بار روی خودِ گوشی پردازش می‌شه (بدون سرور) و زمانِ شروعِ
 // هر جمله ذخیره می‌شه؛ بعد از اون، پخش و هایلایت کاملاً آفلاین کار می‌کنه.
-// مدل فقط وقتی کاربر از تنظیمات دکمه‌ی دانلود رو بزنه گرفته می‌شه.
+// بسته فقط وقتی کاربر از تنظیمات دکمه‌ی دانلود رو بزنه گرفته می‌شه.
 // ============================================================
 
 const d = (s) => atob(s);
@@ -21,7 +21,7 @@ export const SYNC_MODEL_OPTIONS = [
 const PREF_KEY = "fb-sync-model";
 const TIMES_PREFIX = "fb-sync:";
 
-// ---------- وضعیتِ مدل (مشترک بینِ تنظیمات و نوارِ صوت) ----------
+// ---------- وضعیتِ بسته (مشترک بینِ تنظیمات و نوارِ صوت) ----------
 const listeners = new Set();
 let modelState = { busy: false, mb: 0, error: "", paused: false };
 function readPref() {
@@ -45,7 +45,7 @@ export function getSyncModelState() {
 export function setSyncModelSize(size) {
   const p = readPref();
   if (p.size === size) return;
-  // با عوضکردنِ اندازه، مدلِ دانلودشده‌ی قبلی دیگه معتبر نیست
+  // با عوضکردنِ اندازه، بسته‌ی دانلودشده‌ی قبلی دیگه معتبر نیست
   writePref({ size, downloaded: p.downloaded && p.size === size });
   if (modelState.paused) modelState = { ...modelState, paused: false };
   emit();
@@ -168,7 +168,7 @@ function initWorker(w, size, onBytes) {
   });
 }
 
-// دانلودِ مدل (فقط یک‌بار). بعدش از کشِ مرورگر خونده می‌شه.
+// دانلودِ بسته (فقط یک‌بار). بعدش از کشِ مرورگر خونده می‌شه.
 export async function downloadSyncModel() {
   if (modelState.busy) return;
   const size = getSyncModelState().size;

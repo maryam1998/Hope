@@ -2803,7 +2803,7 @@ export const DAILY_CONVERSATIONS = [
         "speakerB": [
           {
             "en": "I have an iPhone. It's the newest model.",
-            "fa": "آیفون دارم. جدیدترین مدلشه.",
+            "fa": "آیفون دارم. جدیدترین نسخه‌اشه.",
             "level": "A1"
           },
           {
@@ -7035,7 +7035,7 @@ export const THEMATIC_CONVERSATIONS = [
           },
           {
             "en": "We need to shift to a zero-trust security model.",
-            "fa": "ما باید به یک مدل امنیتی بدون اعتماد تغییر کنیم.",
+            "fa": "ما باید به یک الگوی امنیتی بدون اعتماد تغییر کنیم.",
             "level": "C2"
           }
         ],

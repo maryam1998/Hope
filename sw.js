@@ -4,7 +4,7 @@
 // همچنین چون خودِ محتوای این فایل عوض می‌شه، مرورگر متوجهِ نسخه‌ی جدید
 // می‌شه و چرخه‌ی install/activate رو اجرا می‌کنه (وگرنه اگه byte-به-byte
 // با نسخه‌ی قبلی یکی باشه، اصلاً آپدیت رو تشخیص نمی‌ده).
-const CACHE_VERSION = "v394";
+const CACHE_VERSION = "v395";
 const CACHE_NAME = `phrasebook-cache-${CACHE_VERSION}`;
 const LIB_CACHE = "fb-sync-lib"; // دائمی: در activate پاک نمی‌شه
 
@@ -35,7 +35,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   const isSameOrigin = url.origin === self.location.origin;
 
-  // فایل‌های مدلِ همگام‌سازی حجیم‌ان و کشِ خودشون رو دارن؛ از دستِ کشِ برنامه دورشون نگه می‌داریم.
+  // فایل‌های بسته‌ی همگام‌سازی حجیم‌ان و کشِ خودشون رو دارن؛ از دستِ کشِ برنامه دورشون نگه می‌داریم.
   if (!isSameOrigin) {
     const h = url.hostname;
     const skip = [atob("aHVnZ2luZ2ZhY2UuY28="), atob("aGYuY28=")];

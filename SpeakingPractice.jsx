@@ -32,7 +32,7 @@ const LANGUAGES = [
 ];
 
 // ── «هوش مصنوعی گیر کرد» ──
-// پیامِ یکدست + کمک‌تابع‌هایی که جوابِ خراب (فرایندِ فکرِ مدل، ترجمه‌ی نشده) را
+// پیامِ یکدست + کمک‌تابع‌هایی که جوابِ خراب (فرایندِ فکرِ سرویس، ترجمه‌ی نشده) را
 // تشخیص می‌دهند تا به‌جایِ نمایشِ آن، «اینترنتت رو چک کن» + دکمه‌ی تلاشِ مجدد بیاید.
 const AI_NET_MSG = "هوش مصنوعی جواب نداد. اینترنتت رو چک کن و دوباره امتحان کن.";
 const AI_REASONING_LEAK_RE = /(thinking process|here'?s a thinking|analy[sz]e the (user'?s |learner'?s )?(request|text|input)|\*\*\s*analy[sz]e|\bconstraint\s*:|the user wants me to|let me (read|think|analy[sz]e|re-?read)|<\/?think(ing)?>|^\s*okay,? (so|let'?s|the user))/im;
@@ -59,7 +59,7 @@ function scriptRegexFor(lang) {
     default: return null;
   }
 }
-// ترجمه‌ای که خالی/عینِ متنِ اصلی/بدونِ حروفِ زبانِ مقصد/فرایندِ فکرِ مدل باشد، ترجمه حساب نمی‌شود
+// ترجمه‌ای که خالی/عینِ متنِ اصلی/بدونِ حروفِ زبانِ مقصد/فرایندِ فکرِ سرویس باشد، ترجمه حساب نمی‌شود
 function isBadTranslation(src, out, targetLang) {
   const o = String(out || "").trim();
   const s0 = String(src || "").trim();
@@ -288,7 +288,7 @@ By the way, what's your name? Or tell me something about yourself.`;
   // می‌کرد، ریجکس مچ نمی‌شد، و corrections همیشه خالی می‌موند. حالا به‌جاش
   // از AI فقط یه تگِ ماشین‌خوانِ ثابت و غیرقابل‌ترجمه (`FIX: ... => ...`)
   // می‌خوایم، و خودِ کد جمله‌ی «اشتباه/پیشنهاد» رو با آفستِ دقیق می‌سازه —
-  // مستقل از اینکه زبانِ تمرین چیه یا مدل چقدر دقیق فرمت رو رعایت می‌کنه.
+  // مستقل از اینکه زبانِ تمرین چیه یا سرویس چقدر دقیق فرمت رو رعایت می‌کنه.
   function extractCorrections(reply) {
     const normalized = normalizeAiText(reply);
     const lines = normalized.split("\n");
@@ -366,7 +366,7 @@ Now respond to: "${userSentence}"
 `;
 
     const result = stripThinkTags(await callAI({ prompt, maxTokens: 550, retries: 1, aiSettings }));
-    // مدل به‌جایِ جواب، «فرایندِ فکر» برگرداند → جوابِ خراب است؛ نمایش نده
+    // سرویس به‌جایِ جواب، «فرایندِ فکر» برگرداند → جوابِ خراب است؛ نمایش نده
     if (!result || looksLikeReasoningLeak(result)) throw new Error(`ai-backend-error: ${AI_NET_MSG}`);
     return result.trim();
   };
@@ -595,7 +595,7 @@ By the way, what's your name? Or tell me something about yourself.`;
     setOpenTranslation(prev => ({ ...prev, [index]: langCode }));
     try {
       const translated = await translateMessage(msg.text, langCode, chatLang);
-      // ترجمه‌ی خراب (خالی / همان متنِ انگلیسی / فرایندِ فکرِ مدل) نه نمایش داده می‌شود نه ذخیره
+      // ترجمه‌ی خراب (خالی / همان متنِ انگلیسی / فرایندِ فکرِ سرویس) نه نمایش داده می‌شود نه ذخیره
       if (isBadTranslation(msg.text, translated, langCode)) throw new Error("bad-translation");
       setTranslations(prev => ({
         ...prev,

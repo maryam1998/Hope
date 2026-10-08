@@ -1823,7 +1823,7 @@ export const SLANG_WORDS = [
   { id: 12893, level: "B1", pos: "slang", en: "Caddy", fa: "کادیلاک" },
   { id: 12894, level: "B2", pos: "slang", en: "cas", fa: "معمولی" },
   { id: 12895, level: "B2", pos: "slang", en: "def", fa: "حتماً؛ عالی" },
-  { id: 12896, level: "B2", pos: "slang", en: "do", fa: "مدل مو" },
+  { id: 12896, level: "B2", pos: "slang", en: "do", fa: "حالت مو" },
   { id: 12897, level: "B1", pos: "slang", en: "fridge", fa: "یخچال" },
   { id: 12898, level: "B2", pos: "slang", en: "hid", fa: "زشت" },
   { id: 12899, level: "B2", pos: "slang", en: "jel", fa: "حسود" },

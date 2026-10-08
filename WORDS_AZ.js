@@ -2818,7 +2818,7 @@ export const WORDS_AZ = [
   { id: 102816, level: "C1", pos: "noun", en: "mobility", fa: "تحرک" },
   { id: 102817, level: "C1", pos: "verb", en: "mobilize", fa: "بسیج کردن" },
   { id: 102818, level: "B2", pos: "noun", en: "mode", fa: "حالت" },
-  { id: 102819, level: "A1", pos: "noun", en: "model", fa: "مدل" },
+  { id: 102819, level: "A1", pos: "noun", en: "model", fa: "الگو" },
   { id: 102820, level: "C1", pos: "adjective", en: "moderate", fa: "معتدل" },
   { id: 102821, level: "A1", pos: "adjective", en: "modern", fa: "مدرن" },
   { id: 102822, level: "B2", pos: "adjective", en: "modest", fa: "متواضع" },

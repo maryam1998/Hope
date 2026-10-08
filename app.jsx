@@ -22,8 +22,8 @@ import { isNativeTtsAvailable, isNativeTtsReady, refreshNativeTtsStatus } from "
 import { nativeSpeak, nativeStop, nativePrefetch, nativeWarm, nativeWarmAll, nativeSpeakSystem, isSystemTtsReady, isSystemTtsConfirmed, refreshSystemTts } from "./nativeTtsFast.js";
 import { isNativeAuthAvailable, nativeGoogleSignIn, setupNativeAuthListener } from "./nativeAuth.js";
 
-// پیامِ فارسی/عربی وقتی اینترنت نیست یا پخشِ آنلاین شکست خورد: راهِ حل = مدلِ آفلاین
-const TTS_NEED_MODEL_MSG = "اینترنت در دسترس نیست — مدل صدا را از تنظیمات دانلود کن تا بدون اینترنت هم بخواند";
+// پیامِ فارسی/عربی وقتی اینترنت نیست یا پخشِ آنلاین شکست خورد: راهِ حل = بسته‌ی آفلاین
+const TTS_NEED_MODEL_MSG = "اینترنت در دسترس نیست — بسته‌ی صدا را از تنظیمات دانلود کن تا بدون اینترنت هم بخواند";
 function ttsFailMsg(code) {
   return code === "fa" || code === "ar"
     ? TTS_NEED_MODEL_MSG
@@ -1233,10 +1233,10 @@ function useStoryUserAudio(storyKey, allSentences) {
     } catch (e) {
       const m = String((e && e.message) || e);
       if (m === "CANCELLED") { /* کاربر خودش لغو کرد */ }
-      else if (m === "NO_MODEL") setSyncError("اول مدل همگام‌سازی رو دانلود کن.");
+      else if (m === "NO_MODEL") setSyncError("اول بسته‌ی همگام‌سازی رو دانلود کن.");
       else {
         try { console.warn("sync failed:", m); } catch {}
-        setSyncError("همگام‌سازی ناموفق بود. دوباره امتحان کن؛ اگه تکرار شد، یه فایلِ کوتاه‌تر یا مدلِ «سریع» رو امتحان کن.");
+        setSyncError("همگام‌سازی ناموفق بود. دوباره امتحان کن؛ اگه تکرار شد، یه فایلِ کوتاه‌تر یا حالتِ «سریع» رو امتحان کن.");
       }
     } finally {
       // اگه کار کامل نشد (خطا/لغو/تطبیقِ ناکافی)، زمان‌های نیمه‌کاره رو کنار می‌ذاریم
@@ -1459,7 +1459,7 @@ async function translateViaAI(text, targetLang, sourceLang, aiSettings) {
   if (!aiSettings) throw new Error("translate-ai-no-settings");
   // نامِ انگلیسیِ زبون، نه برچسبِ فارسی — همون دلیلِ askGrammarTeacher
   // بالاتر: قاطی‌کردنِ کلمه‌ی فارسی وسطِ پرامپتِ انگلیسی باعث می‌شه
-  // مدل‌های سریع/رایگان بعضی‌وقت‌ها درست تشخیص ندن.
+  // سرویس‌های سریع/رایگان بعضی‌وقت‌ها درست تشخیص ندن.
   const targetLabel = englishLangName(targetLang);
   const prompt =
     `Translate the following text into ${targetLabel}. ` +
@@ -1467,7 +1467,7 @@ async function translateViaAI(text, targetLang, sourceLang, aiSettings) {
     `Text: ${text}`;
   const clean = (r) => stripAIReasoning(r).replace(/^["'«»]+|["'«».\s]+$/g, "").trim();
   let cleaned = clean(await callAI({ prompt, maxTokens: 200, retries: 1, aiSettings }));
-  // مدل به‌جای ترجمه «فکر کردنش» رو نوشته → یک‌بار با دستورِ سخت‌گیرانه‌تر دوباره
+  // سرویس به‌جای ترجمه «فکر کردنش» رو نوشته → یک‌بار با دستورِ سخت‌گیرانه‌تر دوباره
   if (!cleaned || looksLikeAIReasoning(cleaned)) {
     const strict =
       `Output ONLY the ${targetLabel} translation of the text below, as a single line. ` +
@@ -1511,7 +1511,7 @@ function scriptRangeFor(langCode) {
   }
 }
 
-// 🧠 بعضی مدل‌های AI به‌جای «فقط ترجمه»، فرایندِ فکر کردنشون رو برمی‌گردونن
+// 🧠 بعضی سرویس‌های AI به‌جای «فقط ترجمه»، فرایندِ فکر کردنشون رو برمی‌گردونن
 // («Here's a thinking process: 1. **Analyze the Request:** …»). این متن حاوی حروفِ
 // زبانِ مقصد هم هست پس از تست‌های رسم‌الخط رد می‌شد و به‌عنوانِ ترجمه نمایش/کش می‌شد.
 const AI_REASONING_RE = /(thinking process|here'?s a thinking|analy[sz]e the (request|text|input)|\*\*\s*analy[sz]e|\bconstraint\s*:|the user wants me to|let me (read|think|analy[sz]e|re-?read)|<\/?think(ing)?>|^\s*okay,? (so|let'?s|the user))/im;
@@ -1519,7 +1519,7 @@ function looksLikeAIReasoning(text) {
   const t = String(text || "");
   if (!t) return false;
   if (AI_REASONING_RE.test(t)) return true;
-  // فهرستِ شماره‌دارِ مارک‌داون با چند «**» پشتِ هم = توضیحِ مدل، نه ترجمه
+  // فهرستِ شماره‌دارِ مارک‌داون با چند «**» پشتِ هم = توضیحِ سرویس، نه ترجمه
   return (t.match(/\*\*/g) || []).length >= 4 && /(^|\n|\s)\d\.\s/.test(t);
 }
 // <think>…</think> و مانندش را برمی‌دارد و فقط پاسخِ واقعی را نگه می‌دارد
@@ -3169,7 +3169,7 @@ const speechController = (() => {
   // شبیهِ «این زبون اصلاً پشتیبانی نمی‌شه» به‌نظر می‌رسه)، واقعاً یه خطا به
   // کاربر نشون بده.
   let ttsError = null;
-  // گرم‌کردنِ کشِ وضعیتِ مدلِ Piper برای فارسی/عربی، تا همون اولین تپ هم از موتورِ نیتیو بخونه
+  // گرم‌کردنِ کشِ وضعیتِ بسته‌ی Piper برای فارسی/عربی، تا همون اولین تپ هم از موتورِ نیتیو بخونه
   try { if (isNativeTtsAvailable()) ["fa", "ar"].forEach((l) => refreshNativeTtsStatus(l)); } catch (e) {}
   // همه‌ی زبان‌های دانلودشده توی کشِ سنکرون بشینن (تپِ اول هم از Piper بخونه) + موتورِ آخرین زبان گرم بشه
   try { if (isNativeTtsAvailable()) nativeWarmAll(refreshNativeTtsStatus); } catch (e) {}
@@ -4130,7 +4130,7 @@ const speechController = (() => {
           if (sample > 25 && sample < 300) nativeMsPerChar = nativeMsPerChar * 0.6 + sample * 0.4;
         }
         if (!ok) {
-          // مدلِ Piper دانلود نشده یا پخش شکست خورد → اول TTS خودِ گوشی (نیتیو)،
+          // بسته‌ی Piper دانلود نشده یا پخش شکست خورد → اول TTS خودِ گوشی (نیتیو)،
           // و اگه اون هم نشد، Web Speech
           (usePhoneVoice ? Promise.resolve(false) : nativeSpeakSystem(cleanText, nativeLang, rate)).then((sysOk) => {
             if (nativeGen !== nativeSpeakGen) return;
@@ -4251,9 +4251,9 @@ const speechController = (() => {
         // نیاز به اینترنت) — حتی اگه گوشی صدایی براشون نصب نداشته باشه،
         // دیگه به‌صورتِ خودکار سراغِ سرویسِ آنلاین نمی‌ریم.
         const ONLINE_ONLY_LANGS = new Set(["fa", "ar"]);
-        // اگه مدلِ Piper همین زبون روی گوشی دانلود شده باشه، فارسی/عربی هم
+        // اگه بسته‌ی Piper همین زبون روی گوشی دانلود شده باشه، فارسی/عربی هم
         // مثلِ بقیه‌ی زبون‌ها از موتورِ نیتیو (آفلاین) خونده می‌شن؛ فقط وقتی
-        // مدل نیست (یا اپ توی مرورگره) می‌رن سراغِ سرویسِ آنلاین.
+        // بسته نیست (یا اپ توی مرورگره) می‌رن سراغِ سرویسِ آنلاین.
         // وضعیت از کشِ سنکرونِ nativeTts می‌آد؛ این صدا زدن کش رو برای دفعه‌ی بعد تازه می‌کنه.
         if (isNativeTtsAvailable()) refreshNativeTtsStatus(code);
         const phoneVoicePref = isNativeTtsAvailable() && getVoiceEngine() === "phone";
@@ -4429,8 +4429,8 @@ const speechController = (() => {
           return noTtsEngineAtAll ? "no-tts-engine" : "no-local-voice";
         }
 
-        // فارسی/عربی بدونِ مدلِ آفلاین و بدونِ اینترنت: به‌جای معطل‌شدن روی درخواستِ آنلاین،
-        // همون لحظه پیامِ «مدل رو از تنظیمات دانلود کن» نشون داده می‌شه.
+        // فارسی/عربی بدونِ بسته‌ی آفلاین و بدونِ اینترنت: به‌جای معطل‌شدن روی درخواستِ آنلاین،
+        // همون لحظه پیامِ «بسته رو از تنظیمات دانلود کن» نشون داده می‌شه.
         if (typeof navigator !== "undefined" && navigator.onLine === false) {
           status = "idle";
           notify();
@@ -5506,7 +5506,7 @@ async function lookupWordGrammarDetail({ word, sentence, langCode, nativeLang, n
     `Keep the response short and useful (maximum 4–5 short paragraphs). Do not use technical terminology unless necessary.`;
 
   const text = stripAIReasoning(await callAI({ prompt, maxTokens: 900, aiSettings }));
-  // مدل به‌جای توضیح، «فرایندِ فکرش» را برگردانده → جوابِ خراب؛ نشان نده (دکمه‌ی تلاش دوباره می‌آید)
+  // سرویس به‌جای توضیح، «فرایندِ فکرش» را برگردانده → جوابِ خراب؛ نشان نده (دکمه‌ی تلاش دوباره می‌آید)
   if (!text || AI_REASONING_RE.test(text)) throw new Error(`ai-backend-error: ${aiNetMsg()}`);
   return text.trim();
 }
@@ -5567,7 +5567,7 @@ async function askGrammarTeacher({ userSentence, langCode, nativeLang, nativeLab
   const label = nativeLabel || "Persian";
   // برای خودِ پرامپتِ انگلیسی، از نامِ انگلیسیِ زبون استفاده می‌کنیم (نه
   // برچسبِ فارسیِ LANGUAGES) — چون قاطی‌کردنِ یه کلمه‌ی فارسی وسطِ یه
-  // دستورالعملِ انگلیسی باعث می‌شد بعضی مدل‌های سریع/رایگانِ زنجیره
+  // دستورالعملِ انگلیسی باعث می‌شد بعضی سرویس‌های سریع/رایگانِ زنجیره
   // (groq/mistral/...) درست تشخیصش ندن و به‌جاش خودشون پیش‌فرض برن سراغِ
   // انگلیسی برای مثال‌ها — دقیقاً همون باگی که کاربر گزارش کرد.
   const langLabel = englishLangName(langCode);
@@ -6135,7 +6135,7 @@ const LANGUAGES = [
 // نامِ انگلیسیِ هر زبون — مخصوصِ متنِ پرامپتی که به هوش مصنوعی فرستاده
 // می‌شه (askGrammarTeacher و مشابه‌هاش)، چون خودِ اون پرامپت‌ها به انگلیسی
 // نوشته شدن. قبلاً به‌جاش برچسبِ فارسیِ LANGUAGES (مثلاً «اسپانیایی») مستقیم
-// وسطِ یه جمله‌ی انگلیسی می‌رفت — که خصوصاً مدل‌های سریع/رایگانِ زنجیره
+// وسطِ یه جمله‌ی انگلیسی می‌رفت — که خصوصاً سرویس‌های سریع/رایگانِ زنجیره
 // (groq/mistral/...) بعضی‌وقت‌ها درست تشخیصش نمی‌دادن و به‌جاش خودشون
 // پیش‌فرض می‌رفتن سراغِ انگلیسی برای مثال‌ها. اسمِ انگلیسیِ واضح این ابهام
 // رو از بین می‌بره.
@@ -6986,28 +6986,28 @@ function LanguageVoiceSettings({ uiLang, colors }) {
 }
 
 // ---------------------------------------------------------------------------
-// ⬇️ قبل از «ترجمه‌ی زنده‌ی صدا» / «زیرنویس یوتیوب»: اگه مدلِ آفلاینِ زبانِ صدا دانلود نشده،
-// به‌جای رفتن سراغِ تشخیصِ گفتارِ گوگل (که صفحه رو قفل می‌کنه)، دانلودِ مدل خودکار شروع می‌شه
-// و یه پیام به کاربر نشون داده می‌شه. true = می‌شه ادامه داد، false = باید اول مدل دانلود بشه.
+// ⬇️ قبل از «ترجمه‌ی زنده‌ی صدا» / «زیرنویس یوتیوب»: اگه بسته‌ی آفلاینِ زبانِ صدا دانلود نشده،
+// به‌جای رفتن سراغِ تشخیصِ گفتارِ گوگل (که صفحه رو قفل می‌کنه)، دانلودِ بسته خودکار شروع می‌شه
+// و یه پیام به کاربر نشون داده می‌شه. true = می‌شه ادامه داد، false = باید اول بسته دانلود بشه.
 // ---------------------------------------------------------------------------
 async function ensureOfflineSpeechModel(bubble, lang, uiLang) {
   const en = uiLang === "en";
   try {
     if (!bubble || !bubble.checkModelStatus || !bubble.downloadModel || !lang || lang === "auto") return true;
     const st = await bubble.checkModelStatus({ lang });
-    // زبانی که مدلِ آفلاین نداره، یا مدلش آماده‌ست → مشکلی نیست
+    // زبانی که بسته‌ی آفلاین نداره، یا بسته‌اش آماده‌ست → مشکلی نیست
     if (!st || !st.supported || st.downloaded) return true;
     const label = (LANGUAGES.find((l) => l.code === lang) || {}).label || lang.toUpperCase();
     if (st.downloading) {
       alert(en
-        ? "Another speech model is being downloaded right now. When it finishes, tap again."
-        : "دانلودِ یک مدلِ دیگه در جریانه. بعد از تموم‌شدنش دوباره بزن.");
+        ? "Another speech pack is being downloaded right now. When it finishes, tap again."
+        : "دانلودِ یک بسته‌ی دیگه در جریانه. بعد از تموم‌شدنش دوباره بزن.");
       return false;
     }
     await bubble.downloadModel({ lang });
     alert(en
-      ? `The offline speech model for ${label} must be downloaded first (Settings → Offline speech model). The download has started automatically — tap again when it finishes.`
-      : `برای «${label}» اول باید مدلِ آفلاینِ تشخیص گفتارِ این زبان دانلود بشه (تنظیمات ← مدل آفلاین). دانلود همین الان خودکار شروع شد؛ بعد از تموم‌شدنش دوباره بزن.`);
+      ? `The offline speech pack for ${label} must be downloaded first (Settings → Offline speech pack). The download has started automatically — tap again when it finishes.`
+      : `برای «${label}» اول باید بسته‌ی آفلاینِ تشخیص گفتارِ این زبان دانلود بشه (تنظیمات ← بسته‌ی آفلاین). دانلود همین الان خودکار شروع شد؛ بعد از تموم‌شدنش دوباره بزن.`);
     return false;
   } catch (e) {
     return true;
@@ -7015,7 +7015,7 @@ async function ensureOfflineSpeechModel(bubble, lang, uiLang) {
 }
 
 // ---------------------------------------------------------------------------
-// 🎙 مدل تشخیص گفتار آفلاین (فقط اندروید — BubblePlugin) — دانلود/حذف مدلِ
+// 🎙 بسته‌ی تشخیص گفتار آفلاین (فقط اندروید — BubblePlugin) — دانلود/حذف بسته‌ی
 // زبانِ انتخاب‌شده برای «ترجمه‌ی زنده‌ی صدا». زبان از بیرون (liveSrcLang)
 // می‌آد تا یه انتخابگرِ زبانِ تکراری توی تنظیمات نداشته باشیم.
 // ---------------------------------------------------------------------------
@@ -7090,7 +7090,7 @@ function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
     setTimeout(() => { refreshNow(); setStopping(false); }, 3000);
   };
   const remove = async () => {
-    if (!confirm(en ? "Delete the offline model?" : "مدل آفلاین حذف بشه؟")) return;
+    if (!confirm(en ? "Delete the offline pack?" : "بسته‌ی آفلاین حذف بشه؟")) return;
     try { await getPlugin().deleteModel({ lang }); } catch (e) {}
     refreshNow();
   };
@@ -7105,20 +7105,20 @@ function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
       )}
       {status.supported && status.downloaded && (
         <div>
-          <p style={note}>✅ {en ? "Model downloaded and ready" : "مدل دانلود شده و آماده‌ست"}</p>
-          <button onClick={remove} style={btn}>🗑 {en ? "Delete model" : "حذف مدل"}</button>
+          <p style={note}>✅ {en ? "Pack downloaded and ready" : "بسته دانلود شده و آماده‌ست"}</p>
+          <button onClick={remove} style={btn}>🗑 {en ? "Delete pack" : "حذف بسته"}</button>
         </div>
       )}
       {status.supported && !status.downloaded && !status.downloading && (
         <button onClick={download} style={btn}>
           📥 {(() => {
-            // حجمِ تقریبیِ مدلِ هر زبان (مگابایت) — با SPECS ی SherpaModelManager.java هم‌خوان
+            // حجمِ تقریبیِ بسته‌ی هر زبان (مگابایت) — با SPECS ی SherpaModelManager.java هم‌خوان
             const mb = { en: 70, zh: 70, ko: 140, ru: 95, fr: 150, de: 150, es: 150 }[lang] || 100;
             const have = Math.round((status.partialBytes || 0) / (1024 * 1024));
             if (have > 0) {
               return en ? `Resume download (${have} of ~${mb} MB done)` : `ادامه دانلود (${have} از ~${mb} مگابایت دانلود شده)`;
             }
-            return en ? `Download offline model (~${mb} MB, one-time)` : `دانلود مدل آفلاین (~${mb} مگابایت، فقط یک بار)`;
+            return en ? `Download offline pack (~${mb} MB, one-time)` : `دانلود بسته‌ی آفلاین (~${mb} مگابایت، فقط یک بار)`;
           })()}
         </button>
       )}
@@ -7131,7 +7131,7 @@ function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
         </div>
       )}
       {status.downloading && status.activeLang && status.activeLang !== lang && (
-        <p style={note}>📥 {en ? "Another language's model is downloading..." : "دانلودِ مدلِ یک زبانِ دیگه در جریانه..."}</p>
+        <p style={note}>📥 {en ? "Another language's pack is downloading..." : "دانلودِ بسته‌ی یک زبانِ دیگه در جریانه..."}</p>
       )}
     </div>
   );
@@ -7139,7 +7139,7 @@ function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
 
 // ---------------------------------------------------------------------------
 // 🎵 حالت آهنگ — تشخیص گفتارِ آفلاین مخصوصِ آهنگ.
-// مدل با دکمه‌ی کاربر دانلود می‌شه و روی خودِ گوشی اجرا می‌شه (بدون سرور).
+// بسته با دکمه‌ی کاربر دانلود می‌شه و روی خودِ گوشی اجرا می‌شه (بدون سرور).
 // جریانی نیست: متن هر چند ثانیه یک‌جا می‌آد.
 // ---------------------------------------------------------------------------
 function SongSttSettings({ uiLang, colors }) {
@@ -7209,7 +7209,7 @@ function SongSttSettings({ uiLang, colors }) {
     setTimeout(() => { refresh(); setStopping(false); }, 3000);
   };
   const remove = async () => {
-    if (!confirm(en ? "Delete the song model?" : "مدل آهنگ حذف بشه؟")) return;
+    if (!confirm(en ? "Delete the song pack?" : "بسته‌ی آهنگ حذف بشه؟")) return;
     try { await getPlugin().deleteWhisperModel({ model: st.model }); } catch (e) {}
     if (on) await setEngine("sherpa", st.model); else refresh();
   };
@@ -7248,8 +7248,8 @@ function SongSttSettings({ uiLang, colors }) {
       <div style={{ ...card, backgroundColor: colors.paperDark }}>
         <p style={{ ...note, marginBottom: 8, color: colors.ink }}>
           {en
-            ? "A special speech model for songs and for speech over background music. While it is on, ALL live translation uses it."
-            : "یک مدلِ مخصوصِ تشخیصِ آهنگ و صدایی که زیرِ موسیقی است. تا وقتی روشن باشد، «همه‌ی» ترجمه‌ی زنده با همین مدل انجام می‌شود."}
+            ? "A special speech pack for songs and for speech over background music. While it is on, ALL live translation uses it."
+            : "یک بسته‌ی مخصوصِ تشخیصِ آهنگ و صدایی که زیرِ موسیقی است. تا وقتی روشن باشد، «همه‌ی» ترجمه‌ی زنده با همین بسته انجام می‌شود."}
         </p>
         <p style={{ fontSize: 12, fontWeight: 800, color: colors.teal, margin: "0 0 2px" }}>
           ✅ {en ? "Turn it ON for" : "روشن کن وقتی"}
@@ -7274,8 +7274,8 @@ function SongSttSettings({ uiLang, colors }) {
         </p>
       </div>
 
-      {/* انتخابِ مدل */}
-      <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, margin: "0 0 6px" }}>{en ? "Model" : "مدل"}</p>
+      {/* انتخابِ کیفیت */}
+      <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, margin: "0 0 6px" }}>{en ? "Quality" : "کیفیت"}</p>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
         {(st.models || []).map((m) => {
           const sel = m.id === st.model;
@@ -7315,9 +7315,9 @@ function SongSttSettings({ uiLang, colors }) {
             if (have > 0) {
               return en
                 ? `Resume "${names[st.model] || st.model}" (${have} of ~${approx} MB done)`
-                : `ادامه‌ی دانلودِ مدلِ «${names[st.model] || st.model}» (${have} از ~${approx} مگابایت دانلود شده)`;
+                : `ادامه‌ی دانلودِ بسته‌ی «${names[st.model] || st.model}» (${have} از ~${approx} مگابایت دانلود شده)`;
             }
-            return en ? `Download "${names[st.model] || st.model}" (~${approx} MB, one-time)` : `دانلودِ مدلِ «${names[st.model] || st.model}» (~${approx} مگابایت، فقط یک بار)`;
+            return en ? `Download "${names[st.model] || st.model}" (~${approx} MB, one-time)` : `دانلودِ بسته‌ی «${names[st.model] || st.model}» (~${approx} مگابایت، فقط یک بار)`;
           })()}
         </button>
       )}
@@ -7362,20 +7362,20 @@ function SongSttSettings({ uiLang, colors }) {
               <span style={{ position: "absolute", top: 3, insetInlineStart: active ? 21 : 3, width: 20, height: 20, borderRadius: 10, backgroundColor: "#fff", transition: "inset-inline-start .15s" }} />
             </span>
           </button>
-          <button onClick={remove} style={{ ...btn, fontWeight: 600, color: colors.inkSoft }}>🗑 {en ? "Delete song model" : "حذف مدل آهنگ"}</button>
+          <button onClick={remove} style={{ ...btn, fontWeight: 600, color: colors.inkSoft }}>🗑 {en ? "Delete song pack" : "حذف بسته‌ی آهنگ"}</button>
         </div>
       )}
       <p style={{ ...note, marginBottom: 0 }}>
         {en
-          ? "Tip: set the audio language above — it makes song recognition much more accurate. The accurate model needs a recent phone."
-          : "نکته: «زبان صدا» را بالا درست انتخاب کن؛ دقتِ تشخیصِ آهنگ خیلی بهتر می‌شود. مدلِ «دقیق‌تر» گوشیِ نسبتاً جدید می‌خواهد."}
+          ? "Tip: set the audio language above — it makes song recognition much more accurate. The accurate mode needs a recent phone."
+          : "نکته: «زبان صدا» را بالا درست انتخاب کن؛ دقتِ تشخیصِ آهنگ خیلی بهتر می‌شود. حالتِ «دقیق‌تر» گوشیِ نسبتاً جدید می‌خواهد."}
       </p>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// 🎧 همگام‌سازیِ متن و صوت — مدلِ کوچکِ روی‌دستگاه که کاربر یک‌بار از تنظیمات
+// 🎧 همگام‌سازیِ متن و صوت — بسته‌ی کوچکِ روی‌دستگاه که کاربر یک‌بار از تنظیمات
 // دانلود می‌کنه. بعدش فایلِ صوتیِ هر داستان یک‌بار روی خودِ گوشی پردازش می‌شه و
 // جمله‌ی در حالِ پخش خودکار هایلایت می‌شه. (موتور: audioSync.js)
 // ---------------------------------------------------------------------------
@@ -7405,7 +7405,7 @@ function AudioSyncSettings({ uiLang, colors }) {
         🎧 {en ? "Text ↔ audio sync" : "همگام‌سازی متن و صوت"}
       </p>
       <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
-        <span>{en ? "Model" : "مدل"}</span>
+        <span>{en ? "Quality" : "کیفیت"}</span>
         <select
           value={m.size}
           disabled={m.busy}
@@ -7421,7 +7421,7 @@ function AudioSyncSettings({ uiLang, colors }) {
         <button onClick={() => downloadSyncModel()} style={btn}>
           📥 {m.paused
             ? (en ? "Resume download (finished files are kept)" : "ادامه‌ی دانلود (فایل‌های کامل‌شده نگه داشته شده‌اند)")
-            : (en ? `Download sync model (~${cur.approxMb} MB, one-time)` : `دانلود مدل همگام‌سازی (~${cur.approxMb} مگابایت، فقط یک بار)`)}
+            : (en ? `Download sync pack (~${cur.approxMb} MB, one-time)` : `دانلود بسته‌ی همگام‌سازی (~${cur.approxMb} مگابایت، فقط یک بار)`)}
         </button>
       )}
       {m.busy && (
@@ -7432,12 +7432,12 @@ function AudioSyncSettings({ uiLang, colors }) {
       )}
       {m.downloaded && !m.busy && (
         <div>
-          <p style={note}>✅ {en ? "Model downloaded and ready" : "مدل دانلود شده و آماده‌ست"}</p>
+          <p style={note}>✅ {en ? "Pack downloaded and ready" : "بسته دانلود شده و آماده‌ست"}</p>
           <button
-            onClick={() => { if (confirm(en ? "Delete the sync model?" : "مدل همگام‌سازی حذف بشه؟")) removeSyncModel(); }}
+            onClick={() => { if (confirm(en ? "Delete the sync pack?" : "بسته‌ی همگام‌سازی حذف بشه؟")) removeSyncModel(); }}
             style={btn}
           >
-            🗑 {en ? "Delete model" : "حذف مدل"}
+            🗑 {en ? "Delete pack" : "حذف بسته"}
           </button>
         </div>
       )}
@@ -7489,13 +7489,13 @@ function StorySyncControls({ userAudio, storyLang }) {
         </div>
       ) : m.busy ? (
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <span style={small}>📥 در حال دانلود مدل... {m.mb} MB</span>
+          <span style={small}>📥 در حال دانلود بسته... {m.mb} MB</span>
           <button onClick={() => cancelSync()} style={btn}>توقف</button>
         </div>
       ) : !m.downloaded ? (
         <div>
           <button onClick={() => downloadSyncModel()} style={btn}>
-            📥 دانلود مدل همگام‌سازی (~{cur.approxMb} مگابایت، فقط یک بار)
+            📥 دانلود بسته‌ی همگام‌سازی (~{cur.approxMb} مگابایت، فقط یک بار)
           </button>
           <p style={{ ...small, marginTop: 6 }}>برای اینکه جمله‌ی در حالِ پخش خودکار هایلایت بشه. اگه دانلود شروع نشد فیلترشکن رو روشن کن.</p>
           {m.error && <p style={{ ...small, color: colors.rose }}>دانلود ناموفق بود — اینترنت یا فیلترشکن رو چک کن و دوباره بزن.</p>}
@@ -7512,9 +7512,9 @@ function StorySyncControls({ userAudio, storyLang }) {
 }
 
 // ---------------------------------------------------------------------------
-// 🔊 مدل‌های صدای آفلاینِ باکیفیت (Piper) — فقط اندروید (BubblePlugin).
-// تا وقتی مدلِ یه زبان دانلود نشده، همون صدای قبلی خونده می‌شه (TTS خودِ گوشی؛
-// برای فارسی/عربی سرویسِ آنلاین). بعد از دانلود، همون زبان خودکار از مدلِ آفلاین
+// 🔊 بسته‌های صدای آفلاینِ باکیفیت (Piper) — فقط اندروید (BubblePlugin).
+// تا وقتی بسته‌ی یه زبان دانلود نشده، همون صدای قبلی خونده می‌شه (TTS خودِ گوشی؛
+// برای فارسی/عربی سرویسِ آنلاین). بعد از دانلود، همون زبان خودکار از بسته‌ی آفلاین
 // می‌خونه — منطقش توی speakChunk/toggle (isNativeTtsReady) از قبل هست.
 // ---------------------------------------------------------------------------
 function VoiceEngineSettings({ uiLang, colors }) {
@@ -7572,7 +7572,7 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
   const isNative = () =>
     typeof window !== "undefined" && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
 
-  // { fa: true/false (دانلود شده؟) } — فقط زبان‌هایی که مدلِ آفلاین دارن
+  // { fa: true/false (دانلود شده؟) } — فقط زبان‌هایی که بسته‌ی آفلاین دارن
   const [catalog, setCatalog] = useState({});
   // چند زبان می‌تونن هم‌زمان دانلود بشن: { fa: true, en: true }
   const [busyMap, setBusyMap] = useState({});
@@ -7626,7 +7626,7 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
           dropKey(setBusyMap, l);
           dropKey(setStoppingMap, l);
         }
-        // کشِ وضعیتِ nativeTts رو همین الان تازه کن تا اولین تپ بعد از دانلود هم از مدلِ آفلاین بخونه
+        // کشِ وضعیتِ nativeTts رو همین الان تازه کن تا اولین تپ بعد از دانلود هم از بسته‌ی آفلاین بخونه
         try { refreshNativeTtsStatus(l); } catch (e) {}
         try { nativeWarm(l); } catch (e) {}
         refresh();
@@ -7699,7 +7699,7 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
     setTimeout(refresh, 800);
   };
   const remove = async (lang) => {
-    if (!confirm(en ? "Delete this voice model?" : "مدل صدای این زبان حذف بشه؟")) return;
+    if (!confirm(en ? "Delete this voice pack?" : "بسته‌ی صدای این زبان حذف بشه؟")) return;
     try { await plugin.deleteTtsModel({ lang }); } catch (e) {}
     try { refreshNativeTtsStatus(lang); } catch (e) {}
     refresh();
@@ -7722,8 +7722,8 @@ function OfflineTtsModelSettings({ uiLang, colors }) {
       </p>
       <p style={{ ...small, marginBottom: 8 }}>
         {en
-          ? "Until a language's voice is downloaded, the phone's voice is used (Persian/Arabic use the online service). Once downloaded, that language is read with the offline model — no internet needed. Each voice is roughly 60–110 MB; the first download also fetches a small shared data pack."
-          : "تا وقتی صدای یه زبان دانلود نشده، همون صدای قبلی خونده می‌شه (TTS گوشی؛ برای فارسی و عربی سرویسِ آنلاین). بعد از دانلود، اون زبان بدونِ اینترنت و با مدلِ آفلاین خونده می‌شه. حجمِ هر صدا حدود ۶۰ تا ۱۱۰ مگابایته و دانلودِ اول یه بسته‌ی داده‌ی کوچیکِ مشترک هم می‌گیره."}
+          ? "Until a language's voice is downloaded, the phone's voice is used (Persian/Arabic use the online service). Once downloaded, that language is read with the offline pack — no internet needed. Each voice is roughly 60–110 MB; the first download also fetches a small shared data pack."
+          : "تا وقتی صدای یه زبان دانلود نشده، همون صدای قبلی خونده می‌شه (TTS گوشی؛ برای فارسی و عربی سرویسِ آنلاین). بعد از دانلود، اون زبان بدونِ اینترنت و با بسته‌ی آفلاین خونده می‌شه. حجمِ هر صدا حدود ۶۰ تا ۱۱۰ مگابایته و دانلودِ اول یه بسته‌ی داده‌ی کوچیکِ مشترک هم می‌گیره."}
       </p>
       {pendingLangs.length > 0 && (
         <button
@@ -8507,7 +8507,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
                   alert(uiLang === "en" ? "Please grant the permission, then tap again" : "لطفاً مجوز رو بدید، بعد دوباره بزنید");
                   return;
                 }
-                // مدلِ آفلاینِ زبانِ صدا دانلود نشده؟ → دانلودِ خودکار + پیام (به‌جای تشخیصِ گفتارِ گوگل که صفحه رو قفل می‌کنه)
+                // بسته‌ی آفلاینِ زبانِ صدا دانلود نشده؟ → دانلودِ خودکار + پیام (به‌جای تشخیصِ گفتارِ گوگل که صفحه رو قفل می‌کنه)
                 if (!(await ensureOfflineSpeechModel(bubble, liveSrcLang, uiLang))) return;
                 // targetLang = زبان رابط (fa یا en)، sourceLang = زبان صدایی که پخش می‌شه.
                 // با sourceLang مشخص، حباب از مسیر سریع (تشخیص گفتار + ترجمه‌ی روی خود گوشی) استفاده می‌کنه.
@@ -8558,7 +8558,7 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
                     : "«دسترسی به اعلان‌ها» رو برای این اپ روشن کنید، بعد برگردید و دوباره بزنید. (اگه خاکستریه: اطلاعات اپ ← ⋮ ← Allow restricted settings)");
                   return;
                 }
-                // زیرنویسِ یوتیوب خودش مدل نمی‌خواد؛ ولی اگه مدلِ آفلاینِ زبان دانلود نشده، دانلودش خودکار شروع می‌شه و پیام می‌ده
+                // زیرنویسِ یوتیوب خودش بسته نمی‌خواد؛ ولی اگه بسته‌ی آفلاینِ زبان دانلود نشده، دانلودش خودکار شروع می‌شه و پیام می‌ده
                 await ensureOfflineSpeechModel(bubble, liveSrcLang, uiLang);
                 await bubble.showBubble({
                   targetLang: uiLang === "en" ? "en" : "fa",
@@ -11357,12 +11357,12 @@ const CONTENT_TYPES = [
 // ---------------------------------------------------------------------------
 // شکستنِ متنِ یه پاراگراف به جمله‌های واقعی — هوش مصنوعی که داستان می‌سازه
 // قراره طبق پرامپت هر جمله رو یه آیتمِ جدا تو آرایه‌ی «sentences» برگردونه،
-// ولی بعضی‌وقت‌ها (خصوصاً مدل‌های سریع/رایگانِ زنجیره) چند جمله رو تو یه
+// ولی بعضی‌وقت‌ها (خصوصاً سرویس‌های سریع/رایگانِ زنجیره) چند جمله رو تو یه
 // آیتم می‌چپونه — دقیقاً همون باگی که کاربر تو حالتِ «جمله به جمله» دید
 // (یه بلوکِ هایلایت‌شده‌ی خیلی طولانی، شاملِ چند جمله‌ی کامل). به‌جای اینکه
-// صرفاً به رعایتِ مدل اعتماد کنیم، خروجیِ هر پاراگراف رو خودمون هم از نو
+// صرفاً به رعایتِ سرویس اعتماد کنیم، خروجیِ هر پاراگراف رو خودمون هم از نو
 // رویِ علامتِ‌های پایانِ‌جمله (.!?؟。！) می‌شکنیم تا «جمله به جمله» همیشه
-// واقعاً جمله‌به‌جمله باشه — صرف‌نظر از این‌که مدل چطور گروه‌بندی کرده بود.
+// واقعاً جمله‌به‌جمله باشه — صرف‌نظر از این‌که سرویس چطور گروه‌بندی کرده بود.
 // سقفِ تعدادِ کلمه در هر «جمله»‌یِ داخلِ دیتای اپ — دقیقاً همون عددی که
 // speechController برای شکستنِ اضطراریِ جمله‌های خیلی‌بلند موقعِ خوندن با
 // صدا استفاده می‌کنه (MAX_WORDS_PER_CHUNK). قبلاً این‌جا هیچ سقفی نبود، و
@@ -13788,7 +13788,7 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
         try {
           const obj = parseJsonLoose(res);
           if (!Array.isArray(obj.paragraphs) || !obj.paragraphs.length) throw new Error("no-paragraphs");
-          // مدل الان هر پاراگراف رو به‌شکل یه رشته‌ی ساده برمی‌گردونه (ارزون‌تر از
+          // سرویس الان هر پاراگراف رو به‌شکل یه رشته‌ی ساده برمی‌گردونه (ارزون‌تر از
           // آرایه‌ی {text}) — همین‌جا به ساختارِ همیشگیِ {sentences:[{text}]} برمی‌گردونیم.
           obj.paragraphs = obj.paragraphs
             .map((p) => {

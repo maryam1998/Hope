@@ -5,7 +5,7 @@ app.jsx (تابعِ alignWithAI داخلِ useStoryUserAudio) بهش وصل می
 نکته‌ی مهم دربابِ روش: به‌جایِ اینکه بذاریم Whisper خودش صدا رو (از صفر)
 transcribe کنه و بعد حدس بزنیم کدوم کلمه‌ش مالِ کدوم جمله‌ی متنِ داستانه،
 مستقیماً متنِ *دقیقِ* خودِ داستان (که از قبل صد در صد درسته و از app.jsx
-می‌رسه) رو به مدلِ alignment (wav2vec2 / forced alignment) می‌دیم. این یعنی
+می‌رسه) رو به بسته‌ی alignment (wav2vec2 / forced alignment) می‌دیم. این یعنی
 جایِ صداشناسیِ Whisper رو کلاً حذف می‌کنیم و فقط از قسمتِ alignment
 استفاده می‌کنیم — دقیق‌تره چون دیگه لازم نیست حدس بزنیم Whisper هر کلمه رو
 درست تشخیص داده یا نه، فقط می‌خوایم بفهمیم متنِ *شناخته‌شده* کِی گفته شده.
@@ -53,7 +53,7 @@ app.add_middleware(
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "float32"
 
-# مدل‌هایِ alignment سنگین‌ان، پس یه‌بار لود می‌شن و بینِ درخواست‌ها کش
+# بسته‌هایِ alignment سنگین‌ان، پس یه‌بار لود می‌شن و بینِ درخواست‌ها کش
 # می‌مونن (کلید: کدِ زبان) — نه هر درخواست از نو.
 _align_model_cache: dict[str, tuple] = {}
 
@@ -67,7 +67,7 @@ def _get_align_model(language_code: str):
 
 def _tokenize(text: str) -> list[str]:
     # ساده — فقط برایِ ساختنِ لیستِ کلمه‌ها که whisperx.align انتظار داره؛
-    # علامت‌های نگارشی رو نگه نمی‌داریم چون مدلِ alignment با خودِ کلمه‌ها کار
+    # علامت‌های نگارشی رو نگه نمی‌داریم چون بسته‌ی alignment با خودِ کلمه‌ها کار
     # می‌کنه، نه نشونه‌گذاری.
     return [w for w in re.split(r"\s+", text.strip()) if w]
 
