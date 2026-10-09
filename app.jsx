@@ -6995,6 +6995,24 @@ async function ensureOfflineSpeechModel(bubble, lang, uiLang) {
   try {
     if (!bubble || !bubble.checkModelStatus || !bubble.downloadModel || !lang || lang === "auto") return true;
     const st = await bubble.checkModelStatus({ lang });
+    // زبانی که بسته‌ی اختصاصی نداره (فارسی، عربی، ترکی و...) → از Whisper چندزبانه استفاده می‌شه
+    if (st && !st.supported && bubble.getWhisperStatus && bubble.downloadWhisperModel) {
+      const w = await bubble.getWhisperStatus();
+      const wm = (w.models || []).find((x) => x.id === "small") || (w.models || []).find((x) => x.id === w.model);
+      if (!wm) return true;
+      if (w.engine === "whisper" && wm.downloaded) return true;
+      if (w.downloading) {
+        alert(en
+          ? "A speech pack is being downloaded right now. When it finishes, tap again."
+          : "دانلودِ یک بسته در جریانه. بعد از تموم‌شدنش دوباره بزن.");
+        return false;
+      }
+      if (!wm.downloaded) await bubble.downloadWhisperModel({ model: wm.id });
+      alert(en
+        ? `There is no dedicated offline pack for this language, so the multilingual Whisper pack is used (Settings → Offline speech pack → Whisper). ${wm.downloaded ? "Turn it on there." : "The download has started — tap again when it finishes."}`
+        : `برای این زبان بسته‌ی اختصاصی نیست و از بسته‌ی چندزبانه‌ی Whisper استفاده می‌شه (تنظیمات ← بسته‌ی آفلاین ← Whisper). ${wm.downloaded ? "همون‌جا روشنش کن." : "دانلود شروع شد؛ بعد از تموم‌شدنش دوباره بزن."}`);
+      return false;
+    }
     // زبانی که بسته‌ی آفلاین نداره، یا بسته‌اش آماده‌ست → مشکلی نیست
     if (!st || !st.supported || st.downloaded) return true;
     const label = (LANGUAGES.find((l) => l.code === lang) || {}).label || lang.toUpperCase();
@@ -7019,6 +7037,119 @@ async function ensureOfflineSpeechModel(bubble, lang, uiLang) {
 // زبانِ انتخاب‌شده برای «ترجمه‌ی زنده‌ی صدا». زبان از بیرون (liveSrcLang)
 // می‌آد تا یه انتخابگرِ زبانِ تکراری توی تنظیمات نداشته باشیم.
 // ---------------------------------------------------------------------------
+function WhisperFallbackCard({ lang, uiLang, colors }) {
+  const en = uiLang === "en";
+  const getPlugin = () =>
+    (typeof window !== "undefined" && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin) || null;
+  const [st, setSt] = useState(null);
+  const [progressMb, setProgressMb] = useState(0);
+  const [stopping, setStopping] = useState(false);
+  const wantOn = useRef(false);
+
+  const refresh = async () => {
+    const p = getPlugin();
+    if (!p || !p.getWhisperStatus) return;
+    try { setSt(await p.getWhisperStatus()); } catch (e) {}
+  };
+  // مدلِ پیشنهادی برای فارسی/عربی/ترکی: small (tiny و base برای این زبان‌ها ضعیف‌اند)
+  const pick = (s) => ((s && s.models) || []).find((m) => m.id === "small") || ((s && s.models) || []).find((m) => m.id === (s && s.model));
+
+  useEffect(() => {
+    const p = getPlugin();
+    if (!p || !p.getWhisperStatus) return;
+    let alive = true;
+    refresh();
+    const subs = [
+      p.addListener("whisperDownloadProgress", (d) => { if (alive) setProgressMb(Math.round(((d && d.bytes) || 0) / (1024 * 1024))); }),
+      p.addListener("whisperDownloadDone", async () => {
+        setProgressMb(0); setStopping(false);
+        if (wantOn.current) {
+          wantOn.current = false;
+          try { const s = await p.getWhisperStatus(); const m = pick(s); if (m) await p.setSttEngine({ engine: "whisper", model: m.id }); } catch (e) {}
+        }
+        refresh();
+      }),
+      p.addListener("whisperDownloadError", (d) => {
+        wantOn.current = false; setProgressMb(0); setStopping(false);
+        if (!(d && d.cancelled)) alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + (d && d.error));
+        refresh();
+      }),
+    ];
+    return () => { alive = false; subs.forEach((h) => Promise.resolve(h).then((x) => x && x.remove && x.remove()).catch(() => {})); };
+  }, []);
+
+  useEffect(() => {
+    if (!st || !st.downloading) return;
+    const t = setInterval(refresh, 2500);
+    return () => clearInterval(t);
+  }, [st && st.downloading]);
+
+  const p = getPlugin();
+  if (!p || !p.getWhisperStatus || !st) return null;
+  const cur = pick(st);
+  if (!cur) return null;
+  const active = st.engine === "whisper" && st.model === cur.id && !!cur.downloaded;
+  const busy = !!st.downloading;
+  const btn = { fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 8 };
+  const note = { fontSize: 12, color: colors.inkSoft, marginBottom: 8, lineHeight: 1.7 };
+
+  const enable = async () => { try { await p.setSttEngine({ engine: "whisper", model: cur.id }); } catch (e) {} refresh(); };
+  const disable = async () => { try { await p.setSttEngine({ engine: "sherpa", model: cur.id }); } catch (e) {} refresh(); };
+  const download = async () => {
+    wantOn.current = true;
+    setSt((s) => ({ ...s, downloading: true, activeModel: cur.id }));
+    try { await p.downloadWhisperModel({ model: cur.id }); }
+    catch (e) { wantOn.current = false; alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + ((e && e.message) || e)); refresh(); }
+  };
+  const cancel = async () => {
+    wantOn.current = false; setStopping(true);
+    try { await p.cancelWhisperDownload(); } catch (e) {}
+    setTimeout(refresh, 800);
+    setTimeout(() => { refresh(); setStopping(false); }, 3000);
+  };
+
+  const approx = cur.approxMb || 0;
+  const have = Math.round((cur.partialBytes || 0) / (1024 * 1024));
+  return (
+    <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12, marginBottom: 10 }}>
+      <p style={{ ...note, color: colors.ink, fontWeight: 700, marginBottom: 6 }}>
+        🌐 {en ? "Offline recognition with Whisper (multilingual)" : "تشخیص آفلاین با Whisper (چندزبانه)"}
+      </p>
+      <p style={note}>
+        {en
+          ? "This language has no dedicated pack, but the multilingual Whisper pack (MIT license) understands it offline. The 'Accurate' size is recommended for this language. While it is on, all live translation uses it (text arrives in chunks every few seconds)."
+          : "این زبان بسته‌ی اختصاصی ندارد، ولی بسته‌ی چندزبانه‌ی Whisper (مجوز MIT) آن را آفلاین می‌فهمد. برای این زبان اندازه‌ی «دقیق‌تر» پیشنهاد می‌شود. تا وقتی روشن باشد، «همه‌ی» ترجمه‌ی زنده با آن انجام می‌شود (متن هر چند ثانیه یک تکه می‌آید)."}
+      </p>
+      {active && (
+        <div>
+          <p style={note}>✅ {en ? "Whisper is on — this language works offline." : "Whisper روشن است — این زبان آفلاین کار می‌کند."}</p>
+          <button onClick={disable} style={btn}>⏻ {en ? "Turn off" : "خاموش کردن"}</button>
+        </div>
+      )}
+      {!active && cur.downloaded && !busy && (
+        <button onClick={enable} style={{ ...btn, color: "#fff", backgroundColor: colors.teal, border: `1px solid ${colors.teal}` }}>
+          ▶ {en ? "Turn on Whisper for live translation" : "روشن کردن Whisper برای ترجمه‌ی زنده"}
+        </button>
+      )}
+      {!cur.downloaded && !busy && (
+        <button onClick={download} style={{ ...btn, color: "#fff", backgroundColor: colors.teal, border: `1px solid ${colors.teal}` }}>
+          📥 {have > 0
+            ? (en ? `Resume (${have} of ~${approx} MB done)` : `ادامه دانلود (${have} از ~${approx} مگابایت)`)
+            : (en ? `Download Whisper (~${approx} MB, one-time)` : `دانلود Whisper (~${approx} مگابایت، فقط یک بار)`)}
+        </button>
+      )}
+      {busy && (
+        <div>
+          <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {progressMb} MB{approx > 0 ? ` (~${Math.min(99, Math.round((progressMb / approx) * 100))}%)` : ""}</p>
+          <button onClick={cancel} disabled={stopping} style={{ ...btn, opacity: stopping ? 0.6 : 1 }}>
+            ⏹ {stopping ? (en ? "Stopping..." : "در حال توقف...") : (en ? "Stop (resume later)" : "توقف (بعداً ادامه می‌دهم)")}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
   const en = uiLang === "en";
   const getPlugin = () =>
@@ -7101,7 +7232,7 @@ function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
   return (
     <div>
       {!status.supported && (
-        <p style={note}>⚠ {en ? "This language isn't supported offline yet." : "این زبان هنوز به‌صورت آفلاین پشتیبانی نمی‌شه."}</p>
+        <WhisperFallbackCard lang={lang} uiLang={uiLang} colors={colors} />
       )}
       {status.supported && status.downloaded && (
         <div>
