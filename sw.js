@@ -4,7 +4,7 @@
 // همچنین چون خودِ محتوای این فایل عوض می‌شه، مرورگر متوجهِ نسخه‌ی جدید
 // می‌شه و چرخه‌ی install/activate رو اجرا می‌کنه (وگرنه اگه byte-به-byte
 // با نسخه‌ی قبلی یکی باشه، اصلاً آپدیت رو تشخیص نمی‌ده).
-const CACHE_VERSION = "v396";
+const CACHE_VERSION = "v397";
 const CACHE_NAME = `phrasebook-cache-${CACHE_VERSION}`;
 const LIB_CACHE = "fb-sync-lib"; // دائمی: در activate پاک نمی‌شه
 
