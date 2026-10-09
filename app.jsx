@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useReducer } from "react";
 import { createPortal } from "react-dom";
-import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic, Clock } from "lucide-react";
+import { Star, MessageCircle, RotateCcw, Repeat, Send, Check, X, BookOpen, Heart, Search, Volume2, VolumeX, Sparkles, Plus, LogOut, Mail, Lock, User, UserPlus, LogIn, Loader2, Bookmark, Pause, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Wand2, Menu, Palette, Type, Trash2, PlayCircle, Gauge, Layers, Blend, Coffee, CheckSquare, Copy, Globe, SkipBack, SkipForward, ListMusic, Square, ListChecks, Mic, Clock, MessagesSquare, SpellCheck, BookA, MessageSquareQuote, Boxes, Library } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import { VOCAB } from "./VOCAB.js";
 import { WORDS_AZ } from './WORDS_AZ.js';
@@ -38,16 +38,16 @@ function ttsFailMsg(code) {
 // کنه. این آرایه‌های مسطح‌شده فقط یه‌بار موقع بارگذاریِ اپ ساخته می‌شن (نه
 // هر رندرِ داستان‌ساز) تا جستجو سنگین نشه.
 const STORY_SEARCH_WORD_POOL = [
-  ...WORDS_AZ.map((w) => ({ term: w.en, fa: w.fa, source: "لغات" })),
+  ...WORDS_AZ.map((w) => ({ term: w.en, fa: w.fa, source: "دیکشنری من" })),
   ...DAILY_WORDS.map((w) => ({ term: w.en, fa: w.fa, source: "مکالمه و روزمره" })),
-  ...SLANG_WORDS.map((w) => ({ term: w.en, fa: w.fa, source: "اسلنگ" })),
+  ...SLANG_WORDS.map((w) => ({ term: w.en, fa: w.fa, source: "اصطلاحات عامیانه" })),
 ];
 // همه‌ی خط‌های دوطرفِ مکالمه‌های روزمره، مسطح‌شده به یه آرایه‌ی ساده — تا
 // کاربر بتونه یه عبارتِ کاملِ یه مکالمه رو هم به‌عنوان لغتِ هدفِ داستان
 // انتخاب کنه، نه فقط تک‌کلمه‌ها.
 const STORY_SEARCH_CONVERSATION_POOL = ALL_DAILY_CONVERSATIONS.flatMap((tp) =>
   tp.scenarios.flatMap((sc) => [...(sc.speakerA || []), ...(sc.speakerB || [])])
-).map((it) => ({ term: it.en, fa: it.fa || "", source: "مکالمات روزمره" }));
+).map((it) => ({ term: it.en, fa: it.fa || "", source: "دیالوگ‌های روزمره" }));
 
 // «Vocabulary in Use» — دیتای واحدهای موضوعی (هرکدوم چند لغت + تمرین)، برای
 // تبِ لغات مسطح می‌شه به یه آرایه‌ی ساده‌ی {id, en, fa, level, ...} با همون
@@ -2218,16 +2218,25 @@ const UI_STRINGS = {
   nativeLanguageLabel: { fa: "زبان مادری", en: "Native language" },
   targetLanguagesLabel: { fa: "زبان‌های مقصد", en: "Target languages" },
   translationOrderLabel: { fa: "ترتیب نمایش ترجمه‌ها (بکش تا جابجا بشه)", en: "Translation display order (drag to reorder)" },
-  tabConversations: { fa: "مکالمات روزمره", en: "Daily conversations" },
+  tabConversations: { fa: "دیالوگ‌های روزمره", en: "Daily dialogues" },
   tabStory: { fa: "داستان‌ساز", en: "Story generator" },
   tabSaved: { fa: "لغات ذخیره‌شده", en: "Saved words" },
   tabGrammar: { fa: "گرامر", en: "Grammar" },
-  tabWords: { fa: "لغات", en: "Words" },
+  tabWords: { fa: "دیکشنری من", en: "My dictionary" },
   tabFavorites: { fa: "علاقه‌مندی‌ها", en: "Favorites" },
   tabVocabInUse: { fa: "لغات کاربردی", en: "Vocabulary in Use" },
-  tabSlang: { fa: "اسلنگ", en: "Slang" },
+  tabSlang: { fa: "اصطلاحات عامیانه", en: "Slang expressions" },
   tabReview: { fa: "مرور (جعبه لایتنر)", en: "Review (Leitner box)" },
   tabSpeaking: { fa: "تمرین مکالمه", en: "Speaking practice" },
+  storyModeCreate: { fa: "ساخت داستان", en: "Create story" },
+  storyModeLibrary: { fa: "کتابخانه‌ی من", en: "My library" },
+  tabsCustomizeTitle: { fa: "شخصی‌سازی تب‌ها", en: "Customize tabs" },
+  tabsCustomizeHint: { fa: "با فلش‌ها ترتیبِ تب‌ها رو عوض کن.", en: "Use the arrows to reorder tabs." },
+  tabsGroupHeader: { fa: "تب‌های بالا (هدر)", en: "Header tabs" },
+  tabsGroupBar: { fa: "نوار تب‌ها", en: "Tab bar" },
+  tabsMoveUp: { fa: "انتقال به قبل", en: "Move earlier" },
+  tabsMoveDown: { fa: "انتقال به بعد", en: "Move later" },
+  tabsResetOrder: { fa: "بازگشت به ترتیبِ پیش‌فرض", en: "Reset to default order" },
   // Login / signup screen
   loginTitle: { fa: "ورود به LingoLearn", en: "Sign in to LingoLearn" },
   signupTitle: { fa: "ساخت حساب کاربری", en: "Create an account" },
@@ -2362,6 +2371,40 @@ const SHOW_MASCOT_CHARACTER_OPTIONS = false;  // انتخابِ کاراکترِ
 const SHOW_MASCOT_OUTFIT_OPTIONS = false;     // لباسِ آدمک
 const SHOW_CUSTOM_BG_OPTIONS = false;         // پس‌زمینه‌یِ سفارشی
 const CALENDAR_SYSTEMS = ["jalali", "gregorian", "both"];
+// ── ترتیبِ تب‌ها (قابلِ شخصی‌سازی توسطِ کاربر) ──
+// دو گروهِ جدا: سه تبِ داخلِ هدر، و نوارِ تب‌های زیرِ هدر. جابجایی فقط
+// داخلِ هر گروهه تا طراحیِ هدر به‌هم نریزه. هر آیکون فقط برایِ یه تب استفاده شده.
+const PRIMARY_TAB_DEFAULT = ["conversations", "story", "saved"];
+const SECONDARY_TAB_DEFAULT = ["grammar", "speaking", "words", "vocabInUse", "slang", "favorites", "review"];
+const TAB_META = {
+  conversations: { labelKey: "tabConversations", icon: MessagesSquare },
+  story: { labelKey: "tabStory", icon: Sparkles },
+  saved: { labelKey: "tabSaved", icon: Bookmark },
+  grammar: { labelKey: "tabGrammar", icon: SpellCheck },
+  speaking: { labelKey: "tabSpeaking", icon: Mic },
+  words: { labelKey: "tabWords", icon: BookA },
+  vocabInUse: { labelKey: "tabVocabInUse", icon: Layers },
+  slang: { labelKey: "tabSlang", icon: MessageSquareQuote },
+  favorites: { labelKey: "tabFavorites", icon: Heart },
+  review: { labelKey: "tabReview", icon: Boxes },
+};
+// ترتیبِ ذخیره‌شده رو با لیستِ پیش‌فرض ادغام می‌کنه: کلیدهایِ ناشناخته حذف،
+// تکراری‌ها یکی، و تبِ جدیدی که توی ذخیره‌شده نیست آخرِ گروه اضافه می‌شه.
+function normalizeTabGroup(saved, defaults) {
+  const out = [];
+  if (Array.isArray(saved)) {
+    for (const k of saved) if (defaults.includes(k) && !out.includes(k)) out.push(k);
+  }
+  for (const k of defaults) if (!out.includes(k)) out.push(k);
+  return out;
+}
+function normalizeTabOrder(saved) {
+  const o = saved && typeof saved === "object" ? saved : {};
+  return {
+    primary: normalizeTabGroup(o.primary, PRIMARY_TAB_DEFAULT),
+    secondary: normalizeTabGroup(o.secondary, SECONDARY_TAB_DEFAULT),
+  };
+}
 function loadAppPrefs() {
   try {
     const parsed = JSON.parse(localStorage.getItem(APP_PREFS_KEY) || "{}");
@@ -2385,9 +2428,10 @@ function loadAppPrefs() {
       // این دو تا فقط می‌گن آیا نشون داده بشه و با چه میزان شفافیتی.
       customBgEnabled: parsed.customBgEnabled === true,
       customBgOpacity: Number.isFinite(parsed.customBgOpacity) ? Math.min(90, Math.max(15, parsed.customBgOpacity)) : 55,
+      tabOrder: normalizeTabOrder(parsed.tabOrder),
     };
   } catch (e) {
-    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali", highlightColor: HIGHLIGHT_COLOR_PALETTE[0], mascotOutfit: "classic", mascotEnabled: true, mascotCharacter: "classic", customBgEnabled: false, customBgOpacity: 55 };
+    return { theme: "vintage", font: "default", fontSize: "medium", uiLang: "fa", calendarSystem: "jalali", highlightColor: HIGHLIGHT_COLOR_PALETTE[0], mascotOutfit: "classic", mascotEnabled: true, mascotCharacter: "classic", customBgEnabled: false, customBgOpacity: 55, tabOrder: normalizeTabOrder(null) };
   }
 }
 function saveAppPrefs(prefs) {
@@ -8479,6 +8523,58 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
               </button>
             ))}
           </div>
+
+          {/* شخصی‌سازیِ ترتیبِ تب‌ها — جابجایی فقط داخلِ هر گروه */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+            <Layers size={14} /> {tr("tabsCustomizeTitle", uiLang)}
+          </p>
+          <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 8 }}>{tr("tabsCustomizeHint", uiLang)}</p>
+          {[["primary", "tabsGroupHeader", PRIMARY_TAB_DEFAULT], ["secondary", "tabsGroupBar", SECONDARY_TAB_DEFAULT]].map(([group, titleKey, defaults]) => {
+            const order = normalizeTabOrder(appPrefs.tabOrder)[group];
+            const move = (idx, dir) => {
+              const j = idx + dir;
+              if (j < 0 || j >= order.length) return;
+              const next = order.slice();
+              [next[idx], next[j]] = [next[j], next[idx]];
+              update("tabOrder", { ...normalizeTabOrder(appPrefs.tabOrder), [group]: next });
+            };
+            return (
+              <div key={group} style={{ marginBottom: 10 }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>{tr(titleKey, uiLang)}</p>
+                <div className="flex flex-col gap-1">
+                  {order.map((key, idx) => {
+                    const meta = TAB_META[key];
+                    const Icon = meta.icon;
+                    const arrowStyle = (disabled) => ({
+                      width: 28, height: 28, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center",
+                      border: `1px solid ${colors.cardBorder}`, backgroundColor: "white", color: colors.ink, opacity: disabled ? 0.3 : 1,
+                    });
+                    return (
+                      <div key={key} className="flex items-center justify-between" style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: "4px 8px", backgroundColor: "white" }}>
+                        <span className="flex items-center gap-2" style={{ fontSize: 12, color: colors.ink }}>
+                          <Icon size={14} /> {tr(meta.labelKey, uiLang)}
+                        </span>
+                        <span className="flex gap-1">
+                          <button onClick={() => move(idx, -1)} disabled={idx === 0} aria-label={tr("tabsMoveUp", uiLang)} title={tr("tabsMoveUp", uiLang)} style={arrowStyle(idx === 0)}>
+                            <ChevronUp size={14} />
+                          </button>
+                          <button onClick={() => move(idx, 1)} disabled={idx === order.length - 1} aria-label={tr("tabsMoveDown", uiLang)} title={tr("tabsMoveDown", uiLang)} style={arrowStyle(idx === order.length - 1)}>
+                            <ChevronDown size={14} />
+                          </button>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+          <button
+            onClick={() => update("tabOrder", normalizeTabOrder(null))}
+            style={{ fontSize: 12, padding: "5px 14px", borderRadius: 20, border: `1px solid ${colors.cardBorder}`, backgroundColor: "white", color: colors.ink, marginBottom: 16 }}
+          >
+            {tr("tabsResetOrder", uiLang)}
+          </button>
 
           {/* رنگِ هایلایتِ خواندن — همون مارکری که موقع «خواندنِ خودکار»
               دورِ جمله/کلمه‌ی در‌حالِ‌خواندن کشیده می‌شه. یه پالتِ ثابت از
@@ -15204,33 +15300,39 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p style={{ fontWeight: 700, fontSize: 16, fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{tr("tabStory", uiLang)}</p>
-        <div className="flex gap-2">
+      </div>
+
+      {/* سوئیچِ دو‌قسمتی: ساختنِ داستان / کتابخانه‌ی من. قسمتِ فعال پررنگه تا
+          همیشه معلوم باشه کاربر توی کدوم حالته. */}
+      <div className="flex" role="tablist" style={{ padding: 3, borderRadius: 999, border: `1px solid ${colors.cardBorder}`, backgroundColor: colors.paperDark }}>
+        {[
+          [false, "storyModeCreate", Wand2, null],
+          [true, "storyModeLibrary", Library, savedStories.length],
+        ].map(([isLib, labelKey, Icon, count]) => (
           <button
+            key={labelKey}
+            role="tab"
+            aria-selected={showSaved === isLib}
             onClick={() => {
-              setShowSaved((s) => {
-                const next = !s;
-                // هر بار که پنل باز می‌شه، لیستِ PDFها رو دوباره از
-                // IndexedDB بخون — قبلاً فقط یک‌بار موقعِ mount خونده
-                // می‌شد، پس اگه اون خواندنِ اول به هر دلیلی (مثلاً هنوز
-                // چیزی ذخیره نشده بود) خالی برمی‌گشت، دیگه هیچ‌وقت
-                // خودش رو تازه نمی‌کرد؛ حالا هر بازکردنِ پنل یه فرصتِ
-                // تازه برای دیدنِ آخرین وضعیتِ واقعیِ حافظه‌ست.
-                if (next) refreshPdfViewDocs();
-                return next;
-              });
+              if (isLib) refreshPdfViewDocs();
+              setShowSaved(isLib);
             }}
+            className="flex items-center justify-center gap-1.5"
             style={{
-              fontSize: 12,
-              padding: "5px 12px",
-              borderRadius: 20,
-              border: `1px solid ${colors.cardBorder}`,
-              backgroundColor: showSaved ? colors.ink : "white",
-              color: showSaved ? "white" : colors.ink,
+              flex: 1,
+              fontSize: 13,
+              fontWeight: 600,
+              padding: "9px 8px",
+              borderRadius: 999,
+              fontFamily: uiLang === "en" ? fontLatin : fontFa,
+              backgroundColor: showSaved === isLib ? colors.ink : "transparent",
+              color: showSaved === isLib ? colors.paper : colors.inkSoft,
+              whiteSpace: "nowrap",
             }}
           >
-            {uiLang === "en" ? `Saved stories (${savedStories.length})` : `داستان‌های ذخیره‌شده (${savedStories.length})`}
+            <Icon size={15} /> {tr(labelKey, uiLang)}{count !== null ? ` (${count})` : ""}
           </button>
-        </div>
+        ))}
       </div>
 
       <SrtTranslatorTool nativeLang={nativeLang} targetOrder={targetOrder} aiSettings={aiSettings} uiLang={uiLang} />
@@ -15720,8 +15822,8 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
           onPaste={handleVocabPaste}
           placeholder={
             uiLang === "en"
-              ? "Or search vocab, daily conversations, words & news, slang, saved words..."
-              : "یا از لغات، مکالمات روزمره، لغات و اخبار، اسلنگ، لغات ذخیره‌شده جستجو کن..."
+              ? "Or search vocab, daily dialogues, words & news, slang expressions, saved words..."
+              : "یا از دیکشنری من، دیالوگ‌های روزمره، لغات و اخبار، اصطلاحات عامیانه، لغات ذخیره‌شده جستجو کن..."
           }
           style={{
             width: "100%",
@@ -19969,21 +20071,17 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
         {/* سه تبِ اصلی — داخلِ خودِ هدر، رویِ همون گرادیانتِ تیره؛ طبقِ
             موکاپ، درست زیرِ زبان‌های مقصد. */}
         <div className="flex gap-2" style={{ marginTop: 16 }}>
-          <HeaderPrimaryTabButton label={tr("tabConversations", appPrefs.uiLang)} icon={MessageCircle} active={tab === "conversations"} onClick={() => setTab("conversations")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-          <HeaderPrimaryTabButton label={tr("tabStory", appPrefs.uiLang)} icon={Sparkles} active={tab === "story"} onClick={() => setTab("story")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-          <HeaderPrimaryTabButton label={tr("tabSaved", appPrefs.uiLang)} icon={Bookmark} active={tab === "saved"} onClick={() => setTab("saved")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+          {normalizeTabOrder(appPrefs.tabOrder).primary.map((key) => (
+            <HeaderPrimaryTabButton key={key} label={tr(TAB_META[key].labelKey, appPrefs.uiLang)} icon={TAB_META[key].icon} active={tab === key} onClick={() => setTab(key)} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+          ))}
         </div>
       </header>
 
       {/* Tabs */}
       <nav className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ backgroundColor: colors.paperDark }}>
-        <TabButton label={tr("tabGrammar", appPrefs.uiLang)} icon={Type} active={tab === "grammar"} onClick={() => setTab("grammar")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabSpeaking", appPrefs.uiLang)} icon={MessageCircle} active={tab === "speaking"} onClick={() => setTab("speaking")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabWords", appPrefs.uiLang)} icon={Layers} active={tab === "words"} onClick={() => setTab("words")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabVocabInUse", appPrefs.uiLang)} icon={BookOpen} active={tab === "vocabInUse"} onClick={() => setTab("vocabInUse")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabFavorites", appPrefs.uiLang)} icon={Heart} active={tab === "favorites"} onClick={() => setTab("favorites")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabSlang", appPrefs.uiLang)} icon={Sparkles} active={tab === "slang"} onClick={() => setTab("slang")} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        <TabButton label={tr("tabReview", appPrefs.uiLang)} icon={RotateCcw} active={tab === "review"} onClick={() => { setTab("review"); setReviewIndex(0); setShowAnswer(false); }} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        {normalizeTabOrder(appPrefs.tabOrder).secondary.map((key) => (
+          <TabButton key={key} label={tr(TAB_META[key].labelKey, appPrefs.uiLang)} icon={TAB_META[key].icon} active={tab === key} onClick={() => { setTab(key); if (key === "review") { setReviewIndex(0); setShowAnswer(false); } }} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        ))}
       </nav>
 
       {/* Level filter — applies to conversation , words, favorites, and vocabulary */}
@@ -22517,8 +22615,8 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
                 e.stopPropagation();
                 hideFromWordsTab(w.en);
               }}
-              aria-label={uiLang === "en" ? "Remove from Words tab" : "حذف از تبِ لغات"}
-              title={uiLang === "en" ? "Remove from Words tab (stays in Saved words)" : "حذف از تبِ لغات (در لغات ذخیره‌شده می‌مونه)"}
+              aria-label={uiLang === "en" ? "Remove from My dictionary" : "حذف از دیکشنری من"}
+              title={uiLang === "en" ? "Remove from My dictionary (stays in Saved words)" : "حذف از دیکشنری من (در لغات ذخیره‌شده می‌مونه)"}
               style={{
                 position: "absolute",
                 right: 8,
