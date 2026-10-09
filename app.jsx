@@ -6995,37 +6995,41 @@ async function ensureOfflineSpeechModel(bubble, lang, uiLang) {
   try {
     if (!bubble || !bubble.checkModelStatus || !bubble.downloadModel || !lang || lang === "auto") return true;
     const st = await bubble.checkModelStatus({ lang });
-    // زبانی که بسته‌ی اختصاصی نداره (فارسی، عربی، ترکی و...) → از Whisper چندزبانه استفاده می‌شه
-    if (st && !st.supported && bubble.getWhisperStatus && bubble.downloadWhisperModel) {
+    if (!st) return true;
+    const label = (LANGUAGES.find((l) => l.code === lang) || {}).label || lang.toUpperCase();
+    const busyMsg = () => alert(en
+      ? "Another speech pack is being downloaded right now. When it finishes, tap again."
+      : "دانلودِ یک بسته‌ی دیگه در جریانه. بعد از تموم‌شدنش دوباره بزن.");
+    const askMsg = (mb) => en
+      ? `The offline speech pack for ${label} (~${mb} MB) is not downloaded yet. Download it now? (one-time)`
+      : `بسته‌ی آفلاینِ تشخیص گفتارِ «${label}» (~${mb} مگابایت) هنوز دانلود نشده. الان دانلود بشه؟ (فقط یک بار)`;
+    const startedMsg = () => alert(en
+      ? "The download has started. Tap again when it finishes."
+      : "دانلود شروع شد. بعد از تموم‌شدنش دوباره بزن.");
+
+    // زبانی که بسته‌ی اختصاصی نداره (فارسی، عربی، ترکی و...) → فقط بسته‌ی آفلاین؛ بدون دانلودِ خودکار
+    if (!st.supported) {
+      if (!bubble.getWhisperStatus || !bubble.downloadWhisperModel) return true;
       const w = await bubble.getWhisperStatus();
       const wm = (w.models || []).find((x) => x.id === "small") || (w.models || []).find((x) => x.id === w.model);
       if (!wm) return true;
       if (w.engine === "whisper" && wm.downloaded) return true;
-      if (w.downloading) {
-        alert(en
-          ? "A speech pack is being downloaded right now. When it finishes, tap again."
-          : "دانلودِ یک بسته در جریانه. بعد از تموم‌شدنش دوباره بزن.");
-        return false;
+      if (w.downloading) { busyMsg(); return false; }
+      if (wm.downloaded) {
+        try { await bubble.setSttEngine({ engine: "whisper", model: wm.id }); } catch (e) {}
+        return true;
       }
-      if (!wm.downloaded) await bubble.downloadWhisperModel({ model: wm.id });
-      alert(en
-        ? `The offline speech pack must be downloaded first (Settings → Offline speech pack). ${wm.downloaded ? "Activate it there." : "The download has started automatically — tap again when it finishes."}`
-        : `اول باید بسته‌ی آفلاینِ تشخیص گفتار دانلود بشه (تنظیمات ← بسته‌ی آفلاین). ${wm.downloaded ? "همون‌جا فعالش کن." : "دانلود همین الان خودکار شروع شد؛ بعد از تموم‌شدنش دوباره بزن."}`);
+      if (!confirm(askMsg(wm.approxMb || 360))) return false;
+      await bubble.downloadWhisperModel({ model: wm.id });
+      startedMsg();
       return false;
     }
-    // زبانی که بسته‌ی آفلاین نداره، یا بسته‌اش آماده‌ست → مشکلی نیست
-    if (!st || !st.supported || st.downloaded) return true;
-    const label = (LANGUAGES.find((l) => l.code === lang) || {}).label || lang.toUpperCase();
-    if (st.downloading) {
-      alert(en
-        ? "Another speech pack is being downloaded right now. When it finishes, tap again."
-        : "دانلودِ یک بسته‌ی دیگه در جریانه. بعد از تموم‌شدنش دوباره بزن.");
-      return false;
-    }
+
+    if (st.downloaded) return true;
+    if (st.downloading) { busyMsg(); return false; }
+    if (!confirm(askMsg(({ en: 70, zh: 70, ko: 140, ru: 95, fr: 150, de: 150, es: 150 })[lang] || 100))) return false;
     await bubble.downloadModel({ lang });
-    alert(en
-      ? `The offline speech pack for ${label} must be downloaded first (Settings → Offline speech pack). The download has started automatically — tap again when it finishes.`
-      : `برای «${label}» اول باید بسته‌ی آفلاینِ تشخیص گفتارِ این زبان دانلود بشه (تنظیمات ← بسته‌ی آفلاین). دانلود همین الان خودکار شروع شد؛ بعد از تموم‌شدنش دوباره بزن.`);
+    startedMsg();
     return false;
   } catch (e) {
     return true;
@@ -7118,6 +7122,11 @@ function WhisperFallbackCard({ lang, uiLang, colors }) {
   };
   return (
     <div>
+      <p style={note}>
+        ℹ️ {en
+          ? "For this language the offline pack is less accurate and slower than for languages with a dedicated pack. Text may appear a few seconds late and some words may be recognized incorrectly. We are working on improving it."
+          : "برای این زبان، بسته‌ی آفلاین از زبان‌هایی که بسته‌ی اختصاصی دارند کم‌دقت‌تر و کندتر است. ممکن است متن چند ثانیه دیرتر بیاید و بعضی کلمات اشتباه تشخیص داده شوند. در حال بهبود آن هستیم."}
+      </p>
       {active && (
         <div>
           <p style={note}>✅ {en ? "Pack downloaded and ready" : "بسته دانلود شده و آماده‌ست"}</p>
