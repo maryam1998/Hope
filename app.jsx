@@ -4909,6 +4909,7 @@ function toggleSavedStoryWord(word, langCode, opts) {
       translations,
       origin: { tab: currentOriginTab, ...((opts && opts.originExtra) || {}) },
     });
+    unhideFromWordsTab(w);
     nowSaved = true;
   }
   try {
@@ -4951,6 +4952,7 @@ function ensureSavedStoryWord(word, langCode) {
   const list = loadSavedStoryWords();
   const exists = list.some((e) => e.langCode === langCode && normalizeWord(e.word) === w);
   if (exists) return;
+  unhideFromWordsTab(w);
   list.unshift({
     word: cleanWord || word,
     langCode,
@@ -4963,6 +4965,88 @@ function ensureSavedStoryWord(word, langCode) {
     window.dispatchEvent(new Event(SAVED_WORDS_CHANGED_EVENT));
   } catch {}
 }
+// ---------------------------------------------------------------------------
+// لغاتِ شخصی در تبِ «لغات»: سطحِ دستی (A1..C2) + مخفی‌کردن از همین تب.
+// «مخفی‌کردن» فقط از تبِ لغات حذف می‌کنه؛ خودِ لغت توی «لغات ذخیره‌شده»
+// (SAVED_STORY_WORDS_KEY) دست‌نخورده می‌مونه. اگه کاربر دوباره همون لغت رو
+// ذخیره کنه، خودکار از حالتِ مخفی درمیاد.
+// ---------------------------------------------------------------------------
+const PERSONAL_WORD_LEVELS_KEY = "phrasebook-personal-word-levels-v1";
+const WORDS_TAB_HIDDEN_KEY = "phrasebook-words-tab-hidden-v1";
+const WORDS_TAB_PERSONAL_EVENT = "phrasebook:wordsTabPersonalChanged";
+function loadPersonalWordLevels() {
+  try {
+    const raw = window.localStorage.getItem(PERSONAL_WORD_LEVELS_KEY);
+    const o = raw ? JSON.parse(raw) : {};
+    return o && typeof o === "object" ? o : {};
+  } catch {
+    return {};
+  }
+}
+function loadWordsTabHidden() {
+  try {
+    const raw = window.localStorage.getItem(WORDS_TAB_HIDDEN_KEY);
+    const a = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(a) ? a : []);
+  } catch {
+    return new Set();
+  }
+}
+function setPersonalWordLevel(word, level) {
+  const k = normalizeWord(word);
+  if (!k) return;
+  const o = loadPersonalWordLevels();
+  if (level) o[k] = level;
+  else delete o[k];
+  try {
+    window.localStorage.setItem(PERSONAL_WORD_LEVELS_KEY, JSON.stringify(o));
+    window.dispatchEvent(new Event(WORDS_TAB_PERSONAL_EVENT));
+  } catch {}
+}
+function hideFromWordsTab(word) {
+  const k = normalizeWord(word);
+  if (!k) return;
+  const set = loadWordsTabHidden();
+  set.add(k);
+  try {
+    window.localStorage.setItem(WORDS_TAB_HIDDEN_KEY, JSON.stringify(Array.from(set)));
+    window.dispatchEvent(new Event(WORDS_TAB_PERSONAL_EVENT));
+  } catch {}
+}
+// بدونِ دیسپچ — همیشه درست قبل از رویدادِ SAVED_WORDS_CHANGED_EVENT صدا زده می‌شه.
+function unhideFromWordsTab(normalizedKey) {
+  if (!normalizedKey) return;
+  try {
+    const set = loadWordsTabHidden();
+    if (!set.has(normalizedKey)) return;
+    set.delete(normalizedKey);
+    window.localStorage.setItem(WORDS_TAB_HIDDEN_KEY, JSON.stringify(Array.from(set)));
+  } catch {}
+}
+// مجموعه‌ی لغاتِ WORDS_AZ فقط یک‌بار ساخته می‌شه (قبلاً با هر ذخیره‌ی لغت،
+// چند هزار بار normalizeWord اجرا می‌شد و ظاهرشدنِ لغت تو تبِ لغات کند بود).
+let _wordsAzKeySet = null;
+function getWordsAzKeySet() {
+  if (!_wordsAzKeySet) _wordsAzKeySet = new Set(WORDS_AZ.map((w) => normalizeWord(w.en)));
+  return _wordsAzKeySet;
+}
+// برای عبارت/جمله: بالاترین سطحِ کلماتِ شناخته‌شده‌ی داخلش (تخمینِ تقریبی).
+function estimatePhraseLevel(text) {
+  const toks = normalizeWord(text).split(/\s+/).filter(Boolean);
+  if (toks.length < 2) return null;
+  let best = 0;
+  let bestLevel = null;
+  toks.forEach((tk) => {
+    const lv = LEVEL_BY_EN_WORD.get(tk);
+    const r = lv ? LEVELS.indexOf(lv) + 1 : 0;
+    if (r > best) {
+      best = r;
+      bestLevel = lv;
+    }
+  });
+  return bestLevel;
+}
+
 function removeSavedStoryWord(word, langCode) {
   const list = loadSavedStoryWords().filter(
     (e) => !(e.langCode === langCode && normalizeWord(e.word) === normalizeWord(word))
@@ -11159,6 +11243,68 @@ function ClickableSentence({ text, langCode, nativeLang, nativeLabel: nativeLabe
           </span>
         );
       })}
+    </span>
+  );
+}
+
+// انتخابِ سطحِ لغتِ شخصی (A1..C2) — با زدن روی بج باز می‌شه.
+function PersonalLevelPicker({ word, level, uiLang }) {
+  const [open, setOpen] = useState(false);
+  const pick = (lv) => {
+    setPersonalWordLevel(word, lv);
+    setOpen(false);
+  };
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+        aria-label={uiLang === "en" ? "Set level" : "تعیین سطح"}
+        style={{
+          fontFamily: fontLatin,
+          fontSize: 10,
+          fontWeight: 700,
+          color: colors.ink,
+          backgroundColor: level ? colors.goldSoft : "transparent",
+          border: level ? "none" : `1px dashed ${colors.cardBorder}`,
+          borderRadius: 6,
+          padding: "1px 6px",
+          flexShrink: 0,
+          cursor: "pointer",
+        }}
+      >
+        {level || (uiLang === "en" ? "level?" : "سطح؟")}
+      </button>
+      {open && (
+        <span style={{ display: "inline-flex", gap: 3, flexWrap: "wrap" }}>
+          {LEVELS.map((lv) => (
+            <button
+              key={lv}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                pick(lv);
+              }}
+              style={{
+                fontFamily: fontLatin,
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "1px 6px",
+                borderRadius: 6,
+                cursor: "pointer",
+                border: `1px solid ${lv === level ? colors.ink : colors.cardBorder}`,
+                backgroundColor: lv === level ? colors.ink : "white",
+                color: lv === level ? colors.paper : colors.ink,
+              }}
+            >
+              {lv}
+            </button>
+          ))}
+        </span>
+      )}
     </span>
   );
 }
@@ -19316,6 +19462,13 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
     window.addEventListener(SAVED_WORDS_CHANGED_EVENT, bump);
     return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, bump);
   }, []);
+  // تغییرِ سطح/مخفی‌کردنِ لغاتِ شخصیِ تبِ «لغات» (بدونِ دست‌زدن به لغات ذخیره‌شده)
+  const [personalWordsVersion, setPersonalWordsVersion] = useState(0);
+  useEffect(() => {
+    const bump = () => setPersonalWordsVersion((v) => v + 1);
+    window.addEventListener(WORDS_TAB_PERSONAL_EVENT, bump);
+    return () => window.removeEventListener(WORDS_TAB_PERSONAL_EVENT, bump);
+  }, []);
 
   // درخواست: لغاتی که از پاپ‌آپ/انتخابِ متن «ذخیره برای داستان بعدی» می‌شن،
   // خودکار و دائمی تو خودِ تبِ «لغات» (لیستِ اصلیِ WORDS_AZ) هم دیده بشن —
@@ -19329,22 +19482,27 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
   // زبانِ دیگه همچنان فقط تو «لغات ذخیره‌شده» می‌مونه چون قالبِ این لیست
   // (تک‌لغتِ انگلیسی + معنی) باهاش جور درنمی‌آد.
   const wordsWithSaved = useMemo(() => {
-    const existing = new Set(WORDS_AZ.map((w) => normalizeWord(w.en)));
-    // عبارت/محدوده‌ی چندکلمه‌ای که کاربر انتخاب و ذخیره کرده هم همین‌جا (با مثالِ هوش مصنوعی)
-    // می‌آید — قبلاً فقط تک‌لغت‌ها فیلتر می‌شدند و عبارت‌ها هیچ‌وقت در تبِ «لغات» دیده نمی‌شدند.
-    const extras = loadSavedStoryWords()
-      .filter((e) => e.langCode === "en" && normalizeWord(e.word))
-      .filter((e) => !existing.has(normalizeWord(e.word)))
-      .map((e) => ({
-        id: `saved:${normalizeWord(e.word)}`,
+    const existing = getWordsAzKeySet();
+    const hidden = loadWordsTabHidden();
+    const levels = loadPersonalWordLevels();
+    const extras = [];
+    // لغت/عبارتِ ذخیره‌شده‌ی انگلیسی، منهای مواردی که کاربر از همین تب مخفی کرده.
+    // سطح: انتخابِ دستیِ کاربر ← پیدا کردن از دیتای محلی ← تخمین برای عبارت.
+    loadSavedStoryWords().forEach((e) => {
+      if (!e || e.langCode !== "en") return;
+      const k = normalizeWord(e.word);
+      if (!k || existing.has(k) || hidden.has(k)) return;
+      extras.push({
+        id: `saved:${k}`,
         en: e.word,
         fa: (e.translations && e.translations.fa) || "",
-        level: lookupSavedWordLevel(e.word, "en") || null,
+        level: levels[k] || lookupSavedWordLevel(e.word, "en") || estimatePhraseLevel(e.word) || null,
         pos: null,
         isUserSaved: true,
-      }));
+      });
+    });
     return extras.length ? [...extras, ...WORDS_AZ] : WORDS_AZ;
-  }, [savedWordsVersion]);
+  }, [savedWordsVersion, personalWordsVersion]);
 
   // لغاتی که کاربر با ⭐ از تب‌های لغات/لغات‌و‌اخبار/مکالمه‌روزمره/اسلنگ
   // علاقه‌مندشون کرده — قبلاً تنها جایی که ذخیره می‌شدن تنظیماتِ داخلی بود
@@ -22170,6 +22328,7 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
           className="flex items-center justify-between p-3"
           style={{
             position: "relative",
+            paddingBottom: w.isUserSaved ? 30 : undefined,
             borderRadius: 14,
             background: isRead ? READ_DONE_GRADIENT : "white",
             border: `1px solid ${highlightBg(highlightColor, justJumpedId === w.id, isRead ? READ_DONE_BORDER : colors.cardBorder)}`,
@@ -22246,7 +22405,11 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
                     }
                   />
                 </span>
-                {w.level && <LevelBadge level={w.level} />}
+                {w.isUserSaved ? (
+                  <PersonalLevelPicker word={w.en} level={w.level} uiLang={uiLang} />
+                ) : (
+                  w.level && <LevelBadge level={w.level} />
+                )}
                 {w.isUserSaved && (
                   <span
                     style={{
@@ -22345,6 +22508,37 @@ const WordList = React.memo(function WordList({ words, listId, wordFavorites, to
             )}
             <WordExamples word={w.en} langCode="en" meaningNative={w.fa} nativeLang={nativeLang} targetLangs={effectiveDisplayLangs} aiSettings={aiSettings} />
           </div>
+          {/* ✕ فقط برای لغات/عبارات شخصی: از تبِ «لغات» مخفی می‌شه ولی از
+              «لغات ذخیره‌شده» (کنارِ داستان‌ساز) پاک نمی‌شه. */}
+          {w.isUserSaved && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                hideFromWordsTab(w.en);
+              }}
+              aria-label={uiLang === "en" ? "Remove from Words tab" : "حذف از تبِ لغات"}
+              title={uiLang === "en" ? "Remove from Words tab (stays in Saved words)" : "حذف از تبِ لغات (در لغات ذخیره‌شده می‌مونه)"}
+              style={{
+                position: "absolute",
+                right: 8,
+                bottom: 6,
+                width: 22,
+                height: 22,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: "50%",
+                border: `1px solid ${colors.cardBorder}`,
+                background: "white",
+                color: colors.inkSoft,
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
         );
       })}
