@@ -7009,8 +7009,8 @@ async function ensureOfflineSpeechModel(bubble, lang, uiLang) {
       }
       if (!wm.downloaded) await bubble.downloadWhisperModel({ model: wm.id });
       alert(en
-        ? `There is no dedicated offline pack for this language, so the multilingual Whisper pack is used (Settings → Offline speech pack → Whisper). ${wm.downloaded ? "Turn it on there." : "The download has started — tap again when it finishes."}`
-        : `برای این زبان بسته‌ی اختصاصی نیست و از بسته‌ی چندزبانه‌ی Whisper استفاده می‌شه (تنظیمات ← بسته‌ی آفلاین ← Whisper). ${wm.downloaded ? "همون‌جا روشنش کن." : "دانلود شروع شد؛ بعد از تموم‌شدنش دوباره بزن."}`);
+        ? `The offline speech pack must be downloaded first (Settings → Offline speech pack). ${wm.downloaded ? "Activate it there." : "The download has started automatically — tap again when it finishes."}`
+        : `اول باید بسته‌ی آفلاینِ تشخیص گفتار دانلود بشه (تنظیمات ← بسته‌ی آفلاین). ${wm.downloaded ? "همون‌جا فعالش کن." : "دانلود همین الان خودکار شروع شد؛ بعد از تموم‌شدنش دوباره بزن."}`);
       return false;
     }
     // زبانی که بسته‌ی آفلاین نداره، یا بسته‌اش آماده‌ست → مشکلی نیست
@@ -7110,37 +7110,33 @@ function WhisperFallbackCard({ lang, uiLang, colors }) {
 
   const approx = cur.approxMb || 0;
   const have = Math.round((cur.partialBytes || 0) / (1024 * 1024));
+  const remove = async () => {
+    if (!confirm(en ? "Delete the offline pack?" : "بسته‌ی آفلاین حذف بشه؟")) return;
+    try { await p.deleteWhisperModel({ model: cur.id }); } catch (e) {}
+    try { await p.setSttEngine({ engine: "sherpa", model: cur.id }); } catch (e) {}
+    refresh();
+  };
   return (
-    <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12, marginBottom: 10 }}>
-      <p style={{ ...note, color: colors.ink, fontWeight: 700, marginBottom: 6 }}>
-        🌐 {en ? "Offline recognition with Whisper (multilingual)" : "تشخیص آفلاین با Whisper (چندزبانه)"}
-      </p>
-      <p style={note}>
-        {en
-          ? "This language has no dedicated pack, but the multilingual Whisper pack (MIT license) understands it offline. The 'Accurate' size is recommended for this language. While it is on, all live translation uses it (text arrives in chunks every few seconds)."
-          : "این زبان بسته‌ی اختصاصی ندارد، ولی بسته‌ی چندزبانه‌ی Whisper (مجوز MIT) آن را آفلاین می‌فهمد. برای این زبان اندازه‌ی «دقیق‌تر» پیشنهاد می‌شود. تا وقتی روشن باشد، «همه‌ی» ترجمه‌ی زنده با آن انجام می‌شود (متن هر چند ثانیه یک تکه می‌آید)."}
-      </p>
+    <div>
       {active && (
         <div>
-          <p style={note}>✅ {en ? "Whisper is on — this language works offline." : "Whisper روشن است — این زبان آفلاین کار می‌کند."}</p>
-          <button onClick={disable} style={btn}>⏻ {en ? "Turn off" : "خاموش کردن"}</button>
+          <p style={note}>✅ {en ? "Pack downloaded and ready" : "بسته دانلود شده و آماده‌ست"}</p>
+          <button onClick={remove} style={btn}>🗑 {en ? "Delete pack" : "حذف بسته"}</button>
         </div>
       )}
       {!active && cur.downloaded && !busy && (
-        <button onClick={enable} style={{ ...btn, color: "#fff", backgroundColor: colors.teal, border: `1px solid ${colors.teal}` }}>
-          ▶ {en ? "Turn on Whisper for live translation" : "روشن کردن Whisper برای ترجمه‌ی زنده"}
-        </button>
+        <button onClick={enable} style={btn}>✅ {en ? "Activate offline pack" : "فعال‌سازی بسته‌ی آفلاین"}</button>
       )}
       {!cur.downloaded && !busy && (
-        <button onClick={download} style={{ ...btn, color: "#fff", backgroundColor: colors.teal, border: `1px solid ${colors.teal}` }}>
+        <button onClick={download} style={btn}>
           📥 {have > 0
-            ? (en ? `Resume (${have} of ~${approx} MB done)` : `ادامه دانلود (${have} از ~${approx} مگابایت)`)
-            : (en ? `Download Whisper (~${approx} MB, one-time)` : `دانلود Whisper (~${approx} مگابایت، فقط یک بار)`)}
+            ? (en ? `Resume download (${have} of ~${approx} MB done)` : `ادامه دانلود (${have} از ~${approx} مگابایت دانلود شده)`)
+            : (en ? `Download offline pack (~${approx} MB, one-time)` : `دانلود بسته‌ی آفلاین (~${approx} مگابایت، فقط یک بار)`)}
         </button>
       )}
       {busy && (
         <div>
-          <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {progressMb} MB{approx > 0 ? ` (~${Math.min(99, Math.round((progressMb / approx) * 100))}%)` : ""}</p>
+          <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {progressMb} MB</p>
           <button onClick={cancel} disabled={stopping} style={{ ...btn, opacity: stopping ? 0.6 : 1 }}>
             ⏹ {stopping ? (en ? "Stopping..." : "در حال توقف...") : (en ? "Stop (resume later)" : "توقف (بعداً ادامه می‌دهم)")}
           </button>
