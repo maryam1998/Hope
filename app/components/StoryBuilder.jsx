@@ -312,9 +312,6 @@ export function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerO
 
     setParagraphs(storyParagraphs);
     setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
-    setQuestions([]);
-    setAnswers({});
-    setSubmitted(false);
     setRepeatNotice("");
     setEditingStoryText(false);
     setStoryEditDraft("");
@@ -478,9 +475,6 @@ export function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerO
     });
   }, [nativeLang, storyLang]);
   const [granularity, setGranularity] = useState("sentence"); // "sentence" | "paragraph" | "none"
-  const [questions, setQuestions] = useState([]);
-  const [answers, setAnswers] = useState({});
-  const [submitted, setSubmitted] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   // اگه بعد از همه‌ی ریترای‌ها بازم تعداد تکرارِ بعضی لغات دقیقاً برابر
@@ -546,7 +540,6 @@ export function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerO
               storyLength: "medium",
               selectedWords: [],
               paragraphs: [],
-              questions: [],
               savedAt: it.savedAt || new Date().toISOString(),
             }, ...next];
           }
@@ -1775,22 +1768,6 @@ export function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerO
     }
   };
 
-  const suggestForgottenWords = () => {
-    const ranked = Object.entries(wordStats)
-      .filter(([, s]) => s.lang === storyLang)
-      .sort((a, b) => (b[1].missed - b[1].correct) - (a[1].missed - a[1].correct))
-      .slice(0, 5)
-      // نسخه‌های قدیمی‌تر wordStats فیلدِ «word» رو ذخیره نمی‌کردن — برای
-      // سازگاری با داده‌ی قبلاً ذخیره‌شده، اگه s.word نبود از خودِ کلید
-      // (که به شکل storyLang:word هست) استخراجش می‌کنیم.
-      .map(([key, s]) => s.word || key.slice(key.indexOf(":") + 1))
-      .filter(Boolean);
-    if (ranked.length) {
-      setSelectedWords(ranked);
-      ranked.forEach((w) => ensureSavedStoryWord(w, storyLang));
-    }
-  };
-
   // force=true یعنی «مطمئنم، بدونِ چک‌کردنِ دوباره‌ی داستان‌های مشابه، مستقیم
   // AI رو صدا بزن» — وقتی کاربر خودش از کارتِ «داستانِ مشابه پیدا شد» دکمه‌ی
   // «ساخت داستان جدید» رو بزنه همین حالت پیش میاد.
@@ -1805,9 +1782,6 @@ export function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerO
     setError("");
     setRepeatNotice("");
     setParagraphs([]);
-    setQuestions([]);
-    setAnswers({});
-    setSubmitted(false);
     try {
       // 🔥 اینجا فقط داستان به زبان اصلی ساخته می‌شه (بدون درخواست ترجمه از هوش مصنوعی)
       const genre = CONTENT_TYPES.find((c) => c.key === contentType) || CONTENT_TYPES[0];
@@ -1959,7 +1933,7 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
   // ترجمه، صدا) — بدون اینکه از هوش‌مصنوعی بخوایم داستانی بسازه؛ یعنی
   // paragraphs رو مستقیم از خودِ متنِ PDF می‌سازیم، دقیقاً هم‌شکلِ همون
   // چیزی که generateStory در پایان تولید می‌کنه، پس تمام رابط کاربریِ
-  // پایین (که به paragraphs/currentStoryId/questions وصله) بدونِ هیچ
+  // پایین (که به paragraphs/currentStoryId وصله) بدونِ هیچ
   // تغییری کار می‌کنه. کاربر بعداً خودش با پاپ‌آپِ لغت تصمیم می‌گیره کدوم
   // لغت‌ها رو «ذخیره برای داستانِ بعدی» یا «افزودن به جعبه‌ی لایتنر» کنه.
   const PDF_READ_MAX_BYTES = 500 * 1024 * 1024; // ۵۰۰ مگابایت
@@ -2030,9 +2004,6 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
       setParagraphs(storyParagraphs);
       setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
       setCurrentStoryId(null);
-      setQuestions([]);
-      setAnswers({});
-      setSubmitted(false);
       setError("");
       setRepeatNotice("");
       if (truncated) {
@@ -2167,9 +2138,6 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
       // paragraphs اضافه بشه و کاربر بتونه شروع به خوندن کنه، بدونِ اینکه
       // منتظرِ OCR شدنِ بقیه‌ی عکس‌ها بمونه.
       setCurrentStoryId(null);
-      setQuestions([]);
-      setAnswers({});
-      setSubmitted(false);
       setError("");
       setRepeatNotice("");
       let allSentences = [];
@@ -2736,9 +2704,6 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
     setParagraphs(storyParagraphs);
     setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
     setCurrentStoryId(null);
-    setQuestions([]);
-    setAnswers({});
-    setSubmitted(false);
     setError("");
     setRepeatNotice("");
     setPastedReadingText("");
@@ -2879,9 +2844,6 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
       setParagraphs(storyParagraphs);
       setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
       setCurrentStoryId(null);
-      setQuestions([]);
-      setAnswers({});
-      setSubmitted(false);
       setError("");
       setRepeatNotice("");
       setLinkReadUrl("");
@@ -2914,7 +2876,6 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
       storyLength,
       selectedWords,
       paragraphs,
-      questions,
       savedAt: new Date().toISOString(),
     };
     setSavedStories((prev) => [entry, ...prev]);
@@ -2939,9 +2900,6 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
     setSelectedWords(entry.selectedWords);
     setParagraphs(entry.paragraphs);
     setVisibleParagraphCount(PARAGRAPH_PAGE_SIZE);
-    setQuestions(entry.questions || []);
-    setAnswers({});
-    setSubmitted(false);
     setShowSaved(false);
     setCurrentStoryId(entry.id);
   };
@@ -3478,12 +3436,6 @@ Reply ONLY with JSON, no markdown, no extra text: {"paragraphs": ["full text of 
       >
         <div className="flex items-center justify-between mb-2">
           <p style={{ fontWeight: 700, fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{tr("storyWordsSection", uiLang)}</p>
-          <button
-            onClick={suggestForgottenWords}
-            style={{ fontSize: 12, color: colors.teal, textDecoration: "underline" }}
-          >
-            {uiLang === "en" ? "Suggest based on forgetting" : "پیشنهاد بر اساس فراموشی"}
-          </button>
         </div>
 
         <div className="flex gap-2 mb-1">
