@@ -45,10 +45,10 @@ export const TAB_META = {
 // ردیفِ کوچک از زیرتب‌هایِ همان گروه ظاهر می‌شود. کلیدِ تب‌ها (tab) دست‌نخورده
 // مانده، پس هر جایی که setTab("...") صدا زده می‌شود مثلِ قبل کار می‌کند.
 export const TAB_GROUPS = [
-  { key: "talk", labelKey: "groupTalk", icon: MessagesSquare, tabs: ["conversations", "grammar", "speaking"] },
+  { key: "talk", labelKey: "groupTalk", icon: MessagesSquare, tabs: ["conversations", "speaking", "grammar"] },
   { key: "story", labelKey: "groupStory", icon: Sparkles, tabs: ["story", "saved"] },
-  { key: "words", labelKey: "groupWords", icon: BookA, tabs: ["words", "vocabInUse", "slang"] },
-  { key: "practice", labelKey: "groupPractice", icon: Boxes, tabs: ["review", "favorites"] },
+  { key: "words", labelKey: "groupWords", icon: BookA, tabs: ["words", "vocabInUse", "slang", "favorites"] },
+  { key: "practice", labelKey: "groupPractice", icon: Boxes, tabs: ["review"] },
 ];
 export function groupOfTab(tabKey) {
   return TAB_GROUPS.find((g) => g.tabs.includes(tabKey)) || TAB_GROUPS[0];
