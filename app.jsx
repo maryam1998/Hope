@@ -2228,6 +2228,11 @@ const UI_STRINGS = {
   tabSlang: { fa: "اصطلاحات عامیانه", en: "Slang expressions" },
   tabReview: { fa: "مرور (جعبه لایتنر)", en: "Review (Leitner box)" },
   tabSpeaking: { fa: "تمرین مکالمه", en: "Speaking practice" },
+  groupTalk: { fa: "مکالمه", en: "Talk" },
+  groupStory: { fa: "داستان‌ساز", en: "Story" },
+  groupWords: { fa: "لغات", en: "Words" },
+  groupPractice: { fa: "تمرین", en: "Practice" },
+  groupSaved: { fa: "ذخیره‌ها", en: "Saved" },
   storyModeCreate: { fa: "ساخت داستان", en: "Create story" },
   storyModeLibrary: { fa: "کتابخانه‌ی من", en: "My library" },
   tabsCustomizeTitle: { fa: "شخصی‌سازی تب‌ها", en: "Customize tabs" },
@@ -2370,6 +2375,9 @@ const APP_PREFS_KEY = "phrasebook-app-prefs";
 const SHOW_MASCOT_CHARACTER_OPTIONS = false;  // انتخابِ کاراکترِ آدمک (به‌جز کلاسیک)
 const SHOW_MASCOT_OUTFIT_OPTIONS = false;     // لباسِ آدمک
 const SHOW_CUSTOM_BG_OPTIONS = false;         // پس‌زمینه‌یِ سفارشی
+// false = بخشِ «شخصی‌سازیِ ترتیبِ تب‌ها» در تنظیمات نشان داده نمی‌شود (ناوبری حالا
+// بر اساسِ ۵ گروهِ ثابت است). برایِ برگرداندنش فقط true کن.
+const SHOW_TAB_ORDER_OPTIONS = false;
 const CALENDAR_SYSTEMS = ["jalali", "gregorian", "both"];
 // ── ترتیبِ تب‌ها (قابلِ شخصی‌سازی توسطِ کاربر) ──
 // دو گروهِ جدا: سه تبِ داخلِ هدر، و نوارِ تب‌های زیرِ هدر. جابجایی فقط
@@ -2388,6 +2396,21 @@ const TAB_META = {
   favorites: { labelKey: "tabFavorites", icon: Heart },
   review: { labelKey: "tabReview", icon: Boxes },
 };
+// ── ناوبریِ ساده‌شده: ۵ گروهِ اصلی ──
+// به‌جایِ ۱۰ تبِ هم‌ردیف، تب‌ها در ۵ گروه جمع شدند. ردیفِ بالا (توی هدر) فقط
+// گروه‌ها را نشان می‌دهد؛ اگر گروهِ فعال بیش از یک تب داشته باشد، زیرِ هدر یک
+// ردیفِ کوچک از زیرتب‌هایِ همان گروه ظاهر می‌شود. کلیدِ تب‌ها (tab) دست‌نخورده
+// مانده، پس هر جایی که setTab("...") صدا زده می‌شود مثلِ قبل کار می‌کند.
+const TAB_GROUPS = [
+  { key: "talk", labelKey: "groupTalk", icon: MessagesSquare, tabs: ["conversations", "speaking"] },
+  { key: "story", labelKey: "groupStory", icon: Sparkles, tabs: ["story"] },
+  { key: "words", labelKey: "groupWords", icon: BookA, tabs: ["words", "vocabInUse", "slang"] },
+  { key: "practice", labelKey: "groupPractice", icon: SpellCheck, tabs: ["grammar", "review"] },
+  { key: "saved", labelKey: "groupSaved", icon: Bookmark, tabs: ["saved", "favorites"] },
+];
+function groupOfTab(tabKey) {
+  return TAB_GROUPS.find((g) => g.tabs.includes(tabKey)) || TAB_GROUPS[0];
+}
 // ترتیبِ ذخیره‌شده رو با لیستِ پیش‌فرض ادغام می‌کنه: کلیدهایِ ناشناخته حذف،
 // تکراری‌ها یکی، و تبِ جدیدی که توی ذخیره‌شده نیست آخرِ گروه اضافه می‌شه.
 function normalizeTabGroup(saved, defaults) {
@@ -8524,6 +8547,8 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
             ))}
           </div>
 
+          {SHOW_TAB_ORDER_OPTIONS && (
+          <>
           {/* شخصی‌سازیِ ترتیبِ تب‌ها — جابجایی فقط داخلِ هر گروه */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
             <Layers size={14} /> {tr("tabsCustomizeTitle", uiLang)}
@@ -8575,6 +8600,8 @@ function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCus
           >
             {tr("tabsResetOrder", uiLang)}
           </button>
+          </>
+          )}
 
           {/* رنگِ هایلایتِ خواندن — همون مارکری که موقع «خواندنِ خودکار»
               دورِ جمله/کلمه‌ی در‌حالِ‌خواندن کشیده می‌شه. یه پالتِ ثابت از
@@ -8942,6 +8969,32 @@ function HeaderPrimaryTabButton({ label, icon: Icon, active, onClick, fontFamily
     >
       <Icon size={15} />
       {label}
+    </button>
+  );
+}
+
+function HeaderGroupButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyProp }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      className="flex flex-col items-center justify-center rounded-2xl"
+      style={{
+        flex: 1,
+        minWidth: 0,
+        gap: 4,
+        fontFamily: fontFamilyProp || fontFa,
+        fontSize: 12,
+        fontWeight: 600,
+        padding: "9px 2px",
+        backgroundColor: active ? colors.ink : "#E6DAB2",
+        color: active ? "#F3EFDD" : "#5C5637",
+        border: `1px solid ${active ? colors.ink : "#E7DEC1"}`,
+        whiteSpace: "nowrap",
+      }}
+    >
+      <Icon size={18} />
+      <span style={{ maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
     </button>
   );
 }
@@ -19259,6 +19312,14 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
   const [favorites, setFavorites] = useState(new Set());
   const [wordFavorites, setWordFavorites] = useState(new Set());
   const [tab, setTab] = useState("conversations");
+  // گروهِ فعالِ ناوبری + آخرین زیرتبی که کاربر توی هر گروه باز کرده بود
+  const activeTabGroup = groupOfTab(tab);
+  const lastTabInGroupRef = useRef({});
+  lastTabInGroupRef.current[activeTabGroup.key] = tab;
+  const goToTab = (key) => {
+    setTab(key);
+    if (key === "review") { setReviewIndex(0); setShowAnswer(false); }
+  };
   // این تب رو به متغیرِ سراسریِ currentOriginTab هم می‌رسونه — تا هر لغت/
   // عبارتی که همین الان (توی هر تبی) ذخیره می‌شه، بدونه از کجا اومده.
   useEffect(() => {
@@ -20068,21 +20129,30 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
           )}
         </div>
 
-        {/* سه تبِ اصلی — داخلِ خودِ هدر، رویِ همون گرادیانتِ تیره؛ طبقِ
-            موکاپ، درست زیرِ زبان‌های مقصد. */}
-        <div className="flex gap-2" style={{ marginTop: 16 }}>
-          {normalizeTabOrder(appPrefs.tabOrder).primary.map((key) => (
-            <HeaderPrimaryTabButton key={key} label={tr(TAB_META[key].labelKey, appPrefs.uiLang)} icon={TAB_META[key].icon} active={tab === key} onClick={() => setTab(key)} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+        {/* ۵ گروهِ اصلی — داخلِ خودِ هدر، زیرِ زبان‌های مقصد. زیرتب‌هایِ هر
+            گروه (اگر بیش از یکی باشد) در نوارِ زیرِ هدر نشان داده می‌شود. */}
+        <div className="flex gap-1.5" style={{ marginTop: 16 }}>
+          {TAB_GROUPS.map((g) => (
+            <HeaderGroupButton
+              key={g.key}
+              label={tr(g.labelKey, appPrefs.uiLang)}
+              icon={g.icon}
+              active={activeTabGroup.key === g.key}
+              onClick={() => goToTab(activeTabGroup.key === g.key ? g.tabs[0] : (lastTabInGroupRef.current[g.key] || g.tabs[0]))}
+              fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa}
+            />
           ))}
         </div>
       </header>
 
-      {/* Tabs */}
-      <nav className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ backgroundColor: colors.paperDark }}>
-        {normalizeTabOrder(appPrefs.tabOrder).secondary.map((key) => (
-          <TabButton key={key} label={tr(TAB_META[key].labelKey, appPrefs.uiLang)} icon={TAB_META[key].icon} active={tab === key} onClick={() => { setTab(key); if (key === "review") { setReviewIndex(0); setShowAnswer(false); } }} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
-        ))}
-      </nav>
+      {/* زیرتب‌هایِ گروهِ فعال — فقط وقتی گروه بیش از یک تب داره */}
+      {activeTabGroup.tabs.length > 1 && (
+        <nav className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ backgroundColor: colors.paperDark }}>
+          {activeTabGroup.tabs.map((key) => (
+            <TabButton key={key} label={tr(TAB_META[key].labelKey, appPrefs.uiLang)} icon={TAB_META[key].icon} active={tab === key} onClick={() => goToTab(key)} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+          ))}
+        </nav>
+      )}
 
       {/* Level filter — applies to conversation , words, favorites, and vocabulary */}
       {(tab === "conversations" || tab === "words" || tab === "favorites" || tab === "vocabInUse" || tab === "slang") && (
