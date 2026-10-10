@@ -1,0 +1,28 @@
+# یک‌بار مصرف: وقتی فایل Hope-app-split.zip تو ریشه‌ی ریپو push بشه،
+# بازش می‌کنه، app.jsx و پوشه‌ی app/ رو جا می‌ده و zip رو پاک می‌کنه.
+name: Unpack split zip
+
+on:
+  push:
+    paths:
+      - "Hope-app-split.zip"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack
+        run: |
+          unzip -o Hope-app-split.zip -d /tmp/x
+          cp -r /tmp/x/Hope/. .
+          rm -f Hope-app-split.zip
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: split app.jsx into app/ modules" || echo "nothing to commit"
+          git push
