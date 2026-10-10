@@ -54,7 +54,7 @@ const UI_STRINGS = {
   groupTalk: { fa: "مکالمه", en: "Talk" },
   groupStory: { fa: "داستان‌ساز", en: "Story" },
   groupWords: { fa: "لغات", en: "Words" },
-  groupPractice: { fa: "تمرین", en: "Practice" },
+  groupPractice: { fa: "مرور", en: "Review" },
   groupSaved: { fa: "ذخیره‌ها", en: "Saved" },
   storyModeCreate: { fa: "ساخت داستان", en: "Create story" },
   storyModeLibrary: { fa: "کتابخانه‌ی من", en: "My library" },
