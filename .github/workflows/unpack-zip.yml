@@ -1,0 +1,109 @@
+# بازکردنِ خودکارِ هر فایل زیپی که تو ریشه‌ی ریپو push/آپلود می‌شه:
+#   ۱) محتواش با همون ساختارِ پوشه‌ها تو ریپو جا می‌گیره (فایل‌های هم‌نام جایگزین می‌شن)
+#   ۲) خودِ زیپ پاک می‌شه
+#   ۳) نتیجه commit می‌شه و (چون push با توکنِ ورک‌فلو خودش ورک‌فلوی دیگه‌ای رو
+#      راه نمی‌اندازه) ورک‌فلوهای بیلد/تست دستی صدا زده می‌شن.
+#
+# نکته‌ها:
+#  - اگه زیپ یک پوشه‌ی اصلی با اسمِ Hope یا *-main یا *-master داشته باشه
+#    (مثلِ زیپِ دانلودیِ گیت‌هاب)، اون پوشه‌ی بیرونی حذف می‌شه.
+#  - فایل‌های داخلِ .github/workflows/ از زیپ باز نمی‌شن: گیت‌هاب اجازه نمی‌ده
+#    ورک‌فلو، ورک‌فلوی دیگه‌ای رو push کنه. اون‌ها رو دستی (از طریقِ Add file → Upload)
+#    بذار.
+#  - فقط زیپ‌های «ریشه‌ی ریپو» بررسی می‌شن، تا زیپ‌هایی که عمداً تو پوشه‌های دیگه
+#    نگه داشتی پاک نشن.
+name: Unpack zip
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "*.zip"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: unpack-zip
+  cancel-in-progress: false
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unpack zips, delete them, commit
+        id: unpack
+        run: |
+          set -euo pipefail
+          shopt -s nullglob dotglob
+          zips=( *.zip )
+          if [ ${#zips[@]} -eq 0 ]; then
+            echo "No zip files in repo root - nothing to do."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          for z in "${zips[@]}"; do
+            echo "::group::Unpacking $z"
+            if unzip -Z1 "$z" | grep -Eq '(^|/)\.github/workflows/'; then
+              echo "::warning::$z contains .github/workflows files - skipped (upload those by hand)."
+            fi
+            tmp="$(mktemp -d)"
+            rc=0
+            unzip -q -o "$z" -x '__MACOSX/*' '*/.DS_Store' '.DS_Store' '.github/workflows/*' '*/.github/workflows/*' -d "$tmp" || rc=$?
+            # 1 = فقط هشدار، 11 = چیزی برای باز کردن نبود (مثلاً فقط ورک‌فلو داشت)
+            if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ] && [ "$rc" -ne 11 ]; then
+              echo "::error::Failed to unzip $z (exit $rc). Zip left in place."
+              exit "$rc"
+            fi
+
+            src="$tmp"
+            entries=( "$tmp"/* )
+            if [ ${#entries[@]} -eq 1 ] && [ -d "${entries[0]}" ]; then
+              name="$(basename "${entries[0]}")"
+              case "$name" in
+                Hope|Hope-main|*-main|*-master) src="${entries[0]}"; echo "Stripping top folder: $name" ;;
+              esac
+            fi
+
+            cp -a "$src"/. .
+            git rm -q --cached --ignore-unmatch -- "$z"
+            rm -f -- "$z"
+            rm -rf "$tmp"
+            echo "::endgroup::"
+          done
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # آیا غیر از خودِ زیپ‌ها چیزی عوض شده؟ (برای تصمیم به بیلد)
+          if git diff --cached --name-only --diff-filter=AMR | grep -q .; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          git commit -m "chore: unpack ${zips[*]} [auto]"
+          git pull --rebase --autostash origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+
+      # push با GITHUB_TOKEN ورک‌فلوی دیگه‌ای رو خودکار راه نمی‌اندازه؛ پس خودمون
+      # صداشون می‌زنیم. هر کدوم که تو این ریپو نباشه یا workflow_dispatch نداشته باشه رد می‌شه.
+      - name: Trigger build/test workflows
+        if: steps.unpack.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for wf in build-bundle.yml test.yml build.yml; do
+            if [ -f ".github/workflows/$wf" ]; then
+              gh workflow run "$wf" --ref "$GITHUB_REF_NAME" && echo "Triggered $wf" || echo "Could not trigger $wf (skipped)"
+            fi
+          done
