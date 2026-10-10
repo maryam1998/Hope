@@ -1,0 +1,76 @@
+name: Unzip and clean
+
+on:
+  push:
+    paths:
+      - '**.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: unzip-and-clean
+  cancel-in-progress: false
+
+jobs:
+  unzip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # برای ساخته‌شدن فایل‌های داخل .github/workflows یک PAT با دسترسی workflow لازمه
+          # اگه سکرت PAT نذاری، با توکن پیش‌فرض اجرا میشه (فولدر .github/workflows رد میشه)
+          token: ${{ secrets.PAT || github.token }}
+
+      - name: Unzip all zip files and delete them
+        run: |
+          shopt -s globstar nullglob
+          zips=( **/*.zip )
+          if [ ${#zips[@]} -eq 0 ]; then
+            echo "No zip files found."
+            exit 0
+          fi
+
+          for z in "${zips[@]}"; do
+            echo "==> $z"
+            tmp=$(mktemp -d)
+            unzip -q -o "$z" -d "$tmp"
+
+            # اگه همه‌چیز داخل یک پوشه‌ی اصلی بود (مثل Maghz-main/)، اون پوشه رو برمی‌داریم
+            entries=( "$tmp"/* )
+            if [ ${#entries[@]} -eq 1 ] && [ -d "${entries[0]}" ]; then
+              src="${entries[0]}"
+            else
+              src="$tmp"
+            fi
+
+            # فایل‌ها و پوشه‌ها کنار خود zip ساخته میشن (با همون ساختار)
+            dest="$(dirname "$z")"
+            cp -a "$src"/. "$dest"/
+
+            rm -rf "$tmp"
+            git rm -q -f "$z"
+          done
+
+      - name: Commit and push
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git commit -m "chore: unzip archives and remove zip files"
+          git push
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      # پوش با توکن پیش‌فرض، workflowهای دیگر را خودکار اجرا نمی‌کند؛ پس دیپلوی را دستی صدا می‌زنیم
+      - name: Trigger deploy
+        if: steps.commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref "${{ github.ref_name }}" || echo "deploy.yml not found, skipped"
