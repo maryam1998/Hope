@@ -8973,8 +8973,8 @@ function HeaderPrimaryTabButton({ label, icon: Icon, active, onClick, fontFamily
 }
 
 function HeaderGroupButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyProp }) {
-  // همه‌ی استایل‌ها inline هستن (نه کلاسِ tailwind)، چون tailwind.css از قبل ساخته
-  // شده و کلاس‌هایی مثلِ flex-col / rounded-2xl توش نیست.
+  // کپسولِ گوشه‌گردِ افقی (آیکون + نام) — همون فرمِ دکمه‌هایِ قدیمیِ هدر.
+  // همه‌ی استایل‌ها inline هستن چون tailwind.css از قبل ساخته شده.
   return (
     <button
       onClick={onClick}
@@ -8983,41 +8983,24 @@ function HeaderGroupButton({ label, icon: Icon, active, onClick, fontFamily: fon
         flex: 1,
         minWidth: 0,
         display: "flex",
-        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: 6,
-        padding: "11px 4px 10px",
-        borderRadius: 18,
+        gap: 5,
+        padding: "12px 4px",
+        borderRadius: 999,
         fontFamily: fontFamilyProp || fontFa,
         fontSize: 12.5,
-        fontWeight: 700,
+        fontWeight: 600,
         whiteSpace: "nowrap",
         cursor: "pointer",
-        transition: "background-color .2s, color .2s, box-shadow .2s, transform .2s",
-        backgroundColor: active ? colors.paper : "rgba(255,255,255,0.12)",
-        color: active ? colors.ink : colors.headerText,
-        border: active ? "1px solid rgba(255,255,255,0.9)" : "1px solid rgba(255,255,255,0.22)",
-        boxShadow: active ? "0 6px 16px rgba(0,0,0,0.22)" : "none",
-        transform: active ? "translateY(-1px)" : "none",
+        backgroundColor: active ? colors.ink : "#E6DAB2",
+        color: active ? "#F3EFDD" : "#5C5637",
+        border: `1px solid ${active ? colors.ink : "#E7DEC1"}`,
         WebkitTapHighlightColor: "transparent",
       }}
     >
-      <span
-        style={{
-          width: 34,
-          height: 34,
-          borderRadius: "50%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: active ? colors.ink : "rgba(255,255,255,0.16)",
-          color: active ? colors.paper : colors.headerText,
-        }}
-      >
-        <Icon size={18} strokeWidth={2} />
-      </span>
-      <span style={{ maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.3 }}>{label}</span>
+      <Icon size={15} style={{ flexShrink: 0 }} />
+      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
     </button>
   );
 }
@@ -20154,7 +20137,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
 
         {/* ۵ گروهِ اصلی — داخلِ خودِ هدر، زیرِ زبان‌های مقصد. زیرتب‌هایِ هر
             گروه (اگر بیش از یکی باشد) در نوارِ زیرِ هدر نشان داده می‌شود. */}
-        <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+        <div style={{ display: "flex", gap: 6, marginTop: 16 }}>
           {TAB_GROUPS.map((g) => (
             <HeaderGroupButton
               key={g.key}
