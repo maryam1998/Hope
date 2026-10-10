@@ -2403,10 +2403,9 @@ const TAB_META = {
 // مانده، پس هر جایی که setTab("...") صدا زده می‌شود مثلِ قبل کار می‌کند.
 const TAB_GROUPS = [
   { key: "talk", labelKey: "groupTalk", icon: MessagesSquare, tabs: ["conversations", "speaking"] },
-  { key: "story", labelKey: "groupStory", icon: Sparkles, tabs: ["story"] },
-  { key: "words", labelKey: "groupWords", icon: BookA, tabs: ["words", "vocabInUse", "slang"] },
+  { key: "story", labelKey: "groupStory", icon: Sparkles, tabs: ["story", "saved"] },
+  { key: "words", labelKey: "groupWords", icon: BookA, tabs: ["words", "vocabInUse", "slang", "favorites"] },
   { key: "practice", labelKey: "groupPractice", icon: SpellCheck, tabs: ["grammar", "review"] },
-  { key: "saved", labelKey: "groupSaved", icon: Bookmark, tabs: ["saved", "favorites"] },
 ];
 function groupOfTab(tabKey) {
   return TAB_GROUPS.find((g) => g.tabs.includes(tabKey)) || TAB_GROUPS[0];
@@ -8974,27 +8973,51 @@ function HeaderPrimaryTabButton({ label, icon: Icon, active, onClick, fontFamily
 }
 
 function HeaderGroupButton({ label, icon: Icon, active, onClick, fontFamily: fontFamilyProp }) {
+  // همه‌ی استایل‌ها inline هستن (نه کلاسِ tailwind)، چون tailwind.css از قبل ساخته
+  // شده و کلاس‌هایی مثلِ flex-col / rounded-2xl توش نیست.
   return (
     <button
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className="flex flex-col items-center justify-center rounded-2xl"
       style={{
         flex: 1,
         minWidth: 0,
-        gap: 4,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        padding: "11px 4px 10px",
+        borderRadius: 18,
         fontFamily: fontFamilyProp || fontFa,
-        fontSize: 12,
-        fontWeight: 600,
-        padding: "9px 2px",
-        backgroundColor: active ? colors.ink : "#E6DAB2",
-        color: active ? "#F3EFDD" : "#5C5637",
-        border: `1px solid ${active ? colors.ink : "#E7DEC1"}`,
+        fontSize: 12.5,
+        fontWeight: 700,
         whiteSpace: "nowrap",
+        cursor: "pointer",
+        transition: "background-color .2s, color .2s, box-shadow .2s, transform .2s",
+        backgroundColor: active ? colors.paper : "rgba(255,255,255,0.12)",
+        color: active ? colors.ink : colors.headerText,
+        border: active ? "1px solid rgba(255,255,255,0.9)" : "1px solid rgba(255,255,255,0.22)",
+        boxShadow: active ? "0 6px 16px rgba(0,0,0,0.22)" : "none",
+        transform: active ? "translateY(-1px)" : "none",
+        WebkitTapHighlightColor: "transparent",
       }}
     >
-      <Icon size={18} />
-      <span style={{ maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+      <span
+        style={{
+          width: 34,
+          height: 34,
+          borderRadius: "50%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: active ? colors.ink : "rgba(255,255,255,0.16)",
+          color: active ? colors.paper : colors.headerText,
+        }}
+      >
+        <Icon size={18} strokeWidth={2} />
+      </span>
+      <span style={{ maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.3 }}>{label}</span>
     </button>
   );
 }
@@ -20131,7 +20154,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
 
         {/* ۵ گروهِ اصلی — داخلِ خودِ هدر، زیرِ زبان‌های مقصد. زیرتب‌هایِ هر
             گروه (اگر بیش از یکی باشد) در نوارِ زیرِ هدر نشان داده می‌شود. */}
-        <div className="flex gap-1.5" style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
           {TAB_GROUPS.map((g) => (
             <HeaderGroupButton
               key={g.key}
@@ -20147,7 +20170,7 @@ function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChang
 
       {/* زیرتب‌هایِ گروهِ فعال — فقط وقتی گروه بیش از یک تب داره */}
       {activeTabGroup.tabs.length > 1 && (
-        <nav className="flex gap-2 px-4 py-3 overflow-x-auto" style={{ backgroundColor: colors.paperDark }}>
+        <nav className="px-4 py-3" style={{ backgroundColor: colors.paperDark, display: "flex", gap: 8, overflowX: "auto", borderBottom: `1px solid ${colors.cardBorder}` }}>
           {activeTabGroup.tabs.map((key) => (
             <TabButton key={key} label={tr(TAB_META[key].labelKey, appPrefs.uiLang)} icon={TAB_META[key].icon} active={tab === key} onClick={() => goToTab(key)} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
           ))}
