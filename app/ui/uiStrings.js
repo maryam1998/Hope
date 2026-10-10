@@ -46,7 +46,7 @@ const UI_STRINGS = {
   tabSaved: { fa: "لغات ذخیره‌شده", en: "Saved words" },
   tabGrammar: { fa: "گرامر", en: "Grammar" },
   tabWords: { fa: "دیکشنری من", en: "My dictionary" },
-  tabFavorites: { fa: "علاقه‌مندی‌ها", en: "Favorites" },
+  tabFavorites: { fa: "منتخب‌ها", en: "Starred" },
   tabVocabInUse: { fa: "لغات کاربردی", en: "Vocabulary in Use" },
   tabSlang: { fa: "اصطلاحات عامیانه", en: "Slang expressions" },
   tabReview: { fa: "مرور (جعبه لایتنر)", en: "Review (Leitner box)" },
