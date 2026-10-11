@@ -799,7 +799,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           <p style={{ fontSize: 14, fontWeight: 800, color: colors.ink, marginBottom: 8 }}>
             🫧 {t("settings_floating_title")}
           </p>
-          <div className="flex gap-2" style={{ marginBottom: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 6, marginBottom: 12 }}>
             {[
               { key: "magnifier", labelKey: "settings_bubble_kind_magnifier" },
               { key: "live", labelKey: "settings_bubble_kind_live" },
@@ -812,7 +812,12 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                   onClick={() => setBubbleKind(opt.key)}
                   aria-pressed={selected}
                   style={{
-                    padding: "6px 14px",
+                    padding: "7px 4px",
+                    minWidth: 0,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    textAlign: "center",
                     borderRadius: 20,
                     fontSize: 12,
                     fontWeight: 700,
