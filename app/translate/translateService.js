@@ -3,6 +3,7 @@
 import { getCachedTranslation, setCachedTranslation } from "../storage/translationCacheDb.js";
 import { englishLangName } from "../constants/languages.js";
 import { callAI } from "../ai/callAI.js";
+import { translateOffline } from "./mlkitTranslate.js";
 
 // ============================================================
 // ترجمه رایگان با چند سرویس پشت‌سرهم (بدون نیاز به کلید API)
@@ -380,6 +381,15 @@ export async function retranslateDailyLine(text, code, aiSettings) {
   return translated;
 }
 export async function translateFreeNetwork(text, targetLang, sourceLang, aiSettings, forceVerify) {
+  // 📱 اول مترجمِ آفلاینِ ML Kit (فقط اپِ اندرویدی، فقط وقتی مدلِ جفت‌زبان دانلود شده).
+  // برای جمله‌هایی که کیفیتشان مهم است (forceVerify) اول آنلاین/AI را امتحان می‌کنیم و ML Kit آخرین چاره است.
+  if (!forceVerify) {
+    const off = await translateOffline(text, targetLang, sourceLang);
+    if (off && !looksLikelyMistranslated(text, off, targetLang, sourceLang)) {
+      setCachedTranslation(text, targetLang, sourceLang, off); // fire-and-forget
+      return off;
+    }
+  }
   const providers = [translateViaGoogle, translateViaMyMemory, translateViaLingva, translateViaLibre].filter(
     (p) => !isProviderTemporarilyBlocked(p)
   );
@@ -428,6 +438,10 @@ export async function translateFreeNetwork(text, targetLang, sourceLang, aiSetti
     } catch (error) {
       console.warn("ترجمه با بک‌اند AI هم ناموفق بود:", error?.message || error);
     }
+  }
+  if (forceVerify) {
+    const off = await translateOffline(text, targetLang, sourceLang);
+    if (off && !looksLikelyMistranslated(text, off, targetLang, sourceLang)) return off;
   }
   console.error("همه‌ی سرویس‌های ترجمه شکست خوردند؛ متن اصلی برگردانده شد.");
   return text; // اگر هیچ سرویسی جواب نداد، متن اصلی برگردانده می‌شود
