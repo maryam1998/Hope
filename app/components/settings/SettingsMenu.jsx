@@ -817,8 +817,8 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               </button>
               <p style={{ fontSize: 11.5, color: colors.inkSoft, lineHeight: 1.7 }}>
                 {uiLang === "en"
-                  ? "Tap the 🔍 bubble to turn it on, then tap any text on screen (in any app): a popup shows its translation into your selected languages. Tap the bubble again to use the app normally; hold it to close. The text language is the “Audio language” below. Screen reading works for Latin-script languages (English, French, Spanish, Italian, German…) and Hindi."
-                  : "حباب 🔍 را بزنید تا روشن شود، بعد روی هر متنی در صفحه (در هر اپی) بزنید: ترجمه‌اش به زبان‌های انتخابی در یک کادر نشان داده می‌شود. برای کار عادی با اپ، دوباره حباب را بزنید؛ برای بستن نگهش دارید. زبانِ متن همان «زبان صدا» در پایین است. خواندنِ متنِ صفحه برای زبان‌های لاتین (انگلیسی، فرانسوی، اسپانیایی، ایتالیایی، آلمانی...) و هندی کار می‌کند."}
+                  ? "Drag the 🔍 magnifier over any text (in any app) and release: the text is highlighted and its translations into your selected languages appear in a popup. Tap a word, or drag across several words, to save it for the next story, grammar or the Leitner box. To close the magnifier, drag it onto the ✕ at the bottom of the screen. The text language is the “Audio language” below. Screen reading works for Latin-script languages (English, French, Spanish, Italian, German…) and Hindi."
+                  : "ذره‌بین 🔍 را روی هر متنی (در هر اپی) بکشید و رها کنید: متن هایلایت می‌شود و ترجمه‌اش به زبان‌های انتخابی در یک کادر می‌آید. روی یک لغت بزنید (یا انگشت را روی چند لغت بکشید) تا «ذخیره برای داستان بعدی، گرامر یا جعبه‌ی لایتنر» باز شود. برای بستن ذره‌بین، آن را روی ✕ پایینِ صفحه رها کنید. زبانِ متن همان «زبان صدا» در پایین است. خواندنِ متنِ صفحه برای زبان‌های لاتین (انگلیسی، فرانسوی، اسپانیایی، ایتالیایی، آلمانی...) و هندی کار می‌کند."}
               </p>
             </div>
           )}
