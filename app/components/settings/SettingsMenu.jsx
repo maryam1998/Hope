@@ -260,7 +260,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                   color: colors.ink,
                 }}
               >
-                {l.label}
+                {t(`lang_name_${key}`)}
               </button>
             ))}
           </div>

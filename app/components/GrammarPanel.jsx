@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallba
 import { NAV_BAR_INSET } from "../mascot/lingovaConfig.js";
 import { createPortal } from "react-dom";
 import { MessageCircle, RotateCcw, Send, Check, X, Loader2, Bookmark, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Trash2, CheckSquare, Globe, Square, ListChecks } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import RangeSliderFilter from "../../RangeSliderFilter.jsx";
 import { TTS_LOCALE } from "../tts/ttsConfig.js";
 import { LANGUAGES } from "../constants/languages.js";
@@ -417,6 +418,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
   }, []);
 
   const isFa = nativeLang === "fa";
+  const { t } = useTranslation();
 
   useEffect(() => {
     const refresh = () => setNotes(loadGrammarNotes());
@@ -1102,8 +1104,8 @@ export const GrammarPanel = React.memo(function GrammarPanel({
             aria-expanded={practiceSheet !== "peek"}
             aria-label={
               practiceSheet === "peek"
-                ? "بازکردنِ گفتگوی تمرین جمله‌سازی و گرامر"
-                : "جمع‌کردنِ گفتگوی تمرین جمله‌سازی و گرامر"
+                ? t("grammar_practice_open_aria")
+                : t("grammar_practice_close_aria")
             }
             style={{
               background: `linear-gradient(165deg, ${colors.headerFrom} 0%, ${colors.headerTo} 100%)`,
@@ -1137,8 +1139,8 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                   onPointerCancel={handlePracticeMoveEnd}
                   role="button"
                   tabIndex={0}
-                  aria-label={isFa ? "جابجاکردنِ آزادِ باکس رویِ صفحه" : "Freely move this box"}
-                  title={isFa ? "نگه‌دار و بکش تا باکس رو جابجا کنی" : "Hold and drag to move this box"}
+                  aria-label={t("grammar_practice_move_aria")}
+                  title={t("grammar_practice_move_title")}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -1181,8 +1183,8 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                       color: "#fff",
                       flexShrink: 0,
                     }}
-                    title={isFa ? "بازگرداندنِ باکس به جای اولش" : "Reset box position"}
-                    aria-label={isFa ? "بازگرداندنِ باکس به جای اولش" : "Reset box position"}
+                    title={t("grammar_practice_reset_position")}
+                    aria-label={t("grammar_practice_reset_position")}
                   >
                     <RotateCcw size={12} color="#fff" />
                   </button>
@@ -1229,7 +1231,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                     minWidth: 0,
                   }}
                 >
-                  تمرین جمله‌سازی و گرامر
+                  {t("grammar_practice_title")}
                 </span>
                 {practiceSheet === "peek" ? <ChevronUp size={15} color="#fff" /> : <ChevronDown size={15} color="#fff" />}
               </div>
@@ -1239,8 +1241,8 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                     onClick={clearChat}
                     className="flex items-center justify-center"
                     style={{ width: 24, height: 24, color: "#fff", opacity: 0.9, flexShrink: 0 }}
-                    title={isFa ? "پاک‌کردن گفتگو" : "Clear conversation"}
-                    aria-label={isFa ? "پاک‌کردن گفتگو" : "Clear conversation"}
+                    title={t("grammar_practice_clear_chat")}
+                    aria-label={t("grammar_practice_clear_chat")}
                   >
                     <Trash2 size={13} />
                   </button>
@@ -1273,7 +1275,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
               style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}
             >
               <p style={{ fontSize: 12, color: colors.inkSoft, margin: "8px 0 8px", flexShrink: 0 }}>
-                یه جمله به {LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang} بنویس؛ اگه غلط بود اصلاحش می‌کنم و کلمه‌به‌کلمه گرامرش رو توضیح می‌دم. یا هر سوال گرامری‌ای که داری — چه درباره‌ی این جمله، چه یه سوال کاملاً جدا — همین‌جا بپرس تا مثل یه معلم زبان جواب بدم.
+                {t("grammar_practice_intro", { language: LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang })}
               </p>
 
                 {chatMessages.length > 0 && (
@@ -1345,7 +1347,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                                     style={{ fontSize: 11, color: colors.inkSoft }}
                                   >
                                     <X size={12} />
-                                    انصراف
+                                    {t("cancel_button")}
                                   </button>
                                   <button
                                     onClick={saveEditingMsg}
@@ -1353,7 +1355,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                                     style={{ fontSize: 11, color: "white", fontWeight: 700, backgroundColor: colors.teal, borderRadius: 8, padding: "3px 8px" }}
                                   >
                                     <Check size={12} />
-                                    ذخیره
+                                    {t("save_button")}
                                   </button>
                                 </div>
                               </div>

@@ -1,5 +1,6 @@
 // زبان‌ها، کدها و تشخیص زبان/سطح متن
 // بخشی از app.jsx قبلی — برای نگهداری‌پذیری به ماژولِ جدا منتقل شد (منطق دست‌نخورده).
+import i18n from "i18next";
 import { TTS_LOCALE } from "../tts/ttsConfig.js";
 import { splitTextIntoSentenceStrings } from "../story/storyText.js";
 
@@ -48,21 +49,38 @@ export function normalizeLangCode(code) {
 // from any book). Structure is built so you can keep adding languages,
 // conversation , and vocabulary: just push more objects into the arrays below.
 // ---------------------------------------------------------------------------
-export const LANGUAGES = [
-  { code: "fa", label: "فارسی", abbr: "FA" },
-  { code: "en", label: "انگلیسی", abbr: "EN" },
-  { code: "it", label: "ایتالیایی", abbr: "IT" },
-  { code: "hi", label: "هندی", abbr: "HI" },
-  { code: "tr", label: "ترکی", abbr: "TR" },
-  { code: "ar", label: "عربی", abbr: "AR" },
-  { code: "es", label: "اسپانیایی", abbr: "ES" },
-  { code: "de", label: "آلمانی", abbr: "DE" },
-  { code: "fr", label: "فرانسوی", abbr: "FR" },
-  { code: "zh", label: "چینی", abbr: "ZH" },
-  { code: "ko", label: "کره‌ای", abbr: "KO" },
-  { code: "ru", label: "روسی", abbr: "RU" },
-  { code: "ja", label: "ژاپنی", abbr: "JA" },
+// برچسبِ هر زبان طبقِ زبانِ رابطِ اپ (فارسی/انگلیسی) از locales/<lang>.json
+// (کلیدهای lang_name_<code>) خونده می‌شه؛ پس همه‌جایی که label رو نشون می‌دن
+// خودکار با زبانِ رابط عوض می‌شه. اگه i18n هنوز آماده نبود، همون برچسبِ فارسیِ قبلی.
+function localizedLangLabel(code, faLabel) {
+  try {
+    return i18n.isInitialized ? i18n.t(`lang_name_${code}`, { defaultValue: faLabel }) : faLabel;
+  } catch (e) {
+    return faLabel;
+  }
+}
+const LANGUAGE_DEFS = [
+  ["fa", "فارسی", "FA"],
+  ["en", "انگلیسی", "EN"],
+  ["it", "ایتالیایی", "IT"],
+  ["hi", "هندی", "HI"],
+  ["tr", "ترکی", "TR"],
+  ["ar", "عربی", "AR"],
+  ["es", "اسپانیایی", "ES"],
+  ["de", "آلمانی", "DE"],
+  ["fr", "فرانسوی", "FR"],
+  ["zh", "چینی", "ZH"],
+  ["ko", "کره‌ای", "KO"],
+  ["ru", "روسی", "RU"],
+  ["ja", "ژاپنی", "JA"],
 ];
+export const LANGUAGES = LANGUAGE_DEFS.map(([code, faLabel, abbr]) => ({
+  code,
+  abbr,
+  get label() {
+    return localizedLangLabel(code, faLabel);
+  },
+}));
 // نامِ انگلیسیِ هر زبون — مخصوصِ متنِ پرامپتی که به هوش مصنوعی فرستاده
 // می‌شه (askGrammarTeacher و مشابه‌هاش)، چون خودِ اون پرامپت‌ها به انگلیسی
 // نوشته شدن. قبلاً به‌جاش برچسبِ فارسیِ LANGUAGES (مثلاً «اسپانیایی») مستقیم
