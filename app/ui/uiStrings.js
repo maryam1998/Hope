@@ -2,6 +2,26 @@
 // بخشی از app.jsx قبلی — برای نگهداری‌پذیری به ماژولِ جدا منتقل شد (منطق دست‌نخورده).
 
 
+import i18n from "../../i18nconfig.js";
+
+// کلیدهای قدیمیِ tr() که حالا از locales خونده می‌شن (کلیدهای snake_case).
+const LOCALE_BACKED_KEYS = {
+  tabConversations: "tab_conversations",
+  tabStory: "tab_story",
+  tabSaved: "tab_saved",
+  tabGrammar: "tab_grammar",
+  tabWords: "tab_words",
+  tabFavorites: "tab_favorites",
+  tabVocabInUse: "tab_vocab_in_use",
+  tabSlang: "tab_slang",
+  tabReview: "tab_review",
+  tabSpeaking: "tab_speaking",
+  groupTalk: "group_talk",
+  groupStory: "group_story",
+  groupWords: "group_words",
+  groupPractice: "group_practice",
+};
+
 // Small translation dictionary for the app's own interface strings.
 // Currently covers the Settings panel and the main tab bar; more screens
 // can be added to this table the same way over time.
@@ -41,20 +61,6 @@ const UI_STRINGS = {
   nativeLanguageLabel: { fa: "زبان مادری", en: "Native language" },
   targetLanguagesLabel: { fa: "زبان‌های مقصد", en: "Target languages" },
   translationOrderLabel: { fa: "ترتیب نمایش ترجمه‌ها (بکش تا جابجا بشه)", en: "Translation display order (drag to reorder)" },
-  tabConversations: { fa: "دیالوگ‌های روزمره", en: "Daily dialogues" },
-  tabStory: { fa: "داستان‌ساز", en: "Story generator" },
-  tabSaved: { fa: "لغات ذخیره‌شده", en: "Saved words" },
-  tabGrammar: { fa: "گرامر", en: "Grammar" },
-  tabWords: { fa: "دیکشنری من", en: "My dictionary" },
-  tabFavorites: { fa: "منتخب‌ها", en: "Starred" },
-  tabVocabInUse: { fa: "لغات کاربردی", en: "Vocabulary in Use" },
-  tabSlang: { fa: "اصطلاحات عامیانه", en: "Slang expressions" },
-  tabReview: { fa: "مرور (جعبه لایتنر)", en: "Review (Leitner box)" },
-  tabSpeaking: { fa: "تمرین مکالمه", en: "Speaking practice" },
-  groupTalk: { fa: "مکالمه", en: "Talk" },
-  groupStory: { fa: "داستان‌ساز", en: "Story" },
-  groupWords: { fa: "لغات", en: "Words" },
-  groupPractice: { fa: "مرور", en: "Review" },
   groupSaved: { fa: "ذخیره‌ها", en: "Saved" },
   storyModeCreate: { fa: "ساخت داستان", en: "Create story" },
   storyModeLibrary: { fa: "کتابخانه‌ی من", en: "My library" },
@@ -167,9 +173,13 @@ const UI_STRINGS = {
 // t(key, uiLang) — looks up a UI string in the current software language,
 // falling back to Persian if the key or language is missing.
 export function tr(key, uiLang) {
+  // نام تب‌ها و گروه‌ها از locales/<lang>.json می‌آد (همه‌ی ۶ زبان)؛
+  // اگه ترجمه‌ای نبود، i18n خودش به انگلیسی برمی‌گرده.
+  const localeKey = LOCALE_BACKED_KEYS[key];
+  if (localeKey) return i18n.getFixedT(uiLang || "fa")(localeKey);
   const entry = UI_STRINGS[key];
   if (!entry) return key;
-  return entry[uiLang] || entry.fa;
+  return entry[uiLang] || entry.en || entry.fa;
 }
 // نسخه‌ی «قالب‌دار»ِ tr — برای رشته‌هایی که یه عدد یا کلمه وسطشون جا می‌گیره
 // (مثلاً «{n} لغت حذف شد»). values یه آبجکتِ ساده‌ست: { n: 3 } یا { added: 2, skipped: 1 }.

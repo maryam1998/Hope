@@ -50,13 +50,38 @@
 <body>
   <div id="root"><div id="splash">در حال بارگذاری…</div></div>
 
+  <!-- متنِ صفحه‌ی بارگذاری به زبانِ رابطِ ذخیره‌شده (phrasebook-app-prefs → uiLang).
+       این صفحه قبل از لود شدنِ باندل (و i18n) نشون داده می‌شه، پس متن‌هاش
+       اینجا و به‌صورت inline هستن. ترتیب: [در حال بارگذاری, خطا]. -->
+  <script>
+    (function () {
+      var S = {
+        fa: ["در حال بارگذاری…", "خطا:"],
+        en: ["Loading…", "Error:"],
+        de: ["Wird geladen …", "Fehler:"],
+        es: ["Cargando…", "Error:"],
+        fr: ["Chargement…", "Erreur :"],
+        ar: ["جارٍ التحميل…", "خطأ:"]
+      };
+      var lang = "en";
+      try {
+        var raw = localStorage.getItem("phrasebook-app-prefs");
+        var saved = raw ? JSON.parse(raw).uiLang : null;
+        lang = Object.prototype.hasOwnProperty.call(S, saved) ? saved : "fa";
+      } catch (e) { lang = "fa"; }
+      window.__splashStrings = S[lang];
+      var el = document.getElementById("splash");
+      if (el) { el.textContent = S[lang][0]; el.lang = lang; }
+    })();
+  </script>
+
   <!-- Error overlay: shows uncaught errors directly on the page. -->
   <script>
     function showErr(msg) {
       var el = document.getElementById("splash");
       if (!el) { el = document.createElement("div"); el.id = "splash"; document.body.prepend(el); }
       el.style.cssText = "position:fixed;inset:0;background:#F1E8D6;z-index:9999;display:block;padding:16px;font-family:monospace;color:#b00020;font-size:13px;white-space:pre-wrap;overflow:auto;direction:ltr;text-align:left;";
-      el.textContent = "خطا:\n" + msg;
+      el.textContent = ((window.__splashStrings && window.__splashStrings[1]) || "خطا:") + "\n" + msg;
     }
     window.addEventListener("error", function (e) {
       showErr((e.message || "") + "\n" + (e.filename || "") + ":" + (e.lineno || "") + ":" + (e.colno || "") + "\n" + (e.error && e.error.stack ? e.error.stack : ""));
