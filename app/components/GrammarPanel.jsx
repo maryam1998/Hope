@@ -55,6 +55,11 @@ export const GrammarPanel = React.memo(function GrammarPanel({
   setPracticeOpacity,
   onPracticePanelHeightChange,
 }) {
+  // زبانِ رابطِ اپ (تنظیماتِ «زبان نرم‌افزار») — همه‌ی متن‌های ثابتِ این پنل از همین می‌آد.
+  const { t, i18n } = useTranslation();
+  const uiLang = i18n.language === "en" ? "en" : "fa";
+  const uiDir = uiLang === "en" ? "ltr" : "rtl";
+  const L = (fa, en) => (uiLang === "en" ? en : fa);
   const [notes, setNotes] = useState([]);
   const [expandedNote, setExpandedNote] = useState(null);
   const [pending, setPending] = useState(null); // { word, sentence, langCode, markdown: "loading" | "error" | string }
@@ -68,7 +73,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
   const formatNoteDateKey = useCallback(
     (iso) => {
       const d = new Date(iso);
-      if (isNaN(d)) return (nativeLang === "fa") ? "بدون تاریخ" : "No date";
+      if (isNaN(d)) return uiLang === "fa" ? "بدون تاریخ" : "No date";
       // قبلاً اینجا مستقیم toLocaleDateString(grammarLocale) صدا زده می‌شد —
       // که چون لوکیلِ fa-IR توی جاوااسکریپت به‌طور پیش‌فرض از تقویمِ شمسی
       // استفاده می‌کنه، این تاریخ همیشه شمسی نشون داده می‌شد، حتی اگه
@@ -78,7 +83,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
       // می‌کنیم که calendarSystem رو رعایت می‌کنه.
       return formatCalendarDateOnly(iso, calendarSystem || "jalali");
     },
-    [calendarSystem, nativeLang]
+    [calendarSystem, nativeLang, uiLang]
   );
   const formatNoteTime = useCallback(
     (iso) => {
@@ -171,7 +176,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
   }, [notes, noteGroups, noteRangeInput]);
   function deleteSelectedNotes() {
     if (!selectedNoteIds.size) return;
-    if (!window.confirm((nativeLang === "fa") ? `${selectedNoteIds.size} یادداشتِ انتخاب‌شده پاک بشه؟` : `Delete ${selectedNoteIds.size} selected notes?`)) return;
+    if (!window.confirm(uiLang === "fa" ? `${selectedNoteIds.size} یادداشتِ انتخاب‌شده پاک بشه؟` : `Delete ${selectedNoteIds.size} selected notes?`)) return;
     removeGrammarNotesBulk(selectedNoteIds);
     setExpandedNote(null);
     exitNoteSelectMode();
@@ -417,8 +422,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
     return () => window.removeEventListener(SAVED_WORDS_CHANGED_EVENT, bump);
   }, []);
 
-  const isFa = nativeLang === "fa";
-  const { t } = useTranslation();
+  const isFa = uiLang === "fa";
 
   useEffect(() => {
     const refresh = () => setNotes(loadGrammarNotes());
@@ -667,9 +671,12 @@ export const GrammarPanel = React.memo(function GrammarPanel({
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h2 style={{ fontWeight: 800, fontSize: 18, color: colors.ink, marginBottom: 4 }}>گرامر</h2>
-        <p style={{ fontSize: 13, color: colors.inkSoft, lineHeight: 1.7 }}>
-          توضیحات گرامری‌ای که از روی لغت‌های داستان ذخیره کردی اینجاست. پایین‌تر هم می‌تونی با هوش مصنوعی جمله بنویسی تا مثل یه معلم زبان، اصلاحش کنه و گرامرش رو کلمه‌به‌کلمه بهت یاد بده — یا هر سوال گرامری دیگه‌ای هم داشتی همون‌جا بپرسی.
+        <h2 dir={uiDir} style={{ fontWeight: 800, fontSize: 18, color: colors.ink, marginBottom: 4 }}>{L("گرامر", "Grammar")}</h2>
+        <p dir={uiDir} style={{ fontSize: 13, color: colors.inkSoft, lineHeight: 1.7 }}>
+          {L(
+            "توضیحات گرامری‌ای که از روی لغت‌های داستان ذخیره کردی اینجاست. پایین‌تر هم می‌تونی با هوش مصنوعی جمله بنویسی تا مثل یه معلم زبان، اصلاحش کنه و گرامرش رو کلمه‌به‌کلمه بهت یاد بده — یا هر سوال گرامری دیگه‌ای هم داشتی همون‌جا بپرسی.",
+            "Grammar explanations you saved from your story words are kept here. Below, you can also write a sentence and an AI teacher will correct it and walk you through its grammar word by word — or ask any other grammar question right there."
+          )}
         </p>
       </div>
 
@@ -677,13 +684,13 @@ export const GrammarPanel = React.memo(function GrammarPanel({
         <div style={{ backgroundColor: "white", border: `1px solid ${colors.gold}`, borderRadius: 16, padding: 16 }}>
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <SpeakButton text={pending.word} code={pending.langCode} neuralLabel="لغت" />
+              <SpeakButton text={pending.word} code={pending.langCode} neuralLabel={L("لغت", "Word")} />
               <p dir="auto" style={{ fontWeight: 700 }}>
                 {pending.word}
               </p>
               <button
                 onClick={() => toggleSavedStoryWord(pending.word, pending.langCode)}
-                title={isWordSaved(pending.word, pending.langCode) ? "حذف از لغات ذخیره‌شده" : "ذخیره‌ی لغت"}
+                title={isWordSaved(pending.word, pending.langCode) ? L("حذف از لغات ذخیره‌شده", "Remove from saved words") : L("ذخیره‌ی لغت", "Save word")}
                 style={{ color: isWordSaved(pending.word, pending.langCode) ? colors.gold : colors.inkSoft, display: "flex" }}
               >
                 <Bookmark size={14} fill={isWordSaved(pending.word, pending.langCode) ? colors.gold : "none"} />
@@ -696,7 +703,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
           {pending.markdown === "loading" && (
             <div className="flex items-center gap-1" style={{ fontSize: 13, color: colors.inkSoft }}>
               <Loader2 size={14} className="spin" />
-              در حال آماده کردن توضیح کامل...
+              {L("در حال آماده کردن توضیح کامل...", "Preparing the full explanation...")}
             </div>
           )}
           {pending.markdown === "error" && (
@@ -708,7 +715,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                 style={{ fontSize: 11, color: "white", fontWeight: 700, backgroundColor: colors.teal, borderRadius: 8, padding: "4px 10px", flexShrink: 0 }}
               >
                 <RotateCcw size={12} />
-                تلاش دوباره
+                {L("تلاش دوباره", "Try again")}
               </button>
             </div>
           )}
@@ -737,7 +744,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                 }}
               >
                 <Bookmark size={13} />
-                ذخیره در یادگیری گرامر
+                {L("ذخیره در یادگیری گرامر", "Save to grammar learning")}
               </button>
             </>
           )}
@@ -746,8 +753,11 @@ export const GrammarPanel = React.memo(function GrammarPanel({
 
       <div className="flex flex-col gap-2">
         {notes.length === 0 && !pending && (
-          <p style={{ fontSize: 13, color: colors.inkSoft }}>
-            هنوز نکته‌ی گرامری‌ای ذخیره نکردی. روی هر کلمه‌ی داخل داستان بزن و «افزودن به یادگیری گرامر» رو انتخاب کن.
+          <p dir={uiDir} style={{ fontSize: 13, color: colors.inkSoft }}>
+            {L(
+              "هنوز نکته‌ی گرامری‌ای ذخیره نکردی. روی هر کلمه‌ی داخل داستان بزن و «افزودن به یادگیری گرامر» رو انتخاب کن.",
+              "You haven't saved any grammar notes yet. Tap any word in a story and choose “Add to grammar learning”."
+            )}
           </p>
         )}
         {notes.length > 0 && !noteSelectMode && (
@@ -758,7 +768,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
               style={{ fontSize: 12, color: colors.rose, fontWeight: 700 }}
             >
               <ListChecks size={13} />
-              انتخاب / حذف
+              {L("انتخاب / حذف", "Select / delete")}
             </button>
           </div>
         )}
@@ -768,7 +778,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
             style={{ gap: 8, backgroundColor: colors.goldSoft, borderRadius: 12, padding: "8px 10px" }}
           >
             <div className="flex items-center gap-2" style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>
-              {selectedNoteIds.size > 0 ? `${selectedNoteIds.size} مورد انتخاب شد` : "انتخاب کن"}
+              {selectedNoteIds.size > 0 ? L(`${selectedNoteIds.size} مورد انتخاب شد`, `${selectedNoteIds.size} selected`) : L("انتخاب کن", "Select items")}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -777,7 +787,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                 style={{ fontSize: 12, fontWeight: 700, color: colors.teal }}
               >
                 <ListChecks size={13} />
-                انتخاب همه
+                {L("انتخاب همه", "Select all")}
               </button>
               <button
                 onClick={deleteSelectedNotes}
@@ -786,10 +796,10 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                 style={{ fontSize: 12, fontWeight: 700, color: colors.rose, opacity: selectedNoteIds.size ? 1 : 0.5 }}
               >
                 <Trash2 size={13} />
-                حذف
+                {L("حذف", "Delete")}
               </button>
               <button onClick={exitNoteSelectMode} style={{ fontSize: 12, color: colors.inkSoft, fontWeight: 700 }}>
-                انصراف
+                {L("انصراف", "Cancel")}
               </button>
             </div>
           </div>
@@ -819,8 +829,8 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                 readCount={readCountInRange}
                 totalInRange={visibleTotal}
                 readCountTotal={readCountTotal}
-                label="یادداشت‌ها"
-                uiLang="fa"
+                label={L("یادداشت‌ها", "Notes")}
+                uiLang={uiLang}
                 colors={colors}
               />
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -829,14 +839,14 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                   onClick={() => markNoteRangeRead(allInRangeFlat, true)}
                   style={{ fontSize: 11, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "4px 12px", background: "#fff", cursor: "pointer" }}
                 >
-                  علامت‌گذاری همه به خوانده‌شده
+                  {L("علامت‌گذاری همه به خوانده‌شده", "Mark range read")}
                 </button>
                 <button
                   type="button"
                   onClick={() => markNoteRangeRead(allInRangeFlat, false)}
                   style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "4px 12px", background: "#fff", cursor: "pointer" }}
                 >
-                  پاک‌کردن علامت این بازه
+                  {L("پاک‌کردن علامت این بازه", "Clear range")}
                 </button>
               </div>
             </div>
@@ -851,7 +861,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                   <button
                     onClick={() => toggleGroupSelected(group.items)}
                     style={{ color: groupAllSelected ? colors.gold : colors.inkSoft, display: "flex" }}
-                    title="انتخابِ همه‌ی این تاریخ"
+                    title={L("انتخابِ همه‌ی این تاریخ", "Select all for this date")}
                   >
                     {groupAllSelected ? <CheckSquare size={15} /> : <Square size={15} />}
                   </button>
@@ -890,7 +900,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                               e.stopPropagation();
                               toggleNoteRead(n.id);
                             }}
-                            aria-label="علامت‌زدن به‌عنوان خوانده‌شده"
+                            aria-label={L("علامت‌زدن به‌عنوان خوانده‌شده", "Mark as read")}
                             style={{
                               flexShrink: 0,
                               width: 20,
@@ -911,7 +921,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                             {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
                           </span>
                         ) : (
-                          <SpeakButton text={extractSpeakableText(n.markdown) || n.word} code={n.langCode} neuralId={`grammar:${n.id}`} neuralLabel="یادداشت گرامری" />
+                          <SpeakButton text={extractSpeakableText(n.markdown) || n.word} code={n.langCode} neuralId={`grammar:${n.id}`} neuralLabel={L("یادداشت گرامری", "Grammar note")} />
                         )}
                         <div>
                           <p dir="auto" style={{ fontWeight: 700, fontSize: 14 }}>
@@ -931,7 +941,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                               toggleSavedStoryWord(n.word, n.langCode);
                             }}
                             style={{ color: wordSaved ? colors.gold : colors.inkSoft, display: "flex" }}
-                            title={wordSaved ? "حذف از لغات ذخیره‌شده" : "ذخیره‌ی لغت"}
+                            title={wordSaved ? L("حذف از لغات ذخیره‌شده", "Remove from saved words") : L("ذخیره‌ی لغت", "Save word")}
                           >
                             <Bookmark size={14} fill={wordSaved ? colors.gold : "none"} />
                           </button>
@@ -941,7 +951,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                               removeGrammarNote(n.id);
                             }}
                             style={{ color: colors.inkSoft, display: "flex" }}
-                            title="حذف"
+                            title={L("حذف", "Delete")}
                           >
                             <X size={14} />
                           </button>
@@ -1027,7 +1037,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                           style={{ fontSize: 11, color: "white", fontWeight: 700, backgroundColor: colors.teal, borderRadius: 8, padding: "4px 10px", flexShrink: 0, opacity: noteAskLoading[n.id] ? 0.6 : 1 }}
                         >
                           <RotateCcw size={12} />
-                          تلاش دوباره
+                          {L("تلاش دوباره", "Try again")}
                         </button>
                       )}
                     </div>
@@ -1274,7 +1284,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
               className="px-4"
               style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}
             >
-              <p style={{ fontSize: 12, color: colors.inkSoft, margin: "8px 0 8px", flexShrink: 0 }}>
+              <p dir={uiDir} style={{ fontSize: 12, color: colors.inkSoft, margin: "8px 0 8px", flexShrink: 0 }}>
                 {t("grammar_practice_intro", { language: LANGUAGES.find((l) => l.code === chatLang)?.label || chatLang })}
               </p>
 
@@ -1432,7 +1442,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                                         {val === "loading" ? (
                                           <span className="flex items-center gap-1" style={{ color: colors.inkSoft }}>
                                             <Loader2 size={12} className="spin" />
-                                            در حال ترجمه...
+                                            {L("در حال ترجمه...", "Translating...")}
                                           </span>
                                         ) : (
                                           val
@@ -1448,7 +1458,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                                         style={{ fontSize: 11, color: colors.gold, fontWeight: 700 }}
                                       >
                                         <Bookmark size={12} fill={colors.gold} />
-                                        ذخیره شد
+                                        {L("ذخیره شد", "Saved")}
                                       </span>
                                     ) : (
                                       <button
@@ -1471,7 +1481,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                                         style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}
                                       >
                                         <Bookmark size={12} />
-                                        ذخیره در یادگیری گرامر
+                                        {L("ذخیره در یادگیری گرامر", "Save to grammar learning")}
                                       </button>
                                     )}
                                   </div>
@@ -1487,7 +1497,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                                 style={{ fontSize: 11, color: colors.teal, fontWeight: 700, marginTop: 4 }}
                               >
                                 <Pencil size={12} />
-                                ویرایش
+                                {L("ویرایش", "Edit")}
                               </button>
                             )}
                           </div>
@@ -1497,7 +1507,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                     {chatLoading && (
                       <div className="flex items-center gap-1" style={{ fontSize: 12, color: colors.inkSoft }}>
                         <Loader2 size={13} className="spin" />
-                        در حال بررسی جمله...
+                        {L("در حال بررسی جمله...", "Checking your sentence...")}
                       </div>
                     )}
                     <div ref={chatEndRef} />
@@ -1513,7 +1523,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                       style={{ fontSize: 11, color: "white", fontWeight: 700, backgroundColor: colors.teal, borderRadius: 8, padding: "4px 10px", flexShrink: 0, opacity: chatLoading ? 0.6 : 1 }}
                     >
                       <RotateCcw size={12} />
-                      تلاش دوباره
+                      {L("تلاش دوباره", "Try again")}
                     </button>
                   </div>
                 )}
@@ -1573,7 +1583,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                       sendChat();
                     }
                   }}
-                  placeholder="جمله‌ت رو بنویس یا سوالت رو بپرس... (برای خط جدید Enter، برای ارسال دکمه رو بزن)"
+                  placeholder={L("جمله‌ت رو بنویس یا سوالت رو بپرس... (برای خط جدید Enter، برای ارسال دکمه رو بزن)", "Write your sentence or ask your question... (Enter for a new line, tap the button to send)")}
                   style={{
                     flex: 1,
                     border: "none",
