@@ -2,14 +2,19 @@
 // بخشی از app.jsx قبلی — برای نگهداری‌پذیری به ماژولِ جدا منتقل شد (منطق دست‌نخورده).
 import React, { useState } from "react";
 import { colors, fontFa, fontLatin } from "../ui/theme.js";
-import { tr } from "../ui/uiStrings.js";
+import { useTranslation } from "react-i18next";
+import { LANG_DIR } from "../../i18nconfig.js";
 import { SAVED_STORIES_SORT_OPTIONS } from "../sort/sortHelpers.js";
 
 // دکمه‌ی «مرتب‌سازی» + منوی کشویی — با ظاهر و رفتاری شبیه به Sort byِ
 // سیستم (یه دکمه که با تپ، لیستِ گزینه‌ها رو باز می‌کنه).
 export function SavedStoriesSortMenu({ sortKey, setSortKey, uiLang }) {
   const [open, setOpen] = useState(false);
-  const lang = uiLang === "en" ? "en" : "fa";
+  const { t, i18n } = useTranslation();
+  const curLang = String(i18n.language || "fa").split("-")[0];
+  // راست‌به‌چپ (فارسی/عربی) همون چیدمانِ قبلیِ «fa»، بقیه همون «en»
+  const lang = LANG_DIR[curLang] === "rtl" ? "fa" : "en";
+  const optLabel = (o) => (o.labelKey ? t(o.labelKey) : (o[lang] ?? o.label));
   const current = SAVED_STORIES_SORT_OPTIONS.find((o) => o.key === sortKey) || SAVED_STORIES_SORT_OPTIONS[0];
   return (
     <div style={{ position: "relative", flexShrink: 0 }}>
@@ -30,7 +35,7 @@ export function SavedStoriesSortMenu({ sortKey, setSortKey, uiLang }) {
           whiteSpace: "nowrap",
         }}
       >
-        ⇅ {tr("sortByLabel", lang)}: {current[lang]}
+        ⇅ {t("sort_label")}: {optLabel(current)}
       </button>
       {open && (
         <>
@@ -73,7 +78,7 @@ export function SavedStoriesSortMenu({ sortKey, setSortKey, uiLang }) {
                   color: colors.ink,
                 }}
               >
-                {opt[lang]}
+                {optLabel(opt)}
               </button>
             ))}
           </div>
@@ -91,7 +96,11 @@ export function SavedStoriesSortMenu({ sortKey, setSortKey, uiLang }) {
 // تکرارِ کدِ منویِ کشویی.
 export function GenericSortMenu({ sortKey, setSortKey, options, uiLang }) {
   const [open, setOpen] = useState(false);
-  const lang = uiLang === "en" ? "en" : "fa";
+  const { t, i18n } = useTranslation();
+  const curLang = String(i18n.language || "fa").split("-")[0];
+  // راست‌به‌چپ (فارسی/عربی) همون چیدمانِ قبلیِ «fa»، بقیه همون «en»
+  const lang = LANG_DIR[curLang] === "rtl" ? "fa" : "en";
+  const optLabel = (o) => (o.labelKey ? t(o.labelKey) : (o[lang] ?? o.label));
   const current = options.find((o) => o.key === sortKey) || options[0];
   return (
     <div style={{ position: "relative", flexShrink: 0 }}>
@@ -112,7 +121,7 @@ export function GenericSortMenu({ sortKey, setSortKey, options, uiLang }) {
           whiteSpace: "nowrap",
         }}
       >
-        ⇅ {tr("sortByLabel", lang)}: {current[lang] ?? current.label}
+        ⇅ {t("sort_label")}: {optLabel(current)}
       </button>
       {open && (
         <>
@@ -155,7 +164,7 @@ export function GenericSortMenu({ sortKey, setSortKey, options, uiLang }) {
                   color: colors.ink,
                 }}
               >
-                {opt[lang] ?? opt.label}
+                {optLabel(opt)}
               </button>
             ))}
           </div>

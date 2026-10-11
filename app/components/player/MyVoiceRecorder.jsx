@@ -2,6 +2,7 @@
 // بخشی از app.jsx قبلی — برای نگهداری‌پذیری به ماژولِ جدا منتقل شد (منطق دست‌نخورده).
 import React, { useState, useRef, useEffect } from "react";
 import { X, Pause, PlayCircle, Square, Mic } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { colors } from "../../ui/theme.js";
 
 // دکمه‌ی «ضبطِ صدایِ خودم» — گوشه‌ی بالا-راستِ پلیر. کاملاً جدا از پخشِ
@@ -21,6 +22,7 @@ import { colors } from "../../ui/theme.js";
 // برای گرفتنِ صدایِ آن به‌عنوانِ یه MediaStream نمی‌ده — پس اونجا فقط
 // صدایِ خودِ کاربر ضبط می‌شه (مثلِ قبل)، با یه پیغامِ کوتاه که چرا.
 export function MyVoiceRecorder({ color, getAppAudioElement, appAudioActive }) {
+  const { t } = useTranslation();
   const [recording, setRecording] = useState(false);
   const [audioUrl, setAudioUrl] = useState(null);
   const [playing, setPlaying] = useState(false);
@@ -84,13 +86,13 @@ export function MyVoiceRecorder({ color, getAppAudioElement, appAudioActive }) {
             ctx.createMediaStreamSource(appStream).connect(appGain).connect(dest);
             recordStream = dest.stream;
           } else {
-            setMixNote("صدای اپ الان قابلِ ترکیب نبود؛ فقط صدای خودم ضبط می‌شه");
+            setMixNote(t("player_rec_mix_failed"));
           }
         } catch {
-          setMixNote("صدای اپ الان قابلِ ترکیب نبود؛ فقط صدای خودم ضبط می‌شه");
+          setMixNote(t("player_rec_mix_failed"));
         }
       } else if (appAudioActive) {
-        setMixNote("چون این متن با صدای داخلیِ گوشی خونده می‌شه، نمی‌شه همراهِ صدای خودم ضبطش کرد");
+        setMixNote(t("player_rec_mix_phone"));
       }
 
       chunksRef.current = [];
@@ -171,7 +173,7 @@ export function MyVoiceRecorder({ color, getAppAudioElement, appAudioActive }) {
       style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 6, flexShrink: 0 }}
     >
       {micError && (
-        <span style={{ fontSize: 10, color: colors.rose }}>دسترسی به میکروفون رد شد</span>
+        <span style={{ fontSize: 10, color: colors.rose }}>{t("player_rec_mic_denied")}</span>
       )}
       {!micError && mixNote && (
         <span style={{ fontSize: 10, color: colors.inkSoft }}>{mixNote}</span>
@@ -180,16 +182,16 @@ export function MyVoiceRecorder({ color, getAppAudioElement, appAudioActive }) {
         <>
           <button
             onClick={togglePlay}
-            aria-label={playing ? "توقفِ پخشِ صدایِ ضبط‌شده" : "پخشِ صدایِ ضبط‌شده‌ی من"}
-            title="پخشِ صدایِ خودم — جدا از خواندنِ اپ"
+            aria-label={playing ? t("player_rec_stop_play_aria") : t("player_rec_play_aria")}
+            title={t("player_rec_play_title")}
             style={{ background: "none", border: "none", cursor: "pointer", color: colors.teal, padding: 3, display: "flex", alignItems: "center", justifyContent: "center" }}
           >
             {playing ? <Pause size={15} /> : <PlayCircle size={15} />}
           </button>
           <button
             onClick={deleteRecording}
-            aria-label="حذفِ صدایِ ضبط‌شده"
-            title="حذفِ صدایِ ضبط‌شده (موقتی بود، ذخیره نمی‌شه)"
+            aria-label={t("player_rec_delete_aria")}
+            title={t("player_rec_delete_title")}
             style={{ background: "none", border: "none", cursor: "pointer", color: colors.inkSoft, padding: 3, display: "flex", alignItems: "center", justifyContent: "center" }}
           >
             <X size={15} />
@@ -198,8 +200,8 @@ export function MyVoiceRecorder({ color, getAppAudioElement, appAudioActive }) {
       )}
       <button
         onClick={recording ? stopRecording : startRecording}
-        aria-label={recording ? "توقفِ ضبط" : "ضبطِ صدایِ من"}
-        title={recording ? "توقفِ ضبط" : "ضبطِ صدایِ من — برایِ خواندنِ متن و تمرین با صدایِ بلندِ خودم"}
+        aria-label={recording ? t("player_rec_stop") : t("player_rec_start_aria")}
+        title={recording ? t("player_rec_stop") : t("player_rec_start_title")}
         style={{
           background: "none",
           border: "none",

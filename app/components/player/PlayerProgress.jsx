@@ -4,7 +4,8 @@ import React, { useState, useRef, useEffect } from "react";
 import { Pause, PlayCircle, Gauge } from "lucide-react";
 import { TTS_LOCALE } from "../../tts/ttsConfig.js";
 import { colors } from "../../ui/theme.js";
-import { toFaDigits } from "../../utils/calendar.js";
+import { useTranslation } from "react-i18next";
+import { toLocalDigits } from "../../utils/calendar.js";
 import { speechController } from "../../speech/speechController.js";
 import { SeekAmountControl } from "./seekControls.jsx";
 
@@ -16,6 +17,8 @@ import { SeekAmountControl } from "./seekControls.jsx";
 // رو نوار، جمله‌ی متناظرش رو با speechController.seekToChunk صدا می‌زنه.
 export const TTS_MS_PER_CHAR = 90; // فقط برای تخمینِ زمانِ نمایشی — نه پخشِ واقعی
 export function PlayerProgressTrack({ color }) {
+  const { i18n } = useTranslation();
+  const curLang = String(i18n.language || "fa").split("-")[0];
   const [state, setState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setState), []);
   const trackRef = useRef(null);
@@ -36,7 +39,7 @@ export function PlayerProgressTrack({ color }) {
     const s = Math.max(0, Math.round(ms / 1000));
     const m = Math.floor(s / 60);
     const r = s % 60;
-    return toFaDigits(`${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`);
+    return toLocalDigits(`${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`, curLang);
   }
 
   function pctFromClientX(clientX) {
@@ -105,7 +108,7 @@ export function PlayerProgressTrack({ color }) {
   return (
     <div className="px-4 flex items-center gap-2" style={{ paddingTop: 2 }}>
       <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 12, color: colors.inkSoft, minWidth: 36, textAlign: "center", flexShrink: 0 }}>
-        {isActive ? fmtTime((shownPct / 100) * totalMs) : "۰۰:۰۰"}
+        {isActive ? fmtTime((shownPct / 100) * totalMs) : toLocalDigits("00:00", curLang)}
       </span>
       <div
         ref={trackRef}
@@ -154,7 +157,7 @@ export function PlayerProgressTrack({ color }) {
         />
       </div>
       <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 12, color: colors.inkSoft, minWidth: 36, textAlign: "center", flexShrink: 0 }}>
-        {isActive ? fmtTime(totalMs) : "۰۰:۰۰"}
+        {isActive ? fmtTime(totalMs) : toLocalDigits("00:00", curLang)}
       </span>
       <SpeedControl color={colors.gold} />
       <SeekAmountControl color={colors.gold} />
@@ -167,6 +170,7 @@ export function PlayerProgressTrack({ color }) {
 // تکرارهاش تموم شد (status از speechController میره رو idle)، خودش می‌ره
 // سراغ آیتم بعدی و صفحه رو با اسکرول نرم به همون‌جا می‌بره.
 function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
+  const { t } = useTranslation();
   const [active, setActive] = useState(false);
   const activeRef = useRef(false);
   const idxRef = useRef(0);
@@ -396,8 +400,8 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
           padding: 2,
           flexShrink: 0,
         }}
-        title={active ? "توقف خواندن خودکار" : "خواندن خودکار همه (با اسکرول خودکار)"}
-        aria-label={active ? "توقف خواندن خودکار" : "خواندن خودکار همه"}
+        title={active ? t("player_autoread_stop") : t("player_autoread_start")}
+        aria-label={active ? t("player_autoread_stop") : t("player_autoread_start_aria")}
       >
         {active ? <Pause size={16} /> : <PlayCircle size={16} />}
         {label && <span style={{ fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}>{label}</span>}
@@ -411,7 +415,7 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
             fontVariantNumeric: "tabular-nums",
             whiteSpace: "nowrap",
           }}
-          title="مدت زمان خواندن این جلسه"
+          title={t("player_session_time")}
         >
           ⏱ {String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}
         </span>
@@ -420,6 +424,7 @@ function AutoReadButton({ getItems, color, label, trackLangCode, modeKey }) {
   );
 }
 function SpeedControl({ color }) {
+  const { t } = useTranslation();
   const [rate, setRateState] = useState(() => speechController.getRate());
   useEffect(
     () => speechController.subscribe((s) => setRateState(s.rate)),
@@ -453,7 +458,7 @@ function SpeedControl({ color }) {
   };
   return (
     <span
-      title={`سرعت پخش: ${rate.toFixed(1)}×`}
+      title={t("player_speed_title", { rate: rate.toFixed(1) })}
       style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}
     >
       <Gauge size={15} color={colors.inkSoft} />
@@ -462,7 +467,7 @@ function SpeedControl({ color }) {
         onClick={() => step(-0.1)}
         disabled={rate <= 0.25}
         style={{ ...btnStyle, opacity: rate <= 0.25 ? 0.4 : 1 }}
-        aria-label="کم کردن سرعت پخش"
+        aria-label={t("player_speed_down")}
       >
         −
       </button>
@@ -474,14 +479,14 @@ function SpeedControl({ color }) {
         value={rate}
         onChange={(e) => speechController.setRate(e.target.value)}
         style={{ width: 44, accentColor: c }}
-        aria-label="سرعت پخش صدا"
+        aria-label={t("player_speed_slider")}
       />
       <button
         type="button"
         onClick={() => step(0.1)}
         disabled={rate >= 2}
         style={{ ...btnStyle, opacity: rate >= 2 ? 0.4 : 1 }}
-        aria-label="زیاد کردن سرعت پخش"
+        aria-label={t("player_speed_up")}
       >
         +
       </button>

@@ -10,7 +10,7 @@ import { WORDS_PAGE_SIZE } from "../WordList.jsx";
 import { formatSavedDate } from "../../utils/calendar.js";
 import { getStoryEntryFullText, getStoryEntryPreview } from "../../story/storyEntries.js";
 import { sortSavedStories } from "../../sort/sortHelpers.js";
-import { tr } from "../../ui/uiStrings.js";
+import { useTranslation } from "react-i18next";
 
 export function SavedStoriesLibrary({
   calendarSystem,
@@ -42,6 +42,8 @@ export function SavedStoriesLibrary({
   toggleSavedStoryRead,
   uiLang,
 }) {
+  const { t, i18n } = useTranslation();
+  const curLang = String(i18n.language || "fa").split("-")[0];
   return (
         <div className="flex flex-col gap-3">
           {/* PDFهایی که با «PDF رو با عکسِ اصلی + ترجمه همینجا نشون بده»
@@ -49,7 +51,7 @@ export function SavedStoriesLibrary({
               پایینِ صفحه‌ی اصلیِ داستان‌ساز. */}
           {pdfViewDocs.length > 0 && (
             <div style={{ textAlign: "start" }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>{uiLang === "en" ? "Saved PDFs" : "PDFهای ذخیره‌شده"}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>{t("library_saved_pdfs")}</span>
               <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
                 {pdfViewDocs.map((doc) => (
                   <div
@@ -72,8 +74,8 @@ export function SavedStoriesLibrary({
                       <span style={{ color: colors.inkSoft, fontWeight: 400 }}>
                         {" "}
                         — {doc.doneCount === doc.pageCount
-                          ? (uiLang === "en" ? `${doc.pageCount} pages` : `${doc.pageCount} صفحه`)
-                          : (uiLang === "en" ? `${doc.doneCount} of ${doc.pageCount} pages` : `${doc.doneCount} از ${doc.pageCount} صفحه`)}
+                          ? t("library_pages", { n: doc.pageCount })
+                          : t("library_pages_of", { done: doc.doneCount, total: doc.pageCount })}
                       </span>
                     </button>
                     <button
@@ -81,7 +83,7 @@ export function SavedStoriesLibrary({
                       disabled={pdfViewBusy}
                       style={{ color: colors.rose, fontSize: 11, textDecoration: "underline", marginInlineStart: 8 }}
                     >
-                      {uiLang === "en" ? "Delete" : "حذف"}
+                      {t("library_delete")}
                     </button>
                   </div>
                 ))}
@@ -100,12 +102,12 @@ export function SavedStoriesLibrary({
               <input
                 value={savedStoriesSearch}
                 onChange={(e) => setSavedStoriesSearch(e.target.value)}
-                placeholder={uiLang === "en" ? "Search saved stories..." : "جستجو در داستان‌های ذخیره‌شده..."}
+                placeholder={t("library_search_placeholder")}
                 dir="auto"
                 style={{ flex: 1, border: "none", outline: "none", fontSize: 13, backgroundColor: "transparent" }}
               />
               {savedStoriesSearch && (
-                <button onClick={() => setSavedStoriesSearch("")} aria-label={uiLang === "en" ? "Clear search" : "پاک کردن جستجو"} style={{ display: "flex" }}>
+                <button onClick={() => setSavedStoriesSearch("")} aria-label={t("library_clear_search")} style={{ display: "flex" }}>
                   <X size={15} color={colors.inkSoft} />
                 </button>
               )}
@@ -121,7 +123,7 @@ export function SavedStoriesLibrary({
             </div>
           )}
           {savedStories.length === 0 && (
-            <p style={{ fontSize: 13, color: colors.inkSoft }}>{uiLang === "en" ? "You haven't saved any stories yet." : "هنوز داستانی ذخیره نکردی."}</p>
+            <p style={{ fontSize: 13, color: colors.inkSoft }}>{t("library_empty")}</p>
           )}
           {savedStories.length > 0 && (() => {
             // جستجو، مستقلِ از زبانِ داستان — یه include سادهٔ رشته‌ست، پس
@@ -141,7 +143,7 @@ export function SavedStoriesLibrary({
               : savedStories;
             if (q && searched.length === 0) {
               return (
-                <p style={{ fontSize: 13, color: colors.inkSoft }}>{uiLang === "en" ? "Nothing found for this search." : "چیزی با این جستجو پیدا نشد."}</p>
+                <p style={{ fontSize: 13, color: colors.inkSoft }}>{t("library_no_results")}</p>
               );
             }
             // هر داستان از قبل با سطحِ خودش (storyLevel) ذخیره شده. وقتی فیلترِ
@@ -158,9 +160,7 @@ export function SavedStoriesLibrary({
             if (!groups.length || groups.every(([, list]) => list.length === 0)) {
               return (
                 <p style={{ fontSize: 13, color: colors.inkSoft }}>
-                  {uiLang === "en"
-                    ? `No stories saved at level ${savedStoriesLevelFilter}.`
-                    : `داستانی با سطح ${savedStoriesLevelFilter} ذخیره نشده.`}
+                  {t("library_no_level", { level: savedStoriesLevelFilter })}
                 </p>
               );
             }
@@ -202,7 +202,7 @@ export function SavedStoriesLibrary({
                   readCount={readCountInRange}
                   totalInRange={visibleTotal}
                   readCountTotal={readCountTotal}
-                  label={uiLang === "en" ? "Stories" : "داستان‌ها"}
+                  label={t("library_stories_label")}
                   uiLang={uiLang}
                   colors={colors}
                 />
@@ -212,14 +212,14 @@ export function SavedStoriesLibrary({
                     onClick={() => markStoryRangeRead(allInRangeFlat, true)}
                     style={{ fontSize: 11, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "4px 12px", background: "#fff", cursor: "pointer" }}
                   >
-                    {uiLang === "en" ? "Mark range read" : "علامت‌گذاری همه به خوانده‌شده"}
+                    {t("dialogs_mark_range_read")}
                   </button>
                   <button
                     type="button"
                     onClick={() => markStoryRangeRead(allInRangeFlat, false)}
                     style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "4px 12px", background: "#fff", cursor: "pointer" }}
                   >
-                    {uiLang === "en" ? "Clear range" : "پاک‌کردن علامت این بازه"}
+                    {t("dialogs_clear_range")}
                   </button>
                 </div>
                 {rangedGroups.map(([lv, list]) => (
@@ -259,7 +259,7 @@ export function SavedStoriesLibrary({
                           textAlign: "left",
                         }}
                       >
-                        📅 {formatSavedDate(s.savedAt, calendarSystem)}
+                        📅 {formatSavedDate(s.savedAt, calendarSystem, curLang)}
                       </p>
                     )}
                     <div className="flex items-center justify-between">
@@ -270,7 +270,7 @@ export function SavedStoriesLibrary({
                       <div className="flex items-center gap-2">
                         <button
                           onClick={(e) => { e.stopPropagation(); toggleSavedStoryRead(s.id); }}
-                          aria-label={uiLang === "en" ? "Toggle read" : "علامت‌زدن به‌عنوان خوانده‌شده"}
+                          aria-label={t("library_toggle_read")}
                           style={{
                             flexShrink: 0,
                             width: 20,
@@ -288,23 +288,23 @@ export function SavedStoriesLibrary({
                         <div>
                           <p style={{ fontWeight: 700, fontSize: 13 }}>
                             {savedStoriesAudioMap[s.id] && (
-                              <span title={uiLang === "en" ? "Has uploaded audio" : "صوتِ آپلودی داره"} style={{ marginLeft: 6 }}>🎵</span>
+                              <span title={t("library_has_audio")} style={{ marginLeft: 6 }}>🎵</span>
                             )}
                             {s.pdfDocId && (
-                              <span title={uiLang === "en" ? "PDF file" : "فایلِ PDF"} style={{ marginLeft: 6 }}>📄</span>
+                              <span title={t("library_pdf_file")} style={{ marginLeft: 6 }}>📄</span>
                             )}
                             {s.ytSession && (
                               <span title={s.ytLive ? "Live" : "YouTube"} style={{ marginLeft: 6 }}>{s.ytLive ? "🎙" : "▶"}</span>
                             )}
                             {s.pdfDocId ? (
-                              <>PDF{s.pageCount ? ` · ${s.pageCount} ${uiLang === "en" ? "pages" : "صفحه"}` : ""}</>
+                              <>PDF{s.pageCount ? ` · ${t("library_pages", { n: s.pageCount })}` : ""}</>
                             ) : s.ytSession ? (
-                              <>{s.ytLive ? (uiLang === "en" ? "Live translation" : "ترجمه‌ی زنده") : "YouTube"} · {LANGUAGES.find((l) => l.code === s.storyLang)?.label}</>
+                              <>{s.ytLive ? t("library_live_translation") : "YouTube"} · {LANGUAGES.find((l) => l.code === s.storyLang)?.label}</>
                             ) : (
                               <>
                                 {LANGUAGES.find((l) => l.code === s.storyLang)?.label} · {s.storyLevel} ·{" "}
-                                {CONTENT_TYPES.find((c) => c.key === s.contentType)?.label || (uiLang === "en" ? "General" : "عمومی")} ·{" "}
-                                {STORY_LENGTHS.find((l) => l.key === s.storyLength)?.label || (uiLang === "en" ? "Medium" : "متوسط")}
+                                {t(`story_content_${CONTENT_TYPES.some((c) => c.key === s.contentType) ? s.contentType : "general"}`)} ·{" "}
+                                {t(`story_length_${STORY_LENGTHS.some((l) => l.key === s.storyLength) ? s.storyLength : "medium"}`)}
                               </>
                             )}
                           </p>
@@ -318,13 +318,13 @@ export function SavedStoriesLibrary({
                                   if (e.key === "Enter") commitRenamingStory(s.id);
                                   if (e.key === "Escape") setRenamingStoryId(null);
                                 }}
-                                placeholder={uiLang === "en" ? "Custom title…" : "عنوانِ دلخواه…"}
+                                placeholder={t("library_rename_placeholder")}
                                 style={{ fontSize: 12, padding: "3px 6px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, flex: 1, minWidth: 0 }}
                               />
-                              <button onClick={() => commitRenamingStory(s.id)} aria-label={uiLang === "en" ? "Save title" : "ذخیره‌ی عنوان"}>
+                              <button onClick={() => commitRenamingStory(s.id)} aria-label={t("library_save_title")}>
                                 <Check size={14} color={colors.teal} />
                               </button>
-                              <button onClick={() => setRenamingStoryId(null)} aria-label={uiLang === "en" ? "Cancel" : "انصراف"}>
+                              <button onClick={() => setRenamingStoryId(null)} aria-label={t("cancel_button")}>
                                 <X size={14} color={colors.inkSoft} />
                               </button>
                             </div>
@@ -338,7 +338,7 @@ export function SavedStoriesLibrary({
                               {getStoryEntryPreview(s) && (
                                 <p style={{ fontSize: 12, color: colors.ink, marginTop: 2 }}>{getStoryEntryPreview(s)}</p>
                               )}
-                              <p style={{ fontSize: 12, color: colors.inkSoft }}>{s.selectedWords.join(uiLang === "en" ? ", " : "، ")}</p>
+                              <p style={{ fontSize: 12, color: colors.inkSoft }}>{s.selectedWords.join(curLang === "fa" || curLang === "ar" ? "، " : ", ")}</p>
                             </>
                           )}
                         </div>
@@ -346,19 +346,19 @@ export function SavedStoriesLibrary({
                       <div className="flex items-center gap-2">
                         <button
                           onClick={(e) => { e.stopPropagation(); toggleSavedStoryFavorite(s.id); }}
-                          aria-label={tr("addToFavoritesAria", uiLang)}
+                          aria-label={t("library_favorite_aria")}
                         >
                           <Star size={16} color={STAR_FAVORITE_COLOR} fill={s.favorite ? STAR_FAVORITE_COLOR : "none"} />
                         </button>
                         {renamingStoryId !== s.id && (
                           <button
                             onClick={(e) => { e.stopPropagation(); startRenamingStory(s); }}
-                            aria-label={uiLang === "en" ? "Rename" : "تغییرِ نام"}
+                            aria-label={t("library_rename")}
                           >
                             <Pencil size={14} color={colors.inkSoft} />
                           </button>
                         )}
-                        <button onClick={(e) => { e.stopPropagation(); deleteSavedStory(s.id); }} aria-label={uiLang === "en" ? "Delete" : "حذف"}>
+                        <button onClick={(e) => { e.stopPropagation(); deleteSavedStory(s.id); }} aria-label={t("library_delete")}>
                           <X size={16} color={colors.rose} />
                         </button>
                       </div>

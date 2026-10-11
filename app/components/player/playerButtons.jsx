@@ -2,7 +2,8 @@
 // بخشی از app.jsx قبلی — برای نگهداری‌پذیری به ماژولِ جدا منتقل شد (منطق دست‌نخورده).
 import React, { useState, useEffect } from "react";
 import { RotateCcw, Repeat, Volume2, VolumeX, Pause, Play, PlayCircle } from "lucide-react";
-import { TTS_LOCALE, TTS_NEED_MODEL_MSG, ttsFailMsg } from "../../tts/ttsConfig.js";
+import { useTranslation } from "react-i18next";
+import { TTS_LOCALE, ttsNeedModelMsg, ttsFailMsg } from "../../tts/ttsConfig.js";
 import { LANGUAGES } from "../../constants/languages.js";
 import { colors, fontFa } from "../../ui/theme.js";
 import { speechController } from "../../speech/speechController.js";
@@ -14,6 +15,7 @@ import { speechController } from "../../speech/speechController.js";
 // شروع می‌شد. حالا مثلِ SpeakButton درست subscribe می‌کنه تا همیشه با
 // وضعیتِ واقعی و به‌روزِ speechController کار کنه.
 function PlayerCentralButton() {
+  const { t } = useTranslation();
   const [state, setState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setState), []);
 
@@ -48,8 +50,8 @@ function PlayerCentralButton() {
         padding: 2,
         flexShrink: 0,
       }}
-      title={isActive ? (isPlaying ? "توقف پخش" : "ادامه‌ی پخش") : "هیچ صدایی در حال پخش نیست"}
-      aria-label={isActive ? (isPlaying ? "توقف" : "ادامه") : "خاموش"}
+      title={isActive ? (isPlaying ? t("player_central_pause_title") : t("player_central_resume_title")) : t("player_central_none")}
+      aria-label={isActive ? (isPlaying ? t("player_pause") : t("player_resume")) : t("player_off")}
     >
       {isPlaying ? <Pause size={18} /> : <PlayCircle size={18} />}
       {isActive && (
@@ -65,6 +67,7 @@ function PlayerCentralButton() {
 // به همین خاطر لازم نیست کنار تک‌تک جمله‌ها/عبارت‌ها دکمه‌ی 🔁 جدا بذاریم —
 // یکی بالای هر بخش کافیه.
 export function RepeatButton({ color }) {
+  const { t } = useTranslation();
   const [state, setState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setState), []);
 
@@ -81,13 +84,13 @@ export function RepeatButton({ color }) {
   return (
     <button
       onClick={handleClick}
-      aria-label="تکرار سراسری"
+      aria-label={t("player_repeat_aria")}
       title={
         repeatSetting === 0
-          ? "تکرار خاموش — بزن روشن کن (روی هر جمله/پاراگرافی که پخش کنی اعمال می‌شه)"
+          ? t("player_repeat_off")
           : repeatSetting === "inf"
-          ? "تکرار بی‌نهایت — بزن خاموش کن"
-          : `تکرار ${repeatSetting} بار — روی هر 🔊ای که بزنی اعمال می‌شه`
+          ? t("player_repeat_inf")
+          : t("player_repeat_n", { n: repeatSetting })
       }
       style={{
         position: "relative",
@@ -133,6 +136,7 @@ export function RepeatButton({ color }) {
 // سوم پاک می‌کنه. چون TTS جمله‌به‌جمله‌ست (نه یه فایلِ صوتیِ پیوسته)، A و B
 // اینجا شماره‌یِ جمله‌ن (خودِ speechController.markAB این رو مدیریت می‌کنه).
 export function ABRepeatButton({ color }) {
+  const { t } = useTranslation();
   const [state, setState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setState), []);
 
@@ -159,16 +163,16 @@ export function ABRepeatButton({ color }) {
 
   const title =
     ab === "idle"
-      ? "تکرارِ یه بازه‌ی دلخواه — بزن تا نقطه‌ی A ثبت بشه"
+      ? t("player_ab_idle")
       : ab === "waitingB"
-      ? `نقطه‌ی A: «${chunkPreview(state.abChunkA, 30)}» — حالا رویِ جمله‌ی موردنظر برایِ B بزن`
-      : `تکرارِ «${chunkPreview(state.abChunkA, 20)}» تا «${chunkPreview(state.abChunkB, 20)}» — بزن تا پاک بشه`;
+      ? t("player_ab_waiting_text", { a: chunkPreview(state.abChunkA, 30) })
+      : t("player_ab_active_text", { a: chunkPreview(state.abChunkA, 20), b: chunkPreview(state.abChunkB, 20) });
 
   return (
     <button
       onClick={handleClick}
       disabled={disabled}
-      aria-label="تکرار بازه A-B"
+      aria-label={t("player_ab_aria")}
       title={title}
       style={{
         position: "relative",
@@ -235,6 +239,7 @@ export function ABRepeatButton({ color }) {
 // جمله‌به‌جمله‌ی TTS)، A و B زمانِ دقیقِ ثانیه‌ای‌ان — همون چیزی که توی
 // پروتوتایپِ HTML امتحان شد. منطقش داخلِ useStoryUserAudio (markAB) است.
 export function UserAudioABButton({ ua, color }) {
+  const { t } = useTranslation();
   const disabled = !ua.hasAudio;
   const c = color || colors.gold;
   const ab = ua.abState || "idle";
@@ -253,16 +258,16 @@ export function UserAudioABButton({ ua, color }) {
 
   const title =
     ab === "idle"
-      ? "تکرارِ یه بازه‌ی دلخواه — بزن تا نقطه‌ی A ثبت بشه"
+      ? t("player_ab_idle")
       : ab === "waitingB"
-      ? `نقطه‌ی A: ${fmtShort(ua.abA)} — حالا نقطه‌ی B رو بزن`
-      : `تکرارِ ${fmtShort(ua.abA)} تا ${fmtShort(ua.abB)} — بزن تا پاک بشه`;
+      ? t("player_ab_waiting_time", { a: fmtShort(ua.abA) })
+      : t("player_ab_active_time", { a: fmtShort(ua.abA), b: fmtShort(ua.abB) });
 
   return (
     <button
       onClick={handleClick}
       disabled={disabled}
-      aria-label="تکرار بازه A-B"
+      aria-label={t("player_ab_aria")}
       title={title}
       style={{
         position: "relative",
@@ -327,6 +332,7 @@ export function UserAudioABButton({ ua, color }) {
 // این یه تنظیمِ سراسریه (خودِ speechController نگهش می‌داره، مثلِ تکرار/
 // سرعت) — هرجایِ اپ که بشه پخش کرد، همینجا خاموش/روشنش می‌کنه.
 export function MuteButton({ color }) {
+  const { t } = useTranslation();
   const [state, setState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setState), []);
 
@@ -341,11 +347,11 @@ export function MuteButton({ color }) {
   return (
     <button
       onClick={handleClick}
-      aria-label={muted ? "روشن‌کردنِ صدا" : "بی‌صداکردنِ صدا"}
+      aria-label={muted ? t("player_unmute_aria") : t("player_mute_aria")}
       title={
         muted
-          ? "صدا خاموشه — پخش و هایلایت عادی ادامه داره؛ بزن روشنش کن"
-          : "بی‌صداکردنِ صدایِ خوانش — برایِ وقتی نرم‌افزارِ دیگه‌ای صدایِ خودش رو داره"
+          ? t("player_muted_title")
+          : t("player_mute_title")
       }
       style={{
         flexShrink: 0,
@@ -397,6 +403,7 @@ export function MuteButton({ color }) {
 // key/chunkIndex کار می‌کنن؛ پس چون key دست‌نخورده می‌مونه، هایلایت هم
 // بدونِ هیچ تغییرِ اضافه‌ای، خودش با chunkIndexِ صفر هماهنگ می‌شه.
 export function RestartButton({ color, startText, startCode, sentenceBoundaries }) {
+  const { t } = useTranslation();
   const [state, setState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setState), []);
 
@@ -431,8 +438,8 @@ export function RestartButton({ color, startText, startCode, sentenceBoundaries 
     <button
       onClick={handleClick}
       disabled={disabled}
-      aria-label="شروع مجدد از ابتدای این تب"
-      title="شروع مجدد از ابتدای همینِ متن — هایلایت هم همراهش از اول می‌شه"
+      aria-label={t("player_restart_aria")}
+      title={t("player_restart_title")}
       style={{
         flexShrink: 0,
         display: "flex",
@@ -456,6 +463,7 @@ export function RestartButton({ color, startText, startCode, sentenceBoundaries 
 // اول برمی‌گردونه. وضعیتِ پخش/مکث دست‌نخورده می‌مونه، دقیقاً مثلِ رفتارِ
 // نسخه‌ی TTS.
 export function UserAudioRestartButton({ ua, color }) {
+  const { t } = useTranslation();
   const { hasAudio, restart } = ua || {};
   const disabled = !hasAudio;
   const c = color || colors.gold;
@@ -463,8 +471,8 @@ export function UserAudioRestartButton({ ua, color }) {
     <button
       onClick={() => { if (!disabled && restart) restart(); }}
       disabled={disabled}
-      aria-label="شروع مجدد از ابتدای صوت"
-      title="شروع مجدد از ابتدای این صوت — هایلایت هم همراهش از اول می‌شه"
+      aria-label={t("player_restart_audio_aria")}
+      title={t("player_restart_audio_title")}
       style={{
         flexShrink: 0,
         display: "flex",
@@ -491,6 +499,7 @@ export function UserAudioRestartButton({ ua, color }) {
 //    سراسری شروع به پخش می‌کنه. این همون کاریه که قبلاً یه SpeakButtonِ
 //    جدا کنارِ پلیر انجامش می‌داد؛ الان همون قابلیت داخلِ دکمه‌ی مرکزیه.
 export function MainPlayButton({ startText, startCode, resolveStartOffset, sentenceBoundaries, color, size }) {
+  const { t } = useTranslation();
   const [state, setState] = useState(() => speechController.getState());
   const [localMsg, setLocalMsg] = useState(null);
   useEffect(() => speechController.subscribe(setState), []);
@@ -526,16 +535,16 @@ export function MainPlayButton({ startText, startCode, resolveStartOffset, sente
     const result = speechController.toggle(startText, startCode, offset, { loop: true, sentenceBoundaries });
     // به‌جای alert، همین‌جا زیرِ دکمه‌ی مرکزیِ پلیر نشون داده می‌شه.
     if (result === "unsupported") {
-      setLocalMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
+      setLocalMsg(t("player_tts_unsupported"));
     } else if (result === "error") {
       setLocalMsg(ttsFailMsg(startCode));
     } else if (result === "offline-need-model") {
-      setLocalMsg(TTS_NEED_MODEL_MSG);
+      setLocalMsg(ttsNeedModelMsg());
     } else if (result === "no-local-voice") {
       const langLabel = LANGUAGES.find((l) => l.code === startCode)?.label || startCode;
-      setLocalMsg(`صدای ${langLabel} روی گوشیت نصب نیست — از تنظیماتِ گوشی نصبش کن`);
+      setLocalMsg(t("player_voice_missing", { lang: langLabel }));
     } else if (result === "no-tts-engine") {
-      setLocalMsg("گوشیت اصلاً موتور خواندنِ متن (TTS) نداره — از تنظیماتِ گوشی یه موتور TTS نصب/فعال کن");
+      setLocalMsg(t("player_no_tts_engine"));
     }
   };
 
@@ -544,8 +553,8 @@ export function MainPlayButton({ startText, startCode, resolveStartOffset, sente
       <button
         onClick={handleClick}
         disabled={disabled}
-        aria-label={isPlaying ? "توقف موقت" : "پخش"}
-        title={isPlaying ? "توقف موقت" : isActive ? "ادامه‌ی پخش" : canStart ? "پخشِ کل متن" : "متنی برای پخش نیست"}
+        aria-label={isPlaying ? t("player_pause") : t("player_play")}
+        title={isPlaying ? t("player_pause") : isActive ? t("player_central_resume_title") : canStart ? t("player_play_all") : t("player_nothing_to_play")}
         style={{
           display: "flex",
           alignItems: "center",

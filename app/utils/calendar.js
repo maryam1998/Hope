@@ -11,6 +11,10 @@ const FA_DIGITS = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
 export function toFaDigits(str) {
   return String(str).replace(/[0-9]/g, (d) => FA_DIGITS[+d]);
 }
+// ارقام رو فقط برای فارسی به رقمِ فارسی تبدیل می‌کنه؛ بقیه‌ی زبان‌ها لاتین می‌مونن.
+export function toLocalDigits(str, lang) {
+  return lang === "fa" ? toFaDigits(str) : String(str);
+}
 function gregorianToJalali(gy, gm, gd) {
   const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
   let jy;
@@ -59,8 +63,9 @@ function formatJalaliDateTime(date) {
   // مرورگر جمعشون نکنه)، بعد ساعت:دقیقه.
   return toFaDigits(`${jy}/${jmStr}/${jdStr}\u00A0\u00A0\u00A0\u00A0\u00A0${hh}:${mm}`);
 }
-function formatGregorianDateTime(date) {
-  return date.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+const GREGORIAN_LOCALE = { fa: "en-GB", en: "en-GB", de: "de-DE", es: "es-ES", fr: "fr-FR", ar: "ar-u-nu-latn" };
+function formatGregorianDateTime(date, lang) {
+  return date.toLocaleString(GREGORIAN_LOCALE[lang] || "en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 // همینا ولی فقط تاریخ (بدون ساعت) و با نامِ روزِ هفته — برای هدرِ
 // گروه‌بندیِ روزانه‌ی یادداشت‌های گرامر (GrammarPanel)، که قبلاً بدونِ توجه
@@ -88,11 +93,11 @@ export function formatCalendarDateOnly(iso, calendarSystem) {
   return formatJalaliDateOnly(date);
 }
 // calendarSystem: "jalali" | "gregorian" | "both"
-export function formatSavedDate(iso, calendarSystem) {
+export function formatSavedDate(iso, calendarSystem, lang) {
   if (!iso) return "";
   const date = new Date(iso);
   if (isNaN(date.getTime())) return "";
-  if (calendarSystem === "gregorian") return formatGregorianDateTime(date);
-  if (calendarSystem === "both") return `${formatJalaliDateTime(date)} — ${formatGregorianDateTime(date)}`;
+  if (calendarSystem === "gregorian") return formatGregorianDateTime(date, lang);
+  if (calendarSystem === "both") return `${formatJalaliDateTime(date)} — ${formatGregorianDateTime(date, lang)}`;
   return formatJalaliDateTime(date);
 }

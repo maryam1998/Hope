@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { RotateCcw, X, Volume2, Loader2, Bookmark, Pause, Type } from "lucide-react";
 import { bridge } from "../runtime/bridge.js";
-import { TTS_LOCALE, TTS_NEED_MODEL_MSG, ttsFailMsg } from "../tts/ttsConfig.js";
+import { TTS_LOCALE, ttsNeedModelMsg, ttsFailMsg } from "../tts/ttsConfig.js";
 import { dirFor } from "../constants/languages.js";
 import { colors, fontFa } from "../ui/theme.js";
 import { translateFree, translateFreeNetwork } from "../translate/translateService.js";
@@ -625,7 +625,7 @@ export function GlobalAddToStorySelection({ fallbackLangCode = "fa", nativeLang,
             } else if (result === "error") {
               setPopupSpeakMsg(ttsFailMsg(popup.langCode));
             } else if (result === "offline-need-model") {
-              setPopupSpeakMsg(TTS_NEED_MODEL_MSG);
+              setPopupSpeakMsg(ttsNeedModelMsg());
             } else if (result === "no-local-voice") {
               setPopupSpeakMsg("صدای این زبان روی گوشیت نصب نیست");
             } else if (result === "no-tts-engine") {

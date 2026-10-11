@@ -3,7 +3,8 @@
 import React, { useRef } from "react";
 import { Loader2, Pause, Play, Gauge } from "lucide-react";
 import { colors } from "../../ui/theme.js";
-import { toFaDigits } from "../../utils/calendar.js";
+import { useTranslation } from "react-i18next";
+import { toLocalDigits } from "../../utils/calendar.js";
 import { StorySyncControls } from "../settings/AudioSyncSettings.jsx";
 import { ClassicTriangleIcon } from "../player/playerButtons.jsx";
 import { SeekAmountControl, seekAmountStore, useHoldToSeek } from "../player/seekControls.jsx";
@@ -19,6 +20,7 @@ import { SeekAmountControl, seekAmountStore, useHoldToSeek } from "../player/see
 // PlayerBarStorySwitch و UserAudioMainPlayButton/UserAudioChunkNavButton/
 // UserAudioProgressTrack همون‌جا رندر می‌شن.
 export function StoryUserAudioBar({ userAudio, storyLang }) {
+  const { t } = useTranslation();
   const fileInputRef = useRef(null);
   const { hasAudio, uploadFile, removeAudio, audioSaving, audioSaveError } = userAudio;
 
@@ -35,10 +37,10 @@ export function StoryUserAudioBar({ userAudio, storyLang }) {
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <span style={{ fontSize: 12, color: colors.inkSoft }}>
           {audioSaving
-            ? "در حالِ ذخیره‌ی فایلِ صوتی..."
+            ? t("player_audio_saving")
             : hasAudio
-            ? "صوتِ من (آپلودی) وصل شده"
-            : "صوتِ خودت رو برای این داستان آپلود کن"}
+            ? t("player_audio_attached")
+            : t("player_audio_upload_prompt")}
         </span>
 
         {!hasAudio || audioSaving ? (
@@ -60,7 +62,7 @@ export function StoryUserAudioBar({ userAudio, storyLang }) {
               style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${colors.cardBorder}`, background: "white", fontSize: 13, opacity: audioSaving ? 0.6 : 1, display: "flex", alignItems: "center", gap: 6 }}
             >
               {audioSaving && <Loader2 size={14} className="spin" />}
-              {audioSaving ? "در حالِ آپلود..." : "آپلود صوت"}
+              {audioSaving ? t("player_audio_uploading") : t("player_audio_upload")}
             </button>
           </>
         ) : (
@@ -69,7 +71,7 @@ export function StoryUserAudioBar({ userAudio, storyLang }) {
               onClick={removeAudio}
               style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "none", color: colors.rose, fontSize: 12 }}
             >
-              حذف صوت
+              {t("player_audio_remove")}
             </button>
           </div>
         )}
@@ -86,12 +88,13 @@ export function StoryUserAudioBar({ userAudio, storyLang }) {
 // play/pause خودِ userAudio (فایلِ آپلودی) رو صدا می‌زنه. فقط وقتی
 // tab==="story" و کاربر سوییچ رو رویِ «صوت من» گذاشته رندر می‌شه.
 export function UserAudioMainPlayButton({ ua, color }) {
+  const { t } = useTranslation();
   const { isPlaying, hasAudio, play, pause } = ua || {};
   return (
     <button
       onClick={() => { if (!hasAudio) return; isPlaying ? pause() : play(); }}
       disabled={!hasAudio}
-      aria-label={isPlaying ? "توقف" : "پخش"}
+      aria-label={isPlaying ? t("player_pause") : t("player_play")}
       style={{
         width: 44, height: 44, borderRadius: 999, border: "none",
         background: color, color: "white", display: "flex", alignItems: "center",
@@ -106,6 +109,7 @@ export function UserAudioMainPlayButton({ ua, color }) {
 // نسخه‌ی «صوتِ کاربر» از دکمه‌ی جمله‌ی قبل/بعد — کاملاً دستی (manualIndex)،
 // هیچ ربطی به زمانِ صدا نداره؛ همونی که قبلاً فقط توی StoryUserAudioBar بود.
 export function UserAudioChunkNavButton({ direction, ua, color }) {
+  const { t } = useTranslation();
   const { nextLine, prevLine, hasAudio, seek, currentTime, duration } = ua || {};
   // نقطه‌ی مبنایِ پرش — همون لحظه‌ی شروعِ لمسِ‌طولانی از رویِ currentTimeِ
   // فعلی پر می‌شه (onHoldStart)، بعدش هرباری که تکرار می‌شه رویِ همینِ ref
@@ -130,8 +134,8 @@ export function UserAudioChunkNavButton({ direction, ua, color }) {
   return (
     <button
       {...holdHandlers}
-      title={direction === "prev" ? "جمله‌ی قبل" : "جمله‌ی بعد"}
-      aria-label={direction === "prev" ? "جمله‌ی قبل (نگه‌دار: چند ثانیه عقب)" : "جمله‌ی بعد (نگه‌دار: چند ثانیه جلو)"}
+      title={direction === "prev" ? t("player_prev_sentence") : t("player_next_sentence")}
+      aria-label={direction === "prev" ? t("player_prev_sentence_hold") : t("player_next_sentence_hold")}
       disabled={!hasAudio}
       style={{ background: "none", border: "none", cursor: hasAudio ? "pointer" : "default", color, padding: 8, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: hasAudio ? 1 : 0.5, touchAction: "none" }}
     >
@@ -142,12 +146,14 @@ export function UserAudioChunkNavButton({ direction, ua, color }) {
 // نسخه‌ی «صوتِ کاربر» از نوارِ پیشرفتِ پلیر — زمانِ فعلی/کل + اسلایدرِ
 // seek، دقیقاً همون چیزی که توی StoryUserAudioBar بود.
 export function UserAudioProgressTrack({ ua, color }) {
+  const { i18n } = useTranslation();
+  const curLang = String(i18n.language || "fa").split("-")[0];
   const { currentTime, duration, seek, hasAudio } = ua || {};
   function fmtTime(sec) {
     const s = Math.max(0, Math.round(sec || 0));
     const m = Math.floor(s / 60);
     const r = s % 60;
-    return toFaDigits(`${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`);
+    return toLocalDigits(`${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`, curLang);
   }
   return (
     <div
@@ -186,6 +192,7 @@ export function UserAudioProgressTrack({ ua, color }) {
 // useStoryUserAudio کار می‌کنه؛ آخرین آیتمِ همین ردیفه، پس (با جهتِ rtl)
 // سمتِ چپِ پلیر می‌شینه — دقیقاً کنارِ دکمه‌ی سرعتِ TTS در همون موقعیت.
 function UserAudioSpeedControl({ ua, color }) {
+  const { t } = useTranslation();
   const { rate, setRate, hasAudio } = ua || {};
   const r = rate || 1;
   const c = color || colors.gold;
@@ -210,7 +217,7 @@ function UserAudioSpeedControl({ ua, color }) {
   };
   return (
     <span
-      title={`سرعتِ پخشِ صوتِ من: ${r.toFixed(1)}×`}
+      title={t("player_my_speed_title", { rate: r.toFixed(1) })}
       style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0, opacity: disabled ? 0.5 : 1 }}
     >
       <Gauge size={15} color={colors.inkSoft} />
@@ -219,7 +226,7 @@ function UserAudioSpeedControl({ ua, color }) {
         onClick={() => step(-0.1)}
         disabled={disabled || r <= 0.5}
         style={{ ...btnStyle, opacity: disabled || r <= 0.5 ? 0.4 : 1 }}
-        aria-label="کم‌کردنِ سرعتِ صوتِ من"
+        aria-label={t("player_my_speed_down")}
       >
         −
       </button>
@@ -232,14 +239,14 @@ function UserAudioSpeedControl({ ua, color }) {
         onChange={(e) => setRate && setRate(e.target.value)}
         disabled={disabled}
         style={{ width: 44, accentColor: c }}
-        aria-label="سرعتِ پخشِ صوتِ من"
+        aria-label={t("player_my_speed_slider")}
       />
       <button
         type="button"
         onClick={() => step(0.1)}
         disabled={disabled || r >= 2}
         style={{ ...btnStyle, opacity: disabled || r >= 2 ? 0.4 : 1 }}
-        aria-label="زیادکردنِ سرعتِ صوتِ من"
+        aria-label={t("player_my_speed_up")}
       >
         +
       </button>
@@ -253,6 +260,7 @@ function UserAudioSpeedControl({ ua, color }) {
 // StoryUserAudioBar، فقط برای نمایش روی نوارِ سراسریِ پایینِ صفحه (پلیرِ
 // اصلی) وقتی تبِ فعلی «داستان‌ساز»ه.
 export function PlayerBarStorySwitch({ ua }) {
+  const { t } = useTranslation();
   const { hasAudio, playbackMode, setPlaybackMode } = ua || {};
   return (
     <div className="flex items-center justify-center" style={{ flexShrink: 0 }}>
@@ -265,7 +273,7 @@ export function PlayerBarStorySwitch({ ua }) {
             color: playbackMode === "tts" ? "white" : colors.ink,
           }}
         >
-          صدای اپ
+          {t("player_app_voice")}
         </button>
         <button
           onClick={() => hasAudio && setPlaybackMode && setPlaybackMode("user")}
@@ -277,7 +285,7 @@ export function PlayerBarStorySwitch({ ua }) {
             cursor: hasAudio ? "pointer" : "default",
           }}
         >
-          صوت من
+          {t("player_my_audio")}
         </button>
       </div>
     </div>

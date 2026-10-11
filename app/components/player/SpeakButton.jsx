@@ -3,7 +3,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Volume2, Pause } from "lucide-react";
 import { recordNeuralRepeat, addNeuralFiber, NeuralPathButton } from "../../../NeuralPath.jsx";
-import { TTS_LOCALE, TTS_NEED_MODEL_MSG, ttsFailMsg } from "../../tts/ttsConfig.js";
+import { useTranslation } from "react-i18next";
+import { TTS_LOCALE, ttsNeedModelMsg, ttsFailMsg } from "../../tts/ttsConfig.js";
 import { LANGUAGES } from "../../constants/languages.js";
 import { colors, fontFa } from "../../ui/theme.js";
 import { speechController } from "../../speech/speechController.js";
@@ -17,6 +18,7 @@ import { speechController } from "../../speech/speechController.js";
 // حساب می‌شه (نه text)، طوری که این دکمه دقیقاً همون سِشنِ پخشِ کلِ متن رو
 // (چه در حالِ پخش، چه مکث‌شده) پیدا کنه.
 export function SpeakButton({ text, code, color, edge, forceRepeat, startOffset, resolveStartOffset, onPlayed, fullText, onOverrideClick, sentenceBoundaries, neuralId, neuralLabel }) {
+  const { t } = useTranslation();
   const locale = TTS_LOCALE[code] || "en-US";
   const jumpText = fullText || text;
   const myKey = `${locale}::${jumpText}`;
@@ -191,7 +193,7 @@ export function SpeakButton({ text, code, color, edge, forceRepeat, startOffset,
       }
       if (fullTextResult === "online-fallback") {
         const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
-        setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — فعلاً از اینترنت پخش می‌شه`);
+        setVoiceHint(t("player_voice_online", { lang: langLabel }));
       }
       if (onPlayed) onPlayed();
       return;
@@ -204,19 +206,19 @@ export function SpeakButton({ text, code, color, edge, forceRepeat, startOffset,
     // ممکن نبود، خطا نشون می‌دیم. به‌جای alert، همین‌جا زیرِ دکمه نشون
     // داده می‌شه (بالاتر، errorMsg).
     if (result === "unsupported") {
-      setLocalMsg("این مرورگر از خواندن صوتی پشتیبانی نمی‌کنه");
+      setLocalMsg(t("player_tts_unsupported"));
     } else if (result === "error") {
       setLocalMsg(ttsFailMsg(code));
     } else if (result === "offline-need-model") {
-      setLocalMsg(TTS_NEED_MODEL_MSG);
+      setLocalMsg(ttsNeedModelMsg());
     } else if (result === "online-fallback") {
       const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
-      setVoiceHint(`صدای ${langLabel} روی گوشیت نصب نیست — فعلاً از اینترنت پخش می‌شه`);
+      setVoiceHint(t("player_voice_online", { lang: langLabel }));
     } else if (result === "no-local-voice") {
       const langLabel = LANGUAGES.find((l) => l.code === code)?.label || code;
-      setLocalMsg(`صدای ${langLabel} روی گوشیت نصب نیست — از تنظیماتِ گوشی نصبش کن`);
+      setLocalMsg(t("player_voice_missing", { lang: langLabel }));
     } else if (result === "no-tts-engine") {
-      setLocalMsg("گوشیت اصلاً موتور خواندنِ متن (TTS) نداره — از تنظیماتِ گوشی یه موتور TTS نصب/فعال کن");
+      setLocalMsg(t("player_no_tts_engine"));
     }
   };
 
@@ -231,8 +233,8 @@ export function SpeakButton({ text, code, color, edge, forceRepeat, startOffset,
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4, order: orderStyle, position: "relative" }}>
       <button
         onClick={handleToggle}
-        aria-label={isPlaying ? "توقف موقت" : "تلفظ"}
-        title={isPlaying ? "توقف موقت" : isActive ? "ادامه" : "تلفظ"}
+        aria-label={isPlaying ? t("player_pause") : t("player_pronounce")}
+        title={isPlaying ? t("player_pause") : isActive ? t("player_resume") : t("player_pronounce")}
         style={{ 
           flexShrink: 0, 
           display: "flex", 

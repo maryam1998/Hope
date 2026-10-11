@@ -8,13 +8,13 @@
 // همون تعدادِ کلمه‌های کلِ داستانه (چون داستان‌ها فایل جداگونه نیستن که
 // حجمِ بایتی معنی‌دار داشته باشن).
 export const SAVED_STORIES_SORT_OPTIONS = [
-  { key: "favorite", fa: "علاقه‌مندی‌ها اول", en: "Favorites first" },
-  { key: "newest", fa: "جدیدترین تاریخ", en: "Newest date" },
-  { key: "oldest", fa: "قدیمی‌ترین تاریخ", en: "Oldest date" },
-  { key: "wordsDesc", fa: "بیشترین تعداد کلمه", en: "Most words" },
-  { key: "wordsAsc", fa: "کمترین تعداد کلمه", en: "Fewest words" },
-  { key: "nameAsc", fa: "نام: الف ← ی", en: "Name: A → Z" },
-  { key: "nameDesc", fa: "نام: ی ← الف", en: "Name: Z → A" },
+  { key: "favorite", labelKey: "sort_favorite_first", fa: "علاقه‌مندی‌ها اول", en: "Favorites first" },
+  { key: "newest", labelKey: "sort_newest", fa: "جدیدترین تاریخ", en: "Newest date" },
+  { key: "oldest", labelKey: "sort_oldest", fa: "قدیمی‌ترین تاریخ", en: "Oldest date" },
+  { key: "wordsDesc", labelKey: "sort_most_words", fa: "بیشترین تعداد کلمه", en: "Most words" },
+  { key: "wordsAsc", labelKey: "sort_fewest_words", fa: "کمترین تعداد کلمه", en: "Fewest words" },
+  { key: "nameAsc", labelKey: "sort_name_asc", fa: "نام: الف ← ی", en: "Name: A → Z" },
+  { key: "nameDesc", labelKey: "sort_name_desc", fa: "نام: ی ← الف", en: "Name: Z → A" },
 ];
 function getStoryWordCount(entry) {
   if (Array.isArray(entry?.ytLines)) {
@@ -66,11 +66,11 @@ export function sortSavedStories(list, sortKey) {
 // Use/اسلنگ/علاقه‌مندی‌ها) — این لغات تاریخِ ذخیره‌سازی ندارن (یه دیکشنریِ
 // ثابتن)، پس فقط بر اساسِ نام (الفبا) و سطحِ CEFR مرتب می‌شن.
 export const WORD_LIST_SORT_OPTIONS = [
-  { key: "default", fa: "پیش‌فرض", en: "Default" },
-  { key: "nameAsc", fa: "نام: الف ← ی", en: "Name: A → Z" },
-  { key: "nameDesc", fa: "نام: ی ← الف", en: "Name: Z → A" },
-  { key: "levelAsc", fa: "سطح: ساده ← سخت", en: "Level: easy → hard" },
-  { key: "levelDesc", fa: "سطح: سخت ← ساده", en: "Level: hard → easy" },
+  { key: "default", labelKey: "sort_default", fa: "پیش‌فرض", en: "Default" },
+  { key: "nameAsc", labelKey: "sort_name_asc", fa: "نام: الف ← ی", en: "Name: A → Z" },
+  { key: "nameDesc", labelKey: "sort_name_desc", fa: "نام: ی ← الف", en: "Name: Z → A" },
+  { key: "levelAsc", labelKey: "sort_level_asc", fa: "سطح: ساده ← سخت", en: "Level: easy → hard" },
+  { key: "levelDesc", labelKey: "sort_level_desc", fa: "سطح: سخت ← ساده", en: "Level: hard → easy" },
 ];
 const WORD_LIST_LEVEL_ORDER = { A1: 1, A2: 2, B1: 3, B2: 4, C1: 5, C2: 6 };
 export function sortWordListEntries(list, sortKey) {
@@ -94,10 +94,10 @@ export function sortWordListEntries(list, sortKey) {
 // بالا savedAt دارن (وقتی از پاپ‌آپِ لغت/داستان‌ساز ذخیره می‌شن)، پس
 // جدیدترین/قدیمی‌ترین هم به گزینه‌ها اضافه می‌شه.
 export const SAVED_WORDS_SORT_OPTIONS = [
-  { key: "newest", fa: "جدیدترین تاریخ", en: "Newest date" },
-  { key: "oldest", fa: "قدیمی‌ترین تاریخ", en: "Oldest date" },
-  { key: "nameAsc", fa: "نام: الف ← ی", en: "Name: A → Z" },
-  { key: "nameDesc", fa: "نام: ی ← الف", en: "Name: Z → A" },
+  { key: "newest", labelKey: "sort_newest", fa: "جدیدترین تاریخ", en: "Newest date" },
+  { key: "oldest", labelKey: "sort_oldest", fa: "قدیمی‌ترین تاریخ", en: "Oldest date" },
+  { key: "nameAsc", labelKey: "sort_name_asc", fa: "نام: الف ← ی", en: "Name: A → Z" },
+  { key: "nameDesc", labelKey: "sort_name_desc", fa: "نام: ی ← الف", en: "Name: Z → A" },
 ];
 export function sortSavedWordEntries(list, sortKey) {
   const arr = [...list];

@@ -3,7 +3,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Clock } from "lucide-react";
 import { colors } from "../../ui/theme.js";
-import { toFaDigits } from "../../utils/calendar.js";
+import { useTranslation } from "react-i18next";
+import { toLocalDigits } from "../../utils/calendar.js";
 import { speechController } from "../../speech/speechController.js";
 import { ClassicTriangleIcon } from "./playerButtons.jsx";
 import { TTS_MS_PER_CHAR } from "./PlayerProgress.jsx";
@@ -154,6 +155,8 @@ export function useHoldToSeek(onTap, onSeekStep, onHoldStart) {
 // SpeedControl/UserAudioSpeedControl (آیکون + دکمه‌ی −/+)، تا حسِ یه
 // کنترلِ جداگانه‌ی ناآشنا نده و پلیر شلوغ نشه.
 export function SeekAmountControl({ color }) {
+  const { t, i18n } = useTranslation();
+  const curLang = String(i18n.language || "fa").split("-")[0];
   const amount = useSeekAmount();
   const c = color || colors.gold;
   const idx = SEEK_AMOUNT_STEPS.indexOf(amount);
@@ -176,7 +179,7 @@ export function SeekAmountControl({ color }) {
   };
   return (
     <span
-      title={`مقدارِ پرشِ لمسِ طولانی: ${toFaDigits(String(amount))} ثانیه`}
+      title={t("player_seek_title", { n: toLocalDigits(String(amount), curLang) })}
       style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}
     >
       <Clock size={15} color={colors.inkSoft} />
@@ -185,19 +188,19 @@ export function SeekAmountControl({ color }) {
         onClick={() => stepSeekAmount(-1)}
         disabled={idx <= 0}
         style={{ ...btnStyle, opacity: idx <= 0 ? 0.4 : 1 }}
-        aria-label="کم‌کردنِ مقدارِ پرش"
+        aria-label={t("player_seek_down")}
       >
         −
       </button>
       <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap", minWidth: 24, textAlign: "center" }}>
-        {toFaDigits(String(amount))}ث
+        {t("player_seconds_short", { n: toLocalDigits(String(amount), curLang) })}
       </span>
       <button
         type="button"
         onClick={() => stepSeekAmount(1)}
         disabled={idx >= SEEK_AMOUNT_STEPS.length - 1}
         style={{ ...btnStyle, opacity: idx >= SEEK_AMOUNT_STEPS.length - 1 ? 0.4 : 1 }}
-        aria-label="زیادکردنِ مقدارِ پرش"
+        aria-label={t("player_seek_up")}
       >
         +
       </button>
@@ -211,6 +214,7 @@ export function SeekAmountControl({ color }) {
 // (تخمینی، بر اساسِ طولِ کاراکتریِ متن — دقیقاً همون منطقِ نوارِ پیشرفتِ
 // TTS پایین‌تر — چون پخشِ TTS زمانِ واقعیِ پیوسته نداره).
 export function ChunkNavButton({ direction, color }) {
+  const { t } = useTranslation();
   const [state, setState] = useState(() => speechController.getState());
   useEffect(() => speechController.subscribe(setState), []);
 
@@ -246,8 +250,8 @@ export function ChunkNavButton({ direction, color }) {
     <button
       {...holdHandlers}
       disabled={disabled}
-      aria-label={direction === "prev" ? "جمله‌ی قبل (نگه‌دار: چند ثانیه عقب)" : "جمله‌ی بعد (نگه‌دار: چند ثانیه جلو)"}
-      title={direction === "prev" ? "جمله‌ی قبل" : "جمله‌ی بعد"}
+      aria-label={direction === "prev" ? t("player_prev_sentence_hold") : t("player_next_sentence_hold")}
+      title={direction === "prev" ? t("player_prev_sentence") : t("player_next_sentence")}
       style={{
         background: "none",
         border: "none",

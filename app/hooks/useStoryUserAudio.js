@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { cancelSync, transcribeForSync, alignSentences, alignPartial, sentenceIndexAt, loadSyncTimes, saveSyncTimes, clearSyncTimes } from "../../audioSync.js";
 import { deleteStoryAudioRecord, getStoryAudioRecord, saveStoryAudioRecord } from "../storage/storyAudioDb.js";
 import { speechController } from "../speech/speechController.js";
+import { t as tStatic } from "../../i18nconfig.js";
 
 export function useStoryUserAudio(storyKey, allSentences) {
   const audioElRef = useRef(null);
@@ -307,7 +308,7 @@ export function useStoryUserAudio(storyKey, allSentences) {
     setAudioSaving(true);
     try {
       const ok = await saveStoryAudioRecord(storyKey, { blob: file, savedAt: Date.now() });
-      if (!ok) setAudioSaveError("ذخیره‌ی این فایلِ صوتی ناموفق بود — شاید حجمش زیاد بود؛ فایلِ کوچیک‌تری امتحان کن");
+      if (!ok) setAudioSaveError(tStatic("player_audio_save_failed"));
     } finally {
       setAudioSaving(false);
     }
@@ -420,7 +421,7 @@ export function useStoryUserAudio(storyKey, allSentences) {
       const { words, seconds } = await transcribeForSync(rec.blob, langCode, (p) => setSyncProgress({ ...p, live }), onPartial);
       const res = alignSentences(texts, words, seconds);
       if (!res.ok) {
-        setSyncError("متنِ داستان با صدا نخوند (فقط " + Math.round(res.coverage * 100) + "٪ تطبیق پیدا شد). مطمئن شو متن و صدا یکی هستن و زبانِ داستان درست انتخاب شده.");
+        setSyncError(tStatic("player_sync_coverage", { pct: Math.round(res.coverage * 100) }));
       } else {
         saveSyncTimes(storyKey, res.times);
         syncTimesRef.current = res.times;
@@ -433,10 +434,10 @@ export function useStoryUserAudio(storyKey, allSentences) {
     } catch (e) {
       const m = String((e && e.message) || e);
       if (m === "CANCELLED") { /* کاربر خودش لغو کرد */ }
-      else if (m === "NO_MODEL") setSyncError("اول بسته‌ی همگام‌سازی رو دانلود کن.");
+      else if (m === "NO_MODEL") setSyncError(tStatic("player_sync_need_pack"));
       else {
         try { console.warn("sync failed:", m); } catch {}
-        setSyncError("همگام‌سازی ناموفق بود. دوباره امتحان کن؛ اگه تکرار شد، یه فایلِ کوتاه‌تر یا حالتِ «سریع» رو امتحان کن.");
+        setSyncError(tStatic("player_sync_failed"));
       }
     } finally {
       // اگه کار کامل نشد (خطا/لغو/تطبیقِ ناکافی)، زمان‌های نیمه‌کاره رو کنار می‌ذاریم

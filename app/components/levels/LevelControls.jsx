@@ -1,6 +1,8 @@
 // انتخاب/نمایش/فیلتر سطح
 // بخشی از app.jsx قبلی — برای نگهداری‌پذیری به ماژولِ جدا منتقل شد (منطق دست‌نخورده).
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { LANG_DIR } from "../../../i18nconfig.js";
 import { LEVELS } from "../../constants/levels.js";
 import { colors, fontFa, fontLatin } from "../../ui/theme.js";
 import { setPersonalWordLevel } from "../../words/savedStoryWords.js";
@@ -85,12 +87,14 @@ export function LevelBadge({ level }) {
   );
 }
 export function LevelFilterRow({ levelFilter, setLevelFilter, uiLang }) {
+  const { t, i18n } = useTranslation();
+  const curLang = String(i18n.language || "fa").split("-")[0];
   return (
     <div className="flex gap-2 overflow-x-auto pb-1">
       <button
         onClick={() => setLevelFilter("all")}
         style={{
-          fontFamily: uiLang === "en" ? fontLatin : fontFa,
+          fontFamily: LANG_DIR[curLang] === "rtl" ? fontFa : fontLatin,
           fontSize: 13,
           fontWeight: 600,
           padding: "9px 16px",
@@ -101,7 +105,7 @@ export function LevelFilterRow({ levelFilter, setLevelFilter, uiLang }) {
           flexShrink: 0,
         }}
       >
-        {uiLang === "en" ? "All levels" : "همه سطح‌ها"}
+        {t("levels_all")}
       </button>
       {LEVELS.map((lvl) => (
         <button

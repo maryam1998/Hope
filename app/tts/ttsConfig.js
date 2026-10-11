@@ -1,13 +1,16 @@
 // تنظیمات و پیام‌های TTS، موتور صدا
 // بخشی از app.jsx قبلی — برای نگهداری‌پذیری به ماژولِ جدا منتقل شد (منطق دست‌نخورده).
-
+import { t as tStatic } from "../../i18nconfig.js";
 
 // پیامِ فارسی/عربی وقتی اینترنت نیست یا پخشِ آنلاین شکست خورد: راهِ حل = بسته‌ی آفلاین
-export const TTS_NEED_MODEL_MSG = "اینترنت در دسترس نیست — بسته‌ی صدا را از تنظیمات دانلود کن تا بدون اینترنت هم بخواند";
+// (حالا از locales خونده می‌شه و با زبانِ رابط عوض می‌شه)
+export function ttsNeedModelMsg() {
+  return tStatic("tts_need_model");
+}
 export function ttsFailMsg(code) {
   return code === "fa" || code === "ar"
-    ? TTS_NEED_MODEL_MSG
-    : "پخش صدا با مشکل مواجه شد — اتصال اینترنت رو چک کن";
+    ? ttsNeedModelMsg()
+    : tStatic("tts_fail");
 }
 // 🔊 انتخابِ صدای خوانش (فقط اپ اندروید): "model" = صدای اصلیِ اپ (پیش‌فرض)،
 // "phone" = TTS خودِ گوشی. توی localStorage نگه‌داشته می‌شه و با رویداد به UI خبر می‌دیم.

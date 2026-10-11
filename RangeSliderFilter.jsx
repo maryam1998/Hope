@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Plus, Minus } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { LANG_DIR } from "./i18nconfig.js";
 
 /**
  * RangeSliderFilter Component (نسخه‌ی ورودیِ عددی)
@@ -38,7 +40,10 @@ export default function RangeSliderFilter({
   uiLang = "fa",
   colors = {},
 }) {
-  const isRTL = uiLang === "fa";
+  const { t, i18n } = useTranslation();
+  const curLang = String(i18n.language || "fa").split("-")[0];
+  const isRTL = LANG_DIR[curLang] === "rtl";
+  const fmtN = (n) => Number(n).toLocaleString(curLang === "fa" ? "fa-IR" : "en-US");
 
   // مقادیرِ محلیِ درحالِ‌تایپ — تا وقتی commit نشده‌اند، به بیرون فرستاده نمی‌شوند
   const [fromText, setFromText] = useState(String(from));
@@ -150,14 +155,14 @@ export default function RangeSliderFilter({
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, color: colors.inkSoft || "#6B7280", fontWeight: 600 }}>
-            {isRTL ? "از" : "From"}
+            {t("range_from")}
           </span>
           <button
             type="button"
             onClick={handleMinusFrom}
             disabled={from <= min}
             style={iconBtnStyle(from <= min)}
-            title={uiLang === "en" ? "Decrease start" : "کاهش شروع"}
+            title={t("range_start_down")}
           >
             <Minus size={13} strokeWidth={2.5} />
           </button>
@@ -182,20 +187,20 @@ export default function RangeSliderFilter({
             onClick={handlePlusFrom}
             disabled={from >= to}
             style={iconBtnStyle(from >= to)}
-            title={uiLang === "en" ? "Increase start" : "افزایش شروع"}
+            title={t("range_start_up")}
           >
             <Plus size={13} strokeWidth={2.5} />
           </button>
 
           <span style={{ fontSize: 12, color: colors.inkSoft || "#6B7280", fontWeight: 600, marginInlineStart: 6 }}>
-            {isRTL ? "تا" : "To"}
+            {t("range_to")}
           </span>
           <button
             type="button"
             onClick={handleMinusTo}
             disabled={to <= from}
             style={iconBtnStyle(to <= from)}
-            title={uiLang === "en" ? "Decrease end" : "کاهش پایان"}
+            title={t("range_end_down")}
           >
             <Minus size={13} strokeWidth={2.5} />
           </button>
@@ -220,7 +225,7 @@ export default function RangeSliderFilter({
             onClick={handlePlusTo}
             disabled={to >= max}
             style={iconBtnStyle(to >= max)}
-            title={uiLang === "en" ? "Increase end" : "افزایش پایان"}
+            title={t("range_end_up")}
           >
             <Plus size={13} strokeWidth={2.5} />
           </button>
@@ -228,15 +233,7 @@ export default function RangeSliderFilter({
 
         {/* متن نمایش اعداد و "از مجموع" */}
         <div style={{ fontSize: 11, color: colors.inkSoft || "#6B7280", marginTop: 8, textAlign: isRTL ? "right" : "left" }}>
-          {isRTL ? (
-            <>
-              {from} تا {to} از مجموع {max.toLocaleString("fa-IR")}
-            </>
-          ) : (
-            <>
-              {from} to {to} of {max.toLocaleString("en-US")}
-            </>
-          )}
+          {t("range_summary", { from: String(from), to: String(to), total: fmtN(max) })}
         </div>
       </div>
 
@@ -263,15 +260,7 @@ export default function RangeSliderFilter({
         </div>
 
         <span style={{ fontSize: 11, color: colors.teal || "#0F7D5C", fontWeight: 700 }}>
-          {isRTL ? (
-            <>
-              خوانده‌شده: {readCount.toLocaleString("fa-IR")} از {totalInRange.toLocaleString("fa-IR")} در این بازه · {readCountTotal.toLocaleString("fa-IR")} از {max.toLocaleString("fa-IR")} کل
-            </>
-          ) : (
-            <>
-              Read: {readCount}/{totalInRange} in range · {readCountTotal}/{max} total
-            </>
-          )}
+          {t("range_read_progress", { read: fmtN(readCount), inRange: fmtN(totalInRange), readTotal: fmtN(readCountTotal), total: fmtN(max) })}
         </span>
       </div>
     </div>
