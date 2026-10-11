@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Loader2 } from "lucide-react";
+import { isNativeApp, fetchCaptionsOnDevice } from "./app/youtube/youtubeCaptionsNative.js";
 
 // -----------------------------------------------------------------------
 // تبِ «یوتیوب»: کاربر یه لینک ویدیوی یوتیوب می‌ده، خودِ ویدیو همین‌جا پخش
@@ -208,8 +209,16 @@ export default function YouTubeCaptionPanel({
     setCaptionsError("");
     setCues([]);
     setActiveIndex(-1);
-    fetch(`${backendUrl}/api/youtube-captions?videoId=${encodeURIComponent(videoId)}&lang=auto`)
-      .then((r) => r.json())
+    // اول روی خودِ دستگاه (فقط داخلِ اپِ نیتیو)؛ اگه نشد یا روی وب بودیم، Worker.
+    const viaWorker = () =>
+      fetch(`${backendUrl}/api/youtube-captions?videoId=${encodeURIComponent(videoId)}&lang=auto`).then((r) => r.json());
+    const load = isNativeApp()
+      ? fetchCaptionsOnDevice(videoId, "auto").catch((e) => {
+          if (e && e.noCaptions) return { ok: false, error: isFa ? "این ویدیو زیرنویس ندارد" : "This video has no captions" };
+          return viaWorker();
+        })
+      : viaWorker();
+    load
       .then((data) => {
         if (cancelled) return;
         if (!data?.ok || !Array.isArray(data.cues) || !data.cues.length) {
