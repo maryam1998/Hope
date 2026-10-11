@@ -1,4 +1,6 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
+import { uiLanguageName } from "../../constants/languages.js";
 import { Bookmark, Loader2, Plus, X } from "lucide-react";
 import { colors, fontFa, fontLatin } from "../../ui/theme.js";
 import { tr } from "../../ui/uiStrings.js";
@@ -25,6 +27,8 @@ export function StoryWordPicker({
   vocabQuery,
   wordTranslating,
 }) {
+  const { t, i18n } = useTranslation();
+  const curLang = String(i18n.language || "fa").split("-")[0];
   return (
       <div
         style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }}
@@ -38,11 +42,7 @@ export function StoryWordPicker({
             value={customWord}
             onChange={(e) => setCustomWord(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && !wordTranslating && addCustomWord()}
-            placeholder={
-              uiLang === "en"
-                ? `Type a word (in any language) — it'll be translated and added to ${storyLangLabel}...`
-                : `یه لغت بنویس (به هر زبونی) — به ${storyLangLabel} ترجمه و اضافه می‌شه...`
-            }
+            placeholder={t("story_word_input_placeholder", { lang: uiLanguageName(storyLang, curLang) })}
             dir="auto"
             disabled={wordTranslating}
             style={{
@@ -73,11 +73,7 @@ export function StoryWordPicker({
           value={vocabQuery}
           onChange={(e) => setVocabQuery(e.target.value)}
           onPaste={handleVocabPaste}
-          placeholder={
-            uiLang === "en"
-              ? "Or search vocab, daily dialogues, words & news, slang expressions, saved words..."
-              : "یا از دیکشنری من، دیالوگ‌های روزمره، لغات و اخبار، اصطلاحات عامیانه، لغات ذخیره‌شده جستجو کن..."
-          }
+          placeholder={t("story_vocab_search_placeholder")}
           style={{
             width: "100%",
             border: `1px solid ${colors.cardBorder}`,
@@ -117,7 +113,7 @@ export function StoryWordPicker({
               <button
                 key={`saved-${e.word}`}
                 onClick={() => toggleWord(e.word)}
-                title={uiLang === "en" ? "From saved words" : "از لغات ذخیره‌شده"}
+                title={t("story_from_saved_words")}
                 className="flex items-center gap-1"
                 style={{
                   padding: "5px 12px",
@@ -187,7 +183,7 @@ export function StoryWordPicker({
                   }}
                 >
                   {w}
-                  <button onClick={() => toggleWord(w)} aria-label={uiLang === "en" ? "Remove" : "حذف"}>
+                  <button onClick={() => toggleWord(w)} aria-label={t("story_remove")}>
                     <X size={12} />
                   </button>
                 </span>

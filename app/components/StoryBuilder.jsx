@@ -1,6 +1,7 @@
 // داستان‌ساز
 // بخشی از app.jsx قبلی — برای نگهداری‌پذیری به ماژولِ جدا منتقل شد (منطق دست‌نخورده).
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { Sparkles, Wand2, Library } from "lucide-react";
 import { VOCAB } from "../../VOCAB.js";
 import { recordNeuralRepeat, addNeuralFiber } from "../../NeuralPath.jsx";
@@ -42,6 +43,7 @@ import { useImportYtSaved, createSaveCurrentStory, createSavePdfToStories } from
 import { createRetranslateStoryParagraph, createRetranslateStorySentence } from "../story/storyTranslationHandlers.js";
 
 export function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerOrder, setLangPickerOrder, wordStats, setWordStats, savedStories, setSavedStories, aiSettings, jumpTo, onFullTextChange, onUserAudioStateChange, autoScrollActive, calendarSystem, highlightColor, uid, uiLang }) {
+  const { t: tUi } = useTranslation();
   // Story language & translation languages are driven by whatever the user
   // already picked at the top of the app (native language + target
   // languages) — no separate picker duplicated here.
@@ -1738,9 +1740,7 @@ export function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerO
         <div className="mb-3" style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12, backgroundColor: colors.paper }}>
           <div className="flex items-center justify-between mb-2">
             <p style={{ fontSize: 12, color: colors.inkSoft }}>
-              {uiLang === "en"
-                ? "Translate the story into which languages at once? (You can pick several — hold and drag to reorder)"
-                : "داستان همزمان به چه زبان‌هایی ترجمه بشه؟ (می‌تونی چند تا انتخاب کنی — برای جابه‌جاییِ ترتیب، نگه‌دار و بکش)"}
+              {tUi("story_translate_langs_question")}
             </p>
             <div className="flex gap-2">
               <button onClick={selectAllTranslationLangs} style={{ fontSize: 11, color: colors.teal, textDecoration: "underline" }}>
@@ -1782,7 +1782,7 @@ export function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerO
         }}
       >
         <Sparkles size={18} />
-        {uiLang === "en" ? (generating ? "Generating story..." : "Generate story") : (generating ? "در حال ساخت داستان..." : "بساز داستان")}
+        {generating ? tUi("story_generating_btn") : tUi("story_generate_btn")}
       </button>
 
       <StoryReadingImportPanel
@@ -1860,7 +1860,7 @@ export function StoryBuilder({ nativeLang, nativeLabel, targetOrder, langPickerO
               opacity: generating ? 0.6 : 1,
             }}
           >
-            {uiLang === "en" ? "Try again" : "تلاش دوباره"}
+            {tUi("story_try_again")}
           </button>
         </div>
       )}

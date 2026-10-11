@@ -2,7 +2,7 @@
 // بخشی از app.jsx قبلی — برای نگهداری‌پذیری به ماژولِ جدا منتقل شد (منطق دست‌نخورده).
 
 
-import i18n from "../../i18nconfig.js";
+import i18n, { SUPPORTED_LANGS } from "../../i18nconfig.js";
 
 // کلیدهای قدیمیِ tr() که حالا از locales خونده می‌شن (کلیدهای snake_case).
 const LOCALE_BACKED_KEYS = {
@@ -20,6 +20,26 @@ const LOCALE_BACKED_KEYS = {
   groupStory: "group_story",
   groupWords: "group_words",
   groupPractice: "group_practice",
+  // تبِ داستان (فرمِ «ساخت داستان» + ابزارِ SRT)
+  storyLangLevelSection: "story_lang_level_section",
+  storyWordsSection: "story_words_section",
+  storyLevelLabel: "story_level_label",
+  storyContentTypeLabel: "story_content_type_label",
+  storyLengthLabel: "story_length_label",
+  storyModeCreate: "story_mode_create",
+  storyModeLibrary: "story_mode_library",
+  srtToolTitle: "srt_tool_title",
+  srtToolDesc: "srt_tool_desc",
+  srtToolChooseFile: "srt_tool_choose_file",
+  srtToolLinesCount: "srt_tool_lines_count",
+  srtToolTranslate: "srt_tool_translate",
+  srtToolStop: "srt_tool_stop",
+  srtToolDownload: "srt_tool_download",
+  srtToolErrEmptyFile: "srt_tool_err_empty_file",
+  srtToolErrParse: "srt_tool_err_parse",
+  srtToolErrRead: "srt_tool_err_read",
+  selectAll: "select_all",
+  clearAllWords: "clear_all_words",
 };
 
 // Small translation dictionary for the app's own interface strings.
@@ -176,7 +196,13 @@ export function tr(key, uiLang) {
   // نام تب‌ها و گروه‌ها از locales/<lang>.json می‌آد (همه‌ی ۶ زبان)؛
   // اگه ترجمه‌ای نبود، i18n خودش به انگلیسی برمی‌گرده.
   const localeKey = LOCALE_BACKED_KEYS[key];
-  if (localeKey) return i18n.getFixedT(uiLang || "fa")(localeKey);
+  if (localeKey) {
+    // بعضی صفحه‌ها uiLang رو فقط fa/en می‌گیرن (بقیه‌ی زبان‌ها → en)؛ زبانِ واقعیِ رابط از i18n خونده می‌شه.
+    const cur = String(i18n.language || "").split("-")[0];
+    const lng = SUPPORTED_LANGS.includes(cur) ? cur : uiLang || "fa";
+    // {n} و {name} رو trf جای‌گذاری می‌کنه، نه i18next.
+    return i18n.getFixedT(lng)(localeKey, { skipInterpolation: true });
+  }
   const entry = UI_STRINGS[key];
   if (!entry) return key;
   return entry[uiLang] || entry.en || entry.fa;

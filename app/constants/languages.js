@@ -106,6 +106,17 @@ export const ENGLISH_LANG_NAME = {
 export function englishLangName(code) {
   return ENGLISH_LANG_NAME[code] || code;
 }
+// نامِ زبان به زبانِ رابطِ اپ (fa/en/de/es/fr/ar) — برای آلمانی/اسپانیایی/فرانسوی/عربی از Intl.DisplayNames
+// استفاده می‌شه و اگه در دسترس نبود، نامِ انگلیسی برمی‌گرده.
+export function uiLanguageName(code, uiLang) {
+  if (uiLang === "fa") return LANGUAGES.find((l) => l.code === code)?.label || code;
+  if (uiLang === "en") return englishLangName(code);
+  try {
+    const n = new Intl.DisplayNames([uiLang], { type: "language" }).of(code);
+    if (n && n !== code) return n.charAt(0).toLocaleUpperCase(uiLang) + n.slice(1);
+  } catch (e) {}
+  return englishLangName(code);
+}
 // نگاشتِ کدِ زبونِ خودِ برنامه (LANGUAGES) به کدِ زبونِ موردِ انتظارِ
 // Tesseract.js (برای «خوندن/ترجمه‌ی متنِ عکس») — این کتابخونه از کدهای
 // سه‌حرفیِ traineddata استفاده می‌کنه، نه از کدهای دوحرفیِ خودِ برنامه.

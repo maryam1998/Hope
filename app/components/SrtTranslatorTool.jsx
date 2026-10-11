@@ -1,9 +1,10 @@
 // ابزار ترجمه‌ی SRT
 // بخشی از app.jsx قبلی — برای نگهداری‌پذیری به ماژولِ جدا منتقل شد (منطق دست‌نخورده).
 import React, { useState, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { parseSRT, serializeSRT } from "../srt/srtUtils.js";
-import { LANGUAGES, englishLangName } from "../constants/languages.js";
+import { LANGUAGES, uiLanguageName } from "../constants/languages.js";
 import { colors, fontFa, fontLatin } from "../ui/theme.js";
 import { tr, trf } from "../ui/uiStrings.js";
 import { toFaDigits } from "../utils/calendar.js";
@@ -13,6 +14,8 @@ import { translateFree } from "../translate/translateService.js";
 // کامپوننتِ ابزارِ SRT — کاملاً مستقل از داستانِ فعلی؛ فقط داخلِ تبِ
 // داستان‌ساز به‌عنوانِ یه پنلِ جمع‌شدنی نشون داده می‌شه.
 export function SrtTranslatorTool({ nativeLang, targetOrder, aiSettings, uiLang }) {
+  const { i18n: uiI18n } = useTranslation();
+  const curLang = String(uiI18n.language || "fa").split("-")[0];
   const [open, setOpen] = useState(false);
   const [fileName, setFileName] = useState("");
   const [entries, setEntries] = useState([]); // [{index,start,end,text}]
@@ -137,7 +140,7 @@ export function SrtTranslatorTool({ nativeLang, targetOrder, aiSettings, uiLang 
                 style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${colors.cardBorder}`, background: "white", fontSize: 13, fontFamily: uiLang === "en" ? fontLatin : fontFa }}
               >
                 {langOptions.map((l) => (
-                  <option key={l.code} value={l.code}>{uiLang === "en" ? englishLangName(l.code) : l.label}</option>
+                  <option key={l.code} value={l.code}>{uiLanguageName(l.code, curLang)}</option>
                 ))}
               </select>
 

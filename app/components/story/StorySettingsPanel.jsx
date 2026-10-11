@@ -1,6 +1,7 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { CONTENT_TYPES, STORY_LENGTHS } from "../../story/storyText.js";
-import { LANGUAGES, englishLangName } from "../../constants/languages.js";
+import { uiLanguageName } from "../../constants/languages.js";
 import { LEVELS } from "../../constants/levels.js";
 import { colors, fontFa, fontLatin } from "../../ui/theme.js";
 import { tr } from "../../ui/uiStrings.js";
@@ -18,6 +19,8 @@ export function StorySettingsPanel({
   storyLevel,
   uiLang,
 }) {
+  const { t, i18n } = useTranslation();
+  const curLang = String(i18n.language || "fa").split("-")[0];
   return (
       <div
         style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }}
@@ -26,9 +29,7 @@ export function StorySettingsPanel({
         {storyLangOptions.length > 1 ? (
           <>
             <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>
-              {uiLang === "en"
-                ? "Story language (from the target languages picked above)"
-                : "زبان داستان (از بین زبان‌های مقصدی که بالای صفحه انتخاب کردی)"}
+              {t("story_lang_pick_hint")}
             </p>
             <div className="flex flex-wrap gap-2 mb-3">
               {storyLangOptions.map((code) => (
@@ -44,16 +45,14 @@ export function StorySettingsPanel({
                     color: colors.ink,
                   }}
                 >
-                  {uiLang === "en" ? englishLangName(code) : LANGUAGES.find((l) => l.code === code)?.label}
+                  {uiLanguageName(code, curLang)}
                 </button>
               ))}
             </div>
           </>
         ) : (
           <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 10 }}>
-            {uiLang === "en"
-              ? `Story language: ${englishLangName(storyLang)} (based on the target language picked above)`
-              : `زبان داستان: ${storyLangLabel} (طبق زبان مقصدی که بالای صفحه انتخاب کردی)`}
+            {t("story_lang_single_note", { lang: uiLanguageName(storyLang, curLang) })}
           </p>
         )}
         <p style={{ fontSize: 12, color: colors.inkSoft, margin: "0 0 6px", fontFamily: uiLang === "en" ? fontLatin : fontFa }}>{tr("storyLevelLabel", uiLang)}</p>
@@ -91,7 +90,7 @@ export function StorySettingsPanel({
                 color: contentType === c.key ? "white" : colors.ink,
               }}
             >
-              {uiLang === "en" ? c.labelEn : c.label}
+              {t(`story_content_${c.key}`)}
             </button>
           ))}
         </div>
@@ -111,7 +110,7 @@ export function StorySettingsPanel({
                 color: storyLength === l.key ? "white" : colors.ink,
               }}
             >
-              {uiLang === "en" ? l.labelEn : l.label}
+              {t(`story_length_${l.key}`)}
             </button>
           ))}
         </div>
