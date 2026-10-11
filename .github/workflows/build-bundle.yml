@@ -17,6 +17,8 @@ on:
       - "app.jsx"
       - "app/**"
       - "src/**"
+      - "locales/**"
+      - "i18nconfig.js"
       - "package.json"
       - ".github/workflows/build-bundle.yml"
       - "SpeakingPractice.jsx"
