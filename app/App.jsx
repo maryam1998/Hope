@@ -9,6 +9,7 @@ import { APP_FONTS, APP_FONT_SIZES, APP_THEMES, colors, hexToRgba } from "./ui/t
 import { SHOW_CUSTOM_BG_OPTIONS, loadAppPrefs, saveAppPrefs } from "./prefs/appPrefs.js";
 import { PhrasebookMain } from "./components/PhrasebookMain.jsx";
 import { LoginScreen } from "./components/LoginScreen.jsx";
+import i18n from "../i18nconfig.js";
 
 // -----------------------------------------------------------------------------
 // Top-level export: gates the whole app behind login/signup, and remounts
@@ -21,6 +22,11 @@ export default function App() {
   const [appPrefs, setAppPrefs] = useState(loadAppPrefs);
 
   useEffect(() => saveAppPrefs(appPrefs), [appPrefs]);
+
+  // زبانِ سیستمِ چندزبانه (react-i18next) همیشه با زبانِ رابطِ ذخیره‌شده یکی بمونه.
+  useEffect(() => {
+    if (appPrefs.uiLang && i18n.language !== appPrefs.uiLang) i18n.changeLanguage(appPrefs.uiLang);
+  }, [appPrefs.uiLang]);
 
   // پس‌زمینه‌ی سفارشی — عکسِ خودِ کاربر از IndexedDB خونده می‌شه و به یه
   // object URL تبدیل می‌شه. customBgVersion فقط یه شمارنده‌ست: هر وقت از

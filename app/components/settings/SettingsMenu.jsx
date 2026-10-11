@@ -5,7 +5,7 @@ import { X, BookOpen, LogOut, Loader2, ChevronUp, ChevronDown, Menu, Palette, Ty
 import { LINGOVA_CHARACTERS, LINGOVA_CHARACTER_KEYS } from "../../../LINGOVA_CHARACTERS.js";
 import { CUSTOM_BG_ALLOWED_TYPES, deleteCustomBackground, getCustomBackground, saveCustomBackground } from "../../storage/customBackgroundDb.js";
 import { APP_FONTS, APP_FONT_SIZES, APP_LANGUAGES, APP_THEMES, HIGHLIGHT_COLOR_PALETTE, colors, fontFa, fontLatin, swatchButtonStyle } from "../../ui/theme.js";
-import { tr } from "../../ui/uiStrings.js";
+import { useTranslation } from "react-i18next";
 import { PRIMARY_TAB_DEFAULT, SECONDARY_TAB_DEFAULT, SHOW_CUSTOM_BG_OPTIONS, SHOW_MASCOT_CHARACTER_OPTIONS, SHOW_MASCOT_OUTFIT_OPTIONS, SHOW_TAB_ORDER_OPTIONS, TAB_META, normalizeTabOrder } from "../../prefs/appPrefs.js";
 import { loadTargetTextPrefs, saveTargetTextPrefs } from "../../prefs/textPrefs.js";
 import { LINGOVA_OUTFITS, LINGOVA_OUTFIT_KEYS, resetLingovaMascotPosition } from "../../mascot/lingovaConfig.js";
@@ -14,7 +14,21 @@ import { OfflineSpeechModelSettings, SongSttSettings, ensureOfflineSpeechModel }
 import { AudioSyncSettings } from "./AudioSyncSettings.jsx";
 import { OfflineTtsModelSettings, VoiceEngineSettings } from "./VoiceSettings.jsx";
 
+const TAB_LABEL_KEYS = {
+  tabConversations: "tab_conversations",
+  tabStory: "tab_story",
+  tabSaved: "tab_saved",
+  tabGrammar: "tab_grammar",
+  tabWords: "tab_words",
+  tabFavorites: "tab_favorites",
+  tabVocabInUse: "tab_vocab_in_use",
+  tabSlang: "tab_slang",
+  tabReview: "tab_review",
+  tabSpeaking: "tab_speaking",
+};
+
 export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings, onCustomBgChange, targetOrder }) {
+  const { t } = useTranslation();
   const [offlineModalOpen, setOfflineModalOpen] = useState(false);
   // زبان صدای ورودی برای ترجمه‌ی زنده (روی گوشی ذخیره می‌شه). پیش‌فرض: انگلیسی
   const [liveSrcLang, setLiveSrcLang] = useState(() => {
@@ -138,19 +152,19 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
     setBgError("");
     const looksLikeAllowedExt = /\.(jpe?g|png|gif)$/i.test(file.name || "");
     if (!CUSTOM_BG_ALLOWED_TYPES.includes(file.type) && !looksLikeAllowedExt) {
-      setBgError(uiLang === "en" ? "Only JPG, PNG, and GIF images are supported." : "فقط فرمت‌هایِ JPG، PNG و GIF پشتیبانی می‌شن.");
+      setBgError(t("settings_bg_error_format"));
       return;
     }
     const MAX_BYTES = 12 * 1024 * 1024;
     if (file.size > MAX_BYTES) {
-      setBgError(uiLang === "en" ? "This image is too large (max 12MB)." : "حجمِ این عکس زیاده (حداکثر ۱۲ مگابایت).");
+      setBgError(t("settings_bg_error_too_large"));
       return;
     }
     setBgBusy(true);
     const ok = await saveCustomBackground(file, file.type);
     setBgBusy(false);
     if (!ok) {
-      setBgError(uiLang === "en" ? "Couldn't save the image — try a smaller file." : "ذخیره‌ی عکس ناموفق بود — یه فایلِ کوچیک‌تر امتحان کن.");
+      setBgError(t("settings_bg_error_save_failed"));
       return;
     }
     setBgPreviewUrl((prev) => {
@@ -177,8 +191,8 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
     <div style={{ position: "relative" }} ref={panelRef}>
       <button
         onClick={() => setOpen((v) => !v)}
-        aria-label={tr("settingsTitle", uiLang)}
-        title={tr("settingsTitle", uiLang)}
+        aria-label={t("settings_title")}
+        title={t("settings_title")}
         style={{ color: colors.goldSoft, display: "flex" }}
       >
         <Menu size={20} />
@@ -205,7 +219,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           }}
         >
           {/* Account */}
-          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>{tr("account", uiLang)}</p>
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>{t("settings_account")}</p>
           <div className="flex items-center gap-2" style={{ marginBottom: 14 }}>
             {user?.picture ? (
               <img src={user.picture} alt="" style={{ width: 30, height: 30, borderRadius: "50%" }} />
@@ -215,7 +229,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               </div>
             )}
             <div style={{ minWidth: 0 }}>
-              <p style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user?.name || tr("guestUser", uiLang)}</p>
+              <p style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user?.name || t("settings_guest_user")}</p>
               <p style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user?.email}</p>
             </div>
           </div>
@@ -224,12 +238,12 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
             className="flex items-center gap-2"
             style={{ fontSize: 12, color: colors.rose, marginBottom: 16 }}
           >
-            <LogOut size={14} /> {tr("logout", uiLang)}
+            <LogOut size={14} /> {t("settings_logout")}
           </button>
 
           {/* Software language */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-            <Globe size={14} /> {tr("languageSectionTitle", uiLang)}
+            <Globe size={14} /> {t("settings_language_title")}
           </p>
           <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
             {Object.entries(APP_LANGUAGES).map(([key, l]) => (
@@ -253,7 +267,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
 
           {/* Theme */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-            <Palette size={14} /> {tr("themeSectionTitle", uiLang)}
+            <Palette size={14} /> {t("settings_theme_title")}
           </p>
           <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
             {Object.entries(APP_THEMES).map(([key, th]) => (
@@ -271,7 +285,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           <>
           {/* Custom background */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-            <span>🖼️</span> {uiLang === "en" ? "Custom background" : "پس‌زمینه‌ی سفارشی"}
+            <span>🖼️</span> {t("settings_custom_bg_title")}
           </p>
           <div style={{ marginBottom: 16 }}>
             <input
@@ -313,8 +327,8 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               >
                 {bgBusy && <Loader2 size={12} className="spin" />}
                 {bgPreviewUrl
-                  ? (uiLang === "en" ? "Change photo" : "تغییرِ عکس")
-                  : (uiLang === "en" ? "Upload photo" : "آپلودِ عکس")}
+                  ? (t("settings_bg_change_photo"))
+                  : (t("settings_bg_upload_photo"))}
               </button>
               {bgPreviewUrl && (
                 <button
@@ -330,7 +344,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                     opacity: bgBusy ? 0.6 : 1,
                   }}
                 >
-                  {uiLang === "en" ? "Remove" : "حذف"}
+                  {t("settings_bg_remove")}
                 </button>
               )}
             </div>
@@ -341,13 +355,13 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                   checked={!!appPrefs.customBgEnabled}
                   onChange={(e) => update("customBgEnabled", e.target.checked)}
                 />
-                {uiLang === "en" ? "Show this background" : "این پس‌زمینه نمایش داده بشه"}
+                {t("settings_bg_show")}
               </label>
             )}
             {bgPreviewUrl && appPrefs.customBgEnabled && (
               <div>
                 <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 4 }}>
-                  {uiLang === "en" ? "Photo visibility" : "میزانِ نمایانیِ عکس"}
+                  {t("settings_bg_visibility")}
                 </p>
                 <input
                   type="range"
@@ -361,7 +375,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
             )}
             {bgError && <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{bgError}</p>}
             <p style={{ fontSize: 10.5, color: colors.inkSoft, marginTop: 6, opacity: 0.85 }}>
-              {uiLang === "en" ? "JPG, PNG, and GIF are supported." : "فرمت‌هایِ JPG، PNG و GIF پشتیبانی می‌شن."}
+              {t("settings_bg_formats_hint")}
             </p>
           </div>
           </>
@@ -369,7 +383,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
 
           {/* Font family */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-            <Type size={14} /> {tr("fontSectionTitle", uiLang)}
+            <Type size={14} /> {t("settings_font_title")}
           </p>
           <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
             {Object.entries(APP_FONTS).map(([key, f]) => (
@@ -391,7 +405,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           </div>
 
           {/* Font size */}
-          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>{tr("fontSizeTitle", uiLang)}</p>
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>{t("settings_font_size_title")}</p>
           <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
             {Object.entries(APP_FONT_SIZES).map(([key, s]) => (
               <button
@@ -417,7 +431,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               روزمره، لغات، و…) اثر می‌ذاره. با یه نوارِ پیمایشِ ساده
               (کم/زیاد) به‌جای دکمه‌های ثابت. */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-            <Type size={14} /> {uiLang === "en" ? "Target-language font size" : "اندازه‌ی فونتِ زبان‌های مقصد"}
+            <Type size={14} /> {t("settings_target_font_size")}
           </p>
           <div className="flex items-center gap-3" style={{ marginBottom: 16 }}>
             <button
@@ -432,7 +446,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                 fontWeight: 700,
                 flexShrink: 0,
               }}
-              aria-label={uiLang === "en" ? "Decrease" : "کم کردن"}
+              aria-label={t("settings_decrease")}
             >
               −
             </button>
@@ -457,7 +471,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                 fontWeight: 700,
                 flexShrink: 0,
               }}
-              aria-label={uiLang === "en" ? "Increase" : "زیاد کردن"}
+              aria-label={t("settings_increase")}
             >
               +
             </button>
@@ -470,14 +484,14 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               (زبانی که یاد می‌گیره)، فقط رویِ «ترجمه»، هر دو، یا هیچ‌کدوم
               اعمال بشه. */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
-            {uiLang === "en" ? "Bold target text" : "بولدشدنِ متنِ زبانِ مقصد"}
+            {t("settings_bold_target_title")}
           </p>
           <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
             {[
-              ["none", uiLang === "en" ? "None" : "هیچ‌کدام"],
-              ["text", uiLang === "en" ? "Original text" : "متن اصلی"],
-              ["translation", uiLang === "en" ? "Translation" : "ترجمه"],
-              ["both", uiLang === "en" ? "Both" : "هر دو (متن و ترجمه)"],
+              ["none", t("settings_bold_none")],
+              ["text", t("settings_bold_original")],
+              ["translation", t("settings_bold_translation")],
+              ["both", t("settings_bold_both")],
             ].map(([key, label]) => (
               <button
                 key={key}
@@ -500,13 +514,13 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
 
           {/* Calendar system for saved-story dates */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-            📅 {tr("calendarSectionTitle", uiLang)}
+            📅 {t("settings_calendar_title")}
           </p>
           <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
             {[
-              ["gregorian", "calendarGregorian"],
-              ["jalali", "calendarJalali"],
-              ["both", "calendarBoth"],
+              ["gregorian", "settings_calendar_gregorian"],
+              ["jalali", "settings_calendar_jalali"],
+              ["both", "settings_calendar_both"],
             ].map(([key, labelKey]) => (
               <button
                 key={key}
@@ -521,7 +535,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                   color: colors.ink,
                 }}
               >
-                {tr(labelKey, uiLang)}
+                {t(labelKey)}
               </button>
             ))}
           </div>
@@ -530,10 +544,10 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           <>
           {/* شخصی‌سازیِ ترتیبِ تب‌ها — جابجایی فقط داخلِ هر گروه */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
-            <Layers size={14} /> {tr("tabsCustomizeTitle", uiLang)}
+            <Layers size={14} /> {t("settings_tabs_customize_title")}
           </p>
-          <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 8 }}>{tr("tabsCustomizeHint", uiLang)}</p>
-          {[["primary", "tabsGroupHeader", PRIMARY_TAB_DEFAULT], ["secondary", "tabsGroupBar", SECONDARY_TAB_DEFAULT]].map(([group, titleKey, defaults]) => {
+          <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 8 }}>{t("settings_tabs_customize_hint")}</p>
+          {[["primary", "settings_tabs_group_header", PRIMARY_TAB_DEFAULT], ["secondary", "settings_tabs_group_bar", SECONDARY_TAB_DEFAULT]].map(([group, titleKey, defaults]) => {
             const order = normalizeTabOrder(appPrefs.tabOrder)[group];
             const move = (idx, dir) => {
               const j = idx + dir;
@@ -544,7 +558,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
             };
             return (
               <div key={group} style={{ marginBottom: 10 }}>
-                <p style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>{tr(titleKey, uiLang)}</p>
+                <p style={{ fontSize: 11, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>{t(titleKey)}</p>
                 <div className="flex flex-col gap-1">
                   {order.map((key, idx) => {
                     const meta = TAB_META[key];
@@ -556,13 +570,13 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                     return (
                       <div key={key} className="flex items-center justify-between" style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: "4px 8px", backgroundColor: "white" }}>
                         <span className="flex items-center gap-2" style={{ fontSize: 12, color: colors.ink }}>
-                          <Icon size={14} /> {tr(meta.labelKey, uiLang)}
+                          <Icon size={14} /> {t(TAB_LABEL_KEYS[meta.labelKey])}
                         </span>
                         <span className="flex gap-1">
-                          <button onClick={() => move(idx, -1)} disabled={idx === 0} aria-label={tr("tabsMoveUp", uiLang)} title={tr("tabsMoveUp", uiLang)} style={arrowStyle(idx === 0)}>
+                          <button onClick={() => move(idx, -1)} disabled={idx === 0} aria-label={t("settings_tabs_move_up")} title={t("settings_tabs_move_up")} style={arrowStyle(idx === 0)}>
                             <ChevronUp size={14} />
                           </button>
-                          <button onClick={() => move(idx, 1)} disabled={idx === order.length - 1} aria-label={tr("tabsMoveDown", uiLang)} title={tr("tabsMoveDown", uiLang)} style={arrowStyle(idx === order.length - 1)}>
+                          <button onClick={() => move(idx, 1)} disabled={idx === order.length - 1} aria-label={t("settings_tabs_move_down")} title={t("settings_tabs_move_down")} style={arrowStyle(idx === order.length - 1)}>
                             <ChevronDown size={14} />
                           </button>
                         </span>
@@ -577,7 +591,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
             onClick={() => update("tabOrder", normalizeTabOrder(null))}
             style={{ fontSize: 12, padding: "5px 14px", borderRadius: 20, border: `1px solid ${colors.cardBorder}`, backgroundColor: "white", color: colors.ink, marginBottom: 16 }}
           >
-            {tr("tabsResetOrder", uiLang)}
+            {t("settings_tabs_reset_order")}
           </button>
           </>
           )}
@@ -587,7 +601,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               رنگ‌های کم‌رنگ/بی‌حال (نه تند)، چون رنگ‌های پررنگ روی متنِ
               تیره خوندن رو خسته‌کننده می‌کنه. */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
-            {uiLang === "en" ? "Read-aloud highlight color" : "رنگ هایلایتِ خواندن"}
+            {t("settings_highlight_color_title")}
           </p>
           <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
             {/* گزینه‌ی «بدون هایلایت»: کاربر می‌تونه انتخاب کنه که موقعِ
@@ -596,7 +610,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
             <button
               onClick={() => update("highlightColor", "none")}
               aria-pressed={appPrefs.highlightColor === "none"}
-              title={uiLang === "en" ? "No highlight" : "بدون هایلایت"}
+              title={t("settings_highlight_none")}
               style={swatchButtonStyle("white", appPrefs.highlightColor === "none", 30)}
             >
               <X size={14} color={colors.inkSoft} />
@@ -623,13 +637,13 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               LingovaMascot). با زدنِ روی هرکدوم، همون لحظه در LingovaMascot
               اعمال می‌شه (mascotCharacter از appPrefs میاد). */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
-            {uiLang === "en" ? "Mascot character" : "کاراکترِ آدمک"}
+            {t("settings_mascot_character_title")}
           </p>
           <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
             {LINGOVA_CHARACTER_KEYS.map((key) => {
               const selected = (appPrefs.mascotCharacter || "classic") === key;
               const isClassic = key === "classic";
-              const label = isClassic ? (uiLang === "en" ? "Classic" : "کلاسیک") : LINGOVA_CHARACTERS[key].label;
+              const label = isClassic ? (t("settings_mascot_classic")) : LINGOVA_CHARACTERS[key].label;
               return (
                 <button
                   key={key}
@@ -678,7 +692,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           {SHOW_MASCOT_OUTFIT_OPTIONS && (appPrefs.mascotCharacter || "classic") === "classic" && (
           <>
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
-            {uiLang === "en" ? "Mascot outfit" : "لباسِ آدمک"}
+            {t("settings_mascot_outfit_title")}
           </p>
           <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
             {LINGOVA_OUTFIT_KEYS.map((key) => {
@@ -687,9 +701,9 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               const pantsPreview = outfit.pants || colors.ink;
               const selected = (appPrefs.mascotOutfit || "classic") === key;
               const outfitLabelKeys = {
-                classic: uiLang === "en" ? "Classic" : "کلاسیک",
-                scout: uiLang === "en" ? "Scout" : "کاوشگر",
-                royal: uiLang === "en" ? "Royal" : "درباری",
+                classic: t("settings_mascot_classic"),
+                scout: t("settings_outfit_scout"),
+                royal: t("settings_outfit_royal"),
               };
               return (
                 <button
@@ -725,12 +739,12 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               نمی‌کنه، با یه ترنزیشنِ نرمِ opacity محو می‌شه (به همین دلیل
               تویِ LingovaMascot با opacity کنترل می‌شه نه رندرِ شرطی). */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
-            {uiLang === "en" ? "Walking mascot" : "آدمکِ متحرک"}
+            {t("settings_mascot_walking_title")}
           </p>
           <div className="flex gap-2" style={{ marginBottom: 16 }}>
             {[
-              { key: true, labelFa: "نمایش داده بشه", labelEn: "Show" },
-              { key: false, labelFa: "محو بشه", labelEn: "Fade out" },
+              { key: true, labelKey: "settings_mascot_visible_show" },
+              { key: false, labelKey: "settings_mascot_visible_fade" },
             ].map((opt) => {
               const selected = (appPrefs.mascotEnabled !== false) === opt.key;
               return (
@@ -748,7 +762,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                     color: colors.ink,
                   }}
                 >
-                  {uiLang === "en" ? opt.labelEn : opt.labelFa}
+                  {t(opt.labelKey)}
                 </button>
               );
             })}
@@ -756,11 +770,11 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           <button
             onClick={() => {
               resetLingovaMascotPosition();
-              try { alert(uiLang === "en" ? "The mascot is back in its original place" : "آدمک به جای اولش برگشت"); } catch (e) {}
+              try { alert(t("settings_mascot_reset_done")); } catch (e) {}
             }}
             style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, backgroundColor: "white", borderRadius: 12, padding: "8px 14px", marginTop: -4, marginBottom: 16 }}
           >
-            ↺ {uiLang === "en" ? "Reset mascot position" : "ریست مکان آدمک (برگشت به نوار بالا)"}
+            ↺ {t("settings_mascot_reset_button")}
           </button>
 
           {/* «زبان‌های خواندن با صدای بلند» (پنلِ نصب بسته‌ی زبان) از تنظیمات
@@ -775,13 +789,13 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           {/* 🫧 دکمه‌های شناور (اندروید): انتخابِ نوع + رنگ + ذره‌بین + ترجمه‌ی زنده‌ی صدا + زیرنویس زنده‌ی یوتیوب — همه در یک کادر */}
           <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: "12px 12px 4px", margin: "10px 0 14px", backgroundColor: "rgba(255,255,255,0.45)" }}>
           <p style={{ fontSize: 14, fontWeight: 800, color: colors.ink, marginBottom: 8 }}>
-            🫧 {uiLang === "en" ? "Floating buttons (Android)" : "دکمه‌های شناور (اندروید)"}
+            🫧 {t("settings_floating_title")}
           </p>
           <div className="flex gap-2" style={{ marginBottom: 12, flexWrap: "wrap" }}>
             {[
-              { key: "magnifier", labelFa: "🔍 ذره‌بین", labelEn: "🔍 Magnifier" },
-              { key: "live", labelFa: "🎙 ترجمه‌ی زنده", labelEn: "🎙 Live translation" },
-              { key: "both", labelFa: "هر دو", labelEn: "Both" },
+              { key: "magnifier", labelKey: "settings_bubble_kind_magnifier" },
+              { key: "live", labelKey: "settings_bubble_kind_live" },
+              { key: "both", labelKey: "settings_bubble_kind_both" },
             ].map((opt) => {
               const selected = bubbleKind === opt.key;
               return (
@@ -799,7 +813,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                     color: colors.ink,
                   }}
                 >
-                  {uiLang === "en" ? opt.labelEn : opt.labelFa}
+                  {t(opt.labelKey)}
                 </button>
               );
             })}
@@ -807,7 +821,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
 
           {/* 🎨 رنگِ کادرِ حباب — برای ترجمه‌ی زنده و ذره‌بین، هر دو */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>
-            🎨 {uiLang === "en" ? "Bubble panel color (live translation + magnifier)" : "رنگ کادر حباب (ترجمه‌ی زنده + ذره‌بین)"}
+            🎨 {t("settings_bubble_color_title")}
           </p>
           <div className="flex gap-2 items-center" style={{ marginBottom: 12, flexWrap: "wrap" }}>
             {["#1C2541", "#14342B", "#3A1F2B", "#2B2B33", "#2E2352", "#0F3A44"].map((hex) => (
@@ -830,14 +844,14 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                 onChange={(e) => setPanelColor(e.target.value)}
                 style={{ width: 34, height: 30, padding: 0, border: `1px solid ${colors.cardBorder}`, borderRadius: 8, background: "white" }}
               />
-              {uiLang === "en" ? "Custom" : "دلخواه"}
+              {t("settings_bubble_color_custom")}
             </label>
             {panelColor !== DEFAULT_PANEL_COLOR && (
               <button
                 onClick={() => setPanelColor(DEFAULT_PANEL_COLOR)}
                 style={{ fontSize: 11.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: "3px 10px", backgroundColor: "white" }}
               >
-                {uiLang === "en" ? "Reset" : "بازگشت به پیش‌فرض"}
+                {t("settings_bubble_color_reset")}
               </button>
             )}
           </div>
@@ -845,19 +859,19 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           {bubbleKind !== "live" && (
             <div style={{ marginBottom: 12 }}>
               <p style={{ fontSize: 12.5, fontWeight: 800, color: colors.ink, marginBottom: 6 }}>
-                🔍 {uiLang === "en" ? "Magnifier" : "ذره‌بین"}
+                🔍 {t("settings_magnifier_title")}
               </p>
               <button
                 onClick={async () => {
                   try {
                     const Cap = typeof window !== "undefined" ? window.Capacitor : undefined;
                     if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) {
-                      alert(uiLang === "en" ? "This feature only works in the Android app" : "این قابلیت فقط در نسخه‌ی اندروید کار می‌کنه");
+                      alert(t("settings_android_only"));
                       return;
                     }
                     const bubble = Cap.Plugins && Cap.Plugins.BubblePlugin;
                     if (!bubble || !bubble.magnifierStart) {
-                      alert(uiLang === "en" ? "This app build does not include the magnifier yet — please update the app" : "این نسخه‌ی اپ هنوز ذره‌بین رو نداره — لطفاً اپ رو به‌روزرسانی کنید");
+                      alert(t("settings_magnifier_missing"));
                       return;
                     }
                     if (magRunning) {
@@ -868,7 +882,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                     const perm = await bubble.checkPermission();
                     if (!perm || !perm.granted) {
                       await bubble.requestPermission();
-                      alert(uiLang === "en" ? "Please grant the permission, then tap again" : "لطفاً مجوز رو بدید، بعد دوباره بزنید");
+                      alert(t("settings_grant_permission"));
                       return;
                     }
                     await bubble.magnifierStart({
@@ -878,7 +892,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                     });
                     setMagRunning(true);
                   } catch (err) {
-                    alert((uiLang === "en" ? "Error: " : "خطا: ") + ((err && err.message) || err));
+                    alert((t("settings_error_prefix")) + ((err && err.message) || err));
                   }
                 }}
                 className="flex items-center gap-2"
@@ -886,13 +900,11 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               >
                 <span style={{ fontSize: 16 }}>🔍</span>
                 {magRunning
-                  ? (uiLang === "en" ? "Stop magnifier bubble" : "توقف حباب ذره‌بین")
-                  : (uiLang === "en" ? "Start magnifier bubble" : "شروع حباب ذره‌بین")}
+                  ? (t("settings_magnifier_stop"))
+                  : (t("settings_magnifier_start"))}
               </button>
               <p style={{ fontSize: 11.5, color: colors.inkSoft, lineHeight: 1.7 }}>
-                {uiLang === "en"
-                  ? "The 🔍 magnifier docks at the screen edge like the live bubble. Drag it over any text (in any app) and release: the text is highlighted and its translations into your selected languages appear in a popup. Tap a word, or drag across several words, to save it for the next story, grammar or the Leitner box. To close the magnifier, drag it onto the ✕ at the bottom of the screen. The text language is the “Audio language” below. Screen reading works for Latin-script languages (English, French, Spanish, Italian, German…) and Hindi."
-                  : "ذره‌بین 🔍 مثلِ حبابِ ترجمه‌ی زنده کنارِ صفحه می‌نشیند. آن را روی هر متنی (در هر اپی) بکشید و رها کنید: متن هایلایت می‌شود و ترجمه‌اش به زبان‌های انتخابی در یک کادر می‌آید. روی یک لغت بزنید (یا انگشت را روی چند لغت بکشید) تا «ذخیره برای داستان بعدی، گرامر یا جعبه‌ی لایتنر» باز شود. برای بستن ذره‌بین، آن را روی ✕ پایینِ صفحه رها کنید. زبانِ متن همان «زبان صدا» در پایین است. خواندنِ متنِ صفحه برای زبان‌های لاتین (انگلیسی، فرانسوی، اسپانیایی، ایتالیایی، آلمانی...) و هندی کار می‌کند."}
+                {t("settings_magnifier_description")}
               </p>
             </div>
           )}
@@ -901,10 +913,10 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           <>
           {/* 🎙 ترجمه‌ی زنده‌ی صدا (فقط در اپ اندروید — حباب شناور) */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
-            🎙 {uiLang === "en" ? "Live audio translation" : "ترجمه‌ی زنده‌ی صدا"}
+            🎙 {t("settings_live_audio_title")}
           </p>
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
-            <span>{uiLang === "en" ? "Audio language" : "زبان صدا"}</span>
+            <span>{t("settings_audio_language")}</span>
             <select
               value={liveSrcLang}
               onChange={(e) => {
@@ -926,12 +938,10 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           <OfflineSpeechModelSettings lang={liveSrcLang} uiLang={uiLang} colors={colors} />
           <SongSttSettings uiLang={uiLang} colors={colors} />
           <p style={{ fontSize: 11.5, color: colors.inkSoft, marginBottom: 6, lineHeight: 1.7 }}>
-            {uiLang === "en"
-              ? "Translates into your target languages. Earlier sentences stay in a scrollable history."
-              : "ترجمه به زبان مقصد شما. جمله‌های قبلی در یک تاریخچه‌ی قابل‌اسکرول می‌مانند."}
+            {t("settings_live_audio_description")}
           </p>
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
-            <span>{uiLang === "en" ? "Show" : "نمایش"}</span>
+            <span>{t("settings_display_mode_label")}</span>
             <select
               value={liveDisplayMode}
               onChange={(e) => {
@@ -941,9 +951,9 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               }}
               style={{ flex: 1, fontSize: 12.5, padding: "6px 8px", borderRadius: 10, border: `1px solid ${colors.cardBorder}`, backgroundColor: "white", color: colors.ink }}
             >
-              <option value="both">{uiLang === "en" ? "Original + translations" : "متن اصلی + ترجمه‌ها"}</option>
-              <option value="translation">{uiLang === "en" ? "Translations only" : "فقط ترجمه‌ها"}</option>
-              <option value="original">{uiLang === "en" ? "Original only" : "فقط متن اصلی"}</option>
+              <option value="both">{t("settings_display_both")}</option>
+              <option value="translation">{t("settings_display_translation_only")}</option>
+              <option value="original">{t("settings_display_original_only")}</option>
             </select>
           </label>
           <button
@@ -951,18 +961,18 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               try {
                 const Cap = typeof window !== "undefined" ? window.Capacitor : undefined;
                 if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) {
-                  alert(uiLang === "en" ? "This feature only works in the Android app" : "این قابلیت فقط در نسخه‌ی اندروید کار می‌کنه");
+                  alert(t("settings_android_only"));
                   return;
                 }
                 const bubble = Cap.Plugins && Cap.Plugins.BubblePlugin;
                 if (!bubble) {
-                  alert(uiLang === "en" ? "Bubble plugin not found in this app build" : "پلاگین حباب در این نسخه‌ی اپ پیدا نشد");
+                  alert(t("settings_bubble_plugin_missing"));
                   return;
                 }
                 const perm = await bubble.checkPermission();
                 if (!perm || !perm.granted) {
                   await bubble.requestPermission();
-                  alert(uiLang === "en" ? "Please grant the permission, then tap again" : "لطفاً مجوز رو بدید، بعد دوباره بزنید");
+                  alert(t("settings_grant_permission"));
                   return;
                 }
                 // بسته‌ی آفلاینِ زبانِ صدا دانلود نشده؟ → دانلودِ خودکار + پیام (به‌جای تشخیصِ گفتارِ گوگل که صفحه رو قفل می‌کنه)
@@ -976,14 +986,14 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                 });
                 if (bubble.setDisplayMode) bubble.setDisplayMode({ mode: liveDisplayMode });
               } catch (err) {
-                alert((uiLang === "en" ? "Error: " : "خطا: ") + ((err && err.message) || err));
+                alert((t("settings_error_prefix")) + ((err && err.message) || err));
               }
             }}
             className="flex items-center gap-2"
             style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.gold}`, backgroundColor: colors.goldSoft, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 8 }}
           >
             <span style={{ fontSize: 16 }}>🎙</span>
-            {uiLang === "en" ? "Start live audio translation" : "شروع ترجمه‌ی زنده‌ی صدا"}
+            {t("settings_live_audio_start")}
           </button>
 
           {/* 📺 زیرنویس زنده‌ی یوتیوب (فقط اندروید): ویدیوی در حال پخش در اپ یوتیوب تشخیص داده می‌شه،
@@ -993,27 +1003,25 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               try {
                 const Cap = typeof window !== "undefined" ? window.Capacitor : undefined;
                 if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) {
-                  alert(uiLang === "en" ? "This feature only works in the Android app" : "این قابلیت فقط در نسخه‌ی اندروید کار می‌کنه");
+                  alert(t("settings_android_only"));
                   return;
                 }
                 const bubble = Cap.Plugins && Cap.Plugins.BubblePlugin;
                 if (!bubble || !bubble.ytSetEnabled) {
-                  alert(uiLang === "en" ? "This app build does not include YouTube subtitles yet — please update the app" : "این نسخه‌ی اپ هنوز زیرنویس یوتیوب رو نداره — لطفاً اپ رو به‌روزرسانی کنید");
+                  alert(t("settings_youtube_missing"));
                   return;
                 }
                 const perm = await bubble.checkPermission();
                 if (!perm || !perm.granted) {
                   await bubble.requestPermission();
-                  alert(uiLang === "en" ? "Please grant the permission, then tap again" : "لطفاً مجوز رو بدید، بعد دوباره بزنید");
+                  alert(t("settings_grant_permission"));
                   return;
                 }
                 // برای دیدنِ ویدیوی در حال پخشِ یوتیوب، اندروید «دسترسی به اعلان‌ها» رو لازم داره.
                 const acc = await bubble.ytCheckAccess();
                 if (!acc || !acc.granted) {
                   await bubble.ytRequestAccess();
-                  alert(uiLang === "en"
-                    ? "Turn on “Notification access” for this app, then come back and tap again. (If it is greyed out: App info → ⋮ → Allow restricted settings.)"
-                    : "«دسترسی به اعلان‌ها» رو برای این اپ روشن کنید، بعد برگردید و دوباره بزنید. (اگه خاکستریه: اطلاعات اپ ← ⋮ ← Allow restricted settings)");
+                  alert(t("settings_notification_access_needed"));
                   return;
                 }
                 // زیرنویسِ یوتیوب خودش بسته نمی‌خواد؛ ولی اگه بسته‌ی آفلاینِ زبان دانلود نشده، دانلودش خودکار شروع می‌شه و پیام می‌ده
@@ -1026,19 +1034,17 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                 if (bubble.setDisplayMode) bubble.setDisplayMode({ mode: liveDisplayMode });
                 await bubble.ytSetEnabled({ enabled: true });
               } catch (err) {
-                alert((uiLang === "en" ? "Error: " : "خطا: ") + ((err && err.message) || err));
+                alert((t("settings_error_prefix")) + ((err && err.message) || err));
               }
             }}
             className="flex items-center gap-2"
             style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.gold}`, backgroundColor: colors.goldSoft, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 4 }}
           >
             <span style={{ fontSize: 16 }}>▶️</span>
-            {uiLang === "en" ? "Start live YouTube subtitles" : "شروع زیرنویس زنده‌ی یوتیوب"}
+            {t("settings_youtube_start")}
           </button>
           <p style={{ fontSize: 11.5, color: colors.inkSoft, marginBottom: 8, lineHeight: 1.7 }}>
-            {uiLang === "en"
-              ? "Play a video in the YouTube app: its subtitles appear in the bubble, in sync with playback, with your selected translations. Language of the video = “Audio language” above. You can also toggle it with the ▶ button inside the bubble panel."
-              : "یک ویدیو را در اپ یوتیوب پخش کنید: زیرنویسش هم‌زمان با پخش، همراه ترجمه‌های انتخابی شما، توی حباب نشان داده می‌شود. زبان ویدیو همان «زبان صدا» بالاست. با دکمه‌ی ▶ داخل پنل حباب هم می‌توانید روشن/خاموشش کنید."}
+            {t("settings_youtube_description")}
           </p>
           </>
           )}
@@ -1051,7 +1057,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
             className="flex items-center gap-2"
             style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: "9px 12px", width: "100%" }}
           >
-            <BookOpen size={14} /> {tr("offlineDownload", uiLang)}
+            <BookOpen size={14} /> {t("settings_offline_download")}
           </button>
 
         </div>

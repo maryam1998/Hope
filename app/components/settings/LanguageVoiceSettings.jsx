@@ -2,7 +2,7 @@
 // بخشی از app.jsx قبلی — برای نگهداری‌پذیری به ماژولِ جدا منتقل شد (منطق دست‌نخورده).
 import React, { useState, useEffect, useMemo } from "react";
 import { LANGUAGES } from "../../constants/languages.js";
-import { tr } from "../../ui/uiStrings.js";
+import { useTranslation } from "react-i18next";
 import { VOICE_PREFS_CHANGED_EVENT, loadVoicePrefs, setVoicePrefForLang } from "../../prefs/textPrefs.js";
 
 // ---------------------------------------------------------------------------
@@ -31,6 +31,7 @@ function openLanguagePackSettings(platform) {
   }
 }
 function LanguageVoiceSettings({ uiLang, colors }) {
+  const { t } = useTranslation();
   const [voices, setVoices] = useState(() =>
     typeof window !== "undefined" && window.speechSynthesis ? window.speechSynthesis.getVoices() : []
   );
@@ -56,12 +57,12 @@ function LanguageVoiceSettings({ uiLang, colors }) {
   }, []);
 
   const installSteps =
-    platform === "android" ? tr("androidInstallSteps", uiLang) : platform === "ios" ? tr("iosInstallSteps", uiLang) : tr("desktopInstallSteps", uiLang);
+    platform === "android" ? t("settings_voice_install_steps_android") : platform === "ios" ? t("settings_voice_install_steps_ios") : t("settings_voice_install_steps_desktop");
 
   return (
     <div style={{ marginBottom: 16 }}>
       <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-        🔊 {tr("voiceSectionTitle", uiLang)}
+        🔊 {t("settings_voice_title")}
       </p>
 
       <button
@@ -78,9 +79,9 @@ function LanguageVoiceSettings({ uiLang, colors }) {
           marginBottom: 6,
         }}
       >
-        📥 {tr("installLanguagePacks", uiLang)}
+        📥 {t("settings_voice_install_packs")}
       </button>
-      <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 6, lineHeight: 1.6 }}>{tr("installLanguagePacksHint", uiLang)}</p>
+      <p style={{ fontSize: 11, color: colors.inkSoft, marginBottom: 6, lineHeight: 1.6 }}>{t("settings_voice_install_packs_hint")}</p>
       <p style={{ fontSize: 10.5, color: colors.inkSoft, marginBottom: 12, lineHeight: 1.6, opacity: 0.85 }}>{installSteps}</p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 4 }}>
@@ -116,7 +117,7 @@ function LanguageVoiceSettings({ uiLang, colors }) {
                     minWidth: 0,
                   }}
                 >
-                  <option value="">{tr("voiceAutoOption", uiLang)}</option>
+                  <option value="">{t("settings_voice_auto_option")}</option>
                   {matches.map((v) => (
                     <option key={v.voiceURI} value={v.voiceURI}>
                       {v.name} ({v.lang})
@@ -124,13 +125,13 @@ function LanguageVoiceSettings({ uiLang, colors }) {
                   ))}
                 </select>
               ) : (
-                <span style={{ fontSize: 11, color: colors.inkSoft, opacity: 0.8 }}>{tr("voiceNotInstalled", uiLang)}</span>
+                <span style={{ fontSize: 11, color: colors.inkSoft, opacity: 0.8 }}>{t("settings_voice_not_installed")}</span>
               )}
             </div>
           );
         })}
       </div>
-      <p style={{ fontSize: 10.5, color: colors.inkSoft, marginTop: 6, lineHeight: 1.6, opacity: 0.85 }}>🌐 {tr("persianVoiceNote", uiLang)}</p>
+      <p style={{ fontSize: 10.5, color: colors.inkSoft, marginTop: 6, lineHeight: 1.6, opacity: 0.85 }}>🌐 {t("settings_voice_persian_note")}</p>
     </div>
   );
 }
