@@ -104,6 +104,8 @@ export const speechController = (() => {
   let ttsError = null;
   // گرم‌کردنِ کشِ وضعیتِ بسته‌ی Piper برای فارسی/عربی، تا همون اولین تپ هم از موتورِ نیتیو بخونه
   try { if (isNativeTtsAvailable()) ["fa", "ar"].forEach((l) => refreshNativeTtsStatus(l)); } catch (e) {}
+  // وضعیتِ TTS خودِ گوشی برای فارسی/عربی هم از قبل معلوم باشه تا اولین تپ هم آنلاین نشه
+  try { if (isNativeTtsAvailable()) ["fa", "ar"].forEach((l) => refreshSystemTts(l)); } catch (e) {}
   // همه‌ی زبان‌های دانلودشده توی کشِ سنکرون بشینن (تپِ اول هم از Piper بخونه) + موتورِ آخرین زبان گرم بشه
   try { if (isNativeTtsAvailable()) nativeWarmAll(refreshNativeTtsStatus); } catch (e) {}
   // --- تکرار سراسری ---------------------------------------------------
@@ -1021,7 +1023,8 @@ export const speechController = (() => {
 
       // کدِ دو حرفیِ زبان (fa, en, ...) — نه locale — چون SherpaModelManager با همین کار می‌کنه
       const nativeLang = currentCode || locale.split("-")[0];
-      const usePhoneVoice = getVoiceEngine() === "phone";
+      // ⚡ بسته‌ی Piper این زبون هنوز دانلود/آماده نیست → مستقیم صدای گوشی (بدون رفت‌وبرگشتِ اضافه و بدون تأخیر)
+      const usePhoneVoice = getVoiceEngine() === "phone" || !isNativeTtsReady(nativeLang);
       // حالتِ بی‌صدا: چیزی پخش نمی‌کنیم، فقط به‌اندازه‌ی مدتِ تقریبیِ خوندن صبر می‌کنیم
       // ⚡ روی صداهای دانلودی (Piper) ساختنِ صدا CPUِ سنگینی می‌گیره. هایلایت و
       // اسکرولِ همین جمله (notify بالا) باید اول رندر بشن؛ برای همین شروعِ
@@ -1194,7 +1197,8 @@ export const speechController = (() => {
         // TTS خودِ گوشی از طریقِ پلاگین اندروید (speechSynthesis داخل WebView صدا نداره)
         if (isNativeTtsAvailable()) refreshSystemTts(code);
         // اگه کاربر «صدای گوشی» رو انتخاب کرده و گوشی این زبون رو (حتماً) داره، فارسی/عربی هم آنلاین نمی‌شن
-        const forceOnlineForLang = ONLINE_ONLY_LANGS.has(code) && !useNativePiper && !(phoneVoicePref && isSystemTtsConfirmed(code));
+        // ⚡ تا وقتی بسته‌ی Piper آماده نیست، اگه گوشی این زبون رو (حتماً) داره، فوراً با صدای گوشی بخون؛ آنلاین فقط آخرین چاره‌ست.
+        const forceOnlineForLang = ONLINE_ONLY_LANGS.has(code) && !useNativePiper && !isSystemTtsConfirmed(code);
         const useNativeSystem = isNativeTtsAvailable() && isSystemTtsReady(code);
 
         const newKey = `${newLocale}::${text}`;
