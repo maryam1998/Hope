@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Send, Loader2, Trash2, Globe, Pencil, Check, X, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import i18n from "./i18nconfig.js";
+import i18n, { LANG_DIR } from "./i18nconfig.js";
 
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
@@ -39,7 +39,7 @@ const LANGUAGES = [
 const AI_NET_MSG = "هوش مصنوعی جواب نداد. اینترنتت رو چک کن و دوباره امتحان کن.";
 // همان پیام، به زبانِ رابطِ اپ (تنظیماتِ «زبان نرم‌افزار»)
 const AI_NET_MSG_EN = "The AI didn't respond. Check your internet and try again.";
-function aiNetMsgNow() { return i18n.language === "en" ? AI_NET_MSG_EN : AI_NET_MSG; }
+function aiNetMsgNow() { return i18n.t("speaking_ai_no_response"); }
 // نامِ انگلیسیِ زبان‌ها برای وقتی که رابطِ اپ انگلیسی است
 const LANG_NAME_EN = { fa: "Persian", en: "English", it: "Italian", hi: "Hindi", tr: "Turkish", ar: "Arabic", es: "Spanish", de: "German", fr: "French", zh: "Chinese", ko: "Korean", ru: "Russian", ja: "Japanese" };
 const AI_REASONING_LEAK_RE = /(thinking process|here'?s a thinking|analy[sz]e the (user'?s |learner'?s )?(request|text|input)|\*\*\s*analy[sz]e|\bconstraint\s*:|the user wants me to|let me (read|think|analy[sz]e|re-?read)|<\/?think(ing)?>|^\s*okay,? (so|let'?s|the user))/im;
@@ -218,8 +218,8 @@ function SpeakingPracticePanel({
   // زبانِ رابطِ اپ — همه‌ی متن‌های ثابتِ این صفحه از همین می‌آد.
   const { i18n: uiI18n } = useTranslation();
   const uiLang = uiI18n.language === "fa" ? "fa" : "en"; // زبان‌های دیگه (de/es/fr/ar) فعلاً انگلیسی
-  const uiDir = uiLang === "en" ? "ltr" : "rtl";
-  const L = (fa, en) => (uiLang === "en" ? en : fa);
+  const uiDir = LANG_DIR[uiI18n.language] || (uiLang === "en" ? "ltr" : "rtl");
+  const ts = (key) => uiI18n.t(key);
   const uiLangName = (code) => (uiLang === "en" && LANG_NAME_EN[code]) || LANGUAGES.find((l) => l.code === code)?.label || code;
   const storageKey = `${SPEAKING_CHAT_STORAGE_KEY}:${user?.email || "guest"}`;
   const [messages, setMessages] = useState(() => loadStoredChatMessages(storageKey) || []);
@@ -670,18 +670,15 @@ By the way, what's your name? Or tell me something about yourself.`;
     <div className="flex flex-col gap-4" style={{ padding: "0 4px" }}>
       <div>
         <h2 dir={uiDir} style={{ fontWeight: 800, fontSize: 18, color: colors.ink, marginBottom: 4 }}>
-          {L("🗣️ تمرین مکالمه", "🗣️ Speaking practice")}
+          {ts("speaking_title")}
         </h2>
         <p dir={uiDir} style={{ fontSize: 13, color: colors.inkSoft, lineHeight: 1.7 }}>
-          {L(
-            "یک جمله به زبانی که یاد می‌گیری بنویس و جیمی (AI) آن را بررسی می‌کند، اشتباهات را تصحیح می‌کند و بر اساس زبان مادری‌ات توضیح می‌دهد. مثل یک معلم مکالمه!",
-            "Write a sentence in the language you're learning and Jimmy (AI) will check it, correct your mistakes, and explain them in your native language — like a conversation teacher!"
-          )}
+          {ts("speaking_intro")}
         </p>
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <span style={{ fontSize: 12, color: colors.inkSoft }}>{L("زبان تمرین:", "Practice language:")}</span>
+        <span style={{ fontSize: 12, color: colors.inkSoft }}>{ts("speaking_practice_language")}</span>
         <select
           value={chatLang}
           onChange={(e) => setChatLang(e.target.value)}
@@ -705,7 +702,7 @@ By the way, what's your name? Or tell me something about yourself.`;
             className="flex items-center gap-1"
             style={{ fontSize: 12, color: colors.rose, fontWeight: 700, marginLeft: "auto" }}
           >
-            <Trash2 size={14} /> {L("پاک کردن گفتگو", "Clear conversation")}
+            <Trash2 size={14} /> {ts("speaking_clear_chat")}
           </button>
         )}
       </div>
@@ -722,7 +719,7 @@ By the way, what's your name? Or tell me something about yourself.`;
           }}
         >
           <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span>{L("✏️ تصحیحات", "✏️ Corrections")}</span>
+            <span>{ts("speaking_corrections_title")}</span>
             <button
               onClick={saveCorrectionsToGrammar}
               disabled={correctionsSaved}
@@ -734,15 +731,15 @@ By the way, what's your name? Or tell me something about yourself.`;
                 opacity: correctionsSaved ? 0.7 : 1,
               }}
             >
-              {correctionsSaved ? L("✅ ذخیره شد", "✅ Saved") : L("💾 ذخیره در گرامر", "💾 Save to grammar")}
+              {correctionsSaved ? ts("speaking_saved") : ts("speaking_save_to_grammar")}
             </button>
           </p>
           {corrections.map((c, idx) => (
             <p key={idx} style={{ fontSize: 12, color: colors.inkSoft, lineHeight: 1.8, marginBottom: 4 }}>
-              <span style={{ fontWeight: 600, color: MISTAKE_STYLE.color }}>{idx + 1}. {L("اشتباه:", "Mistake:")} </span>
+              <span style={{ fontWeight: 600, color: MISTAKE_STYLE.color }}>{idx + 1}. {ts("speaking_mistake")} </span>
               <span style={MISTAKE_STYLE}>{c.original}</span>
               <br />
-              <span style={{ fontWeight: 600, color: CORRECTION_STYLE.color }}>   {L("✅ پیشنهاد:", "✅ Suggestion:")} </span>
+              <span style={{ fontWeight: 600, color: CORRECTION_STYLE.color }}>   {ts("speaking_suggestion")} </span>
               <span style={CORRECTION_STYLE}>{c.corrected}</span>
             </p>
           ))}
@@ -816,7 +813,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                       style={{ fontSize: 11, color: colors.inkSoft }}
                     >
                       <X size={12} />
-                      {L("انصراف", "Cancel")}
+                      {ts("speaking_cancel")}
                     </button>
                     <button
                       onClick={saveEditingMsg}
@@ -824,7 +821,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                       style={{ fontSize: 11, color: "white", fontWeight: 700, backgroundColor: colors.teal, borderRadius: 8, padding: "3px 8px" }}
                     >
                       <Check size={12} />
-                      {L("ذخیره و ارسالِ مجدد", "Save & resend")}
+                      {ts("speaking_save_resend")}
                     </button>
                   </div>
                 </div>
@@ -893,7 +890,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                   style={{ fontSize: 11, color: colors.teal, fontWeight: 700, marginTop: 4 }}
                 >
                   <Pencil size={12} />
-                  {L("ویرایش", "Edit")}
+                  {ts("speaking_edit")}
                 </button>
               )}
 
@@ -939,7 +936,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                         className="flex items-center gap-1"
                         style={{ fontSize: 11, color: colors.gold, fontWeight: 700 }}
                       >
-                        {L("✅ ذخیره شد", "✅ Saved")}
+                        {ts("speaking_saved")}
                       </span>
                     ) : (
                       <button
@@ -947,7 +944,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                         className="flex items-center gap-1"
                         style={{ fontSize: 11, color: colors.teal, fontWeight: 700 }}
                       >
-                        {L("💾 ذخیره در گرامر", "💾 Save to grammar")}
+                        {ts("speaking_save_to_grammar")}
                       </button>
                     )
                   )}
@@ -956,13 +953,13 @@ By the way, what's your name? Or tell me something about yourself.`;
 
               {!isUser && translationErrors[idx] && (
                 <div style={{ marginTop: 4, alignSelf: "flex-end", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: colors.rose }}>
-                  <span>{L("ترجمه انجام نشد. اینترنتت رو چک کن.", "Translation failed. Check your internet.")}</span>
+                  <span>{ts("speaking_translation_failed")}</span>
                   <button
                     onClick={() => toggleTranslation(idx, translationErrors[idx], true)}
                     className="flex items-center gap-1"
                     style={{ fontSize: 12, fontWeight: 700, color: "white", backgroundColor: colors.rose, borderRadius: 999, padding: "4px 10px" }}
                   >
-                    <RefreshCw size={12} /> {L("تلاش مجدد", "Try again")}
+                    <RefreshCw size={12} /> {ts("speaking_try_again")}
                   </button>
                 </div>
               )}
@@ -998,7 +995,7 @@ By the way, what's your name? Or tell me something about yourself.`;
         {loading && (
           <div style={{ alignSelf: "flex-end", display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: colors.inkSoft }}>
             <Loader2 size={14} className="spin" />
-            {L("در حال بررسی...", "Checking...")}
+            {ts("speaking_checking")}
           </div>
         )}
         {error && (
@@ -1011,7 +1008,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                 className="flex items-center gap-1"
                 style={{ fontSize: 12, fontWeight: 700, color: "white", backgroundColor: colors.rose, borderRadius: 999, padding: "5px 12px", opacity: loading ? 0.6 : 1 }}
               >
-                <RefreshCw size={13} /> {L("تلاش مجدد", "Try again")}
+                <RefreshCw size={13} /> {ts("speaking_try_again")}
               </button>
             )}
           </div>
@@ -1059,7 +1056,7 @@ By the way, what's your name? Or tell me something about yourself.`;
               sendMessage();
             }
           }}
-          placeholder={L("متن خود را بنویسید...", "Write your text...")}
+          placeholder={ts("speaking_input_placeholder")}
           style={{
             flex: 1,
             border: "none",

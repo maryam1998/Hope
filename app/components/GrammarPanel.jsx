@@ -1583,7 +1583,7 @@ export const GrammarPanel = React.memo(function GrammarPanel({
                       sendChat();
                     }
                   }}
-                  placeholder={L("جمله‌ت رو بنویس یا سوالت رو بپرس... (برای خط جدید Enter، برای ارسال دکمه رو بزن)", "Write your sentence or ask your question... (Enter for a new line, tap the button to send)")}
+                  placeholder={t("grammar_chat_placeholder")}
                   style={{
                     flex: 1,
                     border: "none",

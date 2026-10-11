@@ -2,6 +2,7 @@
 // بخشی از app.jsx قبلی — برای نگهداری‌پذیری به ماژولِ جدا منتقل شد (منطق دست‌نخورده).
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { RotateCcw, Check, Sparkles, Plus, Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { setCachedTranslation } from "../../storage/translationCacheDb.js";
 import { TTS_LOCALE } from "../../tts/ttsConfig.js";
 import { LANGUAGES } from "../../constants/languages.js";
@@ -456,6 +457,7 @@ export function VocabBookExample({ collocation, example, targetLangs, aiSettings
   );
 }
 export function WordExamples({ word, langCode, meaningNative, nativeLang, targetLangs, aiSettings }) {
+  const { t: tUi } = useTranslation();
   const [examples, setExamples] = useState(() => loadWordExamples(word, langCode));
   const [generating, setGenerating] = useState(false);
   const [refreshingId, setRefreshingId] = useState(null);
@@ -533,7 +535,7 @@ export function WordExamples({ word, langCode, meaningNative, nativeLang, target
         }}
       >
         {generating ? <Loader2 size={12} className="spin" /> : <Sparkles size={12} />}
-        {examples.length ? "مثال دیگر" : "مثال (با هوش مصنوعی)"}
+        {examples.length ? tUi("word_examples_btn_another") : tUi("word_examples_btn_generate")}
       </button>
       {err && <p style={{ color: colors.rose, fontSize: 11, marginTop: 4 }}>{err}</p>}
       {examples.map((ex) => (
