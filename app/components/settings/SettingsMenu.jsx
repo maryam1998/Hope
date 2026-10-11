@@ -55,6 +55,21 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
   const [liveDisplayMode, setLiveDisplayMode] = useState(() => {
     try { return localStorage.getItem("liveDisplayMode") || "both"; } catch (e) { return "both"; }
   });
+  // 🔍 نوع حباب: ذره‌بین (ضربه روی متن ← ترجمه) / ترجمه‌ی زنده / هر دو
+  const [bubbleKind, setBubbleKindState] = useState(() => {
+    try { return localStorage.getItem("bubbleKind") || "both"; } catch (e) { return "both"; }
+  });
+  const setBubbleKind = (v) => {
+    setBubbleKindState(v);
+    try { localStorage.setItem("bubbleKind", v); } catch (e) {}
+  };
+  const [magRunning, setMagRunning] = useState(false);
+  useEffect(() => {
+    try {
+      const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin;
+      if (B && B.magnifierIsRunning) B.magnifierIsRunning().then((r) => setMagRunning(!!(r && r.running))).catch(() => {});
+    } catch (e) {}
+  }, []);
   // هر بار زبان‌های مقصد، زبان صدا یا حالت نمایش عوض شد، به حبابِ در حال اجرا هم خبر بده
   useEffect(() => {
     try {
@@ -724,6 +739,92 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           <OfflineTtsModelSettings uiLang={uiLang} colors={colors} />
           <AudioSyncSettings uiLang={uiLang} colors={colors} />
 
+          {/* 🔍 انتخاب نوع حباب: ذره‌بین / ترجمه‌ی زنده / هر دو */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, marginTop: 8 }}>
+            🫧 {uiLang === "en" ? "Bubble type (Android)" : "نوع حباب (اندروید)"}
+          </p>
+          <div className="flex gap-2" style={{ marginBottom: 12, flexWrap: "wrap" }}>
+            {[
+              { key: "magnifier", labelFa: "🔍 ذره‌بین", labelEn: "🔍 Magnifier" },
+              { key: "live", labelFa: "🎙 ترجمه‌ی زنده", labelEn: "🎙 Live translation" },
+              { key: "both", labelFa: "هر دو", labelEn: "Both" },
+            ].map((opt) => {
+              const selected = bubbleKind === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  onClick={() => setBubbleKind(opt.key)}
+                  aria-pressed={selected}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 20,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    border: `1px solid ${selected ? colors.gold : colors.cardBorder}`,
+                    backgroundColor: selected ? colors.goldSoft : "white",
+                    color: colors.ink,
+                  }}
+                >
+                  {uiLang === "en" ? opt.labelEn : opt.labelFa}
+                </button>
+              );
+            })}
+          </div>
+
+          {bubbleKind !== "live" && (
+            <div style={{ marginBottom: 12 }}>
+              <button
+                onClick={async () => {
+                  try {
+                    const Cap = typeof window !== "undefined" ? window.Capacitor : undefined;
+                    if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) {
+                      alert(uiLang === "en" ? "This feature only works in the Android app" : "این قابلیت فقط در نسخه‌ی اندروید کار می‌کنه");
+                      return;
+                    }
+                    const bubble = Cap.Plugins && Cap.Plugins.BubblePlugin;
+                    if (!bubble || !bubble.magnifierStart) {
+                      alert(uiLang === "en" ? "This app build does not include the magnifier yet — please update the app" : "این نسخه‌ی اپ هنوز ذره‌بین رو نداره — لطفاً اپ رو به‌روزرسانی کنید");
+                      return;
+                    }
+                    if (magRunning) {
+                      await bubble.magnifierStop();
+                      setMagRunning(false);
+                      return;
+                    }
+                    const perm = await bubble.checkPermission();
+                    if (!perm || !perm.granted) {
+                      await bubble.requestPermission();
+                      alert(uiLang === "en" ? "Please grant the permission, then tap again" : "لطفاً مجوز رو بدید، بعد دوباره بزنید");
+                      return;
+                    }
+                    await bubble.magnifierStart({
+                      targetLang: uiLang === "en" ? "en" : "fa",
+                      targetLangs: liveTargets,
+                      sourceLang: liveSrcLang,
+                    });
+                    setMagRunning(true);
+                  } catch (err) {
+                    alert((uiLang === "en" ? "Error: " : "خطا: ") + ((err && err.message) || err));
+                  }
+                }}
+                className="flex items-center gap-2"
+                style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.gold}`, backgroundColor: colors.goldSoft, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 4 }}
+              >
+                <span style={{ fontSize: 16 }}>🔍</span>
+                {magRunning
+                  ? (uiLang === "en" ? "Stop magnifier bubble" : "توقف حباب ذره‌بین")
+                  : (uiLang === "en" ? "Start magnifier bubble" : "شروع حباب ذره‌بین")}
+              </button>
+              <p style={{ fontSize: 11.5, color: colors.inkSoft, lineHeight: 1.7 }}>
+                {uiLang === "en"
+                  ? "Tap the 🔍 bubble to turn it on, then tap any text on screen (in any app): a popup shows its translation into your selected languages. Tap the bubble again to use the app normally; hold it to close. The text language is the “Audio language” below. Screen reading works for Latin-script languages (English, French, Spanish, Italian, German…) and Hindi."
+                  : "حباب 🔍 را بزنید تا روشن شود، بعد روی هر متنی در صفحه (در هر اپی) بزنید: ترجمه‌اش به زبان‌های انتخابی در یک کادر نشان داده می‌شود. برای کار عادی با اپ، دوباره حباب را بزنید؛ برای بستن نگهش دارید. زبانِ متن همان «زبان صدا» در پایین است. خواندنِ متنِ صفحه برای زبان‌های لاتین (انگلیسی، فرانسوی، اسپانیایی، ایتالیایی، آلمانی...) و هندی کار می‌کند."}
+              </p>
+            </div>
+          )}
+
+          {bubbleKind !== "magnifier" && (
+          <>
           {/* 🎙 ترجمه‌ی زنده‌ی صدا (فقط در اپ اندروید — حباب شناور) */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
             🎙 {uiLang === "en" ? "Live audio translation" : "ترجمه‌ی زنده‌ی صدا"}
@@ -865,6 +966,8 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               ? "Play a video in the YouTube app: its subtitles appear in the bubble, in sync with playback, with your selected translations. Language of the video = “Audio language” above. You can also toggle it with the ▶ button inside the bubble panel."
               : "یک ویدیو را در اپ یوتیوب پخش کنید: زیرنویسش هم‌زمان با پخش، همراه ترجمه‌های انتخابی شما، توی حباب نشان داده می‌شود. زبان ویدیو همان «زبان صدا» بالاست. با دکمه‌ی ▶ داخل پنل حباب هم می‌توانید روشن/خاموشش کنید."}
           </p>
+          </>
+          )}
 
           {/* Offline words download */}
           <button
