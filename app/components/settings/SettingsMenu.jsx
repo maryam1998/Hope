@@ -869,8 +869,10 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
             )}
           </div>
 
+          {/* 🔍 ذره‌بین + 🎙 ترجمه‌ی زنده + ▶ زیرنویس یوتیوب: سه دکمه‌ی شروع کنار هم، با یک توضیحِ خلاصه و تلفیقی */}
+          <div style={{ marginBottom: 12 }}>
           {bubbleKind !== "live" && (
-            <div style={{ marginBottom: 12 }}>
+          <>
               <p style={{ fontSize: 12.5, fontWeight: 800, color: colors.ink, marginBottom: 6 }}>
                 🔍 {t("settings_magnifier_title")}
               </p>
@@ -916,11 +918,102 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                   ? (t("settings_magnifier_stop"))
                   : (t("settings_magnifier_start"))}
               </button>
-              <p style={{ fontSize: 11.5, color: colors.inkSoft, lineHeight: 1.7 }}>
-                {t("settings_magnifier_description")}
-              </p>
-            </div>
+          </>
           )}
+          {bubbleKind !== "magnifier" && (
+          <>
+          <button
+            onClick={async () => {
+              try {
+                const Cap = typeof window !== "undefined" ? window.Capacitor : undefined;
+                if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) {
+                  alert(t("settings_android_only"));
+                  return;
+                }
+                const bubble = Cap.Plugins && Cap.Plugins.BubblePlugin;
+                if (!bubble) {
+                  alert(t("settings_bubble_plugin_missing"));
+                  return;
+                }
+                const perm = await bubble.checkPermission();
+                if (!perm || !perm.granted) {
+                  await bubble.requestPermission();
+                  alert(t("settings_grant_permission"));
+                  return;
+                }
+                // بسته‌ی آفلاینِ زبانِ صدا دانلود نشده؟ → دانلودِ خودکار + پیام (به‌جای تشخیصِ گفتارِ گوگل که صفحه رو قفل می‌کنه)
+                if (!(await ensureOfflineSpeechModel(bubble, liveSrcLang, uiLang))) return;
+                // targetLang = زبان رابط (fa یا en)، sourceLang = زبان صدایی که پخش می‌شه.
+                // با sourceLang مشخص، حباب از مسیر سریع (تشخیص گفتار + ترجمه‌ی روی خود گوشی) استفاده می‌کنه.
+                await bubble.showBubble({
+                  targetLang: uiTargetLang,
+                  targetLangs: liveTargets,
+                  sourceLang: liveSrcLang,
+                });
+                if (bubble.setDisplayMode) bubble.setDisplayMode({ mode: liveDisplayMode });
+              } catch (err) {
+                alert((t("settings_error_prefix")) + ((err && err.message) || err));
+              }
+            }}
+            className="flex items-center gap-2"
+            style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.gold}`, backgroundColor: colors.goldSoft, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 4 }}
+          >
+            <span style={{ fontSize: 16 }}>🎙</span>
+            {t("settings_live_audio_start")}
+          </button>
+          {/* 📺 زیرنویس زنده‌ی یوتیوب (فقط اندروید): ویدیوی در حال پخش در اپ یوتیوب تشخیص داده می‌شه،
+              زیرنویسش یک‌جا گرفته می‌شه و جمله‌ی فعلی با زمان پخش، همراه ترجمه، توی همون حباب نشون داده می‌شه. */}
+          <button
+            onClick={async () => {
+              try {
+                const Cap = typeof window !== "undefined" ? window.Capacitor : undefined;
+                if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) {
+                  alert(t("settings_android_only"));
+                  return;
+                }
+                const bubble = Cap.Plugins && Cap.Plugins.BubblePlugin;
+                if (!bubble || !bubble.ytSetEnabled) {
+                  alert(t("settings_youtube_missing"));
+                  return;
+                }
+                const perm = await bubble.checkPermission();
+                if (!perm || !perm.granted) {
+                  await bubble.requestPermission();
+                  alert(t("settings_grant_permission"));
+                  return;
+                }
+                // برای دیدنِ ویدیوی در حال پخشِ یوتیوب، اندروید «دسترسی به اعلان‌ها» رو لازم داره.
+                const acc = await bubble.ytCheckAccess();
+                if (!acc || !acc.granted) {
+                  await bubble.ytRequestAccess();
+                  alert(t("settings_notification_access_needed"));
+                  return;
+                }
+                // زیرنویسِ یوتیوب خودش بسته نمی‌خواد؛ ولی اگه بسته‌ی آفلاینِ زبان دانلود نشده، دانلودش خودکار شروع می‌شه و پیام می‌ده
+                await ensureOfflineSpeechModel(bubble, liveSrcLang, uiLang);
+                await bubble.showBubble({
+                  targetLang: uiTargetLang,
+                  targetLangs: liveTargets,
+                  sourceLang: liveSrcLang,
+                });
+                if (bubble.setDisplayMode) bubble.setDisplayMode({ mode: liveDisplayMode });
+                await bubble.ytSetEnabled({ enabled: true });
+              } catch (err) {
+                alert((t("settings_error_prefix")) + ((err && err.message) || err));
+              }
+            }}
+            className="flex items-center gap-2"
+            style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.gold}`, backgroundColor: colors.goldSoft, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 4 }}
+          >
+            <span style={{ fontSize: 16 }}>▶️</span>
+            {t("settings_youtube_start")}
+          </button>
+          </>
+          )}
+          <p style={{ fontSize: 11.5, color: colors.inkSoft, lineHeight: 1.7 }}>
+            {t("settings_floating_buttons_description")}
+          </p>
+          </div>
 
           {bubbleKind !== "magnifier" && (
           <>
@@ -969,96 +1062,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               <option value="original">{t("settings_display_original_only")}</option>
             </select>
           </label>
-          <button
-            onClick={async () => {
-              try {
-                const Cap = typeof window !== "undefined" ? window.Capacitor : undefined;
-                if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) {
-                  alert(t("settings_android_only"));
-                  return;
-                }
-                const bubble = Cap.Plugins && Cap.Plugins.BubblePlugin;
-                if (!bubble) {
-                  alert(t("settings_bubble_plugin_missing"));
-                  return;
-                }
-                const perm = await bubble.checkPermission();
-                if (!perm || !perm.granted) {
-                  await bubble.requestPermission();
-                  alert(t("settings_grant_permission"));
-                  return;
-                }
-                // بسته‌ی آفلاینِ زبانِ صدا دانلود نشده؟ → دانلودِ خودکار + پیام (به‌جای تشخیصِ گفتارِ گوگل که صفحه رو قفل می‌کنه)
-                if (!(await ensureOfflineSpeechModel(bubble, liveSrcLang, uiLang))) return;
-                // targetLang = زبان رابط (fa یا en)، sourceLang = زبان صدایی که پخش می‌شه.
-                // با sourceLang مشخص، حباب از مسیر سریع (تشخیص گفتار + ترجمه‌ی روی خود گوشی) استفاده می‌کنه.
-                await bubble.showBubble({
-                  targetLang: uiTargetLang,
-                  targetLangs: liveTargets,
-                  sourceLang: liveSrcLang,
-                });
-                if (bubble.setDisplayMode) bubble.setDisplayMode({ mode: liveDisplayMode });
-              } catch (err) {
-                alert((t("settings_error_prefix")) + ((err && err.message) || err));
-              }
-            }}
-            className="flex items-center gap-2"
-            style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.gold}`, backgroundColor: colors.goldSoft, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 8 }}
-          >
-            <span style={{ fontSize: 16 }}>🎙</span>
-            {t("settings_live_audio_start")}
-          </button>
 
-          {/* 📺 زیرنویس زنده‌ی یوتیوب (فقط اندروید): ویدیوی در حال پخش در اپ یوتیوب تشخیص داده می‌شه،
-              زیرنویسش یک‌جا گرفته می‌شه و جمله‌ی فعلی با زمان پخش، همراه ترجمه، توی همون حباب نشون داده می‌شه. */}
-          <button
-            onClick={async () => {
-              try {
-                const Cap = typeof window !== "undefined" ? window.Capacitor : undefined;
-                if (!Cap || !Cap.isNativePlatform || !Cap.isNativePlatform()) {
-                  alert(t("settings_android_only"));
-                  return;
-                }
-                const bubble = Cap.Plugins && Cap.Plugins.BubblePlugin;
-                if (!bubble || !bubble.ytSetEnabled) {
-                  alert(t("settings_youtube_missing"));
-                  return;
-                }
-                const perm = await bubble.checkPermission();
-                if (!perm || !perm.granted) {
-                  await bubble.requestPermission();
-                  alert(t("settings_grant_permission"));
-                  return;
-                }
-                // برای دیدنِ ویدیوی در حال پخشِ یوتیوب، اندروید «دسترسی به اعلان‌ها» رو لازم داره.
-                const acc = await bubble.ytCheckAccess();
-                if (!acc || !acc.granted) {
-                  await bubble.ytRequestAccess();
-                  alert(t("settings_notification_access_needed"));
-                  return;
-                }
-                // زیرنویسِ یوتیوب خودش بسته نمی‌خواد؛ ولی اگه بسته‌ی آفلاینِ زبان دانلود نشده، دانلودش خودکار شروع می‌شه و پیام می‌ده
-                await ensureOfflineSpeechModel(bubble, liveSrcLang, uiLang);
-                await bubble.showBubble({
-                  targetLang: uiTargetLang,
-                  targetLangs: liveTargets,
-                  sourceLang: liveSrcLang,
-                });
-                if (bubble.setDisplayMode) bubble.setDisplayMode({ mode: liveDisplayMode });
-                await bubble.ytSetEnabled({ enabled: true });
-              } catch (err) {
-                alert((t("settings_error_prefix")) + ((err && err.message) || err));
-              }
-            }}
-            className="flex items-center gap-2"
-            style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.gold}`, backgroundColor: colors.goldSoft, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 4 }}
-          >
-            <span style={{ fontSize: 16 }}>▶️</span>
-            {t("settings_youtube_start")}
-          </button>
-          <p style={{ fontSize: 11.5, color: colors.inkSoft, marginBottom: 8, lineHeight: 1.7 }}>
-            {t("settings_youtube_description")}
-          </p>
           </>
           )}
 

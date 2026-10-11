@@ -388,6 +388,7 @@
   "settings_live_audio_start": "Start live audio translation",
   "settings_live_audio_title": "Live audio translation",
   "settings_logout": "Log out",
+  "settings_floating_buttons_description": "🔍 Drag the magnifier over any text (Latin script or Hindi) and release to translate it; tap words to save them; drag it onto ✕ to close. 🎙 Live audio and ▶ YouTube subtitles appear in the bubble in your selected languages; their language is the “Audio language” below.",
   "settings_magnifier_description": "The 🔍 magnifier docks at the screen edge like the live bubble. Drag it over any text (in any app) and release: the text is highlighted and its translations into your selected languages appear in a popup. Tap a word, or drag across several words, to save it for the next story, grammar or the Leitner box. To close the magnifier, drag it onto the ✕ at the bottom of the screen. The text language is the “Audio language” below. Screen reading works for Latin-script languages (English, French, Spanish, Italian, German…) and Hindi.",
   "settings_magnifier_missing": "This app build does not include the magnifier yet — please update the app",
   "settings_magnifier_start": "Start magnifier bubble",

@@ -388,6 +388,7 @@
   "settings_live_audio_start": "Live-Audioübersetzung starten",
   "settings_live_audio_title": "Live-Audioübersetzung",
   "settings_logout": "Abmelden",
+  "settings_floating_buttons_description": "🔍 Ziehe die Lupe über einen beliebigen Text (lateinische Schrift oder Hindi) und lasse los, um ihn zu übersetzen; tippe auf Wörter, um sie zu speichern; zum Schließen auf ✕ ziehen. 🎙 Live-Audio und ▶ YouTube-Untertitel erscheinen in deinen gewählten Sprachen in der Blase; ihre Sprache ist die „Audiosprache“ unten.",
   "settings_magnifier_description": "Die 🔍 Lupe dockt wie die Live-Blase am Bildschirmrand an. Ziehe sie über einen beliebigen Text (in jeder App) und lasse los: Der Text wird markiert und seine Übersetzungen in deine gewählten Sprachen erscheinen in einem Popup. Tippe auf ein Wort oder ziehe über mehrere Wörter, um sie für die nächste Geschichte, die Grammatik oder die Leitner-Box zu speichern. Zum Schließen der Lupe ziehe sie auf das ✕ am unteren Bildschirmrand. Die Textsprache ist die unten eingestellte „Audiosprache“. Das Lesen des Bildschirms funktioniert bei Sprachen mit lateinischer Schrift (Englisch, Französisch, Spanisch, Italienisch, Deutsch …) und bei Hindi.",
   "settings_magnifier_missing": "Diese App-Version enthält die Lupe noch nicht – bitte aktualisiere die App",
   "settings_magnifier_start": "Lupen-Blase starten",
