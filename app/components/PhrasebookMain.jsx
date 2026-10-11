@@ -15,7 +15,8 @@ import { TTS_LOCALE } from "../tts/ttsConfig.js";
 import { LANGUAGES, PHRASEBOOK_LANGUAGES, syncLangPickerFromTargetOrder, syncTargetOrderFromLangPicker } from "../constants/languages.js";
 import { conversation } from "../constants/categories.js";
 import { APP_FONT_SIZES, READ_DONE_BG, READ_DONE_COLOR, colors, fontFa, fontLatin } from "../ui/theme.js";
-import { tr, trf } from "../ui/uiStrings.js";
+import { tr } from "../ui/uiStrings.js";
+import i18n, { SUPPORTED_LANGS } from "../../i18nconfig.js";
 import { SHOW_MASCOT_CHARACTER_OPTIONS, SHOW_MASCOT_OUTFIT_OPTIONS, STORAGE_KEY, TAB_GROUPS, TAB_META, groupOfTab } from "../prefs/appPrefs.js";
 import { WORD_LIST_SORT_OPTIONS } from "../sort/sortHelpers.js";
 import { storage } from "../storage/storage.js";
@@ -62,6 +63,11 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
     () => (rawAppPrefs.uiLang === "fa" || rawAppPrefs.uiLang === "en" ? rawAppPrefs : { ...rawAppPrefs, uiLang: "en" }),
     [rawAppPrefs]
   );
+  // زبانِ رابطِ واقعی (هر ۶ زبان) برای بخش‌هایی از این صفحه که ترجمه شدن (هدر،
+  // تب‌ها، جستجو، مکالمات). appPrefs.uiLang برای بقیه‌ی کامپوننت‌ها هنوز به en برمی‌گرده.
+  const navLang = SUPPORTED_LANGS.includes(rawAppPrefs.uiLang) ? rawAppPrefs.uiLang : "fa";
+  const tt = useMemo(() => i18n.getFixedT(navLang), [navLang]);
+  const uiFont = navLang === "fa" || navLang === "ar" ? fontFa : fontLatin;
   const [nativeLang, setNativeLang] = useState("fa");
   // طبق درخواست: هر بار که وارد اکانت می‌شی، زبان‌های مقصد نباید از دفعه‌ی
   // قبل به‌خاطر مونده باشن و از پیش انتخاب‌شده بیان — باید خالی شروع بشه و
@@ -702,7 +708,7 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
   const targetLangList = targetOrder
     .map((code) => LANGUAGES.find((l) => l.code === code))
     .filter(Boolean);
-  const targetLabel = targetLangList.map((l) => l.label).join("، ");
+  const targetLabel = targetLangList.map((l) => l.label).join(navLang === "fa" || navLang === "ar" ? "، " : ", ");
   // مرور (جعبه‌ی لایتنر) رو دیگه فقط رویِ VOCABِ ثابتِ برنامه انجام نمی‌ده —
   // لغاتِ دلخواهی هم که کاربر از پاپ‌آپِ لغت («افزودن به جعبه‌ی لایتنر») در
   // هر تبی اضافه کرده، به همین استخر می‌پیوندن.
@@ -743,12 +749,12 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
   if (!loaded) {
     return (
       <div
-        dir="rtl"
-        lang="fa"
-        style={{ fontFamily: fontFa, backgroundColor: colors.paper, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: colors.inkSoft }}
+        dir={navLang === "fa" || navLang === "ar" ? "rtl" : "ltr"}
+        lang={navLang}
+        style={{ fontFamily: uiFont, backgroundColor: colors.paper, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: colors.inkSoft }}
       >
         <style>{`@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap');`}</style>
-        در حال بارگذاری...
+        {tt("phrasebook_loading")}
       </div>
     );
   }
@@ -842,14 +848,14 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
             <SettingsMenu appPrefs={rawAppPrefs} setAppPrefs={setAppPrefs} user={user} onLogout={onLogout} aiSettings={aiSettings} onCustomBgChange={onCustomBgChange} targetOrder={targetOrder} />
           </div>
         </div>
-        <p style={{ color: colors.headerText, opacity: 0.85, fontSize: 13.5, fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }}>
-          {trf("headerFromTo", appPrefs.uiLang, { native: nativeLabel, target: targetLabel })} · {user?.name || user?.email}
+        <p style={{ color: colors.headerText, opacity: 0.85, fontSize: 13.5, fontFamily: uiFont }}>
+          {tt("phrasebook_header_from_to", { native: nativeLabel, target: targetLabel })} · {user?.name || user?.email}
         </p>
 
         {/* Language pickers */}
         <div className="mt-4">
-          <p style={{ fontSize: 13.5, color: colors.headerText, opacity: 0.85, marginBottom: 10, lineHeight: 1.9, fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }}>
-            {tr("nativeLanguageLabel", appPrefs.uiLang)}
+          <p style={{ fontSize: 13.5, color: colors.headerText, opacity: 0.85, marginBottom: 10, lineHeight: 1.9, fontFamily: uiFont }}>
+            {tt("phrasebook_native_language")}
           </p>
           <DraggableLangRow
             order={langPickerOrder}
@@ -862,8 +868,8 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
             onClick={(code) => setNativeLang(code)}
           />
           <div style={{ height: 1, background: "rgba(255,255,255,.14)", margin: "18px 0 14px" }} />
-          <p style={{ fontSize: 13.5, color: colors.headerText, opacity: 0.85, marginBottom: 10, lineHeight: 1.9, fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }}>
-            {tr("targetLanguagesLabel", appPrefs.uiLang)}
+          <p style={{ fontSize: 13.5, color: colors.headerText, opacity: 0.85, marginBottom: 10, lineHeight: 1.9, fontFamily: uiFont }}>
+            {tt("phrasebook_target_languages")}
           </p>
           <DraggableLangRow
             order={langPickerOrder}
@@ -878,8 +884,8 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
 
           {targetLangList.length > 1 && (
             <>
-              <p style={{ fontSize: 12, color: colors.paperDark, margin: "10px 0 6px", fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }}>
-                {tr("translationOrderLabel", appPrefs.uiLang)}
+              <p style={{ fontSize: 12, color: colors.paperDark, margin: "10px 0 6px", fontFamily: uiFont }}>
+                {tt("phrasebook_translation_order")}
               </p>
               <OrderChips
                 order={targetOrder}
@@ -900,11 +906,11 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
           {TAB_GROUPS.map((g) => (
             <HeaderGroupButton
               key={g.key}
-              label={tr(g.labelKey, appPrefs.uiLang)}
+              label={tr(g.labelKey, navLang)}
               icon={g.icon}
               active={activeTabGroup.key === g.key}
               onClick={() => goToTab(activeTabGroup.key === g.key ? g.tabs[0] : (lastTabInGroupRef.current[g.key] || g.tabs[0]))}
-              fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa}
+              fontFamily={uiFont}
             />
           ))}
         </div>
@@ -914,7 +920,7 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
       {activeTabGroup.tabs.length > 1 && (
         <nav className="px-4 py-3" style={{ backgroundColor: colors.paperDark, display: "flex", gap: 8, overflowX: "auto", borderBottom: `1px solid ${colors.cardBorder}` }}>
           {activeTabGroup.tabs.map((key) => (
-            <TabButton key={key} label={tr(TAB_META[key].labelKey, appPrefs.uiLang)} icon={TAB_META[key].icon} active={tab === key} onClick={() => goToTab(key)} fontFamily={appPrefs.uiLang === "en" ? fontLatin : fontFa} />
+            <TabButton key={key} label={tr(TAB_META[key].labelKey, navLang)} icon={TAB_META[key].icon} active={tab === key} onClick={() => goToTab(key)} fontFamily={uiFont} />
           ))}
         </nav>
       )}
@@ -949,15 +955,15 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
               onChange={(e) => setQuery(e.target.value)}
               placeholder={
                 tab === "words" || tab === "vocabInUse" || tab === "slang"
-                  ? tr("searchWordsPlaceholder", appPrefs.uiLang)
+                  ? tt("phrasebook_search_words")
                   : tab === "conversations"
-                  ? tr("searchConversationsPlaceholder", appPrefs.uiLang)
-                  : tr("searchPhrasesPlaceholder", appPrefs.uiLang)
+                  ? tt("phrasebook_search_conversations")
+                  : tt("phrasebook_search_phrases")
               }
-              style={{ flex: 1, fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa, border: "none", outline: "none", fontSize: 14, backgroundColor: "transparent" }}
+              style={{ flex: 1, fontFamily: uiFont, border: "none", outline: "none", fontSize: 14, backgroundColor: "transparent" }}
             />
             {query && (
-              <button onClick={() => setQuery("")} aria-label="پاک کردن جستجو">
+              <button onClick={() => setQuery("")} aria-label={tt("phrasebook_search_clear")}>
                 <X size={16} color={colors.inkSoft} />
               </button>
             )}
@@ -980,7 +986,7 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
   <DailyConversationsTab
     data={ALL_DAILY_CONVERSATIONS}
     query={debouncedQuery}
-    uiLang={appPrefs.uiLang || "fa"}
+    uiLang={navLang}
     nativeLang={nativeLang}
     nativeLabel={nativeLabel}
     aiSettings={aiSettings}
@@ -1007,7 +1013,7 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
           <div className="flex flex-col gap-6">
             {favorites.size === 0 && favoritedWords.length === 0 ? (
               <p style={{ color: colors.inkSoft, fontSize: 14, textAlign: "center", marginTop: 40 }}>
-                {tr("noFavoritesYet", appPrefs.uiLang)}
+                {tt("phrasebook_no_favorites")}
               </p>
             ) : (
               <>
@@ -1034,7 +1040,7 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
                 )}
                 {favoritedWords.length > 0 && (
                   <div>
-                    <h2 style={{ color: colors.gold, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{tr("favoritesWordsHeading", appPrefs.uiLang)}</h2>
+                    <h2 style={{ color: colors.gold, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{tt("phrasebook_favorites_words_heading")}</h2>
                     <WordList
                       words={favoritedWords}
                       listId="favorites"
@@ -1075,7 +1081,7 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
             query={debouncedQuery}
             levelFilter={levelFilter}
             sortKey={wordSortKey}
-            emptyText={tr("noWordsInList", appPrefs.uiLang)}
+            emptyText={tt("phrasebook_no_words")}
             uiLang={appPrefs.uiLang}
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
@@ -1099,7 +1105,7 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
             query={debouncedQuery}
             levelFilter={levelFilter}
             sortKey={wordSortKey}
-            emptyText={tr("noWordsInList", appPrefs.uiLang)}
+            emptyText={tt("phrasebook_no_words")}
             uiLang={appPrefs.uiLang}
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
@@ -1123,7 +1129,7 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
             query={debouncedQuery}
             levelFilter={levelFilter}
             sortKey={wordSortKey}
-            emptyText={tr("noWordsInList", appPrefs.uiLang)}
+            emptyText={tt("phrasebook_no_words")}
             uiLang={appPrefs.uiLang}
             nativeLang={nativeLang}
             nativeLabel={nativeLabel}
@@ -1386,8 +1392,8 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
                 (که در کفِ پلیر، زیرِ همینِ ردیفِ آیکون‌ها رندر می‌شه) باز می‌کنه. */}
             <button
               onClick={(e) => { e.stopPropagation(); setOpacityPopoverOpen((v) => !v); }}
-              aria-label="تنظیمِ شفافیتِ پلیر"
-              title="تنظیمِ شفافیتِ پلیر"
+              aria-label={tt("phrasebook_player_opacity_adjust")}
+              title={tt("phrasebook_player_opacity_adjust")}
               style={{
                 background: "none",
                 border: "none",
@@ -1420,21 +1426,21 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
                 gap: 8,
               }}
             >
-              <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>شفافیت پلیر</span>
+              <span style={{ fontSize: 11, color: colors.inkSoft, whiteSpace: "nowrap" }}>{tt("phrasebook_player_opacity")}</span>
               <input
                 type="range"
                 min={0}
                 max={100}
                 value={playerOpacity}
                 onChange={(e) => setPlayerOpacity(Number(e.target.value))}
-                aria-label="شفافیت پلیر"
+                aria-label={tt("phrasebook_player_opacity")}
                 style={{ flex: 1, accentColor: colors.gold }}
               />
               <span style={{ fontSize: 11, color: colors.inkSoft, minWidth: 28, textAlign: "left" }}>{playerOpacity}%</span>
               <button
                 onClick={() => setPlayerOpacity(100)}
-                aria-label="بازنشانی شفافیت پلیر به ۱۰۰٪"
-                title="بازنشانی شفافیت"
+                aria-label={tt("phrasebook_player_opacity_reset_aria")}
+                title={tt("phrasebook_player_opacity_reset")}
                 style={{ background: "none", border: "none", cursor: "pointer", color: colors.gold, padding: 2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
               >
                 <RotateCcw size={14} />
@@ -1451,8 +1457,8 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
         {playerOpacity <= 7 && (
           <button
             onClick={() => setPlayerOpacity(100)}
-            aria-label="بازنشانی شفافیت پلیر به ۱۰۰٪"
-            title="بازنشانی شفافیت"
+            aria-label={tt("phrasebook_player_opacity_reset_aria")}
+            title={tt("phrasebook_player_opacity_reset")}
             style={{
               position: "fixed",
               left: 10,

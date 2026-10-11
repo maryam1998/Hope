@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback, useContext, createContext } from "react";
 import { ChevronDown, Check, RotateCcw, Loader2 } from "lucide-react";
+import i18n from "./i18nconfig.js";
 
 // تابعِ «ترجمه‌ی دوباره‌ی یک خط» که از app.jsx می‌آد (retranslateLine(text, langCode) → Promise<string>).
 // با Context پاس می‌دیمش تا مجبور نباشیم از چند لایه کامپوننت prop رد کنیم.
@@ -99,27 +100,31 @@ const TOPIC_META_LIST = [
   ["حیوانات (Animals)", "حیوانات", PawPrint, "Animals"],
   ["خانه (Home and Housing)", "خانه", Building, "Home and Housing"],
 ];
+// نامِ نمایشیِ هر موضوع از locales/<lang>.json می‌آد (کلیدِ dialogs_topic_<slug>)؛
+// slug از برچسبِ انگلیسیِ تمیز ساخته می‌شه. اگه ترجمه‌ای نبود، i18n به انگلیسی برمی‌گرده.
+const topicLabelKey = (label) => "dialogs_topic_" + String(label).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 const TOPIC_META = {};
-TOPIC_META_LIST.forEach(([en, fa, icon, enLabel]) => (TOPIC_META[en] = { fa, icon, enLabel: enLabel || en }));
+TOPIC_META_LIST.forEach(([en, fa, icon, enLabel]) => (TOPIC_META[en] = { fa, icon, enLabel: enLabel || en, labelKey: topicLabelKey(enLabel || en) }));
+function topicLabel(meta, uiLang) {
+  if (!meta) return "";
+  if (!meta.labelKey) return isRtlUi(uiLang) ? meta.fa : (meta.enLabel || meta.fa);
+  return i18n.getFixedT(uiLang || "fa")(meta.labelKey, { defaultValue: isRtlUi(uiLang) ? meta.fa : (meta.enLabel || meta.en) });
+}
+// فارسی و عربی راست‌چین‌ان؛ بقیه چپ‌به‌راست.
+const isRtlUi = (lang) => lang === "fa" || lang === "ar";
 
-const UI_STRINGS = {
-  fa: {
-    search: "جستجوی موضوع یا مکالمه...",
-    comingSoon: "به‌زودی اضافه می‌شه",
-    youHear: "می‌شنوی",
-    youSay: "می‌گی",
-    noResults: "چیزی پیدا نشد",
-    backToTopics: "بازگشت به موضوعات",
-  },
-  en: {
-    search: "Search topics or conversations...",
-    comingSoon: "Coming soon",
-    youHear: "You Hear",
-    youSay: "You Say",
-    noResults: "Nothing found",
-    backToTopics: "Back to topics",
-  },
-};
+// رشته‌های این تب از locales/<lang>.json (کلیدهای dialogs_*) خونده می‌شن.
+function convStrings(uiLang) {
+  const tt = i18n.getFixedT(uiLang || "fa");
+  return {
+    comingSoon: tt("dialogs_coming_soon"),
+    youHear: tt("dialogs_you_hear"),
+    youSay: tt("dialogs_you_say"),
+    noResults: tt("dialogs_no_results"),
+    backToTopics: tt("dialogs_back_to_topics"),
+    toggleRead: tt("dialogs_toggle_read"),
+  };
+}
 
 // همون توکن‌های رنگ/فونتِ کل اپ (app.jsx) — چون این‌ها همه روی متغیرهای CSS
 // سراسری (--c-ink و ...) سوارن که خودِ App روی یه div ریشه ست می‌کنه، همینجا
@@ -195,12 +200,12 @@ function ensureSentenceEnd(s) {
 }
 
 function TopicCard({ meta, index, hasData, onClick, uiLang, isRead, onToggleRead, readDoneColor, readDoneBg }) {
-  const label = uiLang === "fa" ? meta.fa : (meta.enLabel || meta.en);
+  const label = topicLabel(meta, uiLang);
   const badgeColor = TOPIC_BADGE_COLORS[(index || 0) % TOPIC_BADGE_COLORS.length];
   const Icon = meta.icon || MessageCircle;
   return (
     <div
-      dir={uiLang === "fa" ? "rtl" : "ltr"}
+      dir={isRtlUi(uiLang) ? "rtl" : "ltr"}
       onClick={onClick}
       style={{
         position: "relative",
@@ -230,11 +235,11 @@ function TopicCard({ meta, index, hasData, onClick, uiLang, isRead, onToggleRead
           ev.stopPropagation();
           onToggleRead && onToggleRead();
         }}
-        aria-label={uiLang === "fa" ? "علامت‌زدن به‌عنوان خوانده‌شده" : "Toggle read"}
+        aria-label={i18n.getFixedT(uiLang || "fa")("dialogs_toggle_read")}
         style={{
           position: "absolute",
           top: 8,
-          [uiLang === "fa" ? "right" : "left"]: 8,
+          [isRtlUi(uiLang) ? "right" : "left"]: 8,
           width: 20,
           height: 20,
           borderRadius: "50%",
@@ -261,7 +266,7 @@ function TopicCard({ meta, index, hasData, onClick, uiLang, isRead, onToggleRead
       >
         <Icon size={21} strokeWidth={2} color={isRead ? "#2E7D6C" : colors.teal} />
       </span>
-      <span style={{ fontFamily: uiLang === "fa" ? fontFa : fontLatin, fontSize: 12.3, fontWeight: 600, color: colors.ink, lineHeight: 1.55 }}>
+      <span style={{ fontFamily: isRtlUi(uiLang) ? fontFa : fontLatin, fontSize: 12.3, fontWeight: 600, color: colors.ink, lineHeight: 1.55 }}>
         {label}
       </span>
     </div>
@@ -374,7 +379,7 @@ function LineTranslation({ text, langCode, variant, i, knownFa, aiSettings, tran
           fullText={fullText}
           startOffset={myOffset ? myOffset.start : undefined}
           neuralId={`conv:${langCode}::${text}`}
-          neuralLabel="ترجمه"
+          neuralLabel={i18n.t("dialogs_neural_translation")}
         />
       )}
       <span
@@ -414,8 +419,8 @@ function LineTranslation({ text, langCode, variant, i, knownFa, aiSettings, tran
         <button
           onClick={onRefresh}
           disabled={refreshing}
-          title="اگه این ترجمه اشتباهه، دوباره امتحان کن"
-          aria-label="ترجمه‌ی دوباره"
+          title={i18n.t("dialogs_retranslate_title")}
+          aria-label={i18n.t("dialogs_retranslate_aria")}
           style={{ background: "none", border: "none", padding: 4, flexShrink: 0, cursor: refreshing ? "default" : "pointer", display: "flex", alignItems: "center" }}
         >
           {refreshing ? (
@@ -514,7 +519,7 @@ function ConversationBox({ items, variant, label, nativeLang, nativeLabel, aiSet
                   fullText={fullText}
                   startOffset={lineOffset ? lineOffset.start : undefined}
                   neuralId={`conv:en::${it.en}`}
-                  neuralLabel="جمله"
+                  neuralLabel={i18n.t("dialogs_neural_sentence")}
                 />
               )}
               <span
@@ -610,7 +615,7 @@ function ScenarioAccordionItem({ sc, isOpen, onToggle, levelFilter, t, nativeLan
               ev.stopPropagation();
               onToggleRead && onToggleRead();
             }}
-            aria-label={t.toggleRead || "Toggle read"}
+            aria-label={t.toggleRead}
             style={{
               flexShrink: 0,
               width: 20,
@@ -687,7 +692,9 @@ export default function DailyConversationsTab({
     lastConversationsNav = { topic: activeTopic, scenario: openScenario };
   }, [activeTopic, openScenario]);
 
-  const t = UI_STRINGS[uiLang] || UI_STRINGS.fa;
+  const t = convStrings(uiLang);
+  const tt = i18n.getFixedT(uiLang || "fa");
+  const fmtNum = (n) => (isRtlUi(uiLang) ? Number(n).toLocaleString("fa-IR") : String(n));
 
   const filterByLevel = (arr) => (levelFilter && levelFilter !== "all" ? arr.filter((x) => x.level === levelFilter) : arr);
 
@@ -788,11 +795,11 @@ export default function DailyConversationsTab({
   };
 
   const filteredMeta = useMemo(() => {
-    const all = TOPIC_META_LIST.map(([en, fa, icon, enLabel]) => ({ en, fa, icon, enLabel: enLabel || en }));
+    const all = TOPIC_META_LIST.map(([en, fa, icon, enLabel]) => ({ en, fa, icon, enLabel: enLabel || en, labelKey: topicLabelKey(enLabel || en) }));
     if (!query || !query.trim()) return all;
     const q = query.trim().toLowerCase();
     return all.filter((m) => {
-      if (m.fa.includes(query.trim()) || m.en.toLowerCase().includes(q)) return true;
+      if (m.fa.includes(query.trim()) || m.en.toLowerCase().includes(q) || topicLabel(m, uiLang).toLowerCase().includes(q)) return true;
       const d = dataByTopic[m.en];
       if (!d) return false;
       return d.scenarios.some((sc) => {
@@ -801,7 +808,7 @@ export default function DailyConversationsTab({
       });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, dataByTopic, extraLangMaps]);
+  }, [query, dataByTopic, extraLangMaps, uiLang]);
 
   const activeTopicData = activeTopic ? dataByTopic[activeTopic] : null;
 
@@ -1028,7 +1035,7 @@ export default function DailyConversationsTab({
           (sc[key] || []).forEach((it) => {
             const hit = scenarioHit || itemMatchesQuery(it, q, query.trim());
             if (hit) {
-              results.push({ topicLabel: uiLang === "fa" ? meta.fa : (meta.enLabel || tp.topic), icon: meta.icon, scenario: sc.scenario, item: it, variant });
+              results.push({ topicLabel: topicLabel(meta, uiLang) || tp.topic, icon: meta.icon, scenario: sc.scenario, item: it, variant });
             }
           });
         });
@@ -1046,7 +1053,7 @@ export default function DailyConversationsTab({
         ) : (
           searchResults.map((r, i) => (
             <div key={i} style={{ marginBottom: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: colors.inkSoft, fontFamily: uiLang === "fa" ? fontFa : fontLatin, marginBottom: 5 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: colors.inkSoft, fontFamily: isRtlUi(uiLang) ? fontFa : fontLatin, marginBottom: 5 }}>
                 <r.icon size={13} strokeWidth={2} color={colors.inkSoft} style={{ flexShrink: 0 }} />
                 <span>{r.topicLabel} · {r.scenario}</span>
               </div>
@@ -1105,7 +1112,7 @@ export default function DailyConversationsTab({
                   {/* ردیفِ بازه («۱ تا ۴۰ / از مجموعِ ۴۰») — دقیقاً همون
                       .progress-top طرحِ مرجع، با این تفاوت که عدد‌ها اینجا
                       قابلِ‌ویرایشن (کاربر می‌تونه بازه‌ی نمایش رو خودش تنظیم کنه). */}
-                  <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "fa" ? "rtl" : "ltr", marginBottom: 12 }}>
+                  <div className="flex items-center gap-2 flex-wrap" style={{ direction: isRtlUi(uiLang) ? "rtl" : "ltr", marginBottom: 12 }}>
                     <input
                       type="number"
                       min={1}
@@ -1118,7 +1125,7 @@ export default function DailyConversationsTab({
                       }}
                       style={{ width: 44, padding: "4px 4px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, fontWeight: 700, color: colors.teal, textAlign: "center" }}
                     />
-                    <span style={{ fontSize: 15, fontWeight: 700, color: colors.teal }}>{uiLang === "fa" ? "تا" : "to"}</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: colors.teal }}>{tt("dialogs_range_to")}</span>
                     <input
                       type="number"
                       min={1}
@@ -1132,8 +1139,8 @@ export default function DailyConversationsTab({
                       style={{ width: 44, padding: "4px 4px", borderRadius: 6, border: `1px solid ${colors.cardBorder}`, fontSize: 13, fontWeight: 700, color: colors.teal, textAlign: "center" }}
                     />
                     <span style={{ fontSize: 13, color: colors.inkSoft, fontWeight: 600, marginRight: "auto" }}>
-                      {uiLang === "fa" ? "موضوع‌ها " : "Topics "}
-                      <span style={{ fontWeight: 400 }}>{uiLang === "fa" ? `از مجموع ${total.toLocaleString("fa-IR")}` : `of ${total}`}</span>
+                      {tt("dialogs_topics_label")}{" "}
+                      <span style={{ fontWeight: 400 }}>{tt("dialogs_topics_of_total", { total: fmtNum(total) })}</span>
                     </span>
                   </div>
 
@@ -1151,23 +1158,21 @@ export default function DailyConversationsTab({
                     />
                   </div>
 
-                  <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "fa" ? "rtl" : "ltr" }}>
+                  <div className="flex items-center gap-2 flex-wrap" style={{ direction: isRtlUi(uiLang) ? "rtl" : "ltr" }}>
                     <span style={{ fontSize: 13, color: "#2E7D6C", fontWeight: 600 }}>
-                      {uiLang === "fa"
-                        ? `خوانده‌شده: ${readCountTotal.toLocaleString("fa-IR")} از ${total.toLocaleString("fa-IR")} · ${readCountInRange.toLocaleString("fa-IR")} از ${visibleMeta.length.toLocaleString("fa-IR")} در این بازه`
-                        : `Read: ${readCountTotal}/${total} · ${readCountInRange}/${visibleMeta.length} in range`}
+                      {tt("dialogs_read_progress", { read: fmtNum(readCountTotal), total: fmtNum(total), range_read: fmtNum(readCountInRange), range_total: fmtNum(visibleMeta.length) })}
                     </span>
                   </div>
 
                   {/* دکمه‌های عمل — دقیقاً همون .btn-ghost / .btn-ghost.mark-all
                       طرحِ مرجع (سبزِ کم‌رنگ برای «همه به خوانده‌شده»، کِرمِ
                       خنثی برای «پاک‌کردن»). */}
-                  <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "fa" ? "rtl" : "ltr", marginTop: 12 }}>
+                  <div className="flex items-center gap-2 flex-wrap" style={{ direction: isRtlUi(uiLang) ? "rtl" : "ltr", marginTop: 12 }}>
                     <button
                       type="button"
                       onClick={() => markTopicRangeRead(visibleMeta, true)}
                       style={{
-                        fontFamily: uiLang === "fa" ? fontFa : fontLatin,
+                        fontFamily: isRtlUi(uiLang) ? fontFa : fontLatin,
                         fontSize: 12.5,
                         fontWeight: 600,
                         padding: "8px 12px",
@@ -1178,13 +1183,13 @@ export default function DailyConversationsTab({
                         cursor: "pointer",
                       }}
                     >
-                      {uiLang === "fa" ? "علامت‌گذاری همه به خوانده‌شده" : "Mark range read"}
+                      {tt("dialogs_mark_range_read")}
                     </button>
                     <button
                       type="button"
                       onClick={() => markTopicRangeRead(visibleMeta, false)}
                       style={{
-                        fontFamily: uiLang === "fa" ? fontFa : fontLatin,
+                        fontFamily: isRtlUi(uiLang) ? fontFa : fontLatin,
                         fontSize: 12.5,
                         fontWeight: 600,
                         padding: "8px 12px",
@@ -1195,7 +1200,7 @@ export default function DailyConversationsTab({
                         cursor: "pointer",
                       }}
                     >
-                      {uiLang === "fa" ? "پاک‌کردن علامت این بازه" : "Clear range"}
+                      {tt("dialogs_clear_range")}
                     </button>
                   </div>
                 </div>
@@ -1230,7 +1235,7 @@ export default function DailyConversationsTab({
       {/* آکاردئون سناریوهای موضوع انتخاب‌شده */}
       {activeTopic && (
         <div style={{ paddingTop: 6 }}>
-          <button onClick={() => setActiveTopic(null)} style={{ display: "flex", alignItems: "center", gap: 6, color: colors.teal, fontSize: 13, fontWeight: 700, fontFamily: uiLang === "fa" ? fontFa : fontLatin, marginBottom: 14 }}>
+          <button onClick={() => setActiveTopic(null)} style={{ display: "flex", alignItems: "center", gap: 6, color: colors.teal, fontSize: 13, fontWeight: 700, fontFamily: isRtlUi(uiLang) ? fontFa : fontLatin, marginBottom: 14 }}>
             ← {t.backToTopics}
           </button>
 
@@ -1239,8 +1244,8 @@ export default function DailyConversationsTab({
               const HeaderIcon = TOPIC_META[activeTopic]?.icon || MessageCircle;
               return <HeaderIcon size={22} strokeWidth={2} color={colors.teal} />;
             })()}
-            <span style={{ fontWeight: 800, fontSize: 16, color: colors.ink, fontFamily: uiLang === "fa" ? fontFa : fontLatin }}>
-              {uiLang === "fa" ? TOPIC_META[activeTopic]?.fa : (TOPIC_META[activeTopic]?.enLabel || activeTopic)}
+            <span style={{ fontWeight: 800, fontSize: 16, color: colors.ink, fontFamily: isRtlUi(uiLang) ? fontFa : fontLatin }}>
+              {TOPIC_META[activeTopic] ? topicLabel(TOPIC_META[activeTopic], uiLang) : activeTopic}
             </span>
           </div>
 
