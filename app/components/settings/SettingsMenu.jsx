@@ -63,6 +63,30 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
     setBubbleKindState(v);
     try { localStorage.setItem("bubbleKind", v); } catch (e) {}
   };
+  // 🎨 رنگِ کادرِ حباب (ترجمه‌ی زنده + ذره‌بین)؛ پیش‌فرض سورمه‌ای. رنگ‌های روشن خودکار تیره می‌شوند تا متنِ سفید خوانا بماند.
+  const DEFAULT_PANEL_COLOR = "#1C2541";
+  const ensureDarkColor = (hex) => {
+    try {
+      let r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+      const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+      if (lum > 0.42) { const k = 0.42 / lum; r = Math.round(r * k); g = Math.round(g * k); b = Math.round(b * k); }
+      return "#" + [r, g, b].map((x) => x.toString(16).padStart(2, "0")).join("").toUpperCase();
+    } catch (e) { return DEFAULT_PANEL_COLOR; }
+  };
+  const [panelColor, setPanelColorState] = useState(() => {
+    try { return localStorage.getItem("bubblePanelColor") || DEFAULT_PANEL_COLOR; } catch (e) { return DEFAULT_PANEL_COLOR; }
+  });
+  const setPanelColor = (hex) => {
+    const v = ensureDarkColor(hex);
+    setPanelColorState(v);
+    try { localStorage.setItem("bubblePanelColor", v); } catch (e) {}
+  };
+  useEffect(() => {
+    try {
+      const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin;
+      if (B && B.setPanelColor) B.setPanelColor({ color: panelColor });
+    } catch (e) {}
+  }, [panelColor]);
   const [magRunning, setMagRunning] = useState(false);
   useEffect(() => {
     try {
@@ -769,6 +793,43 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                 </button>
               );
             })}
+          </div>
+
+          {/* 🎨 رنگِ کادرِ حباب — برای ترجمه‌ی زنده و ذره‌بین، هر دو */}
+          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>
+            🎨 {uiLang === "en" ? "Bubble panel color (live translation + magnifier)" : "رنگ کادر حباب (ترجمه‌ی زنده + ذره‌بین)"}
+          </p>
+          <div className="flex gap-2 items-center" style={{ marginBottom: 12, flexWrap: "wrap" }}>
+            {["#1C2541", "#14342B", "#3A1F2B", "#2B2B33", "#2E2352", "#0F3A44"].map((hex) => (
+              <button
+                key={hex}
+                onClick={() => setPanelColor(hex)}
+                aria-label={hex}
+                aria-pressed={panelColor === hex}
+                style={{
+                  width: 30, height: 30, borderRadius: "50%", backgroundColor: hex,
+                  border: `2px solid ${panelColor === hex ? colors.gold : colors.cardBorder}`,
+                  boxShadow: panelColor === hex ? `0 0 0 2px ${colors.goldSoft}` : "none",
+                }}
+              />
+            ))}
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: colors.inkSoft }}>
+              <input
+                type="color"
+                value={panelColor}
+                onChange={(e) => setPanelColor(e.target.value)}
+                style={{ width: 34, height: 30, padding: 0, border: `1px solid ${colors.cardBorder}`, borderRadius: 8, background: "white" }}
+              />
+              {uiLang === "en" ? "Custom" : "دلخواه"}
+            </label>
+            {panelColor !== DEFAULT_PANEL_COLOR && (
+              <button
+                onClick={() => setPanelColor(DEFAULT_PANEL_COLOR)}
+                style={{ fontSize: 11.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: "3px 10px", backgroundColor: "white" }}
+              >
+                {uiLang === "en" ? "Reset" : "بازگشت به پیش‌فرض"}
+              </button>
+            )}
           </div>
 
           {bubbleKind !== "live" && (
