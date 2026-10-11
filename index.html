@@ -73,8 +73,16 @@
 
   <script>
     if ("serviceWorker" in navigator) {
+      // قبلاً به‌محضِ آماده‌شدنِ سرویس‌ورکرِ جدید (که با هر دیپلوی CACHE_VERSION رو
+      // بالا می‌بره) صفحه وسطِ کارِ کاربر خودکار رفرش می‌شد — همون صفحه‌ی
+      // «در حال بارگذاری...» که موقعِ زدنِ یه تب ناگهان ظاهر می‌شد. حالا فقط
+      // علامت می‌ذاریم و رفرش رو می‌ندازیم به وقتی که کاربر از صفحه/اپ می‌ره بیرون؛
+      // دفعه‌ی بعد که برمی‌گرده، نسخه‌ی تازه (sw «شبکه‌اول»ه) بدونِ وقفه بالا می‌آد.
       navigator.serviceWorker.addEventListener("controllerchange", () => {
-        if (!window.__swReloaded) {
+        window.__swUpdated = true;
+      });
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden" && window.__swUpdated && !window.__swReloaded) {
           window.__swReloaded = true;
           window.location.reload();
         }

@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Send, Loader2, Trash2, Globe, Pencil, Check, X, RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import i18n from "./i18nconfig.js";
 
 const fontFa = "var(--font-fa)";
 const fontLatin = "var(--font-latin)";
@@ -35,6 +37,11 @@ const LANGUAGES = [
 // پیامِ یکدست + کمک‌تابع‌هایی که جوابِ خراب (فرایندِ فکرِ سرویس، ترجمه‌ی نشده) را
 // تشخیص می‌دهند تا به‌جایِ نمایشِ آن، «اینترنتت رو چک کن» + دکمه‌ی تلاشِ مجدد بیاید.
 const AI_NET_MSG = "هوش مصنوعی جواب نداد. اینترنتت رو چک کن و دوباره امتحان کن.";
+// همان پیام، به زبانِ رابطِ اپ (تنظیماتِ «زبان نرم‌افزار»)
+const AI_NET_MSG_EN = "The AI didn't respond. Check your internet and try again.";
+function aiNetMsgNow() { return i18n.language === "en" ? AI_NET_MSG_EN : AI_NET_MSG; }
+// نامِ انگلیسیِ زبان‌ها برای وقتی که رابطِ اپ انگلیسی است
+const LANG_NAME_EN = { fa: "Persian", en: "English", it: "Italian", hi: "Hindi", tr: "Turkish", ar: "Arabic", es: "Spanish", de: "German", fr: "French", zh: "Chinese", ko: "Korean", ru: "Russian", ja: "Japanese" };
 const AI_REASONING_LEAK_RE = /(thinking process|here'?s a thinking|analy[sz]e the (user'?s |learner'?s )?(request|text|input)|\*\*\s*analy[sz]e|\bconstraint\s*:|the user wants me to|let me (read|think|analy[sz]e|re-?read)|<\/?think(ing)?>|^\s*okay,? (so|let'?s|the user))/im;
 function looksLikeReasoningLeak(text) {
   const t = String(text || "");
@@ -72,7 +79,7 @@ function isBadTranslation(src, out, targetLang) {
 }
 function friendlyAiError(e) {
   const m = String(e?.message || "").replace(/^ai-backend-error:\s*/, "").trim();
-  return m || AI_NET_MSG;
+  return m || aiNetMsgNow();
 }
 
 function detectPastedTextLanguage(text) {
@@ -208,6 +215,12 @@ function SpeakingPracticePanel({
   user,
   saveGrammarNote,
 }) {
+  // زبانِ رابطِ اپ — همه‌ی متن‌های ثابتِ این صفحه از همین می‌آد.
+  const { i18n: uiI18n } = useTranslation();
+  const uiLang = uiI18n.language === "en" ? "en" : "fa";
+  const uiDir = uiLang === "en" ? "ltr" : "rtl";
+  const L = (fa, en) => (uiLang === "en" ? en : fa);
+  const uiLangName = (code) => (uiLang === "en" && LANG_NAME_EN[code]) || LANGUAGES.find((l) => l.code === code)?.label || code;
   const storageKey = `${SPEAKING_CHAT_STORAGE_KEY}:${user?.email || "guest"}`;
   const [messages, setMessages] = useState(() => loadStoredChatMessages(storageKey) || []);
   const [input, setInput] = useState("");
@@ -238,7 +251,7 @@ function SpeakingPracticePanel({
 
   useEffect(() => {
     if (messages.length === 0) {
-      const langLabel = LANGUAGES.find(l => l.code === chatLang)?.label || chatLang;
+      const langLabel = uiLangName(chatLang);
       const welcome = `Hey there! I'm Jimmy, your conversation coach. Let's practice ${langLabel} together. 😊
 
 I'll help you with grammar, vocabulary, and natural expressions. Feel free to write anything you'd like to talk about!
@@ -367,7 +380,7 @@ Now respond to: "${userSentence}"
 
     const result = stripThinkTags(await callAI({ prompt, maxTokens: 550, retries: 1, aiSettings }));
     // سرویس به‌جایِ جواب، «فرایندِ فکر» برگرداند → جوابِ خراب است؛ نمایش نده
-    if (!result || looksLikeReasoningLeak(result)) throw new Error(`ai-backend-error: ${AI_NET_MSG}`);
+    if (!result || looksLikeReasoningLeak(result)) throw new Error(`ai-backend-error: ${aiNetMsgNow()}`);
     return result.trim();
   };
 
@@ -394,7 +407,7 @@ ${historyText}
 `;
 
     const result = stripThinkTags(await callAI({ prompt, maxTokens: 180, retries: 1, aiSettings }));
-    if (!result || looksLikeReasoningLeak(result)) throw new Error(`ai-backend-error: ${AI_NET_MSG}`);
+    if (!result || looksLikeReasoningLeak(result)) throw new Error(`ai-backend-error: ${aiNetMsgNow()}`);
     return normalizeAiText(result.trim());
   };
 
@@ -557,7 +570,7 @@ ${historyText}
     setTranslations({});
     setOpenTranslation({});
     setTranslationErrors({});
-    const langLabel = LANGUAGES.find(l => l.code === chatLang)?.label || chatLang;
+    const langLabel = uiLangName(chatLang);
     const welcome = `Hey there! I'm Jimmy, your conversation coach. Let's practice ${langLabel} together. 😊
 
 I'll help you with grammar, vocabulary, and natural expressions. Feel free to write anything you'd like to talk about!
@@ -656,17 +669,19 @@ By the way, what's your name? Or tell me something about yourself.`;
   return (
     <div className="flex flex-col gap-4" style={{ padding: "0 4px" }}>
       <div>
-        <h2 style={{ fontWeight: 800, fontSize: 18, color: colors.ink, marginBottom: 4 }}>
-          🗣️ تمرین مکالمه
+        <h2 dir={uiDir} style={{ fontWeight: 800, fontSize: 18, color: colors.ink, marginBottom: 4 }}>
+          {L("🗣️ تمرین مکالمه", "🗣️ Speaking practice")}
         </h2>
-        <p style={{ fontSize: 13, color: colors.inkSoft, lineHeight: 1.7 }}>
-          یک جمله به زبانی که یاد می‌گیری بنویس و جیمی (AI) آن را بررسی می‌کند،
-          اشتباهات را تصحیح می‌کند و بر اساس زبان مادری‌ات توضیح می‌دهد. مثل یک معلم مکالمه!
+        <p dir={uiDir} style={{ fontSize: 13, color: colors.inkSoft, lineHeight: 1.7 }}>
+          {L(
+            "یک جمله به زبانی که یاد می‌گیری بنویس و جیمی (AI) آن را بررسی می‌کند، اشتباهات را تصحیح می‌کند و بر اساس زبان مادری‌ات توضیح می‌دهد. مثل یک معلم مکالمه!",
+            "Write a sentence in the language you're learning and Jimmy (AI) will check it, correct your mistakes, and explain them in your native language — like a conversation teacher!"
+          )}
         </p>
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <span style={{ fontSize: 12, color: colors.inkSoft }}>زبان تمرین:</span>
+        <span style={{ fontSize: 12, color: colors.inkSoft }}>{L("زبان تمرین:", "Practice language:")}</span>
         <select
           value={chatLang}
           onChange={(e) => setChatLang(e.target.value)}
@@ -680,7 +695,7 @@ By the way, what's your name? Or tell me something about yourself.`;
           }}
         >
           {langOptions.map((code) => {
-            const label = LANGUAGES.find((l) => l.code === code)?.label || code;
+            const label = uiLangName(code);
             return <option key={code} value={code}>{label}</option>;
           })}
         </select>
@@ -690,7 +705,7 @@ By the way, what's your name? Or tell me something about yourself.`;
             className="flex items-center gap-1"
             style={{ fontSize: 12, color: colors.rose, fontWeight: 700, marginLeft: "auto" }}
           >
-            <Trash2 size={14} /> پاک کردن گفتگو
+            <Trash2 size={14} /> {L("پاک کردن گفتگو", "Clear conversation")}
           </button>
         )}
       </div>
@@ -707,7 +722,7 @@ By the way, what's your name? Or tell me something about yourself.`;
           }}
         >
           <p style={{ fontSize: 13, fontWeight: 700, color: colors.ink, marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span>✏️ تصحیحات</span>
+            <span>{L("✏️ تصحیحات", "✏️ Corrections")}</span>
             <button
               onClick={saveCorrectionsToGrammar}
               disabled={correctionsSaved}
@@ -719,15 +734,15 @@ By the way, what's your name? Or tell me something about yourself.`;
                 opacity: correctionsSaved ? 0.7 : 1,
               }}
             >
-              {correctionsSaved ? "✅ ذخیره شد" : "💾 ذخیره در گرامر"}
+              {correctionsSaved ? L("✅ ذخیره شد", "✅ Saved") : L("💾 ذخیره در گرامر", "💾 Save to grammar")}
             </button>
           </p>
           {corrections.map((c, idx) => (
             <p key={idx} style={{ fontSize: 12, color: colors.inkSoft, lineHeight: 1.8, marginBottom: 4 }}>
-              <span style={{ fontWeight: 600, color: MISTAKE_STYLE.color }}>{idx + 1}. اشتباه: </span>
+              <span style={{ fontWeight: 600, color: MISTAKE_STYLE.color }}>{idx + 1}. {L("اشتباه:", "Mistake:")} </span>
               <span style={MISTAKE_STYLE}>{c.original}</span>
               <br />
-              <span style={{ fontWeight: 600, color: CORRECTION_STYLE.color }}>   ✅ پیشنهاد: </span>
+              <span style={{ fontWeight: 600, color: CORRECTION_STYLE.color }}>   {L("✅ پیشنهاد:", "✅ Suggestion:")} </span>
               <span style={CORRECTION_STYLE}>{c.corrected}</span>
             </p>
           ))}
@@ -801,7 +816,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                       style={{ fontSize: 11, color: colors.inkSoft }}
                     >
                       <X size={12} />
-                      انصراف
+                      {L("انصراف", "Cancel")}
                     </button>
                     <button
                       onClick={saveEditingMsg}
@@ -809,7 +824,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                       style={{ fontSize: 11, color: "white", fontWeight: 700, backgroundColor: colors.teal, borderRadius: 8, padding: "3px 8px" }}
                     >
                       <Check size={12} />
-                      ذخیره و ارسالِ مجدد
+                      {L("ذخیره و ارسالِ مجدد", "Save & resend")}
                     </button>
                   </div>
                 </div>
@@ -878,7 +893,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                   style={{ fontSize: 11, color: colors.teal, fontWeight: 700, marginTop: 4 }}
                 >
                   <Pencil size={12} />
-                  ویرایش
+                  {L("ویرایش", "Edit")}
                 </button>
               )}
 
@@ -889,7 +904,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                     <span className="flex items-center gap-1">
                       <Globe size={13} color={colors.inkSoft} />
                       {translationLangs.map(lang => {
-                        const label = LANGUAGES.find(l => l.code === lang)?.label || lang;
+                        const label = uiLangName(lang);
                         const isOpen = openTranslation[idx] === lang;
                         return (
                           <button
@@ -924,7 +939,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                         className="flex items-center gap-1"
                         style={{ fontSize: 11, color: colors.gold, fontWeight: 700 }}
                       >
-                        ✅ ذخیره شد
+                        {L("✅ ذخیره شد", "✅ Saved")}
                       </span>
                     ) : (
                       <button
@@ -932,7 +947,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                         className="flex items-center gap-1"
                         style={{ fontSize: 11, color: colors.teal, fontWeight: 700 }}
                       >
-                        💾 ذخیره در گرامر
+                        {L("💾 ذخیره در گرامر", "💾 Save to grammar")}
                       </button>
                     )
                   )}
@@ -941,13 +956,13 @@ By the way, what's your name? Or tell me something about yourself.`;
 
               {!isUser && translationErrors[idx] && (
                 <div style={{ marginTop: 4, alignSelf: "flex-end", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: colors.rose }}>
-                  <span>ترجمه انجام نشد. اینترنتت رو چک کن.</span>
+                  <span>{L("ترجمه انجام نشد. اینترنتت رو چک کن.", "Translation failed. Check your internet.")}</span>
                   <button
                     onClick={() => toggleTranslation(idx, translationErrors[idx], true)}
                     className="flex items-center gap-1"
                     style={{ fontSize: 12, fontWeight: 700, color: "white", backgroundColor: colors.rose, borderRadius: 999, padding: "4px 10px" }}
                   >
-                    <RefreshCw size={12} /> تلاش مجدد
+                    <RefreshCw size={12} /> {L("تلاش مجدد", "Try again")}
                   </button>
                 </div>
               )}
@@ -983,7 +998,7 @@ By the way, what's your name? Or tell me something about yourself.`;
         {loading && (
           <div style={{ alignSelf: "flex-end", display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: colors.inkSoft }}>
             <Loader2 size={14} className="spin" />
-            در حال بررسی...
+            {L("در حال بررسی...", "Checking...")}
           </div>
         )}
         {error && (
@@ -996,7 +1011,7 @@ By the way, what's your name? Or tell me something about yourself.`;
                 className="flex items-center gap-1"
                 style={{ fontSize: 12, fontWeight: 700, color: "white", backgroundColor: colors.rose, borderRadius: 999, padding: "5px 12px", opacity: loading ? 0.6 : 1 }}
               >
-                <RefreshCw size={13} /> تلاش مجدد
+                <RefreshCw size={13} /> {L("تلاش مجدد", "Try again")}
               </button>
             )}
           </div>
@@ -1044,7 +1059,7 @@ By the way, what's your name? Or tell me something about yourself.`;
               sendMessage();
             }
           }}
-          placeholder="متن خود را بنویسید..."
+          placeholder={L("متن خود را بنویسید...", "Write your text...")}
           style={{
             flex: 1,
             border: "none",
