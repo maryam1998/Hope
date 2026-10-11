@@ -8,7 +8,7 @@ import { APP_FONTS, APP_FONT_SIZES, APP_LANGUAGES, APP_THEMES, HIGHLIGHT_COLOR_P
 import { tr } from "../../ui/uiStrings.js";
 import { PRIMARY_TAB_DEFAULT, SECONDARY_TAB_DEFAULT, SHOW_CUSTOM_BG_OPTIONS, SHOW_MASCOT_CHARACTER_OPTIONS, SHOW_MASCOT_OUTFIT_OPTIONS, SHOW_TAB_ORDER_OPTIONS, TAB_META, normalizeTabOrder } from "../../prefs/appPrefs.js";
 import { loadTargetTextPrefs, saveTargetTextPrefs } from "../../prefs/textPrefs.js";
-import { LINGOVA_OUTFITS, LINGOVA_OUTFIT_KEYS } from "../../mascot/lingovaConfig.js";
+import { LINGOVA_OUTFITS, LINGOVA_OUTFIT_KEYS, resetLingovaMascotPosition } from "../../mascot/lingovaConfig.js";
 import { OfflineWordsModal } from "./OfflineWordsModal.jsx";
 import { OfflineSpeechModelSettings, SongSttSettings, ensureOfflineSpeechModel } from "./OfflineSpeechSettings.jsx";
 import { AudioSyncSettings } from "./AudioSyncSettings.jsx";
@@ -753,6 +753,15 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               );
             })}
           </div>
+          <button
+            onClick={() => {
+              resetLingovaMascotPosition();
+              try { alert(uiLang === "en" ? "The mascot is back in its original place" : "آدمک به جای اولش برگشت"); } catch (e) {}
+            }}
+            style={{ fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, backgroundColor: "white", borderRadius: 12, padding: "8px 14px", marginTop: -4, marginBottom: 16 }}
+          >
+            ↺ {uiLang === "en" ? "Reset mascot position" : "ریست مکان آدمک (برگشت به نوار بالا)"}
+          </button>
 
           {/* «زبان‌های خواندن با صدای بلند» (پنلِ نصب بسته‌ی زبان) از تنظیمات
               حذف شد — به‌جاش، هر جا کاربر بخواد ترجمه‌ای رو با صدای بلند
@@ -763,9 +772,10 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           <OfflineTtsModelSettings uiLang={uiLang} colors={colors} />
           <AudioSyncSettings uiLang={uiLang} colors={colors} />
 
-          {/* 🔍 انتخاب نوع حباب: ذره‌بین / ترجمه‌ی زنده / هر دو */}
-          <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, marginTop: 8 }}>
-            🫧 {uiLang === "en" ? "Bubble type (Android)" : "نوع حباب (اندروید)"}
+          {/* 🫧 دکمه‌های شناور (اندروید): انتخابِ نوع + رنگ + ذره‌بین + ترجمه‌ی زنده‌ی صدا + زیرنویس زنده‌ی یوتیوب — همه در یک کادر */}
+          <div style={{ border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: "12px 12px 4px", margin: "10px 0 14px", backgroundColor: "rgba(255,255,255,0.45)" }}>
+          <p style={{ fontSize: 14, fontWeight: 800, color: colors.ink, marginBottom: 8 }}>
+            🫧 {uiLang === "en" ? "Floating buttons (Android)" : "دکمه‌های شناور (اندروید)"}
           </p>
           <div className="flex gap-2" style={{ marginBottom: 12, flexWrap: "wrap" }}>
             {[
@@ -834,6 +844,9 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
 
           {bubbleKind !== "live" && (
             <div style={{ marginBottom: 12 }}>
+              <p style={{ fontSize: 12.5, fontWeight: 800, color: colors.ink, marginBottom: 6 }}>
+                🔍 {uiLang === "en" ? "Magnifier" : "ذره‌بین"}
+              </p>
               <button
                 onClick={async () => {
                   try {
@@ -1029,6 +1042,8 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           </p>
           </>
           )}
+
+          </div>
 
           {/* Offline words download */}
           <button
