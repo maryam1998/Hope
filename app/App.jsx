@@ -137,6 +137,18 @@ export default function App() {
     } catch (e) {}
   }, [appPrefs.font]);
 
+  // زبانِ رابطِ اپ → کادرِ ترجمه‌ی زنده و ذره‌بینِ اندروید (متن‌هاشون هم به همین زبان نشون داده می‌شن).
+  useEffect(() => {
+    try {
+      const cap = window.Capacitor;
+      const B = cap && cap.Plugins && cap.Plugins.BubblePlugin;
+      if (B && B.setUiLang && cap.isNativePlatform && cap.isNativePlatform()) {
+        const r = B.setUiLang({ lang: appPrefs.uiLang === "en" ? "en" : "fa" });
+        if (r && r.catch) r.catch(() => {});
+      }
+    } catch (e) {}
+  }, [appPrefs.uiLang]);
+
   // Sets the CSS custom properties every `colors.xxx` / fontFa / fontLatin
   // reference resolves to, plus a `zoom` for the font-size preference — one
   // wrapper, whole app re-themed, login screen included.
