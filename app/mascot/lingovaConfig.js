@@ -11,10 +11,19 @@
 // حبابِ کوچیکِ یادآوری («بخون دیگه!») نشون می‌ده — تا کاربر دوباره تعامل
 // کنه، برمی‌گرده به راه‌رفتنِ عادی.
 // ---------------------------------------------------------------------------
-// فاصله‌ی بالای صفحه برای نوار وضعیتِ گوشی. توی مرورگر env() خودش صفره؛ توی اپ اندروید
-// (Capacitor، تمام‌صفحه) اگه WebView مقدار نداد، حداقلِ ۳۴px رو می‌گیریم تا آدمک و هدر زیرِ نوار وضعیت بیان.
+// فاصله‌ی بالا/پایینِ صفحه برای نوار وضعیت و نوارِ ناوبریِ گوشی. توی مرورگر env() خودش صفره.
+// توی اپ اندروید (Capacitor)، وقتی WebView تمام‌صفحه است (زیرِ نوارها می‌رود)، اگه هیچ منبعی مقدارِ
+// واقعی نداد (نه env() نه متغیرِ --safe-area-inset-* که Capacitor می‌سازد)، یه حداقلِ معقول می‌گیریم
+// تا آدمک و هدر زیرِ نوار وضعیت، و نوارِ «تمرین جمله‌سازی و گرامر» و پلیر بالای دکمه‌های ناوبری بمانند.
 const IS_NATIVE = typeof window !== "undefined" && !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-export const STATUS_BAR_INSET = IS_NATIVE ? "max(env(safe-area-inset-top, 0px), 34px)" : "env(safe-area-inset-top, 0px)";
+// اگه ویوپورت به‌وضوح کوچک‌تر از صفحه باشد (سیستم خودش نوارها را کنار گذاشته، مثلاً اندروید ≤۱۴)، فاصله‌ی اضافه لازم نیست.
+const EDGE_TO_EDGE = IS_NATIVE && !(window.innerHeight > 0 && window.screen && window.screen.height - window.innerHeight >= 24);
+export const STATUS_BAR_INSET = EDGE_TO_EDGE
+  ? "max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 34px))"
+  : "env(safe-area-inset-top, 0px)";
+export const NAV_BAR_INSET = EDGE_TO_EDGE
+  ? "max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 48px))"
+  : "env(safe-area-inset-bottom, 0px)";
 export const LINGOVA_MASCOT_WIDTH = 30;
 export const LINGOVA_MASCOT_HEIGHT = 38;
 export const LINGOVA_IDLE_MS = 6000; // بعدِ این‌قدر بی‌تعاملی، پیام‌های یادآوری فعال می‌شن
@@ -81,4 +90,12 @@ export function saveLingovaPinnedPos(left, top) {
   } catch {
     // localStorage در دسترس نیست — مشکلی نیست، فقط موقعیت بینِ نشست‌ها یادش نمی‌مونه
   }
+}
+
+// ↺ بازگرداندنِ آدمک به حالتِ اول: موقعیتِ سنجاق‌شده پاک می‌شه و آدمک دوباره توی نوارِ تیره‌ترِ بالای صفحه راه می‌ره.
+export const LINGOVA_RESET_EVENT = "lingova-mascot-reset";
+export function resetLingovaMascotPosition() {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.removeItem(LINGOVA_POS_STORAGE_KEY); } catch {}
+  try { window.dispatchEvent(new Event(LINGOVA_RESET_EVENT)); } catch {}
 }
