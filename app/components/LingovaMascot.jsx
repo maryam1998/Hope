@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { LINGOVA_CHARACTERS } from "../../LINGOVA_CHARACTERS.js";
 import { APP_LANGUAGES, colors } from "../ui/theme.js";
 import { speechController } from "../speech/speechController.js";
-import { LINGOVA_DOUBLE_TAP_DIST_TOLERANCE, LINGOVA_DOUBLE_TAP_MS, LINGOVA_LONG_PRESS_MS, LINGOVA_MASCOT_HEIGHT, LINGOVA_MASCOT_WIDTH, LINGOVA_OUTFITS, LINGOVA_TAP_MOVE_TOLERANCE, loadLingovaPinnedPos, saveLingovaPinnedPos } from "../mascot/lingovaConfig.js";
+import { LINGOVA_DOUBLE_TAP_DIST_TOLERANCE, LINGOVA_DOUBLE_TAP_MS, LINGOVA_LONG_PRESS_MS, LINGOVA_MASCOT_HEIGHT, LINGOVA_MASCOT_WIDTH, LINGOVA_OUTFITS, LINGOVA_TAP_MOVE_TOLERANCE, STATUS_BAR_INSET, loadLingovaPinnedPos, saveLingovaPinnedPos } from "../mascot/lingovaConfig.js";
 import { useLingovaMascot } from "../hooks/useLingovaMascot.js";
 
 // ⚡️ فیکسِ سرعت: این کامپوننت خودش (با تایمرِ داخلیِ ۴۵ میلی‌ثانیه‌ایِ
@@ -508,7 +508,9 @@ export const LingovaMascot = React.memo(function LingovaMascot({ uiLang, fontZoo
               top: 0,
               left: 0,
               right: 0,
-              height: 40,
+              height: `calc(40px + ${STATUS_BAR_INSET})`,
+              paddingTop: STATUS_BAR_INSET,
+              boxSizing: "border-box",
               zIndex: 60,
               overflow: "hidden",
               pointerEvents: "none",

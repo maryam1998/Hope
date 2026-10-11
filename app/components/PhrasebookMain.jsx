@@ -50,6 +50,7 @@ import { GlobalAddToStorySelection } from "./GlobalAddToStorySelection.jsx";
 import { WORDS_PAGE_SIZE, WordList } from "./WordList.jsx";
 import { ReviewBox } from "./ReviewBox.jsx";
 import { LingovaMascot } from "./LingovaMascot.jsx";
+import { STATUS_BAR_INSET } from "../mascot/lingovaConfig.js";
 
 // ---------------------------------------------------------------------------
 // Main App
@@ -805,6 +806,7 @@ export function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustom
         style={{
           background: `radial-gradient(120% 140% at 15% -10%, rgba(255,255,255,.14), transparent 55%), linear-gradient(165deg, ${colors.headerFrom} 0%, ${colors.headerTo} 100%)`,
           color: colors.headerText,
+          paddingTop: `calc(1.5rem + ${STATUS_BAR_INSET})`,
         }}
         className="px-4 pt-6 pb-5"
       >
