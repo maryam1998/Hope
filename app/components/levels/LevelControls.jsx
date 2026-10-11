@@ -9,6 +9,7 @@ import { setPersonalWordLevel } from "../../words/savedStoryWords.js";
 
 // انتخابِ سطحِ لغتِ شخصی (A1..C2) — با زدن روی بج باز می‌شه.
 export function PersonalLevelPicker({ word, level, uiLang }) {
+  const { t: tx } = useTranslation();
   const [open, setOpen] = useState(false);
   const pick = (lv) => {
     setPersonalWordLevel(word, lv);
@@ -22,7 +23,7 @@ export function PersonalLevelPicker({ word, level, uiLang }) {
           e.stopPropagation();
           setOpen((o) => !o);
         }}
-        aria-label={uiLang === "en" ? "Set level" : "تعیین سطح"}
+        aria-label={tx("level_set_aria")}
         style={{
           fontFamily: fontLatin,
           fontSize: 10,
@@ -36,7 +37,7 @@ export function PersonalLevelPicker({ word, level, uiLang }) {
           cursor: "pointer",
         }}
       >
-        {level || (uiLang === "en" ? "level?" : "سطح؟")}
+        {level || tx("level_unset")}
       </button>
       {open && (
         <span style={{ display: "inline-flex", gap: 3, flexWrap: "wrap" }}>
@@ -133,9 +134,10 @@ export function LevelFilterRow({ levelFilter, setLevelFilter, uiLang }) {
 // یعنی «بلد شدی»، پس اصلاً تو مرور نمی‌آد). هر چیپ تعدادِ موردهای همون سطح
 // رو هم نشون می‌ده.
 export function LevelFilterChips({ levelFilter, setLevelFilter, levelCounts, uiLang }) {
+  const { t: tx } = useTranslation();
   const chips = [
-    { key: "all", label: uiLang === "en" ? "All" : "همه", count: levelCounts.reduce((a, b) => a + b, 0) },
-    ...[1, 2, 3, 4].map((lvl) => ({ key: lvl, label: uiLang === "en" ? `Box ${lvl}` : `جعبه‌ی ${lvl}`, count: levelCounts[lvl - 1] })),
+    { key: "all", label: tx("review_filter_all"), count: levelCounts.reduce((a, b) => a + b, 0) },
+    ...[1, 2, 3, 4].map((lvl) => ({ key: lvl, label: tx("review_box_n", { n: lvl }), count: levelCounts[lvl - 1] })),
   ];
   return (
     <div className="flex flex-wrap justify-center gap-2">

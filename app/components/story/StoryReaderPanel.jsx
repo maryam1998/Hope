@@ -8,6 +8,7 @@ import { colors, fontFa, fontLatin, highlightBg, mainTextColor, translationColor
 import { countOccurrences } from "../../story/storyText.js";
 import { PARAGRAPH_PAGE_SIZE } from "../../story/readingHelpers.js";
 
+import { useTranslation } from "react-i18next";
 export function StoryReaderPanel({
   activeStorySentence,
   activeTranslation,
@@ -59,17 +60,18 @@ export function StoryReaderPanel({
   userAudio,
   visibleParagraphCount,
 }) {
+  const { t: tx } = useTranslation();
   return (
         <div
           style={{ backgroundColor: "white", border: `1px solid ${colors.cardBorder}`, borderRadius: 16, padding: 16 }}
         >
           <div className="flex items-center justify-between mb-3">
-            <p style={{ fontWeight: 700 }}>{uiLang === "en" ? "Story" : "داستان"}</p>
+            <p style={{ fontWeight: 700 }}>{tx("reader_story_title")}</p>
             <div className="flex items-center gap-3 flex-wrap" style={{ rowGap: 8 }}>
               <button
                 onClick={editingStoryText ? cancelEditingStoryText : startEditingStoryText}
-                title={editingStoryText ? (uiLang === "en" ? "Cancel editing" : "انصراف از ویرایش") : (uiLang === "en" ? "Edit story text" : "ویرایشِ متنِ داستان")}
-                aria-label={editingStoryText ? (uiLang === "en" ? "Cancel editing" : "انصراف از ویرایش") : (uiLang === "en" ? "Edit story text" : "ویرایشِ متنِ داستان")}
+                title={editingStoryText ? tx("reader_cancel_editing") : tx("reader_edit_text")}
+                aria-label={editingStoryText ? tx("reader_cancel_editing") : tx("reader_edit_text")}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -85,8 +87,8 @@ export function StoryReaderPanel({
               </button>
               <button
                 onClick={saveCurrentStory}
-                title={currentStoryId ? (uiLang === "en" ? "Saved" : "ذخیره شد") : (uiLang === "en" ? "Save story" : "ذخیره داستان")}
-                aria-label={currentStoryId ? (uiLang === "en" ? "Saved" : "ذخیره شد") : (uiLang === "en" ? "Save story" : "ذخیره داستان")}
+                title={currentStoryId ? tx("grammar_saved") : tx("reader_save_story")}
+                aria-label={currentStoryId ? tx("grammar_saved") : tx("reader_save_story")}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -114,14 +116,14 @@ export function StoryReaderPanel({
                   type="text"
                   value={storySearchQuery}
                   onChange={(e) => setStorySearchQuery(e.target.value)}
-                  placeholder={uiLang === "en" ? "Search inside the story text — any language" : "جستجو داخلِ متنِ داستان — به هر زبانی"}
+                  placeholder={tx("reader_search_placeholder")}
                   dir="auto"
                   style={{ flex: 1, minWidth: 0, border: "none", outline: "none", fontSize: 13, background: "transparent", color: colors.ink }}
                 />
                 {!!storySearchQuery && (
                   <button
                     onClick={() => setStorySearchQuery("")}
-                    aria-label={uiLang === "en" ? "Clear search" : "پاک‌کردنِ جستجو"}
+                    aria-label={tx("phrasebook_search_clear")}
                     style={{ display: "flex", alignItems: "center", background: "none", border: "none", color: colors.inkSoft, cursor: "pointer", flexShrink: 0 }}
                   >
                     <X size={14} />
@@ -131,10 +133,10 @@ export function StoryReaderPanel({
               {!!storySearchQuery.trim() && (
                 <div style={{ marginTop: 6 }}>
                   {storySearchMatches.length === 0 ? (
-                    <p style={{ fontSize: 12, color: colors.inkSoft }}>{uiLang === "en" ? "Nothing found." : "چیزی پیدا نشد."}</p>
+                    <p style={{ fontSize: 12, color: colors.inkSoft }}>{tx("reader_nothing_found")}</p>
                   ) : (
                     <div className="flex flex-col gap-1">
-                      <p style={{ fontSize: 11, color: colors.inkSoft }}>{uiLang === "en" ? `${storySearchMatches.length} results:` : `${storySearchMatches.length} نتیجه:`}</p>
+                      <p style={{ fontSize: 11, color: colors.inkSoft }}>{tx("reader_n_results", { n: storySearchMatches.length })}</p>
                       {storySearchMatches.map((m, idx) => (
                         <button
                           key={`${m.pi}-${m.si}-${idx}`}
@@ -167,9 +169,7 @@ export function StoryReaderPanel({
           {editingStoryText ? (
             <div style={{ marginBottom: 8, textAlign: "start" }}>
               <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>
-                {uiLang === "en"
-                  ? "Edit the text — leave a blank line between paragraphs."
-                  : "متن رو ویرایش کن — برای جداکردنِ پاراگراف‌ها یه خط خالی بینشون بذار."}
+                {tx("reader_edit_hint")}
               </p>
               <textarea
                 value={storyEditDraft}
@@ -200,7 +200,7 @@ export function StoryReaderPanel({
                     opacity: !storyEditDraft.trim() ? 0.5 : 1,
                   }}
                 >
-                  {uiLang === "en" ? "Apply edit" : "ثبتِ ویرایش"}
+                  {tx("reader_apply_edit")}
                 </button>
                 <button
                   onClick={cancelEditingStoryText}
@@ -215,7 +215,7 @@ export function StoryReaderPanel({
                     background: "white",
                   }}
                 >
-                  {uiLang === "en" ? "Cancel" : "انصراف"}
+                  {tx("cancel_button")}
                 </button>
               </div>
             </div>
@@ -226,12 +226,12 @@ export function StoryReaderPanel({
               نمی‌شه. فقط «نمایش ترجمه» (نحوه‌ی چیدمانش) اینجا می‌مونه. */}
           {translationLangOptions.length > 0 && (
             <div className="mb-3">
-              <p style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>{uiLang === "en" ? "Translation display:" : "نمایش ترجمه:"}</p>
+              <p dir="auto" style={{ fontSize: 12, color: colors.inkSoft, marginBottom: 6 }}>{tx("reader_translation_display")}</p>
               <div className="flex flex-wrap gap-2">
                 {[
-                  { key: "sentence", label: uiLang === "en" ? "Sentence by sentence" : "جمله به جمله" },
-                  { key: "paragraph", label: uiLang === "en" ? "Paragraph by paragraph" : "پاراگراف به پاراگراف" },
-                  { key: "none", label: uiLang === "en" ? "None" : "هیچکدام" },
+                  { key: "sentence", label: tx("reader_sentence_by_sentence") },
+                  { key: "paragraph", label: tx("reader_paragraph_by_paragraph") },
+                  { key: "none", label: tx("reader_none") },
                 ].map((opt) => (
                   <button
                     key={opt.key}
@@ -417,7 +417,7 @@ export function StoryReaderPanel({
                                         />
                                       </span>
                                     ) : (
-                                      <span style={{ color: colors.inkSoft, opacity: 0.7 }}>{uiLang === "en" ? "(translating...)" : "(در حال ترجمه...)"}</span>
+                                      <span style={{ color: colors.inkSoft, opacity: 0.7 }}>{tx("reader_translating")}</span>
                                     )}
                                   </p>
                                   {/* هر دو دکمه (بلندگو + رفرش) همیشه توی یه گروهِ ثابت،
@@ -449,8 +449,8 @@ export function StoryReaderPanel({
                                         retranslateStorySentence(pi, si, code, s.text);
                                       }}
                                       disabled={!!retranslatingSentences[`${pi}-${si}-${code}`]}
-                                      title={translated ? (uiLang === "en" ? "If this translation is wrong, try again" : "اگه این ترجمه اشتباهه، دوباره امتحان کن") : (uiLang === "en" ? "Not translated — tap to retry" : "ترجمه نشده — برای امتحانِ دوباره بزن")}
-                                      aria-label={uiLang === "en" ? "Retranslate" : "ترجمه‌ی دوباره"}
+                                      title={translated ? tx("dialogs_retranslate_title") : tx("reader_not_translated_retry")}
+                                      aria-label={tx("dialogs_retranslate_aria")}
                                       style={{
                                         background: "none",
                                         border: "none",
@@ -605,7 +605,7 @@ export function StoryReaderPanel({
                                     />
                                   </span>
                                 ) : (
-                                  <span style={{ color: colors.inkSoft, opacity: 0.7 }}>{uiLang === "en" ? "(translating...)" : "(در حال ترجمه...)"}</span>
+                                  <span style={{ color: colors.inkSoft, opacity: 0.7 }}>{tx("reader_translating")}</span>
                                 )}
                               </p>
                               {/* هر دو دکمه (بلندگو + رفرش) توی یه گروهِ ثابت، همیشه آخرین
@@ -631,8 +631,8 @@ export function StoryReaderPanel({
                                       retranslateStoryParagraph(pi, code);
                                     }}
                                     disabled={!!retranslatingSentences[`${pi}-all-${code}`]}
-                                    title={uiLang === "en" ? "If this translation is wrong, try again" : "اگه این ترجمه اشتباهه، دوباره امتحان کن"}
-                                    aria-label={uiLang === "en" ? "Retranslate" : "ترجمه‌ی دوباره"}
+                                    title={tx("dialogs_retranslate_title")}
+                                    aria-label={tx("dialogs_retranslate_aria")}
                                     style={{
                                       background: "none",
                                       border: "none",
@@ -677,30 +677,28 @@ export function StoryReaderPanel({
                 color: colors.teal,
               }}
             >
-              {uiLang === "en"
-                ? `Show more (${paragraphs.length - visibleParagraphCount} more paragraphs)`
-                : `نمایش بیشتر (${paragraphs.length - visibleParagraphCount} پاراگرافِ دیگه)`}
+              {tx("reader_show_more", { n: paragraphs.length - visibleParagraphCount })}
             </button>
           )}
 
           <div className="flex flex-wrap gap-2 mt-4" style={{ borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 10 }}>
             {selectedWords.map((w) => (
               <span key={w} style={{ fontSize: 11, color: colors.inkSoft, backgroundColor: colors.paper, borderRadius: 10, padding: "3px 8px" }}>
-                {w}: {countOccurrences(fullStoryText, w)} {uiLang === "en" ? "times" : "بار"}
+                {w}: {countOccurrences(fullStoryText, w)} {tx("reader_times")}
               </span>
             ))}
           </div>
 
           <div style={{ marginTop: 14, borderTop: `1px dashed ${colors.cardBorder}`, paddingTop: 12 }}>
             <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>
-              {uiLang === "en" ? "My notes about this story" : "یادداشتِ من دربارهٔ این داستان"}
+              {tx("reader_notes_title")}
             </p>
             <textarea
               value={storyNote}
               onChange={(e) => setStoryNote(e.target.value)}
               dir="auto"
               rows={5}
-              placeholder={uiLang === "en" ? "Write anything you want about this story — no word limit…" : "هرچی می‌خوای دربارهٔ این داستان یادداشت کن — بدونِ محدودیتِ تعدادِ کلمه…"}
+              placeholder={tx("reader_notes_placeholder")}
               style={{
                 width: "100%",
                 border: `1px solid ${colors.cardBorder}`,

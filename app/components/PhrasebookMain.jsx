@@ -67,6 +67,11 @@ export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPr
   // تب‌ها، جستجو، مکالمات). appPrefs.uiLang برای بقیه‌ی کامپوننت‌ها هنوز به en برمی‌گرده.
   const navLang = SUPPORTED_LANGS.includes(rawAppPrefs.uiLang) ? rawAppPrefs.uiLang : "fa";
   const tt = useMemo(() => i18n.getFixedT(navLang), [navLang]);
+  // هر قسمتی که با useTranslation()/t() متن می‌گیره (پلیر، آپلودِ صوت، گرامر، ...) باید همیشه
+  // همون زبانِ رابطی رو نشون بده که تو تنظیمات انتخاب شده؛ پس اگه زبانِ سراسریِ i18n عقب موند، همگامش کن.
+  useEffect(() => {
+    if (navLang && String(i18n.language || "").split("-")[0] !== navLang) i18n.changeLanguage(navLang);
+  }, [navLang]);
   const uiFont = navLang === "fa" || navLang === "ar" ? fontFa : fontLatin;
   const [nativeLang, setNativeLang] = useState("fa");
   // طبق درخواست: هر بار که وارد اکانت می‌شی، زبان‌های مقصد نباید از دفعه‌ی

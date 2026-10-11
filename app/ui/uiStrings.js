@@ -40,6 +40,23 @@ const LOCALE_BACKED_KEYS = {
   srtToolErrRead: "srt_tool_err_read",
   selectAll: "select_all",
   clearAllWords: "clear_all_words",
+  // لغاتِ ذخیره‌شده + دیکشنری (هر ۶ زبان)
+  savedWordsTitle: "tab_saved",
+  savedWordsHint: "saved_words_hint",
+  addToStoryBuilder: "saved_add_to_story_builder",
+  addNWordsToStory: "saved_add_n_words",
+  searchSavedWords: "saved_search_placeholder",
+  clearSearchAria: "phrasebook_search_clear",
+  deselectAll: "saved_deselect_all",
+  noSavedWordsYet: "saved_none_yet",
+  noSavedWordsForSearch: "saved_none_for_search",
+  longPressToJump: "saved_long_press_jump",
+  deletePermanently: "saved_delete_permanently",
+  jumpToOriginUnknownMsg: "saved_jump_unknown",
+  noWordsForSearch: "words_none_for_search",
+  noWordsToShow: "words_nothing_to_show",
+  addToFavoritesAria: "library_favorite_aria",
+  personalBadge: "words_personal_badge",
 };
 
 // Small translation dictionary for the app's own interface strings.

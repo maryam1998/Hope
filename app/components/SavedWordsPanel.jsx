@@ -17,12 +17,14 @@ import { SpeakButton } from "./player/SpeakButton.jsx";
 import { LevelBadge } from "./levels/LevelControls.jsx";
 import { WORDS_PAGE_SIZE } from "./WordList.jsx";
 
+import { useTranslation } from "react-i18next";
 // ---------------------------------------------------------------------------
 // Saved Words — a dedicated home for every word bookmarked via the word-tap
 // popover's "save for next story" button, grouped by language, so they're
 // easy to find later instead of only surfacing inside Story Builder.
 // ---------------------------------------------------------------------------
 export function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nativeLabel, targetOrder, uiLang }) {
+  const { t: tx } = useTranslation();
   const [words, setWords] = useState([]);
   // لغاتی که کاربر توی همین صفحه علامت زده تا ببره داستان‌ساز — جدا از
   // خودِ انبار دائمی؛ فقط یه انتخاب موقتیه، نه حذف/اضافه به ذخیره‌شده‌ها.
@@ -412,7 +414,7 @@ export function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nat
                   readCount={readCountInRange}
                   totalInRange={visibleGroupWords.length}
                   readCountTotal={readCountTotal}
-                  label={uiLang === "en" ? "Words" : "کلمات"}
+                  label={tx("words_range_label")}
                   uiLang={uiLang}
                   colors={colors}
                 />
@@ -422,14 +424,14 @@ export function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nat
                     onClick={() => markSavedRangeRead(code, visibleGroupWords, true)}
                     style={{ fontSize: 10, fontWeight: 700, color: colors.teal, border: `1px solid ${colors.teal}`, borderRadius: 6, padding: "4px 8px", background: "#fff", cursor: "pointer" }}
                   >
-                    {uiLang === "en" ? "Mark range read" : "علامت‌گذاری همه به خوانده‌شده"}
+                    {tx("dialogs_mark_range_read")}
                   </button>
                   <button
                     type="button"
                     onClick={() => markSavedRangeRead(code, visibleGroupWords, false)}
                     style={{ fontSize: 10, fontWeight: 700, color: colors.inkSoft, border: `1px solid ${colors.cardBorder}`, borderRadius: 6, padding: "4px 8px", background: "#fff", cursor: "pointer" }}
                   >
-                    {uiLang === "en" ? "Clear range" : "پاک‌کردن علامت این بازه"}
+                    {tx("dialogs_clear_range")}
                   </button>
                 </div>
               </div>
@@ -512,7 +514,7 @@ export function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nat
                           </button>
                           <button
                             onClick={() => toggleSavedWordRead(code, e.word)}
-                            aria-label={uiLang === "en" ? "Toggle read" : "علامت‌زدن به‌عنوان خوانده‌شده"}
+                            aria-label={tx("dialogs_toggle_read")}
                             data-jump-exclude="1"
                             style={{
                               flexShrink: 0,

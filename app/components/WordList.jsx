@@ -16,6 +16,8 @@ import { SpeakButton } from "./player/SpeakButton.jsx";
 import { LevelBadge, PersonalLevelPicker } from "./levels/LevelControls.jsx";
 import { VocabBookExample, WordExamples, WordTargetTranslation } from "./words/WordExamples.jsx";
 
+import { useTranslation } from "react-i18next";
+import { LANG_DIR } from "../../i18nconfig.js";
 // ---------------------------------------------------------------------------
 // A–Z word dictionary, grouped by CEFR level — same card language as
 // PhraseList (word + audio + star) plus a part-of-speech tag like VocabList.
@@ -28,6 +30,8 @@ import { VocabBookExample, WordExamples, WordTargetTranslation } from "./words/W
 // به کتابخونه‌ی جدید).
 export const WORDS_PAGE_SIZE = 60;
 export const WordList = React.memo(function WordList({ words, listId, wordFavorites, toggleWordFavorite, query, levelFilter, sortKey, emptyText, nativeLang, nativeLabel, targetLangs, aiSettings, autoplayEnabled, onFullTextChange, autoScrollActive, ClickableSentence, highlightColor, jumpTarget, uiLang, defaultPageSize }) {
+  const { t: tx, i18n: i18nx } = useTranslation();
+  const fullDir = LANG_DIR[String(i18nx.language || "fa").split("-")[0]] || "rtl";
   // بازه‌ی پیش‌فرضِ نمایش برای این لیستِ خاص. همه‌ی تب‌ها (لغات، اخبار،
   // اسلنگ، Vocabulary in Use) چیزی پاس نمی‌دن و همون WORDS_PAGE_SIZE
   // (۶۰ تا) امن رو می‌گیرن — چون هرکدوم می‌تونن چند صد تا چند هزار ردیف
@@ -429,24 +433,24 @@ export const WordList = React.memo(function WordList({ words, listId, wordFavori
           readCount={readCountInRange}
           totalInRange={visible.length}
           readCountTotal={readCountTotal}
-          label={uiLang === "en" ? "Dictionary" : "دیکشنری"}
+          label={tx("dictionary_range_label")}
           uiLang={uiLang}
           colors={colors}
         />
-        <div className="flex items-center gap-2 flex-wrap" style={{ direction: uiLang === "en" ? "ltr" : "rtl" }}>
+        <div className="flex items-center gap-2 flex-wrap" style={{ direction: fullDir }}>
           <button
             type="button"
             onClick={() => markRangeRead(true)}
             style={{ fontSize: 12.5, fontWeight: 600, padding: "8px 12px", borderRadius: 11, border: "1px solid #CFE6DF", background: "#EAF4F1", color: colors.teal, cursor: "pointer" }}
           >
-            {uiLang === "en" ? "Mark range read" : "علامت‌گذاری همه به خوانده‌شده"}
+            {tx("dialogs_mark_range_read")}
           </button>
           <button
             type="button"
             onClick={() => markRangeRead(false)}
             style={{ fontSize: 12.5, fontWeight: 600, padding: "8px 12px", borderRadius: 11, border: `1px solid ${colors.cardBorder}`, background: colors.paper, color: colors.teal, cursor: "pointer" }}
           >
-            {uiLang === "en" ? "Clear range" : "پاک‌کردن علامت این بازه"}
+            {tx("dialogs_clear_range")}
           </button>
         </div>
       </div>
@@ -477,7 +481,7 @@ export const WordList = React.memo(function WordList({ words, listId, wordFavori
         >
           <button
             onClick={() => toggleWordRead(w.id)}
-            aria-label={uiLang === "en" ? "Toggle read" : "علامت‌زدن به‌عنوان خوانده‌شده"}
+            aria-label={tx("dialogs_toggle_read")}
             style={{
               marginLeft: 4,
               flexShrink: 0,
@@ -651,8 +655,8 @@ export const WordList = React.memo(function WordList({ words, listId, wordFavori
                 e.stopPropagation();
                 hideFromWordsTab(w.en);
               }}
-              aria-label={uiLang === "en" ? "Remove from My dictionary" : "حذف از دیکشنری من"}
-              title={uiLang === "en" ? "Remove from My dictionary (stays in Saved words)" : "حذف از دیکشنری من (در لغات ذخیره‌شده می‌مونه)"}
+              aria-label={tx("words_remove_from_dictionary")}
+              title={tx("words_remove_from_dictionary_hint")}
               style={{
                 position: "absolute",
                 right: 8,

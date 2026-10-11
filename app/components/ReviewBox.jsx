@@ -9,10 +9,12 @@ import { SpeakButton } from "./player/SpeakButton.jsx";
 import { LevelBadge, LevelFilterChips } from "./levels/LevelControls.jsx";
 import { NativeTextResolver } from "./PhrasebookMain.jsx";
 
+import { useTranslation } from "react-i18next";
 // ---------------------------------------------------------------------------
 // Leitner review box
 // ---------------------------------------------------------------------------
 export function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLangs, index, setIndex, showAnswer, setShowAnswer, uiLang, aiSettings }) {
+  const { t: tx } = useTranslation();
   // همون رفعِ باگِ زبانِ مادریِ خالی: قبلاً `current.t[nativeLang]` مستقیم
   // نمایش داده می‌شد و برایِ زبان‌هایی که VOCAB ازشون ترجمه‌ی ثابت نداشت،
   // روییِ کارتِ فلش‌کارت هیچی نشون داده نمی‌شد.
@@ -78,8 +80,8 @@ export function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLa
         )}
         <p style={{ textAlign: "center", color: colors.teal, marginTop: 20, fontWeight: 600 }}>
           {levelFilter === "all"
-            ? (uiLang === "en" ? "You know all the phrases! 🎉" : "همه‌ی عبارات رو بلدی! 🎉")
-            : (uiLang === "en" ? "Nothing left to review at this level! 🎉" : "چیزی تو این سطح برای مرور نمونده! 🎉")}
+            ? tx("review_all_known")
+            : tx("review_level_empty")}
         </p>
       </div>
     );
@@ -101,11 +103,7 @@ export function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLa
     <div className="flex flex-col items-center gap-4 mt-6">
       <LevelFilterChips levelFilter={levelFilter} setLevelFilter={setLevelFilter} levelCounts={levelCounts} uiLang={uiLang} />
       <p style={{ fontSize: 12, color: colors.inkSoft }}>
-        {uiLang === "en" ? (
-          <>Left to review: {active.length}{" · "}Box {currentLevel} of 5</>
-        ) : (
-          <>باقی‌مانده برای مرور: {active.length}{" · "}جعبه‌ی {currentLevel} از ۵</>
-        )}
+        {tx("review_left_in_box", { n: active.length, box: currentLevel })}
       </p>
       <div
         className="w-full max-w-sm rounded-xl p-8 text-center"
@@ -129,7 +127,7 @@ export function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLa
           </div>
           {!showAnswer && (
             <p style={{ color: colors.cardBorder, fontSize: 12, marginTop: 14 }}>
-              {uiLang === "en" ? "(tap to see translation)" : "(برای دیدن ترجمه لمس کن)"}
+              {tx("review_tap_translation")}
             </p>
           )}
         </div>
@@ -167,14 +165,14 @@ export function ReviewBox({ conversation , boxes, setBoxes, nativeLang, targetLa
             className="flex items-center gap-1 px-4 py-2 rounded-full"
             style={{ backgroundColor: colors.rose, color: "white", fontFamily: uiLang === "en" ? fontLatin : fontFa }}
           >
-            <X size={16} /> {uiLang === "en" ? "Didn't know it" : "بلد نبودم"}
+            <X size={16} /> {tx("review_didnt_know")}
           </button>
           <button
             onClick={() => handle(true)}
             className="flex items-center gap-1 px-4 py-2 rounded-full"
             style={{ backgroundColor: colors.teal, color: "white", fontFamily: uiLang === "en" ? fontLatin : fontFa }}
           >
-            <Check size={16} /> {uiLang === "en" ? "Knew it" : "بلد بودم"}
+            <Check size={16} /> {tx("review_knew_it")}
           </button>
         </div>
       )}
