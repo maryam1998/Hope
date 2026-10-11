@@ -143,7 +143,9 @@ export default function App() {
       const cap = window.Capacitor;
       const B = cap && cap.Plugins && cap.Plugins.BubblePlugin;
       if (B && B.setUiLang && cap.isNativePlatform && cap.isNativePlatform()) {
-        const r = B.setUiLang({ lang: appPrefs.uiLang === "fa" ? "fa" : "en" });
+        // همه‌ی زبان‌های رابط (fa/en/es/de/fr/ar) به اندروید فرستاده می‌شن، نه فقط fa و en
+        const ui = ["fa", "en", "es", "de", "fr", "ar"].includes(appPrefs.uiLang) ? appPrefs.uiLang : "en";
+        const r = B.setUiLang({ lang: ui });
         if (r && r.catch) r.catch(() => {});
       }
     } catch (e) {}
