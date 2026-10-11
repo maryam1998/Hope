@@ -16,6 +16,12 @@ import { SpeakButton } from "./player/SpeakButton.jsx";
 import { LevelBadge, PersonalLevelPicker } from "./levels/LevelControls.jsx";
 import { VocabBookExample, WordExamples, WordTargetTranslation } from "./words/WordExamples.jsx";
 
+// تبِ «Vocabulary in Use»: مثال‌های ثابتِ داخلِ دیتا (w.example) دیگه نمایش داده نمی‌شن
+// — فقط خودِ لغت‌ها مهمن. مثال‌های هوش مصنوعی (WordExamples پایین) دست‌نخورده‌ن.
+// اگه یه روز خواستی مثال‌های ثابت برگردن، این رو true کن. کالوکیشن جداست.
+const SHOW_BOOK_EXAMPLES = false;
+const SHOW_BOOK_COLLOCATIONS = true;
+
 import { useTranslation } from "react-i18next";
 import { LANG_DIR } from "../../i18nconfig.js";
 // ---------------------------------------------------------------------------
@@ -632,10 +638,10 @@ export const WordList = React.memo(function WordList({ words, listId, wordFavori
                 ریشه‌یِ rtlِ اپ)، بلندگویِ خودش (لبه‌ی راست، هم‌راستا با بقیه‌ی
                 ردیف‌ها)، و ترجمه‌ی زنده‌ی جمله‌ی مثال به هر زبانِ مقصدی که
                 کاربر بالای صفحه انتخاب کرده. */}
-            {(w.collocation || w.example) && (
+            {((SHOW_BOOK_COLLOCATIONS && w.collocation) || (SHOW_BOOK_EXAMPLES && w.example)) && (
               <VocabBookExample
-                collocation={w.collocation}
-                example={w.example}
+                collocation={SHOW_BOOK_COLLOCATIONS ? w.collocation : ""}
+                example={SHOW_BOOK_EXAMPLES ? w.example : ""}
                 targetLangs={effectiveDisplayLangs}
                 aiSettings={aiSettings}
                 nativeLang={nativeLang}
