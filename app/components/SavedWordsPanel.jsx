@@ -59,7 +59,7 @@ export function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nat
     const ok = onJumpToOrigin(entry);
     setActionMsg(
       ok
-        ? trf("jumpedToOriginMsg", uiLang, { word: entry.word })
+        ? tx("saved_jumped_to_origin", { word: entry.word })
         : tr("jumpToOriginUnknownMsg", uiLang)
     );
   };
@@ -247,23 +247,23 @@ export function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nat
 
   const deleteSelected = () => {
     if (!totalPicked) return;
-    if (!window.confirm(trf("confirmDeleteSelectedWords", uiLang, { n: totalPicked }))) return;
+    if (!window.confirm(tx("saved_confirm_delete_selected", { n: totalPicked }))) return;
     Object.entries(picked).forEach(([code, set]) => {
       (set || new Set()).forEach((word) => removeSavedStoryWord(word, code));
     });
     setPicked({});
-    setActionMsg(trf("wordsDeletedMsg", uiLang, { n: totalPicked }));
+    setActionMsg(tx("saved_words_deleted", { n: totalPicked }));
   };
 
   const clearAll = () => {
     if (!filteredWords.length) return;
     const msg = normalizedQuery
-      ? trf("confirmClearFiltered", uiLang, { n: filteredWords.length })
-      : trf("confirmClearAllSaved", uiLang, { n: filteredWords.length });
+      ? tx("saved_confirm_clear_filtered", { n: filteredWords.length })
+      : tx("saved_confirm_clear_all", { n: filteredWords.length });
     if (!window.confirm(msg)) return;
     filteredWords.forEach((e) => removeSavedStoryWord(e.word, e.langCode));
     setPicked({});
-    setActionMsg(trf("wordsClearedMsg", uiLang, { n: filteredWords.length }));
+    setActionMsg(tx("saved_words_cleared", { n: filteredWords.length }));
   };
 
   useEffect(() => {
@@ -337,7 +337,7 @@ export function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nat
             {totalPicked > 0 && (
               <button onClick={deleteSelected} className="flex items-center gap-1" style={{ ...toolbarButtonStyle, color: colors.rose }}>
                 <X size={13} />
-                {trf("deleteNSelected", uiLang, { n: totalPicked })}
+                {tx("saved_delete_n_selected", { n: totalPicked })}
               </button>
             )}
           </div>
@@ -358,7 +358,7 @@ export function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nat
         </p>
       ) : (
         langCodes.map((code) => {
-          const label = uiLang === "en" ? englishLangName(code) : LANGUAGES.find((l) => l.code === code)?.label || code;
+          const label = LANGUAGES.find((l) => l.code === code)?.label || englishLangName(code);
           const pickedSet = picked[code] || new Set();
           const groupWords = byLang[code];
           const range = getSavedRange(code, groupWords.length);
@@ -539,7 +539,7 @@ export function SavedWordsPanel({ onJumpToStory, onJumpToOrigin, nativeLang, nat
                       )}
                       {otherLangs.map((toLang) => {
                         const translation = (e.translations && e.translations[toLang]) || "";
-                        const toLabel = uiLang === "en" ? englishLangName(toLang) : LANGUAGES.find((l) => l.code === toLang)?.label || toLang;
+                        const toLabel = LANGUAGES.find((l) => l.code === toLang)?.label || englishLangName(toLang);
                         return (
                           <div key={toLang} className="flex items-center justify-between gap-2" style={{ direction: "ltr" }}>
                             <div

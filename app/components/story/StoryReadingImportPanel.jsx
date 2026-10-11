@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { ClickableSentence } from "./ClickableSentence.jsx";
 import { Loader2 } from "lucide-react";
 import { PdfLivePageView } from "./PdfLivePageView.jsx";
@@ -62,6 +63,7 @@ export function StoryReadingImportPanel({
   storyLang,
   uiLang,
 }) {
+  const { t } = useTranslation();
   return (
       <div style={{ textAlign: "center" }}>
         <input
@@ -88,8 +90,8 @@ export function StoryReadingImportPanel({
         >
           {pdfReadBusy ? <Loader2 size={16} className="spin" /> : <span>📖</span>}
           {pdfReadBusy
-            ? (pdfReadProgress || (uiLang === "en" ? "Reading PDF..." : "در حال خوندنِ PDF..."))
-            : (uiLang === "en" ? "Import a PDF to read instead" : "به‌جاش یه PDF برای خوانش وارد کن")}
+            ? (pdfReadProgress || t("import_pdf_busy"))
+            : t("import_pdf")}
         </button>
         {pdfReadError && (
           <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfReadError}</p>
@@ -121,8 +123,8 @@ export function StoryReadingImportPanel({
         >
           {imgReadBusy ? <Loader2 size={16} className="spin" /> : <span>🖼️</span>}
           {imgReadBusy
-            ? (imgReadProgress || (uiLang === "en" ? "Reading images..." : "در حال خوندنِ عکس‌ها..."))
-            : (uiLang === "en" ? "Import images to translate & read" : "وارد کردنِ عکس برای ترجمه و خوانش")}
+            ? (imgReadProgress || t("import_img_busy"))
+            : t("import_img")}
         </button>
         {imgReadError && (
           <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{imgReadError}</p>
@@ -153,8 +155,8 @@ export function StoryReadingImportPanel({
         >
           {pdfViewBusy ? <Loader2 size={16} className="spin" /> : <span>📑</span>}
           {pdfViewBusy
-            ? (pdfViewProgress || (uiLang === "en" ? "Loading PDF..." : "در حال بارگذاریِ PDF..."))
-            : (uiLang === "en" ? "Show the PDF here with original image + translation" : "PDF رو با عکسِ اصلی + ترجمه همینجا نشون بده")}
+            ? (pdfViewProgress || t("import_pdfview_busy"))
+            : t("import_pdfview")}
         </button>
         {pdfViewError && (
           <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{pdfViewError}</p>
@@ -168,18 +170,16 @@ export function StoryReadingImportPanel({
           <div style={{ marginTop: 12, textAlign: "start" }}>
             <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: colors.ink }}>
-                {uiLang === "en"
-                  ? <>{pdfViewTitle} — page {pdfViewIndex + 1} of {pdfViewPages.length}</>
-                  : <>{pdfViewTitle} — صفحه‌ی {pdfViewIndex + 1} از {pdfViewPages.length}</>}
+                {t("import_page_of", { title: pdfViewTitle, n: pdfViewIndex + 1, total: pdfViewPages.length })}
                 {pdfViewBusy && pdfViewDocId && (
-                  <span style={{ color: colors.inkSoft, fontWeight: 400 }}> {uiLang === "en" ? "(remaining pages processing...)" : "(بقیه‌ی صفحات در حالِ پردازش...)"}</span>
+                  <span style={{ color: colors.inkSoft, fontWeight: 400 }}> {t("import_remaining_pages")}</span>
                 )}
               </span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={savePdfToStories}
                   disabled={!pdfViewDocId || !pdfViewPersisted || savedStories.some((s) => s.pdfDocId === pdfViewDocId)}
-                  title={!pdfViewPersisted ? (uiLang === "en" ? "Local storage failed, so this PDF can't be added to the list" : "چون ذخیره‌سازیِ محلی ناموفق بود، این PDF قابلِ اضافه‌کردن به لیست نیست") : undefined}
+                  title={!pdfViewPersisted ? t("import_local_storage_failed") : undefined}
                   style={{
                     fontSize: 11,
                     fontWeight: 700,
@@ -188,20 +188,14 @@ export function StoryReadingImportPanel({
                     opacity: !pdfViewDocId || !pdfViewPersisted ? 0.5 : 1,
                   }}
                 >
-                  {uiLang === "en"
-                    ? (savedStories.some((s) => s.pdfDocId === pdfViewDocId)
-                        ? "Saved ✓"
-                        : !pdfViewPersisted
-                        ? "Can't be saved"
-                        : "Save to stories")
-                    : (savedStories.some((s) => s.pdfDocId === pdfViewDocId)
-                        ? "ذخیره شد ✓"
-                        : !pdfViewPersisted
-                        ? "قابلِ ذخیره نیست"
-                        : "ذخیره در داستان‌ها")}
+                  {savedStories.some((s) => s.pdfDocId === pdfViewDocId)
+                    ? t("import_saved")
+                    : !pdfViewPersisted
+                    ? t("import_cant_save")
+                    : t("import_save_to_stories")}
                 </button>
                 <button onClick={closePdfView} style={{ fontSize: 11, color: colors.rose, textDecoration: "underline" }}>
-                  {uiLang === "en" ? "Close" : "بستن"}
+                  {t("import_close")}
                 </button>
               </div>
             </div>
@@ -234,9 +228,7 @@ export function StoryReadingImportPanel({
                       pageNum={pdfViewIndex + 1}
                       fallbackImageUrl={pdfViewPages[pdfViewIndex]?.imageUrl}
                       onError={() =>
-                        setPdfViewError(uiLang === "en"
-                          ? "There was a problem rendering this page live — the file may be corrupted or encrypted"
-                          : "رندرِ زنده‌ی این صفحه مشکل داشت — ممکنه فایل خراب یا رمزگذاری‌شده باشه")
+                        setPdfViewError(t("import_render_error"))
                       }
                     />
                   </div>
@@ -269,9 +261,7 @@ export function StoryReadingImportPanel({
                   onClick={() => setShowPdfOriginalWords((v) => !v)}
                   style={{ fontSize: 12, fontWeight: 700, color: colors.teal }}
                 >
-                  {uiLang === "en"
-                    ? (showPdfOriginalWords ? "Hide original text" : "Show original text (clickable)")
-                    : (showPdfOriginalWords ? "بستنِ متنِ اصلی" : "نمایشِ متنِ اصلی (کلیک‌پذیر)")}
+                  {showPdfOriginalWords ? t("import_hide_original") : t("import_show_original")}
                 </button>
                 {showPdfOriginalWords && (
                   <div
@@ -304,9 +294,7 @@ export function StoryReadingImportPanel({
                         textAlign: dirFor(nativeLang) === "rtl" ? "right" : "left",
                       }}
                     >
-                      {uiLang === "en"
-                        ? "Tap a word to see its translation; from there you can also add it to the next story, grammar practice, or the Leitner box."
-                        : "روی هر کلمه بزن تا ترجمه‌اش رو ببینی؛ از همون‌جا می‌تونی به داستانِ بعدی، یادگیریِ گرامر یا جعبه‌ی لایتنر هم اضافه‌اش کنی."}
+                      {t("import_tap_word_hint")}
                     </p>
                     <ClickableSentence
                       text={pdfViewPages[pdfViewIndex].originalText}
@@ -328,14 +316,14 @@ export function StoryReadingImportPanel({
                 disabled={pdfViewIndex === 0}
                 style={{ fontSize: 12, fontWeight: 700, color: colors.teal, opacity: pdfViewIndex === 0 ? 0.4 : 1 }}
               >
-                ◀ {uiLang === "en" ? "Previous page" : "صفحه‌ی قبل"}
+                ◀ {t("import_prev_page")}
               </button>
               <button
                 onClick={() => setPdfViewIndex((i) => Math.min(pdfViewPages.length - 1, i + 1))}
                 disabled={pdfViewIndex === pdfViewPages.length - 1}
                 style={{ fontSize: 12, fontWeight: 700, color: colors.teal, opacity: pdfViewIndex === pdfViewPages.length - 1 ? 0.4 : 1 }}
               >
-                {uiLang === "en" ? "Next page" : "صفحه‌ی بعد"} ▶
+                {t("import_next_page")} ▶
               </button>
             </div>
           </div>
@@ -357,9 +345,7 @@ export function StoryReadingImportPanel({
             }}
           >
             <span>🔗</span>
-            {uiLang === "en"
-              ? (showLinkReading ? "Close link import" : "Or enter a page link")
-              : (showLinkReading ? "بستنِ وارد کردنِ لینک" : "یا لینکِ یه صفحه رو وارد کن")}
+            {showLinkReading ? t("import_link_close") : t("import_link_open")}
           </button>
           {showLinkReading && (
             <div style={{ marginTop: 8 }}>
@@ -367,7 +353,7 @@ export function StoryReadingImportPanel({
                 type="text"
                 value={linkReadUrl}
                 onChange={(e) => setLinkReadUrl(e.target.value)}
-                placeholder="https://example.com/article  یا  https://youtube.com/watch?v=..."
+                placeholder="https://example.com/article  |  https://youtube.com/watch?v=..."
                 dir="ltr"
                 style={{
                   width: "100%",
@@ -380,9 +366,7 @@ export function StoryReadingImportPanel({
                 }}
               />
               <p style={{ fontSize: 10, color: colors.inkSoft, marginTop: 4 }}>
-                {uiLang === "en"
-                  ? "Only the page's main text (body content) is extracted — menus, headers, footers, and ads are ignored."
-                  : "فقط متنِ اصلیِ صفحه (بدنه‌ی نوشته) استخراج می‌شه — منو، هدر، فوتر و تبلیغ‌ها نادیده گرفته می‌شن."}
+                {t("import_link_hint")}
               </p>
               <button
                 onClick={handleLinkImportForReading}
@@ -401,9 +385,7 @@ export function StoryReadingImportPanel({
                 }}
               >
                 {linkReadBusy ? <Loader2 size={16} className="spin" /> : <span>🔗</span>}
-                {uiLang === "en"
-                  ? (linkReadBusy ? "Reading the page..." : "Get text from link")
-                  : (linkReadBusy ? "در حال خوندنِ صفحه..." : "دریافتِ متن از لینک")}
+                {linkReadBusy ? t("import_link_busy") : t("import_link_get")}
               </button>
               {linkReadError && (
                 <p style={{ fontSize: 11, color: colors.rose, marginTop: 6 }}>{linkReadError}</p>
@@ -427,9 +409,7 @@ export function StoryReadingImportPanel({
           }}
         >
           <span>📋</span>
-          {uiLang === "en"
-            ? (showPasteReading ? "Close text paste" : "Or paste a text/story here")
-            : (showPasteReading ? "بستنِ پیست متن" : "یا یه متن/داستان رو اینجا پیست کن")}
+          {showPasteReading ? t("import_paste_close") : t("import_paste_open")}
         </button>
 
         {showPasteReading && (
@@ -437,7 +417,7 @@ export function StoryReadingImportPanel({
             <textarea
               value={pastedReadingText}
               onChange={(e) => setPastedReadingText(e.target.value)}
-              placeholder={uiLang === "en" ? "Paste the text or story you want to read here..." : "متن یا داستانی که می‌خوای بخونی رو اینجا پیست کن..."}
+              placeholder={t("import_paste_placeholder")}
               dir="auto"
               rows={6}
               style={{
@@ -464,7 +444,7 @@ export function StoryReadingImportPanel({
                 opacity: !pastedReadingText.trim() ? 0.5 : 1,
               }}
             >
-              📖 {uiLang === "en" ? "Ready to read" : "آماده‌ی خوانش کن"}
+              📖 {t("import_ready_to_read")}
             </button>
           </div>
         )}
