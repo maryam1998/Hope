@@ -11,6 +11,10 @@
 // حبابِ کوچیکِ یادآوری («بخون دیگه!») نشون می‌ده — تا کاربر دوباره تعامل
 // کنه، برمی‌گرده به راه‌رفتنِ عادی.
 // ---------------------------------------------------------------------------
+// فاصله‌ی بالای صفحه برای نوار وضعیتِ گوشی. توی مرورگر env() خودش صفره؛ توی اپ اندروید
+// (Capacitor، تمام‌صفحه) اگه WebView مقدار نداد، حداقلِ ۳۴px رو می‌گیریم تا آدمک و هدر زیرِ نوار وضعیت بیان.
+const IS_NATIVE = typeof window !== "undefined" && !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+export const STATUS_BAR_INSET = IS_NATIVE ? "max(env(safe-area-inset-top, 0px), 34px)" : "env(safe-area-inset-top, 0px)";
 export const LINGOVA_MASCOT_WIDTH = 30;
 export const LINGOVA_MASCOT_HEIGHT = 38;
 export const LINGOVA_IDLE_MS = 6000; // بعدِ این‌قدر بی‌تعاملی، پیام‌های یادآوری فعال می‌شن
