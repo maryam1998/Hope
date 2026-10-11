@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { SYNC_MODEL_OPTIONS, getSyncModelState, subscribeSyncModel, setSyncModelSize, downloadSyncModel, removeSyncModel, cancelSync } from "../../../audioSync.js";
 import { colors } from "../../ui/theme.js";
+import { useTranslation } from "react-i18next";
+import { t as tStatic } from "../../../i18nconfig.js";
 
 // ---------------------------------------------------------------------------
 // 🎧 همگام‌سازیِ متن و صوت — بسته‌ی کوچکِ روی‌دستگاه که کاربر یک‌بار از تنظیمات
@@ -19,22 +21,23 @@ function useSyncModelState() {
   return st;
 }
 export function AudioSyncSettings({ uiLang, colors }) {
-  const en = uiLang === "en";
+  useTranslation(); // re-render when the UI language changes
+  const t = tStatic;
   const m = useSyncModelState();
   const cur = SYNC_MODEL_OPTIONS.find((o) => o.id === m.size) || SYNC_MODEL_OPTIONS[1];
   const names = {
-    fast: en ? "Fast (lower accuracy)" : "سریع (دقت کمتر)",
-    balanced: en ? "Balanced (recommended)" : "متعادل (پیشنهادی)",
+    fast: t("settings_sync_model_fast"),
+    balanced: t("settings_sync_model_balanced"),
   };
   const btn = { fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 8 };
   const note = { fontSize: 12, color: colors.inkSoft, marginBottom: 8, lineHeight: 1.7 };
   return (
     <div style={{ marginTop: 6, marginBottom: 12 }}>
       <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>
-        🎧 {en ? "Text ↔ audio sync" : "همگام‌سازی متن و صوت"}
+        🎧 {t("settings_sync_title")}
       </p>
       <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8 }}>
-        <span>{en ? "Quality" : "کیفیت"}</span>
+        <span>{t("settings_quality")}</span>
         <select
           value={m.size}
           disabled={m.busy}
@@ -49,36 +52,34 @@ export function AudioSyncSettings({ uiLang, colors }) {
       {!m.downloaded && !m.busy && (
         <button onClick={() => downloadSyncModel()} style={btn}>
           📥 {m.paused
-            ? (en ? "Resume download (finished files are kept)" : "ادامه‌ی دانلود (فایل‌های کامل‌شده نگه داشته شده‌اند)")
-            : (en ? `Download sync pack (~${cur.approxMb} MB, one-time)` : `دانلود بسته‌ی همگام‌سازی (~${cur.approxMb} مگابایت، فقط یک بار)`)}
+            ? (t("settings_sync_resume"))
+            : (t("settings_sync_download", { mb: cur.approxMb }))}
         </button>
       )}
       {m.busy && (
         <div>
-          <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {m.mb} MB</p>
-          <button onClick={() => cancelSync()} style={btn}>⏹ {en ? "Stop (resume later)" : "توقف (بعداً ادامه می‌دهم)"}</button>
+          <p style={note}>📥 {t("settings_pack_downloading")} {m.mb} MB</p>
+          <button onClick={() => cancelSync()} style={btn}>⏹ {t("settings_pack_stop_resume")}</button>
         </div>
       )}
       {m.downloaded && !m.busy && (
         <div>
-          <p style={note}>✅ {en ? "Pack downloaded and ready" : "بسته دانلود شده و آماده‌ست"}</p>
+          <p style={note}>✅ {t("settings_pack_ready")}</p>
           <button
-            onClick={() => { if (confirm(en ? "Delete the sync pack?" : "بسته‌ی همگام‌سازی حذف بشه؟")) removeSyncModel(); }}
+            onClick={() => { if (confirm(t("settings_sync_delete_confirm"))) removeSyncModel(); }}
             style={btn}
           >
-            🗑 {en ? "Delete pack" : "حذف بسته"}
+            🗑 {t("settings_pack_delete")}
           </button>
         </div>
       )}
       {m.error && (
         <p style={{ ...note, color: colors.rose }}>
-          {en ? "Download failed — check your connection / VPN and try again." : "دانلود ناموفق بود — اینترنت یا فیلترشکن رو چک کن و دوباره بزن."}
+          {t("settings_sync_download_failed")}
         </p>
       )}
       <p style={note}>
-        {en
-          ? "Download once. After that, syncing a story's audio runs on your phone, offline. Then use the Sync button on the “My audio” bar of a story."
-          : "فقط یک بار دانلود می‌شه (اگه شروع نشد فیلترشکن رو روشن کن). بعدش همگام‌سازیِ صوتِ هر داستان روی خودِ گوشی و بدونِ اینترنت انجام می‌شه. بعد از دانلود، از نوارِ «صوتِ من» توی هر داستان دکمه‌ی همگام‌سازی رو بزن."}
+        {t("settings_sync_description")}
       </p>
     </div>
   );

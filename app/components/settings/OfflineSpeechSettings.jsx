@@ -2,6 +2,8 @@
 // بخشی از app.jsx قبلی — برای نگهداری‌پذیری به ماژولِ جدا منتقل شد (منطق دست‌نخورده).
 import React, { useState, useRef, useEffect } from "react";
 import { LANGUAGES } from "../../constants/languages.js";
+import { useTranslation } from "react-i18next";
+import { t as tStatic } from "../../../i18nconfig.js";
 
 // ---------------------------------------------------------------------------
 // ⬇️ قبل از «ترجمه‌ی زنده‌ی صدا» / «زیرنویس یوتیوب»: اگه بسته‌ی آفلاینِ زبانِ صدا دانلود نشده،
@@ -9,21 +11,16 @@ import { LANGUAGES } from "../../constants/languages.js";
 // و یه پیام به کاربر نشون داده می‌شه. true = می‌شه ادامه داد، false = باید اول بسته دانلود بشه.
 // ---------------------------------------------------------------------------
 export async function ensureOfflineSpeechModel(bubble, lang, uiLang) {
-  const en = uiLang === "en";
+  const t = tStatic;
   try {
     if (!bubble || !bubble.checkModelStatus || !bubble.downloadModel || !lang || lang === "auto") return true;
     const st = await bubble.checkModelStatus({ lang });
     if (!st) return true;
-    const label = (LANGUAGES.find((l) => l.code === lang) || {}).label || lang.toUpperCase();
-    const busyMsg = () => alert(en
-      ? "Another speech pack is being downloaded right now. When it finishes, tap again."
-      : "دانلودِ یک بسته‌ی دیگه در جریانه. بعد از تموم‌شدنش دوباره بزن.");
-    const askMsg = (mb) => en
-      ? `The offline speech pack for ${label} (~${mb} MB) is not downloaded yet. Download it now? (one-time)`
-      : `بسته‌ی آفلاینِ تشخیص گفتارِ «${label}» (~${mb} مگابایت) هنوز دانلود نشده. الان دانلود بشه؟ (فقط یک بار)`;
-    const startedMsg = () => alert(en
-      ? "The download has started. Tap again when it finishes."
-      : "دانلود شروع شد. بعد از تموم‌شدنش دوباره بزن.");
+    const faLabel = (LANGUAGES.find((l) => l.code === lang) || {}).label || lang.toUpperCase();
+    const label = t(`lang_name_${lang}`, { defaultValue: faLabel });
+    const busyMsg = () => alert(t("settings_speech_busy"));
+    const askMsg = (mb) => t("settings_speech_ask", { label: label, mb: mb });
+    const startedMsg = () => alert(t("settings_speech_started"));
 
     // زبانی که بسته‌ی اختصاصی نداره (فارسی، عربی، ترکی و...) → فقط بسته‌ی آفلاین؛ بدون دانلودِ خودکار
     if (!st.supported) {
@@ -59,7 +56,8 @@ export async function ensureOfflineSpeechModel(bubble, lang, uiLang) {
 // می‌آد تا یه انتخابگرِ زبانِ تکراری توی تنظیمات نداشته باشیم.
 // ---------------------------------------------------------------------------
 function WhisperFallbackCard({ lang, uiLang, colors }) {
-  const en = uiLang === "en";
+  useTranslation(); // re-render when the UI language changes
+  const t = tStatic;
   const getPlugin = () =>
     (typeof window !== "undefined" && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin) || null;
   const [st, setSt] = useState(null);
@@ -92,7 +90,7 @@ function WhisperFallbackCard({ lang, uiLang, colors }) {
       }),
       p.addListener("whisperDownloadError", (d) => {
         wantOn.current = false; setProgressMb(0); setStopping(false);
-        if (!(d && d.cancelled)) alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + (d && d.error));
+        if (!(d && d.cancelled)) alert((t("settings_download_failed_prefix")) + (d && d.error));
         refresh();
       }),
     ];
@@ -101,8 +99,8 @@ function WhisperFallbackCard({ lang, uiLang, colors }) {
 
   useEffect(() => {
     if (!st || !st.downloading) return;
-    const t = setInterval(refresh, 2500);
-    return () => clearInterval(t);
+    const timer = setInterval(refresh, 2500);
+    return () => clearInterval(timer);
   }, [st && st.downloading]);
 
   const p = getPlugin();
@@ -120,7 +118,7 @@ function WhisperFallbackCard({ lang, uiLang, colors }) {
     wantOn.current = true;
     setSt((s) => ({ ...s, downloading: true, activeModel: cur.id }));
     try { await p.downloadWhisperModel({ model: cur.id }); }
-    catch (e) { wantOn.current = false; alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + ((e && e.message) || e)); refresh(); }
+    catch (e) { wantOn.current = false; alert((t("settings_download_failed_prefix")) + ((e && e.message) || e)); refresh(); }
   };
   const cancel = async () => {
     wantOn.current = false; setStopping(true);
@@ -132,7 +130,7 @@ function WhisperFallbackCard({ lang, uiLang, colors }) {
   const approx = cur.approxMb || 0;
   const have = Math.round((cur.partialBytes || 0) / (1024 * 1024));
   const remove = async () => {
-    if (!confirm(en ? "Delete the offline pack?" : "بسته‌ی آفلاین حذف بشه؟")) return;
+    if (!confirm(t("settings_pack_delete_confirm"))) return;
     try { await p.deleteWhisperModel({ model: cur.id }); } catch (e) {}
     try { await p.setSttEngine({ engine: "sherpa", model: cur.id }); } catch (e) {}
     refresh();
@@ -140,31 +138,29 @@ function WhisperFallbackCard({ lang, uiLang, colors }) {
   return (
     <div>
       <p style={note}>
-        ℹ️ {en
-          ? "For this language the offline pack is less accurate and slower than for languages with a dedicated pack. Text may appear a few seconds late and some words may be recognized incorrectly. We are working on improving it."
-          : "برای این زبان، بسته‌ی آفلاین از زبان‌هایی که بسته‌ی اختصاصی دارند کم‌دقت‌تر و کندتر است. ممکن است متن چند ثانیه دیرتر بیاید و بعضی کلمات اشتباه تشخیص داده شوند. در حال بهبود آن هستیم."}
+        ℹ️ {t("settings_whisper_note")}
       </p>
       {active && (
         <div>
-          <p style={note}>✅ {en ? "Pack downloaded and ready" : "بسته دانلود شده و آماده‌ست"}</p>
-          <button onClick={remove} style={btn}>🗑 {en ? "Delete pack" : "حذف بسته"}</button>
+          <p style={note}>✅ {t("settings_pack_ready")}</p>
+          <button onClick={remove} style={btn}>🗑 {t("settings_pack_delete")}</button>
         </div>
       )}
       {!active && cur.downloaded && !busy && (
-        <button onClick={enable} style={btn}>✅ {en ? "Activate offline pack" : "فعال‌سازی بسته‌ی آفلاین"}</button>
+        <button onClick={enable} style={btn}>✅ {t("settings_pack_activate")}</button>
       )}
       {!cur.downloaded && !busy && (
         <button onClick={download} style={btn}>
           📥 {have > 0
-            ? (en ? `Resume download (${have} of ~${approx} MB done)` : `ادامه دانلود (${have} از ~${approx} مگابایت دانلود شده)`)
-            : (en ? `Download offline pack (~${approx} MB, one-time)` : `دانلود بسته‌ی آفلاین (~${approx} مگابایت، فقط یک بار)`)}
+            ? (t("settings_pack_resume", { have: have, mb: approx }))
+            : (t("settings_pack_download", { mb: approx }))}
         </button>
       )}
       {busy && (
         <div>
-          <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {progressMb} MB</p>
+          <p style={note}>📥 {t("settings_pack_downloading")} {progressMb} MB</p>
           <button onClick={cancel} disabled={stopping} style={{ ...btn, opacity: stopping ? 0.6 : 1 }}>
-            ⏹ {stopping ? (en ? "Stopping..." : "در حال توقف...") : (en ? "Stop (resume later)" : "توقف (بعداً ادامه می‌دهم)")}
+            ⏹ {stopping ? (t("settings_pack_stopping")) : (t("settings_pack_stop_resume"))}
           </button>
         </div>
       )}
@@ -172,7 +168,8 @@ function WhisperFallbackCard({ lang, uiLang, colors }) {
   );
 }
 export function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
-  const en = uiLang === "en";
+  useTranslation(); // re-render when the UI language changes
+  const t = tStatic;
   const getPlugin = () =>
     (typeof window !== "undefined" && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin) || null;
   const isNative = () =>
@@ -207,7 +204,7 @@ export function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
         refresh();
       }),
       plugin.addListener("modelDownloadError", (d) => {
-        if (!(d && d.cancelled)) alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + (d && d.error));
+        if (!(d && d.cancelled)) alert((t("settings_download_failed_prefix")) + (d && d.error));
         setProgressMb(0);
         setStopping(false);
         refresh();
@@ -231,7 +228,7 @@ export function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
     try {
       await getPlugin().downloadModel({ lang });
     } catch (e) {
-      alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + ((e && e.message) || e));
+      alert((t("settings_download_failed_prefix")) + ((e && e.message) || e));
       setStatus((s) => ({ ...s, downloading: false }));
     }
   };
@@ -242,7 +239,7 @@ export function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
     setTimeout(() => { refreshNow(); setStopping(false); }, 3000);
   };
   const remove = async () => {
-    if (!confirm(en ? "Delete the offline pack?" : "بسته‌ی آفلاین حذف بشه؟")) return;
+    if (!confirm(t("settings_pack_delete_confirm"))) return;
     try { await getPlugin().deleteModel({ lang }); } catch (e) {}
     refreshNow();
   };
@@ -257,8 +254,8 @@ export function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
       )}
       {status.supported && status.downloaded && (
         <div>
-          <p style={note}>✅ {en ? "Pack downloaded and ready" : "بسته دانلود شده و آماده‌ست"}</p>
-          <button onClick={remove} style={btn}>🗑 {en ? "Delete pack" : "حذف بسته"}</button>
+          <p style={note}>✅ {t("settings_pack_ready")}</p>
+          <button onClick={remove} style={btn}>🗑 {t("settings_pack_delete")}</button>
         </div>
       )}
       {status.supported && !status.downloaded && !status.downloading && (
@@ -268,22 +265,22 @@ export function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
             const mb = { en: 70, zh: 70, ko: 140, ru: 95, fr: 150, de: 150, es: 150 }[lang] || 100;
             const have = Math.round((status.partialBytes || 0) / (1024 * 1024));
             if (have > 0) {
-              return en ? `Resume download (${have} of ~${mb} MB done)` : `ادامه دانلود (${have} از ~${mb} مگابایت دانلود شده)`;
+              return t("settings_pack_resume", { have: have, mb: mb });
             }
-            return en ? `Download offline pack (~${mb} MB, one-time)` : `دانلود بسته‌ی آفلاین (~${mb} مگابایت، فقط یک بار)`;
+            return t("settings_pack_download", { mb: mb });
           })()}
         </button>
       )}
       {status.downloading && (!status.activeLang || status.activeLang === lang) && (
         <div>
-          <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {progressMb} MB</p>
+          <p style={note}>📥 {t("settings_pack_downloading")} {progressMb} MB</p>
           <button onClick={cancel} disabled={stopping} style={{ ...btn, opacity: stopping ? 0.6 : 1 }}>
-            ⏹ {stopping ? (en ? "Stopping..." : "در حال توقف...") : (en ? "Stop (resume later)" : "توقف (بعداً ادامه می‌دهم)")}
+            ⏹ {stopping ? (t("settings_pack_stopping")) : (t("settings_pack_stop_resume"))}
           </button>
         </div>
       )}
       {status.downloading && status.activeLang && status.activeLang !== lang && (
-        <p style={note}>📥 {en ? "Another language's pack is downloading..." : "دانلودِ بسته‌ی یک زبانِ دیگه در جریانه..."}</p>
+        <p style={note}>📥 {t("settings_pack_other_downloading")}</p>
       )}
     </div>
   );
@@ -294,7 +291,8 @@ export function OfflineSpeechModelSettings({ lang, uiLang, colors }) {
 // جریانی نیست: متن هر چند ثانیه یک‌جا می‌آد.
 // ---------------------------------------------------------------------------
 export function SongSttSettings({ uiLang, colors }) {
-  const en = uiLang === "en";
+  useTranslation(); // re-render when the UI language changes
+  const t = tStatic;
   const getPlugin = () =>
     (typeof window !== "undefined" && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin) || null;
   const isNative = () =>
@@ -321,7 +319,7 @@ export function SongSttSettings({ uiLang, colors }) {
       p.addListener("whisperDownloadError", (d) => {
         setProgressMb(0);
         setStopping(false);
-        if (!(d && d.cancelled)) alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + (d && d.error));
+        if (!(d && d.cancelled)) alert((t("settings_download_failed_prefix")) + (d && d.error));
         refresh();
       }),
     ];
@@ -334,8 +332,8 @@ export function SongSttSettings({ uiLang, colors }) {
   // تا وقتی دانلود در جریانه، وضعیتِ واقعی رو هر چند ثانیه از نیتیو بگیر (تا بعد از «توقف» دکمه‌ها گیر نکنن)
   useEffect(() => {
     if (!st.downloading) return;
-    const t = setInterval(refresh, 2500);
-    return () => clearInterval(t);
+    const timer = setInterval(refresh, 2500);
+    return () => clearInterval(timer);
   }, [st.downloading]);
 
   if (!isNative() || !getPlugin() || !getPlugin().getWhisperStatus) return null;
@@ -351,7 +349,7 @@ export function SongSttSettings({ uiLang, colors }) {
   const download = async () => {
     setSt((s) => ({ ...s, downloading: true, activeModel: s.model }));
     try { await getPlugin().downloadWhisperModel({ model: st.model }); }
-    catch (e) { alert((en ? "Download failed: " : "دانلود ناموفق بود: ") + ((e && e.message) || e)); refresh(); }
+    catch (e) { alert((t("settings_download_failed_prefix")) + ((e && e.message) || e)); refresh(); }
   };
   const cancel = async () => {
     setStopping(true);
@@ -360,32 +358,32 @@ export function SongSttSettings({ uiLang, colors }) {
     setTimeout(() => { refresh(); setStopping(false); }, 3000);
   };
   const remove = async () => {
-    if (!confirm(en ? "Delete the song pack?" : "بسته‌ی آهنگ حذف بشه؟")) return;
+    if (!confirm(t("settings_song_delete_confirm"))) return;
     try { await getPlugin().deleteWhisperModel({ model: st.model }); } catch (e) {}
     if (on) await setEngine("sherpa", st.model); else refresh();
   };
 
   const btn = { fontSize: 12.5, fontWeight: 700, color: colors.ink, border: `1px solid ${colors.cardBorder}`, borderRadius: 12, padding: "9px 12px", width: "100%", marginBottom: 8 };
   const note = { fontSize: 12, color: colors.inkSoft, marginBottom: 8, lineHeight: 1.7 };
-  const names = { tiny: en ? "Fast" : "سریع", base: en ? "Balanced" : "متعادل", small: en ? "Accurate" : "دقیق‌تر" };
+  const names = { tiny: t("settings_song_model_fast"), base: t("settings_song_model_balanced"), small: t("settings_song_model_accurate") };
   const modelHints = {
-    tiny: en ? "Fastest, lowest accuracy — older phones" : "سریع‌ترین و کم‌دقت‌تر؛ برای گوشی‌های ضعیف",
-    base: en ? "Recommended — good speed and accuracy" : "پیشنهادی؛ تعادلِ خوبِ سرعت و دقت",
-    small: en ? "Most accurate but slower — recent phones" : "دقیق‌ترین ولی کندتر؛ برای گوشی‌های جدید",
+    tiny: t("settings_song_hint_fast"),
+    base: t("settings_song_hint_balanced"),
+    small: t("settings_song_hint_accurate"),
   };
 
   const active = on && !!cur.downloaded;
   const approx = cur.approxMb || 0;
   const pct = approx > 0 ? Math.min(99, Math.round((progressMb / approx) * 100)) : 0;
   const card = { border: `1px solid ${colors.cardBorder}`, borderRadius: 14, padding: 12, marginBottom: 10 };
-  const badgeText = active ? (en ? "On" : "روشن") : cur.downloaded ? (en ? "Off" : "خاموش") : (en ? "Not installed" : "نصب نشده");
+  const badgeText = active ? (t("settings_on")) : cur.downloaded ? (t("settings_off")) : (t("settings_not_installed"));
 
   return (
     <div style={{ marginTop: 6, marginBottom: 6 }}>
       {/* عنوان + وضعیت */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
         <p style={{ fontSize: 13, fontWeight: 800, color: colors.ink, margin: 0 }}>
-          🎵 {en ? "Song mode (offline)" : "حالت آهنگ (آفلاین)"}
+          🎵 {t("settings_song_title")}
         </p>
         <span style={{
           fontSize: 11, fontWeight: 800, padding: "3px 10px", borderRadius: 999, whiteSpace: "nowrap",
@@ -398,35 +396,27 @@ export function SongSttSettings({ uiLang, colors }) {
       {/* راهنما: چیست و کی روشنش کنم؟ */}
       <div style={{ ...card, backgroundColor: colors.paperDark }}>
         <p style={{ ...note, marginBottom: 8, color: colors.ink }}>
-          {en
-            ? "A special speech pack for songs and for speech over background music. While it is on, ALL live translation uses it."
-            : "یک بسته‌ی مخصوصِ تشخیصِ آهنگ و صدایی که زیرِ موسیقی است. تا وقتی روشن باشد، «همه‌ی» ترجمه‌ی زنده با همین بسته انجام می‌شود."}
+          {t("settings_song_intro")}
         </p>
         <p style={{ fontSize: 12, fontWeight: 800, color: colors.teal, margin: "0 0 2px" }}>
-          ✅ {en ? "Turn it ON for" : "روشن کن وقتی"}
+          ✅ {t("settings_song_on_title")}
         </p>
         <p style={{ ...note, marginBottom: 8 }}>
-          {en
-            ? "listening to songs • voices over music • you don't know the audio language (Auto)"
-            : "داری آهنگ گوش می‌دهی • صدا زیرِ موسیقی است • زبانِ صدا را نمی‌دانی (Auto)"}
+          {t("settings_song_on_list")}
         </p>
         <p style={{ fontSize: 12, fontWeight: 800, color: colors.rose, margin: "0 0 2px" }}>
-          ⛔ {en ? "Leave it OFF for" : "خاموش بگذار برای"}
+          ⛔ {t("settings_song_off_title")}
         </p>
         <p style={{ ...note, marginBottom: 6 }}>
-          {en
-            ? "talking, videos, reels, podcasts, classes — with it off the text appears word by word and faster."
-            : "حرف زدن، فیلم، ریل، پادکست، کلاس — وقتی خاموش است متن کلمه‌به‌کلمه و سریع‌تر می‌آید."}
+          {t("settings_song_off_list")}
         </p>
         <p style={{ ...note, marginBottom: 0 }}>
-          {en
-            ? "On: text arrives in chunks every few seconds and gets refined; it uses more battery. Switch it off after the song."
-            : "حالت روشن: متن هر چند ثانیه یک تکه می‌آید و دقیق‌تر می‌شود، باتریِ بیشتری مصرف می‌کند. بعد از آهنگ خاموشش کن."}
+          {t("settings_song_on_note")}
         </p>
       </div>
 
       {/* انتخابِ کیفیت */}
-      <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, margin: "0 0 6px" }}>{en ? "Quality" : "کیفیت"}</p>
+      <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, margin: "0 0 6px" }}>{t("settings_quality")}</p>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
         {(st.models || []).map((m) => {
           const sel = m.id === st.model;
@@ -444,7 +434,7 @@ export function SongSttSettings({ uiLang, colors }) {
             >
               <span style={{ minWidth: 0 }}>
                 <span style={{ display: "block", fontSize: 13, fontWeight: 800 }}>
-                  {names[m.id] || m.id}{m.id === "base" ? (en ? "  ★ recommended" : "  ★ پیشنهادی") : ""}
+                  {names[m.id] || m.id}{m.id === "base" ? (("  " + t("settings_song_recommended_badge"))) : ""}
                 </span>
                 <span style={{ display: "block", fontSize: 11.5, color: colors.inkSoft, marginTop: 2, lineHeight: 1.6 }}>
                   {modelHints[m.id] || ""}
@@ -464,24 +454,22 @@ export function SongSttSettings({ uiLang, colors }) {
           📥 {(() => {
             const have = Math.round((cur.partialBytes || 0) / (1024 * 1024));
             if (have > 0) {
-              return en
-                ? `Resume "${names[st.model] || st.model}" (${have} of ~${approx} MB done)`
-                : `ادامه‌ی دانلودِ بسته‌ی «${names[st.model] || st.model}» (${have} از ~${approx} مگابایت دانلود شده)`;
+              return t("settings_song_resume", { name: names[st.model] || st.model, have: have, mb: approx });
             }
-            return en ? `Download "${names[st.model] || st.model}" (~${approx} MB, one-time)` : `دانلودِ بسته‌ی «${names[st.model] || st.model}» (~${approx} مگابایت، فقط یک بار)`;
+            return t("settings_song_download", { name: names[st.model] || st.model, mb: approx });
           })()}
         </button>
       )}
       {busy && (
         <div style={{ marginBottom: 8 }}>
-          <p style={note}>📥 {en ? "Downloading..." : "در حال دانلود..."} {progressMb} MB{approx > 0 ? ` (~${pct}%)` : ""}</p>
+          <p style={note}>📥 {t("settings_pack_downloading")} {progressMb} MB{approx > 0 ? ` (~${pct}%)` : ""}</p>
           {approx > 0 && (
             <div style={{ height: 6, borderRadius: 3, backgroundColor: colors.cardBorder, overflow: "hidden", marginBottom: 8 }}>
               <div style={{ width: `${pct}%`, height: "100%", backgroundColor: colors.teal, transition: "width .3s" }} />
             </div>
           )}
           <button onClick={cancel} disabled={stopping} style={{ ...btn, opacity: stopping ? 0.6 : 1 }}>
-            ⏹ {stopping ? (en ? "Stopping..." : "در حال توقف...") : (en ? "Stop (resume later)" : "توقف (بعداً ادامه می‌دهم)")}
+            ⏹ {stopping ? (t("settings_pack_stopping")) : (t("settings_pack_stop_resume"))}
           </button>
         </div>
       )}
@@ -501,25 +489,23 @@ export function SongSttSettings({ uiLang, colors }) {
           >
             <span style={{ minWidth: 0 }}>
               <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: colors.ink }}>
-                {en ? "Use for songs / music" : "برای آهنگ و موسیقی استفاده کن"}
+                {t("settings_song_use")}
               </span>
               <span style={{ display: "block", fontSize: 11.5, color: active ? colors.rose : colors.inkSoft, marginTop: 2, lineHeight: 1.6 }}>
                 {active
-                  ? (en ? "Now ON — for talk or videos switch it off." : "الان روشن است — برای حرف زدن و فیلم خاموشش کن.")
-                  : (en ? "Off — normal word-by-word live translation." : "خاموش — ترجمه‌ی زنده‌ی معمولیِ کلمه‌به‌کلمه.")}
+                  ? (t("settings_song_now_on"))
+                  : (t("settings_song_now_off"))}
               </span>
             </span>
             <span aria-hidden="true" style={{ position: "relative", width: 44, height: 26, borderRadius: 13, flexShrink: 0, backgroundColor: active ? colors.teal : colors.cardBorder, transition: "background-color .15s" }}>
               <span style={{ position: "absolute", top: 3, insetInlineStart: active ? 21 : 3, width: 20, height: 20, borderRadius: 10, backgroundColor: "#fff", transition: "inset-inline-start .15s" }} />
             </span>
           </button>
-          <button onClick={remove} style={{ ...btn, fontWeight: 600, color: colors.inkSoft }}>🗑 {en ? "Delete song pack" : "حذف بسته‌ی آهنگ"}</button>
+          <button onClick={remove} style={{ ...btn, fontWeight: 600, color: colors.inkSoft }}>🗑 {t("settings_song_delete")}</button>
         </div>
       )}
       <p style={{ ...note, marginBottom: 0 }}>
-        {en
-          ? "Tip: set the audio language above — it makes song recognition much more accurate. The accurate mode needs a recent phone."
-          : "نکته: «زبان صدا» را بالا درست انتخاب کن؛ دقتِ تشخیصِ آهنگ خیلی بهتر می‌شود. حالتِ «دقیق‌تر» گوشیِ نسبتاً جدید می‌خواهد."}
+        {t("settings_song_tip")}
       </p>
     </div>
   );

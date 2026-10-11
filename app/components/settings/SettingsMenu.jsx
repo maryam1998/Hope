@@ -59,11 +59,17 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
   }, []);
   const uiLang = appPrefs.uiLang || "fa";
   const panelDir = APP_LANGUAGES[uiLang]?.dir || "rtl";
-  const panelFont = uiLang === "en" ? fontLatin : fontFa;
+  // فونتِ خطِ فارسی/عربی برای زبان‌های راست‌چین، فونتِ لاتین برای بقیه (en/de/es/fr)
+  const panelFont = panelDir === "rtl" ? fontFa : fontLatin;
+  // زبانِ ترجمه‌ی زنده/ذره‌بین = همون زبانِ رابط
+  const uiTargetLang = uiLang;
+  // قالبِ عددها (مثلِ ۱۰۰٪ / 100%) طبقِ زبان
+  const numLocale = { fa: "fa-IR", ar: "ar", en: "en-US", de: "de-DE", es: "es-ES", fr: "fr-FR" }[uiLang] || "en-US";
+  const percentSign = uiLang === "fa" || uiLang === "ar" ? "٪" : "%";
 
   // 🎙 ترجمه‌ی زنده: ترجمه به *همه‌ی* زبان‌های مقصدی که کاربر بالای صفحه انتخاب کرده
   // (هر تعداد). اگه هنوز هیچ زبانی انتخاب نشده، زبان رابط (فارسی/انگلیسی).
-  const liveTargets = (targetOrder && targetOrder.length) ? targetOrder : [uiLang === "en" ? "en" : "fa"];
+  const liveTargets = (targetOrder && targetOrder.length) ? targetOrder : [uiTargetLang];
   const liveTargetsKey = liveTargets.join(",");
   // حالت نمایش حباب: هر دو (متن + ترجمه) / فقط متن اصلی / فقط ترجمه
   const [liveDisplayMode, setLiveDisplayMode] = useState(() => {
@@ -115,7 +121,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
       if (!B) return;
       let src = "en";
       try { src = localStorage.getItem("liveSrcLang") || "en"; } catch (err) {}
-      if (B.setLanguages) B.setLanguages({ sourceLang: src, targetLang: uiLang === "en" ? "en" : "fa", targetLangs: liveTargetsKey.split(",") });
+      if (B.setLanguages) B.setLanguages({ sourceLang: src, targetLang: uiTargetLang, targetLangs: liveTargetsKey.split(",") });
       if (B.setDisplayMode) B.setDisplayMode({ mode: liveDisplayMode });
     } catch (err) {}
   }, [liveTargetsKey, liveDisplayMode, uiLang]);
@@ -245,25 +251,27 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
             <Globe size={14} /> {t("settings_language_title")}
           </p>
-          <div className="flex flex-wrap gap-2" style={{ marginBottom: 16 }}>
+          {/* منوی کشویی زبان — نامِ هر زبان به خطِ خودش نشون داده می‌شه تا همیشه قابلِ پیدا‌کردن باشه */}
+          <select
+            value={uiLang}
+            onChange={(e) => update("uiLang", e.target.value)}
+            aria-label={t("settings_language_title")}
+            style={{
+              width: "100%",
+              fontSize: 13,
+              padding: "8px 10px",
+              borderRadius: 12,
+              border: `1px solid ${colors.cardBorder}`,
+              backgroundColor: "white",
+              color: colors.ink,
+              marginBottom: 16,
+              fontFamily: "inherit",
+            }}
+          >
             {Object.entries(APP_LANGUAGES).map(([key, l]) => (
-              <button
-                key={key}
-                onClick={() => update("uiLang", key)}
-                aria-pressed={uiLang === key}
-                style={{
-                  padding: "5px 14px",
-                  borderRadius: 20,
-                  fontSize: 12,
-                  border: `1px solid ${uiLang === key ? colors.gold : colors.cardBorder}`,
-                  backgroundColor: uiLang === key ? colors.goldSoft : "white",
-                  color: colors.ink,
-                }}
-              >
-                {t(`lang_name_${key}`)}
-              </button>
+              <option key={key} value={key}>{l.label}</option>
             ))}
-          </div>
+          </select>
 
           {/* Theme */}
           <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
@@ -274,7 +282,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               <button
                 key={key}
                 onClick={() => update("theme", key)}
-                title={th.label[uiLang] || th.label.fa}
+                title={t(`settings_theme_name_${key}`, { defaultValue: th.label[uiLang] || th.label.en || th.label.fa })}
                 aria-pressed={appPrefs.theme === key}
                 style={swatchButtonStyle(th.swatch, appPrefs.theme === key)}
               />
@@ -399,7 +407,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                   color: colors.ink,
                 }}
               >
-                {f.label[uiLang] || f.label.fa}
+                {t(`settings_font_name_${key}`, { defaultValue: f.label[uiLang] || f.label.en || f.label.fa })}
               </button>
             ))}
           </div>
@@ -420,7 +428,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                   color: colors.ink,
                 }}
               >
-                {s.label[uiLang] || s.label.fa}
+                {t(`settings_font_size_name_${key}`, { defaultValue: s.label[uiLang] || s.label.en || s.label.fa })}
               </button>
             ))}
           </div>
@@ -476,7 +484,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
               +
             </button>
             <span style={{ fontSize: 12, color: colors.inkSoft, minWidth: 36, textAlign: "center" }}>
-              {(targetTextPrefs.scale || 100).toLocaleString(uiLang === "en" ? "en-US" : "fa-IR")}٪
+              {(targetTextPrefs.scale || 100).toLocaleString(numLocale)}{percentSign}
             </span>
           </div>
 
@@ -886,7 +894,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                       return;
                     }
                     await bubble.magnifierStart({
-                      targetLang: uiLang === "en" ? "en" : "fa",
+                      targetLang: uiTargetLang,
                       targetLangs: liveTargets,
                       sourceLang: liveSrcLang,
                     });
@@ -925,7 +933,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                 try { localStorage.setItem("liveSrcLang", v); } catch (err) {}
                 try {
                   const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin;
-                  if (B && B.setLanguages) B.setLanguages({ sourceLang: v, targetLang: uiLang === "en" ? "en" : "fa", targetLangs: liveTargets });
+                  if (B && B.setLanguages) B.setLanguages({ sourceLang: v, targetLang: uiTargetLang, targetLangs: liveTargets });
                 } catch (err) {}
               }}
               style={{ flex: 1, fontSize: 12.5, padding: "6px 8px", borderRadius: 10, border: `1px solid ${colors.cardBorder}`, backgroundColor: "white", color: colors.ink }}
@@ -980,7 +988,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                 // targetLang = زبان رابط (fa یا en)، sourceLang = زبان صدایی که پخش می‌شه.
                 // با sourceLang مشخص، حباب از مسیر سریع (تشخیص گفتار + ترجمه‌ی روی خود گوشی) استفاده می‌کنه.
                 await bubble.showBubble({
-                  targetLang: uiLang === "en" ? "en" : "fa",
+                  targetLang: uiTargetLang,
                   targetLangs: liveTargets,
                   sourceLang: liveSrcLang,
                 });
@@ -1027,7 +1035,7 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
                 // زیرنویسِ یوتیوب خودش بسته نمی‌خواد؛ ولی اگه بسته‌ی آفلاینِ زبان دانلود نشده، دانلودش خودکار شروع می‌شه و پیام می‌ده
                 await ensureOfflineSpeechModel(bubble, liveSrcLang, uiLang);
                 await bubble.showBubble({
-                  targetLang: uiLang === "en" ? "en" : "fa",
+                  targetLang: uiTargetLang,
                   targetLangs: liveTargets,
                   sourceLang: liveSrcLang,
                 });

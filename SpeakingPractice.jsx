@@ -217,7 +217,7 @@ function SpeakingPracticePanel({
 }) {
   // زبانِ رابطِ اپ — همه‌ی متن‌های ثابتِ این صفحه از همین می‌آد.
   const { i18n: uiI18n } = useTranslation();
-  const uiLang = uiI18n.language === "en" ? "en" : "fa";
+  const uiLang = uiI18n.language === "fa" ? "fa" : "en"; // زبان‌های دیگه (de/es/fr/ar) فعلاً انگلیسی
   const uiDir = uiLang === "en" ? "ltr" : "rtl";
   const L = (fa, en) => (uiLang === "en" ? en : fa);
   const uiLangName = (code) => (uiLang === "en" && LANG_NAME_EN[code]) || LANGUAGES.find((l) => l.code === code)?.label || code;

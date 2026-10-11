@@ -143,7 +143,7 @@ export default function App() {
       const cap = window.Capacitor;
       const B = cap && cap.Plugins && cap.Plugins.BubblePlugin;
       if (B && B.setUiLang && cap.isNativePlatform && cap.isNativePlatform()) {
-        const r = B.setUiLang({ lang: appPrefs.uiLang === "en" ? "en" : "fa" });
+        const r = B.setUiLang({ lang: appPrefs.uiLang === "fa" ? "fa" : "en" });
         if (r && r.catch) r.catch(() => {});
       }
     } catch (e) {}
@@ -194,7 +194,7 @@ export default function App() {
   return (
     <div style={rootStyle}>
       {!user ? (
-        <LoginScreen onAuthenticated={setUser} uiLang={appPrefs.uiLang} />
+        <LoginScreen onAuthenticated={setUser} uiLang={appPrefs.uiLang === "fa" ? "fa" : "en"} />
       ) : (
         <PhrasebookMain
           key={user.email}

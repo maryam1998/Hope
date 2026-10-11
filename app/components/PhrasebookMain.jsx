@@ -55,7 +55,13 @@ import { NAV_BAR_INSET, STATUS_BAR_INSET } from "../mascot/lingovaConfig.js";
 // ---------------------------------------------------------------------------
 // Main App
 // ---------------------------------------------------------------------------
-export function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustomBgChange }) {
+export function PhrasebookMain({ user, onLogout, appPrefs: rawAppPrefs, setAppPrefs, onCustomBgChange }) {
+  // رابطِ «تنظیمات» برای همه‌ی زبان‌ها (fa/en/de/es/fr/ar) کامل ترجمه شده. بقیه‌ی صفحه‌ها فعلاً فقط
+  // فارسی و انگلیسی دارن؛ برای زبان‌های دیگه به‌جای فارسی، انگلیسی نشون بده. (تنظیمات خودش rawAppPrefs رو می‌گیره.)
+  const appPrefs = useMemo(
+    () => (rawAppPrefs.uiLang === "fa" || rawAppPrefs.uiLang === "en" ? rawAppPrefs : { ...rawAppPrefs, uiLang: "en" }),
+    [rawAppPrefs]
+  );
   const [nativeLang, setNativeLang] = useState("fa");
   // طبق درخواست: هر بار که وارد اکانت می‌شی، زبان‌های مقصد نباید از دفعه‌ی
   // قبل به‌خاطر مونده باشن و از پیش انتخاب‌شده بیان — باید خالی شروع بشه و
@@ -833,7 +839,7 @@ export function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustom
                 {(user?.name || user?.email || "?").trim().charAt(0).toUpperCase()}
               </div>
             )}
-            <SettingsMenu appPrefs={appPrefs} setAppPrefs={setAppPrefs} user={user} onLogout={onLogout} aiSettings={aiSettings} onCustomBgChange={onCustomBgChange} targetOrder={targetOrder} />
+            <SettingsMenu appPrefs={rawAppPrefs} setAppPrefs={setAppPrefs} user={user} onLogout={onLogout} aiSettings={aiSettings} onCustomBgChange={onCustomBgChange} targetOrder={targetOrder} />
           </div>
         </div>
         <p style={{ color: colors.headerText, opacity: 0.85, fontSize: 13.5, fontFamily: appPrefs.uiLang === "en" ? fontLatin : fontFa }}>

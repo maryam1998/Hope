@@ -5,6 +5,8 @@ import { refreshNativeTtsStatus } from "../../../nativeTts.js";
 import { nativeWarm } from "../../../nativeTtsFast.js";
 import { VOICE_ENGINE_EVENT, getVoiceEngine, setVoiceEngine } from "../../tts/ttsConfig.js";
 import { ENGLISH_LANG_NAME, LANGUAGES } from "../../constants/languages.js";
+import { useTranslation } from "react-i18next";
+import { t as tStatic } from "../../../i18nconfig.js";
 
 // ---------------------------------------------------------------------------
 // 🔊 بسته‌های صدای آفلاینِ باکیفیت (Piper) — فقط اندروید (BubblePlugin).
@@ -13,7 +15,8 @@ import { ENGLISH_LANG_NAME, LANGUAGES } from "../../constants/languages.js";
 // می‌خونه — منطقش توی speakChunk/toggle (isNativeTtsReady) از قبل هست.
 // ---------------------------------------------------------------------------
 export function VoiceEngineSettings({ uiLang, colors }) {
-  const en = uiLang === "en";
+  useTranslation(); // re-render when the UI language changes
+  const t = tStatic;
   const isNative = typeof window !== "undefined" && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
   const [pref, setPref] = useState(getVoiceEngine());
   useEffect(() => {
@@ -23,13 +26,13 @@ export function VoiceEngineSettings({ uiLang, colors }) {
   }, []);
   if (!isNative) return null;
   const opts = [
-    { id: "model", label: en ? "App voice (better quality)" : "صدای اپ (باکیفیت‌تر)" },
-    { id: "phone", label: en ? "Phone's voice" : "صدای گوشی" },
+    { id: "model", label: t("settings_voice_engine_app") },
+    { id: "phone", label: t("settings_voice_engine_phone") },
   ];
   return (
     <div style={{ marginTop: 8, marginBottom: 12 }}>
       <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 6 }}>
-        🔈 {en ? "Reading voice" : "صدای خوانش"}
+        🔈 {t("settings_voice_engine_title")}
       </p>
       <div style={{ display: "flex", gap: 8 }}>
         {opts.map((o) => (
@@ -52,15 +55,14 @@ export function VoiceEngineSettings({ uiLang, colors }) {
         ))}
       </div>
       <p style={{ fontSize: 11, color: colors.inkSoft, lineHeight: 1.6, marginTop: 6 }}>
-        {en
-          ? "Choose whether texts are read with the app's own voice or the voice installed on your phone."
-          : "انتخاب کن متن‌ها با صدای خودِ اپ خونده بشن یا با صدای نصب‌شده روی گوشی‌ت."}
+        {t("settings_voice_engine_hint")}
       </p>
     </div>
   );
 }
 export function OfflineTtsModelSettings({ uiLang, colors }) {
-  const en = uiLang === "en";
+  useTranslation(); // re-render when the UI language changes
+  const t = tStatic;
   const getPlugin = () =>
     (typeof window !== "undefined" && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BubblePlugin) || null;
   const isNative = () =>
@@ -140,7 +142,7 @@ export function OfflineTtsModelSettings({ uiLang, colors }) {
           dropKey(setBusyMap, l);
           dropKey(setStoppingMap, l);
         }
-        setErrorText((en ? "Download failed: " : "دانلود ناموفق بود: ") + (l ? l.toUpperCase() + " — " : "") + ((d && d.error) || ""));
+        setErrorText((t("settings_download_failed_prefix")) + (l ? l.toUpperCase() + " — " : "") + ((d && d.error) || ""));
         refresh();
       }),
     ];
@@ -167,7 +169,7 @@ export function OfflineTtsModelSettings({ uiLang, colors }) {
     try {
       await plugin.downloadTtsModel({ lang });
     } catch (e) {
-      setErrorText((en ? "Download failed: " : "دانلود ناموفق بود: ") + lang.toUpperCase() + " — " + ((e && e.message) || e));
+      setErrorText((t("settings_download_failed_prefix")) + lang.toUpperCase() + " — " + ((e && e.message) || e));
       dropKey(setBusyMap, lang);
     }
   };
@@ -193,7 +195,7 @@ export function OfflineTtsModelSettings({ uiLang, colors }) {
     setTimeout(refresh, 800);
   };
   const remove = async (lang) => {
-    if (!confirm(en ? "Delete this voice pack?" : "بسته‌ی صدای این زبان حذف بشه؟")) return;
+    if (!confirm(t("settings_tts_delete_confirm"))) return;
     try { await plugin.deleteTtsModel({ lang }); } catch (e) {}
     try { refreshNativeTtsStatus(lang); } catch (e) {}
     refresh();
@@ -212,19 +214,17 @@ export function OfflineTtsModelSettings({ uiLang, colors }) {
   return (
     <div style={{ marginBottom: 16 }}>
       <p style={{ fontSize: 12, fontWeight: 700, color: colors.inkSoft, marginBottom: 6, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
-        🔊 {en ? "High-quality offline voices" : "صدای آفلاینِ باکیفیت"}
+        🔊 {t("settings_tts_title")}
       </p>
       <p style={{ ...small, marginBottom: 8 }}>
-        {en
-          ? "Until a language's voice is downloaded, the phone's voice is used (Persian/Arabic use the online service). Once downloaded, that language is read with the offline pack — no internet needed. Each voice is roughly 60–110 MB; the first download also fetches a small shared data pack."
-          : "تا وقتی صدای یه زبان دانلود نشده، همون صدای قبلی خونده می‌شه (TTS گوشی؛ برای فارسی و عربی سرویسِ آنلاین). بعد از دانلود، اون زبان بدونِ اینترنت و با بسته‌ی آفلاین خونده می‌شه. حجمِ هر صدا حدود ۶۰ تا ۱۱۰ مگابایته و دانلودِ اول یه بسته‌ی داده‌ی کوچیکِ مشترک هم می‌گیره."}
+        {t("settings_tts_intro")}
       </p>
       {pendingLangs.length > 0 && (
         <button
           onClick={downloadAll}
           style={{ ...rowBtn, width: "100%", marginBottom: 8, padding: "9px 10px", fontSize: 12.5 }}
         >
-          📥 {en ? `Download all (${pendingLangs.length})` : `دانلودِ همه‌ی صداها (${pendingLangs.length})`}
+          📥 {t("settings_tts_download_all", { n: pendingLangs.length })}
         </button>
       )}
       {busyLangs.length > 0 && (
@@ -232,7 +232,7 @@ export function OfflineTtsModelSettings({ uiLang, colors }) {
           onClick={stopAll}
           style={{ ...rowBtn, width: "100%", marginBottom: 8, padding: "9px 10px", fontSize: 12.5 }}
         >
-          ⏹ {en ? `Stop all (${busyLangs.length})` : `توقفِ همه (${busyLangs.length})`}
+          ⏹ {t("settings_tts_stop_all", { n: busyLangs.length })}
         </button>
       )}
       {errorText ? (
@@ -243,7 +243,7 @@ export function OfflineTtsModelSettings({ uiLang, colors }) {
           const has = Object.prototype.hasOwnProperty.call(catalog, l.code);
           const downloaded = has && catalog[l.code];
           const busy = !!busyMap[l.code];
-          const name = en ? (ENGLISH_LANG_NAME[l.code] || l.code) : l.label;
+          const name = uiLang === "fa" ? l.label : t(`lang_name_${l.code}`, { defaultValue: ENGLISH_LANG_NAME[l.code] || l.code });
           return (
             <div
               key={l.code}
@@ -251,26 +251,26 @@ export function OfflineTtsModelSettings({ uiLang, colors }) {
             >
               <span style={{ fontSize: 12.5, fontWeight: 600, color: colors.ink }}>{name}</span>
               {!has ? (
-                <span style={{ ...small, opacity: 0.8 }}>{en ? "Phone voice only" : "فقط صدای گوشی"}</span>
+                <span style={{ ...small, opacity: 0.8 }}>{t("settings_tts_phone_only")}</span>
               ) : busy ? (
                 <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={small}>
-                    {stoppingMap[l.code] ? (en ? "⏳ Stopping…" : "⏳ در حال توقف…") : `📥 ${progressLabel(l.code)}`}
+                    {stoppingMap[l.code] ? (t("settings_tts_stopping")) : `📥 ${progressLabel(l.code)}`}
                   </span>
                   {!stoppingMap[l.code] && (
-                    <button onClick={() => stopOne(l.code)} style={rowBtn} aria-label={en ? "Stop" : "توقف"}>⏹</button>
+                    <button onClick={() => stopOne(l.code)} style={rowBtn} aria-label={t("settings_stop")}>⏹</button>
                   )}
                 </span>
               ) : downloaded ? (
                 <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={small}>✅ {en ? "Offline" : "آفلاین"}</span>
+                  <span style={small}>✅ {t("settings_tts_offline")}</span>
                   <button onClick={() => remove(l.code)} style={rowBtn}>🗑</button>
                 </span>
               ) : (
                 <button onClick={() => download(l.code)} style={rowBtn}>
                   {partialMap[l.code] > 0
-                    ? `▶ ${en ? "Resume" : "ادامه"} (${mbOf(partialMap[l.code])} MB)`
-                    : `📥 ${en ? "Download" : "دانلود"}`}
+                    ? `▶ ${t("settings_resume")} (${mbOf(partialMap[l.code])} MB)`
+                    : `📥 ${t("settings_download")}`}
                 </button>
               )}
             </div>

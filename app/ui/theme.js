@@ -270,9 +270,15 @@ export const APP_FONT_SIZES = {
 // language" / "target languages" the user picks for practicing. This one
 // controls what language the app's own interface (menus, tabs, buttons)
 // is shown in.
+// زبان‌های رابط. label = نامِ بومیِ زبان (تو منوی کشویی همیشه به همین شکل نشون داده می‌شه).
+// برای اضافه‌کردنِ زبانِ جدید: یه locales/<code>.json بساز و تو i18nconfig.js هم ثبتش کن.
 export const APP_LANGUAGES = {
   fa: { label: "فارسی", dir: "rtl" },
   en: { label: "English", dir: "ltr" },
+  de: { label: "Deutsch", dir: "ltr" },
+  es: { label: "Español", dir: "ltr" },
+  fr: { label: "Français", dir: "ltr" },
+  ar: { label: "العربية", dir: "rtl" },
 };
 export const fontFa = "var(--font-fa)";
 export const fontLatin = "var(--font-latin)";

@@ -14,15 +14,19 @@ import { initReactI18next } from "react-i18next";
 import LanguageDetector from "i18next-browser-languagedetector";
 import en from "./locales/en.json";
 import fa from "./locales/fa.json";
+import de from "./locales/de.json";
+import es from "./locales/es.json";
+import fr from "./locales/fr.json";
+import ar from "./locales/ar.json";
 
-export const SUPPORTED_LANGS = ["fa", "en"];
+export const SUPPORTED_LANGS = ["fa", "en", "de", "es", "fr", "ar"];
 export const DEFAULT_LANG = "fa";
 
 // جهتِ هر زبان. فعلاً فقط لیستِ جهت‌ها آماده‌ست؛ تغییرِ خودکارِ dir روی کلِ
 // صفحه عمداً خاموشه، چون هنوز بیشترِ صفحه‌ها منتقل نشدن و انگلیسی تا الان هم
 // تو همون صفحه‌ی راست‌چین نشون داده می‌شد. وقتی همه‌ی بخش‌ها منتقل شدن، این
 // رو true کن.
-export const LANG_DIR = { fa: "rtl", en: "ltr" };
+export const LANG_DIR = { fa: "rtl", en: "ltr", de: "ltr", es: "ltr", fr: "ltr", ar: "rtl" };
 export const AUTO_DOCUMENT_DIR = false;
 
 // زبانِ رابط از همون تنظیماتِ ذخیره‌شده‌ی اپ (phrasebook-app-prefs → uiLang)
@@ -46,9 +50,17 @@ i18n
   .use(detector)
   .use(initReactI18next)
   .init({
-    resources: { fa: { translation: fa }, en: { translation: en } },
+    resources: {
+      fa: { translation: fa },
+      en: { translation: en },
+      de: { translation: de },
+      es: { translation: es },
+      fr: { translation: fr },
+      ar: { translation: ar },
+    },
     supportedLngs: SUPPORTED_LANGS,
-    fallbackLng: DEFAULT_LANG,
+    // اگه کلیدی تو زبانِ انتخاب‌شده نبود: اول انگلیسی، بعد فارسی (به‌جای نمایشِ کلیدِ خام)
+    fallbackLng: ["en", "fa"],
     load: "languageOnly",
     detection: { order: ["appPrefs"], caches: [] },
     // کلیدها تخت‌ان (settings_title)، پس جداکننده‌ی نقطه/دونقطه لازم نیست.
