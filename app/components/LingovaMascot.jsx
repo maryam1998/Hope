@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { LINGOVA_CHARACTERS } from "../../LINGOVA_CHARACTERS.js";
 import { APP_LANGUAGES, colors } from "../ui/theme.js";
 import { speechController } from "../speech/speechController.js";
-import { LINGOVA_DOUBLE_TAP_DIST_TOLERANCE, LINGOVA_DOUBLE_TAP_MS, LINGOVA_LONG_PRESS_MS, LINGOVA_MASCOT_HEIGHT, LINGOVA_MASCOT_WIDTH, LINGOVA_OUTFITS, LINGOVA_TAP_MOVE_TOLERANCE, STATUS_BAR_INSET, loadLingovaPinnedPos, saveLingovaPinnedPos } from "../mascot/lingovaConfig.js";
+import { LINGOVA_DOUBLE_TAP_DIST_TOLERANCE, LINGOVA_DOUBLE_TAP_MS, LINGOVA_LONG_PRESS_MS, LINGOVA_MASCOT_HEIGHT, LINGOVA_MASCOT_WIDTH, LINGOVA_OUTFITS, LINGOVA_RESET_EVENT, LINGOVA_TAP_MOVE_TOLERANCE, STATUS_BAR_INSET, loadLingovaPinnedPos, saveLingovaPinnedPos } from "../mascot/lingovaConfig.js";
 import { useLingovaMascot } from "../hooks/useLingovaMascot.js";
 
 // ⚡️ فیکسِ سرعت: این کامپوننت خودش (با تایمرِ داخلیِ ۴۵ میلی‌ثانیه‌ایِ
@@ -57,6 +57,20 @@ export const LingovaMascot = React.memo(function LingovaMascot({ uiLang, fontZoo
   const [stepInPlace, setStepInPlace] = useState(false);
   const [stepInPlacePos, setStepInPlacePos] = useState(null); // {top} — ارتفاعِ سندِ صفحه (نه ویوپورت) در لحظه‌ی روشن‌شدن
   const mascotElRef = useRef(null);
+  // ↺ «بازگرداندنِ آدمک به جای اول» (دکمه‌ی تنظیمات): موقعیتِ سنجاق‌شده و حالت‌های موقت پاک می‌شه
+  useEffect(() => {
+    const onReset = () => {
+      setPinnedPos(null);
+      setDragPos(null);
+      setIsDragging(false);
+      setPageAttached(false);
+      setPaused(false);
+      setStepInPlace(false);
+      setStepInPlacePos(null);
+    };
+    window.addEventListener(LINGOVA_RESET_EVENT, onReset);
+    return () => window.removeEventListener(LINGOVA_RESET_EVENT, onReset);
+  }, []);
   const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
   const pointerStartRef = useRef({ x: 0, y: 0 });
   // برایِ فعال/غیرفعال‌کردنِ «قدم‌زدنِ سرِ جا» با نگه‌داشتنِ انگشت (long-press)

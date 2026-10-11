@@ -50,7 +50,7 @@ import { GlobalAddToStorySelection } from "./GlobalAddToStorySelection.jsx";
 import { WORDS_PAGE_SIZE, WordList } from "./WordList.jsx";
 import { ReviewBox } from "./ReviewBox.jsx";
 import { LingovaMascot } from "./LingovaMascot.jsx";
-import { STATUS_BAR_INSET } from "../mascot/lingovaConfig.js";
+import { NAV_BAR_INSET, STATUS_BAR_INSET } from "../mascot/lingovaConfig.js";
 
 // ---------------------------------------------------------------------------
 // Main App
@@ -967,7 +967,7 @@ export function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustom
           // اندازه‌ی ارتفاعِ واقعیِ همون نوار (practicePanelHeight، که با
           // ResizeObserver اندازه‌گیری می‌شه) از پایین فاصله بگیره تا زیرِ
           // نوار گم نشه.
-          paddingBottom: (showPlayerBar ? 150 : 96) + practicePanelHeight,
+          paddingBottom: `calc(${(showPlayerBar ? 150 : 96) + practicePanelHeight}px + ${NAV_BAR_INSET})`,
         }}
       >
         {tab === "conversations" && (
@@ -1289,7 +1289,7 @@ export function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustom
             position: "fixed",
             left: 0,
             right: 0,
-            bottom: practicePanelHeight,
+            bottom: `calc(${practicePanelHeight}px + ${NAV_BAR_INSET})`,
             zIndex: 40,
             // پس‌زمینه‌ی خودِ نوارِ پلیر، طبقِ درخواستِ کاربر، حالا با همون
             // گرادیانتِ اختصاصیِ تمِ فعلی که هدرِ بالای صفحه ازش استفاده
@@ -1450,7 +1450,7 @@ export function PhrasebookMain({ user, onLogout, appPrefs, setAppPrefs, onCustom
             style={{
               position: "fixed",
               left: 10,
-              bottom: practicePanelHeight + 10,
+              bottom: `calc(${practicePanelHeight + 10}px + ${NAV_BAR_INSET})`,
               zIndex: 41,
               width: 34,
               height: 34,

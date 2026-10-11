@@ -1,6 +1,7 @@
 // پنل گرامر
 // بخشی از app.jsx قبلی — برای نگهداری‌پذیری به ماژولِ جدا منتقل شد (منطق دست‌نخورده).
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
+import { NAV_BAR_INSET } from "../mascot/lingovaConfig.js";
 import { createPortal } from "react-dom";
 import { MessageCircle, RotateCcw, Send, Check, X, Loader2, Bookmark, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Pencil, Trash2, CheckSquare, Globe, Square, ListChecks } from "lucide-react";
 import RangeSliderFilter from "../../RangeSliderFilter.jsx";
@@ -1050,13 +1051,14 @@ export const GrammarPanel = React.memo(function GrammarPanel({
           می‌کنه و توی همه‌ی تب‌ها همیشه روی صفحه باقی می‌مونه (sticky در
           تمامِ صفحات). */}
       {createPortal(
+        <>
         <div
           ref={practicePanelRef}
           style={{
             position: "fixed",
             left: 0,
             right: 0,
-            bottom: 0,
+            bottom: NAV_BAR_INSET, // بالای دکمه‌های ناوبریِ اندروید (توی مرورگر صفره)
             zIndex: 42,
             height: practiceCurrentHeight,
             display: "flex",
@@ -1587,7 +1589,13 @@ export const GrammarPanel = React.memo(function GrammarPanel({
               </div>
             </div>
           </div>
-        </div>,
+        </div>
+        {/* زیرِ نوار، پشتِ دکمه‌های ناوبریِ اندروید: همرنگِ هدرِ نوار پر می‌شه (توی مرورگر ارتفاعش صفره) */}
+        <div
+          aria-hidden="true"
+          style={{ position: "fixed", left: 0, right: 0, bottom: 0, height: NAV_BAR_INSET, zIndex: 42, pointerEvents: "none", backgroundColor: colors.headerTo }}
+        />
+        </>,
         document.body
       )}
     </div>
