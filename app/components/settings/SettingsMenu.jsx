@@ -1010,9 +1010,6 @@ export function SettingsMenu({ appPrefs, setAppPrefs, user, onLogout, aiSettings
           </button>
           </>
           )}
-          <p style={{ fontSize: 11.5, color: colors.inkSoft, lineHeight: 1.7 }}>
-            {t("settings_floating_buttons_description")}
-          </p>
           </div>
 
           {bubbleKind !== "magnifier" && (

@@ -565,6 +565,10 @@ export const speechController = (() => {
   // نیست — بریدنِ گفتار سرِ هر ویرگول خودش مصنوعی به‌نظر می‌رسید؛ مکثِ
   // ویرگول رو حالا موتور خودش به‌طورِ طبیعی توی همون یک‌ utterance می‌سازه).
   const MAX_WORDS_PER_CHUNK = 40;
+  // سقفِ طولِ یک تکه بر حسبِ «کاراکتر». موتورهای صدا (Piper/VITS) روی جمله‌های خیلی بلند
+  // (مثلاً ۴۰ کلمه‌ی پشتِ‌سرِهم، یا جمله‌ای پر از عدد) گفتار را درهم و نامفهوم می‌سازند؛ پس هر جمله‌ی
+  // بلندتر از این سقف، سرِ یک ویرگول/مرزِ کلمه به چند تکه‌ی کوتاه‌تر شکسته می‌شود.
+  const MAX_CHARS_PER_CHUNK = 170;
 
   // -----------------------------------------------------------------------
   // محافظت از نقطه‌های داخلِ مخفف‌ها/اعدادِ اعشاری/حروفِ‌اولِ اسم (initials)
@@ -636,12 +640,26 @@ export const speechController = (() => {
       let wm;
       while ((wm = wordRe.exec(seg.text))) wordPositions.push({ start: wm.index, end: wm.index + wm[0].length });
 
-      if (wordPositions.length <= MAX_WORDS_PER_CHUNK) {
+      if (wordPositions.length <= MAX_WORDS_PER_CHUNK && seg.text.length <= MAX_CHARS_PER_CHUNK) {
         out.push({ ...seg, boundary: "sentence" });
         continue;
       }
-      for (let i = 0; i < wordPositions.length; i += MAX_WORDS_PER_CHUNK) {
-        const lastIdx = Math.min(i + MAX_WORDS_PER_CHUNK, wordPositions.length) - 1;
+      let i = 0;
+      while (i < wordPositions.length) {
+        // تا سقفِ کلمه و کاراکتر جلو برو
+        let j = i + 1;
+        while (
+          j < wordPositions.length &&
+          j - i < MAX_WORDS_PER_CHUNK &&
+          wordPositions[j].end - wordPositions[i].start <= MAX_CHARS_PER_CHUNK
+        ) j++;
+        // اگه هنوز وسطِ جمله‌ایم، ترجیحاً سرِ آخرین ویرگول/نقطه‌ویرگول/دونقطه‌ی نیمه‌ی دوم ببُر
+        if (j < wordPositions.length) {
+          for (let k = j - 1; k >= i + Math.ceil((j - i) / 2); k--) {
+            if (/[,;:\u060C\u061B]$/.test(seg.text.slice(wordPositions[k].start, wordPositions[k].end))) { j = k + 1; break; }
+          }
+        }
+        const lastIdx = j - 1;
         const isLastSub = lastIdx === wordPositions.length - 1;
         const wStart = wordPositions[i].start;
         const wEnd = wordPositions[lastIdx].end;
@@ -651,6 +669,7 @@ export const speechController = (() => {
           text: seg.text.slice(wStart, wEnd),
           boundary: isLastSub ? "sentence" : "none",
         });
+        i = j;
       }
     }
     return out;
@@ -713,6 +732,9 @@ export const speechController = (() => {
     // اسم/توصیفِ لفظی‌شون رو می‌خونن.
     const KEEP_PUNCT = ".,!?;:،؛؟…\u2019";
     return String(s || "")
+      // 🔢 جداکننده‌ی هزارگان در عددها (75,000 / ۷۵٬۰۰۰ / ۷۵،۰۰۰): ویرگول «مکث» حساب می‌شد و موتور
+      // «۷۵ ... صفر صفر صفر» می‌خواند و جمله را درهم می‌ریخت؛ جداکننده حذف می‌شود تا عدد یک‌تکه خوانده شود.
+      .replace(/([0-9\u06F0-\u06F9\u0660-\u0669])[,\u066C\u060C](?=[0-9\u06F0-\u06F9\u0660-\u0669]{3}(?![0-9\u06F0-\u06F9\u0660-\u0669]))/g, "$1")
       // بلوک‌های کدِ مارک‌داون (```...```) — کلِ نشونه‌گذاریِ فنس (همراهِ
       // برچسبِ زبونِ احتمالیِ کنارش، مثلاً «```js») حذف می‌شه؛ محتوایِ
       // داخلش که می‌مونه پایین‌تر با همون قاعده‌ی معمولی پاک‌سازی می‌شه.

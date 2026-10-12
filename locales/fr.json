@@ -388,7 +388,6 @@
   "settings_live_audio_start": "Démarrer la traduction audio en direct",
   "settings_live_audio_title": "Traduction audio en direct",
   "settings_logout": "Se déconnecter",
-  "settings_floating_buttons_description": "🔍 Fais glisser la loupe sur n'importe quel texte (alphabet latin ou hindi) puis relâche pour le traduire ; appuie sur des mots pour les enregistrer ; glisse-la sur ✕ pour fermer. 🎙 L'audio en direct et les sous-titres ▶ YouTube s'affichent dans la bulle dans les langues choisies ; leur langue est « Langue de l'audio » ci-dessous.",
   "settings_magnifier_description": "La loupe 🔍 se fixe au bord de l'écran comme la bulle en direct. Fais-la glisser sur n'importe quel texte (dans n'importe quelle application) puis relâche : le texte est surligné et ses traductions dans les langues que tu as choisies s'affichent dans une fenêtre contextuelle. Appuie sur un mot, ou glisse sur plusieurs mots, pour les enregistrer pour la prochaine histoire, la grammaire ou la boîte de Leitner. Pour fermer la loupe, fais-la glisser sur la ✕ en bas de l'écran. La langue du texte est la « Langue de l'audio » ci-dessous. La lecture de l'écran fonctionne pour les langues à alphabet latin (anglais, français, espagnol, italien, allemand…) et pour l'hindi.",
   "settings_magnifier_missing": "Cette version de l'application n'inclut pas encore la loupe — mets l'application à jour",
   "settings_magnifier_start": "Démarrer la bulle loupe",

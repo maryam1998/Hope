@@ -388,7 +388,6 @@
   "settings_live_audio_start": "Iniciar traducción de audio en vivo",
   "settings_live_audio_title": "Traducción de audio en vivo",
   "settings_logout": "Cerrar sesión",
-  "settings_floating_buttons_description": "🔍 Arrastra la lupa sobre cualquier texto (alfabeto latino o hindi) y suéltala para traducirlo; toca palabras para guardarlas; arrástrala a ✕ para cerrarla. 🎙 El audio en vivo y los subtítulos de ▶ YouTube aparecen en la burbuja en los idiomas que elegiste; su idioma es el «Idioma del audio» de abajo.",
   "settings_magnifier_description": "La lupa 🔍 se acopla al borde de la pantalla como la burbuja en vivo. Arrástrala sobre cualquier texto (en cualquier app) y suéltala: el texto se resalta y sus traducciones a los idiomas que hayas elegido aparecen en una ventana emergente. Toca una palabra, o arrastra sobre varias, para guardarlas para el próximo relato, la gramática o la caja de Leitner. Para cerrar la lupa, arrástrala hasta la ✕ de la parte inferior de la pantalla. El idioma del texto es el «Idioma del audio» de más abajo. La lectura de pantalla funciona con idiomas de escritura latina (inglés, francés, español, italiano, alemán…) y con hindi.",
   "settings_magnifier_missing": "Esta versión de la app aún no incluye la lupa; actualiza la app",
   "settings_magnifier_start": "Iniciar burbuja de lupa",
